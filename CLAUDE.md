@@ -48,6 +48,8 @@ Test environment: SQLite `:memory:`, array cache/session, sync queue (`phpunit.x
 php artisan crc:snapshot-hours              # Generate previous month hours snapshot
 php artisan crc:snapshot-hours 2026-03      # Specific month (YYYY-MM)
 php artisan crc:snapshot-hours 2026-03 --force  # Overwrite existing snapshot
+php artisan app:backfill-customer-request-case-metrics  # Backfill CRC case metrics
+php artisan app:prune-async-exports         # Clean up old async export files
 ```
 
 ### Development Quickstart (both apps)
@@ -82,9 +84,32 @@ frontend/    → React 19 + Vite + TailwindCSS + TypeScript
 backend/     → Laravel 12 + MySQL 8 + Redis + Sanctum
 perf/        → k6 load testing scenarios
 plan-code/   → Architecture/upgrade plans (Vietnamese markdown)
+docs/        → Additional documentation
 ```
 
 ### Frontend Architecture
+
+**Entry point & routing** — `index.tsx` → `AppWithRouter` (React Router `BrowserRouter`) → `App.tsx`. The router uses a single catch-all `*` route; all tab/page navigation is handled internally by `App.tsx` using `useLocation`/`useNavigate`. `AppPages.tsx` holds lazy-loaded `React.lazy()` imports for every page component, keeping `App.tsx` free of direct import bloat.
+
+**Top-level directory layout:**
+```
+frontend/
+  App.tsx                 → monolithic state + CRUD handlers (~7,400 lines)
+  AppPages.tsx            → lazy-loaded page component imports
+  AppWithRouter.tsx       → BrowserRouter wrapper
+  types.ts                → all TypeScript interfaces (~2,600 lines)
+  constants.ts            → mock/seed data used during development
+  hooks/                  → per-entity hooks (useContracts, useCustomers, useEmployees…) that wrap App.tsx state
+  services/v5Api.ts       → full API client (~5,600 lines)
+  shared/
+    api/apiFetch.ts       → core HTTP fetch utility
+    stores/               → Zustand stores (uiStore, toastStore, revenueStore)
+  components/             → all UI components
+  utils/                  → pure utility functions
+  router/                 → ProtectedRoute + routes.tsx (route config)
+  __tests__/              → Vitest unit tests
+  e2e/                    → Playwright E2E tests
+```
 
 **State management transition in progress** — App.tsx (~7,400 lines) still holds most state via `useState`. A Zustand migration is underway:
 - `frontend/shared/stores/uiStore.ts` — active tab, sidebar state (absorbing from App.tsx progressively)
@@ -134,7 +159,7 @@ These hooks call `services/v5Api.ts` directly and manage their own loading/error
 - `V5MasterDataController.php` (~900KB) — Mega-controller for simple entities (products, departments, vendors, employees). Uses `hasColumn()`/`hasTable()` guards for schema resilience.
 - Domain-specific controllers in `app/Http/Controllers/Api/V5/` — thin, delegate to DomainService.
 
-**Service layer** (`app/Services/V5/`):
+**Backend service layers** (`app/Services/V5/`):
 - `Domain/` — one DomainService per resource; business logic lives here
 - `CustomerRequest/` — `CustomerRequestCaseDomainService` delegates to 5 sub-services:
   - `CustomerRequestCaseWriteService` — creates, transitions, worklogs
@@ -142,6 +167,15 @@ These hooks call `services/v5Api.ts` directly and manage their own loading/error
   - `CustomerRequestCaseReadModelService` — detail views, full-detail hydration
   - `CustomerRequestCaseDashboardService` — role-specific dashboard KPIs
   - `CustomerRequestCaseExecutionService` — status transition logic
+- `Support/` — reusable cross-cutting helpers injected into DomainServices:
+  - `LifecycleSupport` — opportunity stage definitions, entity lifecycle helpers
+  - `OwnershipResolver` — resolves entity ownership/assignment
+  - `PayloadMutationSupport` — request payload normalization
+  - `QueryRequestSupport` — pagination/sort param parsing, `buildPaginationMeta()`
+  - `SchemaCapabilityService` — `hasColumn()`/`hasTable()` schema introspection
+  - `SettingsResolver` — integration settings lookup
+- `app/Shared/Services/` — shared across all service layers:
+  - `ColumnDetectionService`, `NormalizationService`, `PaginationService`, `SortingService`, `StatusMappingService`
 - `V5DomainSupportService` — cross-cutting: column detection, pagination, serialization, sort resolution
 - `FeeCollection/` — 4 services for invoice & receipt management:
   - `InvoiceDomainService` — CRUD, bulk generate from payment_schedules, overdue scope, dunning logs
@@ -178,6 +212,30 @@ These hooks call `services/v5Api.ts` directly and manage their own loading/error
 - `DeprecatedApiAlias` — maps legacy underscore routes to kebab-case, adds `Sunset` header
 
 ## Conventions
+
+### Git Workflow
+
+Branch naming: `username/task-name` (e.g., `tung/add-fee-collection-feature`).
+
+Commit format:
+```
+<type>(<scope>): <message>
+
+Types:  feat | fix | refactor | chore | test
+Scopes: frontend | backend | database
+```
+
+Merge rule on conflict — **keep both sides**: never discard functions/logic from either `main` or the feature branch. Always merge `origin/main` into the feature branch before pushing.
+
+### Protected files — ask before modifying
+
+| Layer | Files / Patterns |
+|-------|-----------------|
+| Frontend | `App.tsx` (large refactors), existing state-management pattern, routing structure |
+| Frontend utils | `revenueDisplay.ts`, `dateDisplay.ts`, `authorization.ts`, `importParser.ts`, `exportUtils.ts` |
+| Backend core | `V5MasterDataController.php`, `routes/api.php`, middleware stack |
+| Backend services | Existing DomainService pattern |
+| Database | Existing schema tables — add new columns via migration only |
 
 ### Language
 UI text in Vietnamese. Code, variables, comments in English. Some legacy DB column names in Vietnamese.
@@ -358,3 +416,105 @@ Permissions: `revenue.read`, `revenue.targets`
 | `revenue_targets` | Revenue goals by period/dept/type | ✓ |
 | `revenue_snapshots` | Point-in-time revenue metrics for closed periods | ✗ |
 | `payment_schedules.invoice_id` | 1:1 link payment_schedule → invoice | (FK extension) |
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **QLCV** (11856 symbols, 29815 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+
+## When Debugging
+
+1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
+2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
+3. `READ gitnexus://repo/QLCV/process/{processName}` — trace the full execution flow step by step
+4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
+
+## When Refactoring
+
+- **Renaming**: MUST use `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first. Review the preview — graph edits are safe, text_search edits need manual review. Then run with `dry_run: false`.
+- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see all incoming/outgoing refs, then `gitnexus_impact({target: "target", direction: "upstream"})` to find all external callers before moving code.
+- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify only expected files changed.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Tools Quick Reference
+
+| Tool | When to use | Command |
+|------|-------------|---------|
+| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
+| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
+| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
+| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
+| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
+| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
+
+## Impact Risk Levels
+
+| Depth | Meaning | Action |
+|-------|---------|--------|
+| d=1 | WILL BREAK — direct callers/importers | MUST update these |
+| d=2 | LIKELY AFFECTED — indirect deps | Should test |
+| d=3 | MAY NEED TESTING — transitive | Test if critical path |
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/QLCV/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/QLCV/clusters` | All functional areas |
+| `gitnexus://repo/QLCV/processes` | All execution flows |
+| `gitnexus://repo/QLCV/process/{name}` | Step-by-step execution trace |
+
+## Self-Check Before Finishing
+
+Before completing any code modification task, verify:
+1. `gitnexus_impact` was run for all modified symbols
+2. No HIGH/CRITICAL risk warnings were ignored
+3. `gitnexus_detect_changes()` confirms changes match expected scope
+4. All d=1 (WILL BREAK) dependents were updated
+
+## Keeping the Index Fresh
+
+After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
+
+```bash
+npx gitnexus analyze
+```
+
+If the index previously included embeddings, preserve them by adding `--embeddings`:
+
+```bash
+npx gitnexus analyze --embeddings
+```
+
+To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
+
+> Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

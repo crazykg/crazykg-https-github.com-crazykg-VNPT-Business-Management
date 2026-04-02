@@ -1,0 +1,38 @@
+## Updated Plan
+The plan has been edited based on your Round 2 findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Session Context
+Constraints: Backward-compatible with 337 routes. SQLite :memory: tests (array cache, CACHE_ENABLED=false). App.tsx protected (edit protocol). Zustand migration started (3 stores).
+Assumptions: Redis configured. Queue=database. Controllers thin. 173 migrations, 254+ indexes.
+Tech stack: Laravel 12 (PHP 8.2), React 19, Vite 6, TypeScript 5.8, Zustand 5, MySQL 8, Redis, Sanctum
+Acceptance criteria: All 9 techniques with file paths, code patterns, effort, risk, dependencies, verification. No breaking changes. Scale 100 to 2000 users.
+
+## Issues Accepted & Fixed
+ISSUE-10 (medium): FIXED — Added CACHE_ENABLED=false to phpunit.xml so tests bypass cache entirely (no stale data possible). Moved Redis monitor verification to manual integration test section (not during CI with array driver).
+ISSUE-11 (medium): FIXED — Replaced Schema::getColumnListing() with per-resource ALLOWED_LIST_FIELDS allowlists. Each endpoint defines its own safe field set including FK columns needed by eager loading and computed field dependencies. No table-wide introspection.
+
+## Issues Disputed
+None — both issues accepted and fixed.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory.
+2. Verify ISSUE-10 and ISSUE-11 are resolved.
+3. Do NOT re-open previously fixed issues (1-9) unless regression found.
+4. Check acceptance criteria.
+5. Focus on any NEW findings only. New findings use ISSUE-12+.
+6. End with VERDICT.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

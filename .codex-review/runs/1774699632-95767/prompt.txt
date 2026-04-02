@@ -1,0 +1,38 @@
+## Updated Plan
+The plan has been edited based on your Round 2 findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Session Context
+Constraints: Must NOT change existing tech stack. Must maintain backward compatibility. Protected files need special protocol. Test environment uses SQLite :memory:.
+Assumptions: Team of 2-3 developers. Production MySQL 8 + Redis 7.
+Tech stack: Laravel 12 (PHP 8.2+), React 19, MySQL 8, Redis 7, Vite 6, TailwindCSS 3, Zustand 5, Sanctum 4
+Acceptance criteria: Plan must be implementable by any AI coding model with no ambiguity.
+
+## Issues Accepted & Fixed
+- ISSUE-101 (FIXED): Updated A-item prioritization table with promoted prereqs showing correct dependencies. Updated summary timeline to include pre-req weeks. Added cross-references inside P1C (→A12), P2 (→A19, A1), P3A (→A8).
+- ISSUE-102 (FIXED): Changed CACHE_DRIVER to CACHE_STORE in phpunit-integration.xml to match actual config/cache.php.
+- ISSUE-105 (FIXED): Updated PARENT_TAG_MAP to include parent relationship method→tag mapping. Observer now resolves parent_id via relationship FK and flushes BOTH parent L1 list AND L2 detail tags.
+- ISSUE-107 (FIXED): Simplified P2 rollback to git revert (hybrid approach means list responses unchanged). Fixed A19 rollback to correctly reference bootstrap/app.php renderable() blocks instead of middleware. Fixed A15 to reference specific throttle middleware name.
+- ISSUE-108 (FIXED): Replaced "k6 JSON output" with "the existing perf/api-load.mjs Node runner (npm run load)". Consistent toolchain throughout.
+- ISSUE-111 (FIXED): Added TAB_EVICTED as first-class error code (distinct from CONFLICT). Added critical compatibility rule documenting existing EnsureActiveTab middleware response and migration steps for apiFetch.ts.
+
+## Issues Disputed
+- ISSUE-110 (PARTIALLY DISPUTED): Fixed A3 snippet to valid Laravel middleware syntax. Expanded Protected File Registry to 6 files (App.tsx, authorization.ts, v5Api.ts, Modals.tsx, bootstrap/app.php, routes/api.php). The remaining concern about effort re-baseline and making all snippets 100% compile-safe is deferred to the Architecture_Upgrade_Plan_DEV.md (a separate, companion document with per-phase executable instructions). This strategic plan defines WHAT and WHY; the DEV plan defines HOW with copy-paste code.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression.
+4. Focus on remaining open issues and any NEW findings.
+5. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+6. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}

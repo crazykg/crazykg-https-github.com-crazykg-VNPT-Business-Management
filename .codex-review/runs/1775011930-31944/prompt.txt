@@ -1,0 +1,78 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController wave-based decomposition already in progress.
+Assumptions: Production deployment is imminent — Phase A items must complete before go-live. Team has 2-3 full-time developers.
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly. (3) OWASP taxonomy is accurate and consistent. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed
+
+ISSUE-1 (OWASP 2025 taxonomy wrong): FIXED. Relabeled to OWASP Top 10:2021 throughout. Added note that 2025 is not officially released; Phase D includes migration plan.
+
+ISSUE-2 (Baseline stale): FIXED. Updated all stale baselines based on current codebase:
+- App.tsx: updated from "~7,400" to "1,563 lines"
+- types.ts: updated to reflect types/ folder already split (types/index.ts + types/legacy.ts)
+- Zustand stores: updated from "3 stores" to "7+ stores"
+- V5MasterDataController: updated to reflect routes already in api/master-data.php, LegacyService is 25-line retired shell
+- Added scoring rubric note and fixed stale acceptance gates (types/ folder count gate, App.tsx < 2000 target)
+
+ISSUE-3 (IDOR deferred past go-live): FIXED. Added A8 to Phase A (pre-production blocker):
+- Discovered that 4 Policy classes ALREADY EXIST (ContractPolicy, InvoicePolicy, CustomerRequestCasePolicy, CustomerPolicy)
+- Root cause refined: Gate::authorize() is NOT called in 30 of 31 controllers — policies exist but are unenforced
+- CustomerController is the only controller correctly calling Gate::authorize()
+- Specific controllers with gap: ContractController.update/destroy, FeeCollectionController.invoiceUpdate/invoiceDestroy, CustomerRequestCaseController.transition/destroy
+- ReceiptPolicy does not exist at all
+- A8 is now a GO-LIVE BLOCKER
+
+ISSUE-4 (OwnershipGuard too simple): FIXED. Replaced generic OwnershipGuard proposal with:
+- Extend existing Policy + UserAccessService + ResolvesDepartmentScopedAccess trait (already very mature)
+- Created endpoint-to-policy matrix approach (4-step plan)
+- The system already has isAdmin(), resolveDepartmentIdsForUser(), isAllowedByDepartmentScope() — just need to wire Gate::authorize() in controllers
+
+ISSUE-5 (Refactor before E2E): FIXED. Added prerequisite gate to Phase 2:
+- Task 2.0: Add 5 core E2E specs before any refactor starts
+- Added BackendArchitectureGuardrailsTest PASS as Phase 2 acceptance gate
+- Phase 2 acceptance now requires: App.tsx < 1,000 lines (corrected from < 2,000)
+
+ISSUE-6 (Scoring not auditable): FIXED:
+- Added scoring rubric note in section 1.3
+- Removed "Penetration test report (neu co)" vague gate — replaced with concrete "E2E IDOR test" gate
+- Fixed stale types/ folder gate (was "8-10 files", now "existing types/ folder still works")
+- Removed "(neu ap dung)" conditional from OpenAPI spec gate in Phase 4
+- Fixed V5MasterDataController.php gate (was "< 500 dong" after decomp is done)
+
+## Issues Disputed
+None — all 6 issues accepted.
+
+## Additional corrections made based on deeper codebase reading:
+- FE-SEC-01: canAccessTab() ALREADY fixed in codebase (deny-by-default for unknown tabs). Updated plan to reflect this.
+- FE-SEC-03: vite.config.ts ALREADY has host: "127.0.0.1". Corrected the false alarm in plan.
+- BE-SEC-01 & BE-SEC-02: .env.example ALREADY hardened + config/cors.php ALREADY EXISTS. Updated plan; remaining action is verify runtime env.
+- CSRF table: Updated to SameSite=strict (was showing "lax" in strengths table).
+- Overall score updated to reflect real codebase state (FE architecture: 5.5→6.5, total: 7.0→7.2)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

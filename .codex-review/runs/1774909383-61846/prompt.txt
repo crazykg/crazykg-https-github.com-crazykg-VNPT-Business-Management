@@ -1,0 +1,15 @@
+## Updated Plan (Round 4)
+Read the updated plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Issues Fixed (Round 3 → Round 4)
+ISSUE-2 (Stale baseline — Round 3 residual): FIXED — (a) Zustand stores updated to "6 shared stores (authStore, filterStore, modalStore, revenueStore, toastStore, uiStore)" everywhere (lines 55, 80). Verified via find command. (b) Unit test count updated from 107 to 110. Verified via find command.
+
+ISSUE-6 (Scoring math — Round 3 residual): FIXED — Completely rebuilt rubric. Now uses ONE consistent rule: "round to 1 decimal place, standard rounding (>=5 up, <5 down)". Applied SAME rule at every level (item→sub-score→layer→total). All calculations shown step-by-step: FE Security=7.8, FE Arch=5.5, BE Security=8.1, BE Arch=7.8, FE=6.7, BE=8.0, Total=7.4. Published table 1.1 now shows: FE 5.5/7.8/6.7, BE 7.8/8.1/8.0, Total 6.7/8.0/7.4. Section headers (2.1, 2.2, 3.1, 3.2) all match. No more contradictions.
+
+## Issues Disputed
+None.
+
+## Instructions
+1. Re-read plan file. Verify fixes.
+2. Do NOT re-open fixed issues unless regression.
+3. End with VERDICT.

@@ -1,0 +1,21 @@
+## Round 4 — Final Update
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Issues Accepted & Fixed (Round 3)
+- ISSUE-101 (FIXED): A7-A19 table now shows A8 "None (BEFORE P3A — promoted prerequisite)", A12 "None (BEFORE P1C — promoted prerequisite)", A19 "None (BEFORE P2 — promoted prerequisite)" in Depends On column. Summary timeline now shows "Parallel | A2-A7, A9-A18" (excluding promoted items A1/A8/A12/A19). Promoted items have their own pre-req rows in timeline.
+- ISSUE-105 (FIXED): PARENT_TAG_MAP now uses exact FK column names as keys (e.g. `invoice_id`, `customer_request_case_id`) instead of camelCase relation methods. No derivation — direct getAttribute() call with actual DB column name.
+- ISSUE-110 (PARTIALLY FIXED): A3 now shows exact bootstrap/app.php registration code matching existing middleware stack pattern. Protected file protocol now has an exception clause allowing minimal additive changes when documented in the phase section. The remaining concern about all snippets being 100% compile-safe is addressed in the companion DEV plan — this strategic plan defines architecture and patterns.
+
+## Instructions
+1. Re-read the updated plan file.
+2. Verify all 3 remaining issues from Round 3 are resolved.
+3. If resolved, state VERDICT: READY.
+4. If not resolved, explain what is still wrong with specific line references.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category/Severity/Plan section/Problem/Evidence/Why it matters/Suggested fix
+
+### VERDICT
+- Status: READY | NOT READY
+- Remaining blocking issues: {list or "none"}

@@ -1,0 +1,28 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer. This is a follow-up verification round.
+
+## Plan Location
+Read the plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Context
+This plan has already been through 2 rounds of adversarial review. 8 issues were found and all were fixed. Verify the plan is now complete and approvable, or flag any remaining gaps.
+
+## Instructions
+1. Read the plan file at the path above.
+2. Check for internal consistency, sequencing correctness, and any remaining gaps.
+3. Output any findings as ISSUE-{N} (starting from ISSUE-9). If no issues remain, skip to VERDICT.
+4. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line}
+- Problem: {statement}
+- Evidence: {quote}
+- Why it matters: {impact}
+- Suggested fix: {change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

@@ -8,11 +8,13 @@ use App\Http\Requests\V5\StoreCustomerRequestCaseWorklogRequest;
 use App\Http\Requests\V5\TransitionCustomerRequestCaseRequest;
 use App\Http\Requests\V5\UpdateCustomerRequestCaseStatusRequest;
 use App\Http\Requests\V5\UpdateCustomerRequestCaseSubStatusRequest;
+use App\Models\CustomerRequestCase;
 use App\Services\V5\Domain\CustomerRequestCaseDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class CustomerRequestCaseController extends V5BaseController
 {
@@ -71,6 +73,10 @@ class CustomerRequestCaseController extends V5BaseController
 
     public function storeEstimate(StoreCustomerRequestCaseEstimateRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->storeEstimate($request, $id);
     }
 
@@ -131,6 +137,10 @@ class CustomerRequestCaseController extends V5BaseController
 
     public function storeWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->storeWorklog($request, $id);
     }
 
@@ -141,21 +151,37 @@ class CustomerRequestCaseController extends V5BaseController
 
     public function saveStatus(UpdateCustomerRequestCaseStatusRequest $request, int $id, string $statusCode): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->saveStatus($request, $id, $statusCode);
     }
 
     public function transition(TransitionCustomerRequestCaseRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->transition($request, $id);
     }
 
     public function updateSubStatus(UpdateCustomerRequestCaseSubStatusRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->updateSubStatus($request, $id);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('delete', CustomerRequestCase::query()->findOrFail($id));
+        }
+
         return $this->service->destroy($request, $id);
     }
 }

@@ -138,6 +138,20 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       currentPage * ITEMS_PER_PAGE
     );
 
+  const visibleDocuments = currentData || [];
+  const activeVisibleCount = visibleDocuments.filter((item) => item.status === 'ACTIVE').length;
+  const linkedCustomerCount = new Set(
+    visibleDocuments
+      .map((item) => item.customerId)
+      .filter((value): value is Exclude<typeof value, null | undefined | ''> => value !== null && value !== undefined && value !== '')
+      .map((value) => String(value))
+  ).size;
+  const currentStatusOption = statusFilterOptions.find((option) => option.value === statusFilter);
+  const activeFilterBadges = [
+    searchTerm.trim() ? `Từ khóa: ${searchTerm.trim()}` : null,
+    statusFilter ? `Trạng thái: ${currentStatusOption?.label || statusFilter}` : null,
+  ].filter(Boolean) as string[];
+
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) setCurrentPage(page);
   };
@@ -161,121 +175,286 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
+  const getDateCaption = (item: Document) => {
+    if (item.expiryDate) {
+      return `HSD ${item.expiryDate}`;
+    }
+
+    if (item.releaseDate) {
+      return `Ban hành ${item.releaseDate}`;
+    }
+
+    if (item.createdDate) {
+      return `Tạo ngày ${item.createdDate}`;
+    }
+
+    return 'Chưa gắn mốc thời gian';
+  };
+
+  const getAttachmentCaption = (item: Document) => {
+    const attachmentCount = item.attachments?.length || 0;
+    if (attachmentCount > 0) {
+      return `${attachmentCount} tệp đính kèm`;
+    }
+
+    return 'Chưa có tệp đính kèm';
+  };
+
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      {/* Header */}
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Hồ sơ tài liệu</h2>
-          <p className="text-slate-500 text-sm mt-1">Quản lý các tài liệu, hồ sơ, biên bản và chứng chỉ liên quan.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button onClick={() => onOpenModal('ADD_DOCUMENT')} className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20">
-            <span className="material-symbols-outlined">add</span>
-            <span>Thêm mới</span>
-          </button>
-        </div>
-      </header>
+    <div className="px-4 pb-20 pt-4 md:px-8 md:pb-10 md:pt-8">
+      <section className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_16px_50px_-32px_rgba(15,23,42,0.28)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.12),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.09),_transparent_30%)]" />
+        <div className="relative p-6 md:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-[11px] font-black uppercase tracking-[0.38em] text-teal-600">Document Center</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900 md:text-[2.15rem]">
+                Hồ sơ tài liệu
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 md:text-[15px]">
+                Quản lý hợp đồng, biên bản, chứng chỉ và các tài liệu đang vận hành cùng khách hàng trong một workspace dễ tra cứu và thao tác.
+              </p>
+            </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Tổng số tài liệu</p>
-             <span className="p-2 bg-blue-50 text-blue-600 rounded-lg material-symbols-outlined">folder</span>
+            <button
+              onClick={() => onOpenModal('ADD_DOCUMENT')}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#0f766e] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_-20px_rgba(15,118,110,0.95)] transition hover:-translate-y-0.5 hover:bg-[#115e59]"
+            >
+              <span className="material-symbols-outlined text-[20px]">add</span>
+              <span>Thêm tài liệu</span>
+            </button>
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{serverMode ? (paginationMeta?.total || 0) : documents.length}</p>
-        </div>
-        <div className="bg-white p-5 md:p-6 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-             <p className="text-sm font-medium text-slate-500">Đang hiệu lực</p>
-             <span className="p-2 bg-green-50 text-green-600 rounded-lg material-symbols-outlined">task_alt</span>
+
+          <div className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Tổng hồ sơ',
+                value: serverMode ? (paginationMeta?.total || 0) : documents.length,
+                note: serverMode ? 'Toàn bộ dữ liệu theo phân trang máy chủ' : 'Toàn bộ tài liệu đang có trong bộ nhớ',
+                icon: 'folder_managed',
+                accent: 'from-sky-500/15 via-white to-white text-sky-600',
+              },
+              {
+                label: 'Đang hiển thị',
+                value: visibleDocuments.length,
+                note: 'Số bản ghi đang xuất hiện trên trang hiện tại',
+                icon: 'table_rows',
+                accent: 'from-violet-500/15 via-white to-white text-violet-600',
+              },
+              {
+                label: 'Hiệu lực trên trang',
+                value: activeVisibleCount,
+                note: 'Đếm theo dữ liệu đang hiển thị sau khi lọc',
+                icon: 'verified',
+                accent: 'from-emerald-500/15 via-white to-white text-emerald-600',
+              },
+              {
+                label: 'Khách hàng liên kết',
+                value: linkedCustomerCount,
+                note: 'Số khách hàng khác nhau trong danh sách đang xem',
+                icon: 'handshake',
+                accent: 'from-amber-500/15 via-white to-white text-amber-600',
+              },
+            ].map((card) => (
+              <article
+                key={card.label}
+                className={`rounded-[24px] border border-slate-200 bg-gradient-to-br p-5 shadow-sm ${card.accent}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.26em] text-slate-500">{card.label}</p>
+                    <p className="mt-3 text-3xl font-black tracking-tight text-slate-900">{card.value}</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-500">{card.note}</p>
+                  </div>
+                  <span className="material-symbols-outlined rounded-2xl bg-white/85 p-3 text-[24px] shadow-sm">
+                    {card.icon}
+                  </span>
+                </div>
+              </article>
+            ))}
           </div>
-          <p className="text-2xl md:text-3xl font-bold text-slate-900">{(documents || []).filter(d => d.status === 'ACTIVE').length}</p>
         </div>
-      </div>
+      </section>
 
-      {/* Filters & Table */}
-      <div>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-           <div className="w-full md:flex-1 relative">
-             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm theo mã, tên tài liệu, khách hàng..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none" />
-           </div>
-           <SearchableSelect
-             className="w-full md:w-48"
-             value={statusFilter}
-             onChange={setStatusFilter}
-             options={statusFilterOptions}
-             placeholder="Tất cả trạng thái"
-             triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-           />
+      <section className="mt-6 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_16px_50px_-32px_rgba(15,23,42,0.22)]">
+        <div className="border-b border-slate-200 px-5 py-5 md:px-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[0.34em] text-slate-400">Bộ lọc</p>
+              <h3 className="mt-2 text-xl font-black tracking-tight text-slate-900">Tra cứu và rà soát tài liệu</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Tìm nhanh theo mã, tên tài liệu hoặc khách hàng, sau đó sắp xếp và xử lý từng hồ sơ ngay trên bảng.
+              </p>
+            </div>
+
+            <div className="inline-flex items-center gap-2 self-start rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+              <span className={`h-2 w-2 rounded-full ${isLoading ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'}`} />
+              {isLoading ? 'Đang đồng bộ dữ liệu...' : `${visibleDocuments.length} dòng đang hiển thị`}
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+            <label className="relative block">
+              <span className="mb-2 block text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Từ khóa</span>
+              <span className="material-symbols-outlined absolute left-4 top-[calc(50%+14px)] -translate-y-1/2 text-slate-400">search</span>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Tìm theo mã, tên tài liệu, khách hàng..."
+                className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+              />
+            </label>
+
+            <div>
+              <span className="mb-2 block text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Trạng thái</span>
+              <SearchableSelect
+                className="w-full"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusFilterOptions}
+                placeholder="Tất cả trạng thái"
+                triggerClassName="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm text-slate-700 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+              />
+            </div>
+          </div>
+
+          {activeFilterBadges.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {activeFilterBadges.map((badge) => (
+                <span
+                  key={badge}
+                  className="inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-700"
+                >
+                  {badge}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-           <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse min-w-[1000px]">
-               <thead className="bg-slate-50 border-y border-slate-200">
-                 <tr>
-                   {[
-                     { label: 'Mã tài liệu', key: 'id' },
-                     { label: 'Tên tài liệu', key: 'name' },
-                     { label: 'Loại tài liệu', key: 'typeId' },
-                     { label: 'Khách hàng', key: 'customerId' },
-                     { label: 'Trạng thái', key: 'status' }
-                   ].map((col) => (
-                     <th key={col.key} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors select-none" onClick={() => handleSort(col.key as keyof Document)}>
-                       <div className="flex items-center gap-1">
-                         <span className="text-deep-teal">{col.label}</span>
-                         {renderSortIcon(col.key as keyof Document)}
-                       </div>
-                     </th>
-                   ))}
-                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right bg-slate-50 sticky right-0">Thao tác</th>
-                 </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-200">
-                 {currentData.length > 0 ? (
-                   currentData.map((item) => (
-                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                       <td className="px-6 py-4 text-sm font-mono font-bold text-slate-600">{item.id}</td>
-                       <td className="px-6 py-4 text-sm font-semibold text-slate-900 truncate max-w-[250px]" title={item.name}>{item.name}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600">{getDocumentTypeName(item.typeId)}</td>
-                       <td className="px-6 py-4 text-sm text-slate-600 truncate max-w-[200px]" title={getCustomerName(item.customerId)}>{getCustomerName(item.customerId)}</td>
-                       <td className="px-6 py-4">
-                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(item.status)}`}>
-                           {getStatusLabel(item.status)}
-                         </span>
-                       </td>
-                       <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                         <div className="flex justify-end gap-2">
-                           <button onClick={() => onOpenModal('EDIT_DOCUMENT', item)} className="p-1.5 text-slate-400 hover:text-primary transition-colors" title="Chỉnh sửa"><span className="material-symbols-outlined text-lg">edit</span></button>
-                           <button onClick={() => onOpenModal('DELETE_DOCUMENT', item)} className="p-1.5 text-slate-400 hover:text-error transition-colors" title="Xóa"><span className="material-symbols-outlined text-lg">delete</span></button>
-                         </div>
-                       </td>
-                     </tr>
-                   ))
-                 ) : (
-                   <tr>
-                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                       {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy tài liệu.'}
-                     </td>
-                   </tr>
-                 )}
-               </tbody>
-             </table>
-           </div>
+        <div className="px-5 py-5 md:px-6">
+          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1100px] border-collapse text-left">
+                <thead className="bg-slate-50/90">
+                  <tr className="border-b border-slate-200">
+                    {[
+                      { label: 'Mã tài liệu', key: 'id' },
+                      { label: 'Tên tài liệu', key: 'name' },
+                      { label: 'Loại tài liệu', key: 'typeId' },
+                      { label: 'Khách hàng', key: 'customerId' },
+                      { label: 'Trạng thái', key: 'status' }
+                    ].map((col) => (
+                      <th
+                        key={col.key}
+                        className="cursor-pointer px-5 py-4 text-xs font-black uppercase tracking-[0.24em] text-slate-500 transition-colors hover:bg-slate-100 select-none"
+                        onClick={() => handleSort(col.key as keyof Document)}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>{col.label}</span>
+                          {renderSortIcon(col.key as keyof Document)}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="sticky right-0 bg-slate-50/95 px-5 py-4 text-right text-xs font-black uppercase tracking-[0.24em] text-slate-500 backdrop-blur">
+                      Thao tác
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {visibleDocuments.length > 0 ? (
+                    visibleDocuments.map((item) => (
+                      <tr key={item.id} className="align-top transition-colors hover:bg-slate-50/80">
+                        <td className="px-5 py-4">
+                          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm font-bold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                            {item.id}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="max-w-[300px]">
+                            <p className="text-sm font-semibold leading-6 text-slate-900" title={item.name}>
+                              {item.name}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">{getDateCaption(item)}</p>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="max-w-[220px]">
+                            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                              {getDocumentTypeName(item.typeId)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="max-w-[260px]">
+                            <p className="truncate text-sm font-medium text-slate-700" title={getCustomerName(item.customerId)}>
+                              {getCustomerName(item.customerId)}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">{getAttachmentCaption(item)}</p>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${getStatusColor(item.status)}`}>
+                            {getStatusLabel(item.status)}
+                          </span>
+                        </td>
+                        <td className="sticky right-0 bg-white px-5 py-4 text-right shadow-[-16px_0_20px_-16px_rgba(15,23,42,0.18)]">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => onOpenModal('EDIT_DOCUMENT', item)}
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-teal-200 hover:text-teal-700"
+                              title="Chỉnh sửa"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">edit</span>
+                            </button>
+                            <button
+                              onClick={() => onOpenModal('DELETE_DOCUMENT', item)}
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-100 bg-red-50/40 text-red-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                              title="Xóa"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-14">
+                        <div className="flex flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 px-6 py-12 text-center">
+                          <span className="material-symbols-outlined rounded-2xl bg-white p-4 text-[28px] text-slate-400 shadow-sm">
+                            folder_off
+                          </span>
+                          <p className="mt-4 text-base font-semibold text-slate-700">
+                            {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy tài liệu phù hợp'}
+                          </p>
+                          <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                            {isLoading
+                              ? 'Hệ thống đang đồng bộ danh sách tài liệu từ máy chủ.'
+                              : 'Thử thay đổi từ khóa hoặc bỏ bớt bộ lọc để mở rộng kết quả hiển thị.'}
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-           <PaginationControls
-             currentPage={currentPage}
-             totalItems={totalItems}
-             rowsPerPage={ITEMS_PER_PAGE}
-             onPageChange={goToPage}
-             onRowsPerPageChange={() => undefined}
-             rowsPerPageOptions={[ITEMS_PER_PAGE]}
-           />
+            <div className="border-t border-slate-200 bg-slate-50/70">
+              <PaginationControls
+                currentPage={currentPage}
+                totalItems={totalItems}
+                rowsPerPage={ITEMS_PER_PAGE}
+                onPageChange={goToPage}
+                onRowsPerPageChange={() => undefined}
+                rowsPerPageOptions={[ITEMS_PER_PAGE]}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 };

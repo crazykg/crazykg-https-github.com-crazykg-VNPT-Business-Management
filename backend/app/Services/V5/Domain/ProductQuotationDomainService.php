@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Models\ProductQuotationDefaultSetting;
 use App\Models\ProductQuotation;
 use App\Models\ProductQuotationEvent;
 use App\Models\ProductQuotationItem;
@@ -49,6 +50,74 @@ class ProductQuotationDomainService
         private readonly ProductQuotationExportService $quotationExportService
     ) {}
 
+    public function defaultSettings(Request $request): JsonResponse
+    {
+        if ($missingTableResponse = $this->missingDefaultSettingsTableResponse()) {
+            return $missingTableResponse;
+        }
+
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        $settings = $actorId === null
+            ? null
+            : ProductQuotationDefaultSetting::query()->where('user_id', $actorId)->first();
+
+        return response()->json([
+            'data' => $this->serializeDefaultSettings($settings, $actorId),
+        ]);
+    }
+
+    public function updateDefaultSettings(Request $request): JsonResponse
+    {
+        if ($missingTableResponse = $this->missingDefaultSettingsTableResponse()) {
+            return $missingTableResponse;
+        }
+
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        if ($actorId === null) {
+            return response()->json(['message' => 'Bạn cần đăng nhập để lưu cấu hình mặc định báo giá.'], 401);
+        }
+
+        $normalized = $this->normalizeDefaultSettingsPayload($request);
+
+        $settings = DB::transaction(function () use ($request, $actorId, $normalized): ProductQuotationDefaultSetting {
+            $settings = ProductQuotationDefaultSetting::query()->firstOrNew(['user_id' => $actorId]);
+            $beforeSnapshot = $settings->exists ? $this->serializeDefaultSettingsAuditSnapshot($settings) : null;
+
+            $settings->fill([
+                'scope_summary' => $normalized['scope_summary'],
+                'validity_days' => $normalized['validity_days'],
+                'notes_text' => $normalized['notes_text'],
+                'contact_line' => $normalized['contact_line'],
+                'closing_message' => $normalized['closing_message'],
+                'signatory_title' => $normalized['signatory_title'],
+                'signatory_unit' => $normalized['signatory_unit'],
+                'signatory_name' => $normalized['signatory_name'],
+                'updated_by' => $actorId,
+            ]);
+
+            if (! $settings->exists) {
+                $settings->created_by = $actorId;
+            }
+
+            $settings->save();
+
+            $this->accessAudit->recordAuditEvent(
+                $request,
+                $beforeSnapshot === null ? 'INSERT' : 'UPDATE',
+                'product_quotation_default_settings',
+                $settings->id,
+                $beforeSnapshot,
+                $this->serializeDefaultSettingsAuditSnapshot($settings)
+            );
+
+            return $settings->fresh();
+        });
+
+        return response()->json([
+            'data' => $this->serializeDefaultSettings($settings, $actorId),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         if ($missingTableResponse = $this->missingTableResponse()) {
@@ -83,6 +152,22 @@ class ProductQuotationDomainService
                 $query->whereRaw('1 = 0');
             } else {
                 $query->where('created_by', $actorId);
+            }
+        }
+
+        $customerIdInput = $this->support->readFilterParam($request, 'customer_id');
+        $customerId = $this->support->parseNullableInt($customerIdInput);
+        if ($customerId !== null) {
+            $query->where('customer_id', $customerId);
+        }
+
+        $updatedFromRaw = trim((string) ($this->support->readFilterParam($request, 'updated_from', '') ?? ''));
+        if ($updatedFromRaw !== '') {
+            try {
+                $updatedFrom = Carbon::parse($updatedFromRaw);
+                $query->where('updated_at', '>=', $updatedFrom);
+            } catch (Throwable) {
+                return response()->json(['message' => 'updated_from is invalid.'], 422);
             }
         }
 
@@ -306,20 +391,33 @@ class ProductQuotationDomainService
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items());
+            $actorMap = $this->resolveActorMap(
+                $rows->map(fn (ProductQuotationVersion $version): ?int => $this->support->parseNullableInt($version->printed_by))
+                    ->filter(fn (?int $actorId): bool => $actorId !== null)
+                    ->values()
+                    ->all()
+            );
 
             return response()->json([
-                'data' => collect($paginator->items())
-                    ->map(fn (ProductQuotationVersion $version): array => $this->serializeVersion($version))
+                'data' => $rows
+                    ->map(fn (ProductQuotationVersion $version): array => $this->serializeVersion($version, $actorMap))
                     ->values(),
                 'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
             ]);
         }
 
         $rows = $query->get();
+        $actorMap = $this->resolveActorMap(
+            $rows->map(fn (ProductQuotationVersion $version): ?int => $this->support->parseNullableInt($version->printed_by))
+                ->filter(fn (?int $actorId): bool => $actorId !== null)
+                ->values()
+                ->all()
+        );
 
         return response()->json([
             'data' => $rows
-                ->map(fn (ProductQuotationVersion $version): array => $this->serializeVersion($version))
+                ->map(fn (ProductQuotationVersion $version): array => $this->serializeVersion($version, $actorMap))
                 ->values(),
             'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
         ]);
@@ -345,8 +443,12 @@ class ProductQuotationDomainService
             return response()->json(['message' => 'Version báo giá không tồn tại.'], 404);
         }
 
+        $actorMap = $this->resolveActorMap([
+            $this->support->parseNullableInt($version->printed_by),
+        ]);
+
         return response()->json([
-            'data' => $this->serializeVersionDetail($version),
+            'data' => $this->serializeVersionDetail($version, $actorMap),
         ]);
     }
 
@@ -373,20 +475,33 @@ class ProductQuotationDomainService
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            $rows = collect($paginator->items());
+            $actorMap = $this->resolveActorMap(
+                $rows->map(fn (ProductQuotationEvent $event): ?int => $this->support->parseNullableInt($event->created_by))
+                    ->filter(fn (?int $actorId): bool => $actorId !== null)
+                    ->values()
+                    ->all()
+            );
 
             return response()->json([
-                'data' => collect($paginator->items())
-                    ->map(fn (ProductQuotationEvent $event): array => $this->serializeEvent($event))
+                'data' => $rows
+                    ->map(fn (ProductQuotationEvent $event): array => $this->serializeEvent($event, $actorMap))
                     ->values(),
                 'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
             ]);
         }
 
         $rows = $query->get();
+        $actorMap = $this->resolveActorMap(
+            $rows->map(fn (ProductQuotationEvent $event): ?int => $this->support->parseNullableInt($event->created_by))
+                ->filter(fn (?int $actorId): bool => $actorId !== null)
+                ->values()
+                ->all()
+        );
 
         return response()->json([
             'data' => $rows
-                ->map(fn (ProductQuotationEvent $event): array => $this->serializeEvent($event))
+                ->map(fn (ProductQuotationEvent $event): array => $this->serializeEvent($event, $actorMap))
                 ->values(),
             'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
         ]);
@@ -588,6 +703,15 @@ class ProductQuotationDomainService
         return null;
     }
 
+    private function missingDefaultSettingsTableResponse(): ?JsonResponse
+    {
+        if (! $this->support->hasTable('product_quotation_default_settings')) {
+            return $this->support->missingTable('product_quotation_default_settings');
+        }
+
+        return null;
+    }
+
     private function resolveCustomerId(Request $request): int|JsonResponse|null
     {
         $customerId = $this->support->parseNullableInt($request->input('customer_id'));
@@ -736,6 +860,43 @@ class ProductQuotationDomainService
             'total_in_words' => '',
             'uses_multi_vat_template' => $usesMultiVatTemplate,
             'items' => $items,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   scope_summary: string,
+     *   validity_days: int,
+     *   notes_text: string,
+     *   contact_line: string,
+     *   closing_message: string,
+     *   signatory_title: string,
+     *   signatory_unit: string,
+     *   signatory_name: string
+     * }
+     */
+    private function normalizeDefaultSettingsPayload(Request $request): array
+    {
+        $validated = Validator::make($request->all(), [
+            'scope_summary' => ['nullable', 'string', 'max:2000'],
+            'validity_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'notes_text' => ['nullable', 'string', 'max:8000'],
+            'contact_line' => ['nullable', 'string', 'max:2000'],
+            'closing_message' => ['nullable', 'string', 'max:2000'],
+            'signatory_title' => ['nullable', 'string', 'max:255'],
+            'signatory_unit' => ['nullable', 'string', 'max:255'],
+            'signatory_name' => ['nullable', 'string', 'max:255'],
+        ])->validate();
+
+        return [
+            'scope_summary' => trim((string) ($validated['scope_summary'] ?? '')) ?: self::DEFAULT_SCOPE_SUMMARY,
+            'validity_days' => (int) ($validated['validity_days'] ?? 90),
+            'notes_text' => (string) ($validated['notes_text'] ?? implode("\n", self::DEFAULT_NOTES)),
+            'contact_line' => trim((string) ($validated['contact_line'] ?? '')) ?: self::DEFAULT_CONTACT_LINE,
+            'closing_message' => trim((string) ($validated['closing_message'] ?? '')) ?: self::DEFAULT_CLOSING_MESSAGE,
+            'signatory_title' => trim((string) ($validated['signatory_title'] ?? '')) ?: self::DEFAULT_SIGNATORY_TITLE,
+            'signatory_unit' => trim((string) ($validated['signatory_unit'] ?? '')) ?: self::DEFAULT_SIGNATORY_UNIT,
+            'signatory_name' => trim((string) ($validated['signatory_name'] ?? '')) ?: self::DEFAULT_SIGNATORY_NAME,
         ];
     }
 
@@ -1092,6 +1253,50 @@ class ProductQuotationDomainService
     /**
      * @return array<string, mixed>
      */
+    private function serializeDefaultSettings(?ProductQuotationDefaultSetting $settings, ?int $actorId = null): array
+    {
+        return [
+            'user_id' => $settings?->user_id ?? $actorId,
+            'scope_summary' => $settings?->scope_summary ?: self::DEFAULT_SCOPE_SUMMARY,
+            'validity_days' => (int) ($settings?->validity_days ?? 90),
+            'notes_text' => $settings?->notes_text ?? implode("\n", self::DEFAULT_NOTES),
+            'contact_line' => $settings?->contact_line ?: self::DEFAULT_CONTACT_LINE,
+            'closing_message' => $settings?->closing_message ?: self::DEFAULT_CLOSING_MESSAGE,
+            'signatory_title' => $settings?->signatory_title ?: self::DEFAULT_SIGNATORY_TITLE,
+            'signatory_unit' => $settings?->signatory_unit ?: self::DEFAULT_SIGNATORY_UNIT,
+            'signatory_name' => $settings?->signatory_name ?: self::DEFAULT_SIGNATORY_NAME,
+            'is_persisted' => $settings !== null,
+            'created_at' => $settings?->created_at?->toIso8601String(),
+            'updated_at' => $settings?->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeDefaultSettingsAuditSnapshot(ProductQuotationDefaultSetting $settings): array
+    {
+        return [
+            'id' => $settings->id,
+            'user_id' => $settings->user_id,
+            'scope_summary' => $settings->scope_summary ?: self::DEFAULT_SCOPE_SUMMARY,
+            'validity_days' => (int) ($settings->validity_days ?? 90),
+            'notes_text' => $settings->notes_text ?? implode("\n", self::DEFAULT_NOTES),
+            'contact_line' => $settings->contact_line ?: self::DEFAULT_CONTACT_LINE,
+            'closing_message' => $settings->closing_message ?: self::DEFAULT_CLOSING_MESSAGE,
+            'signatory_title' => $settings->signatory_title ?: self::DEFAULT_SIGNATORY_TITLE,
+            'signatory_unit' => $settings->signatory_unit ?: self::DEFAULT_SIGNATORY_UNIT,
+            'signatory_name' => $settings->signatory_name ?: self::DEFAULT_SIGNATORY_NAME,
+            'created_by' => $settings->created_by,
+            'updated_by' => $settings->updated_by,
+            'created_at' => $settings->created_at?->toIso8601String(),
+            'updated_at' => $settings->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function serializeQuotationItem(ProductQuotationItem $item): array
     {
         return [
@@ -1113,7 +1318,7 @@ class ProductQuotationDomainService
     /**
      * @return array<string, mixed>
      */
-    private function serializeVersion(ProductQuotationVersion $version): array
+    private function serializeVersion(ProductQuotationVersion $version, array $actorMap = []): array
     {
         return [
             'id' => $version->id,
@@ -1130,6 +1335,7 @@ class ProductQuotationDomainService
             'content_hash' => $version->content_hash,
             'printed_at' => $version->printed_at?->toIso8601String(),
             'printed_by' => $version->printed_by,
+            'printed_by_actor' => $this->resolveActor($version->printed_by, $actorMap),
             'created_at' => $version->created_at?->toIso8601String(),
         ];
     }
@@ -1137,7 +1343,7 @@ class ProductQuotationDomainService
     /**
      * @return array<string, mixed>
      */
-    private function serializeVersionDetail(ProductQuotationVersion $version): array
+    private function serializeVersionDetail(ProductQuotationVersion $version, array $actorMap = []): array
     {
         $version->loadMissing(['items']);
 
@@ -1168,6 +1374,7 @@ class ProductQuotationDomainService
             'content_hash' => $version->content_hash,
             'printed_at' => $version->printed_at?->toIso8601String(),
             'printed_by' => $version->printed_by,
+            'printed_by_actor' => $this->resolveActor($version->printed_by, $actorMap),
             'metadata' => $version->metadata,
             'created_at' => $version->created_at?->toIso8601String(),
             'items' => $version->items
@@ -1192,7 +1399,7 @@ class ProductQuotationDomainService
     /**
      * @return array<string, mixed>
      */
-    private function serializeEvent(ProductQuotationEvent $event): array
+    private function serializeEvent(ProductQuotationEvent $event, array $actorMap = []): array
     {
         return [
             'id' => $event->id,
@@ -1209,8 +1416,61 @@ class ProductQuotationDomainService
             'ip_address' => $event->ip_address,
             'user_agent' => $event->user_agent,
             'created_by' => $event->created_by,
+            'actor' => $this->resolveActor($event->created_by, $actorMap),
             'created_at' => $event->created_at?->toIso8601String(),
         ];
+    }
+
+    private function resolveActorMap(array $actorIds): array
+    {
+        $resolvedActorIds = collect($actorIds)
+            ->map(fn (mixed $actorId): ?int => $this->support->parseNullableInt($actorId))
+            ->filter(fn (?int $actorId): bool => $actorId !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($resolvedActorIds === []) {
+            return [];
+        }
+
+        $actorTable = $this->support->resolveEmployeeTable();
+        if ($actorTable === null) {
+            return [];
+        }
+
+        $columns = $this->support->selectColumns($actorTable, ['id', 'user_code', 'full_name', 'username', 'name']);
+        if (! in_array('id', $columns, true)) {
+            return [];
+        }
+
+        return DB::table($actorTable)
+            ->select($columns)
+            ->whereIn('id', $resolvedActorIds)
+            ->get()
+            ->map(function (object $record): array {
+                $data = (array) $record;
+
+                return [
+                    'id' => $data['id'] ?? null,
+                    'user_code' => $this->support->firstNonEmpty($data, ['user_code']),
+                    'full_name' => $this->support->firstNonEmpty($data, ['full_name', 'name']),
+                    'username' => $this->support->firstNonEmpty($data, ['username']),
+                ];
+            })
+            ->filter(fn (array $record): bool => array_key_exists('id', $record) && $record['id'] !== null)
+            ->keyBy(fn (array $record): string => (string) $record['id'])
+            ->all();
+    }
+
+    private function resolveActor(mixed $actorId, array $actorMap): ?array
+    {
+        $resolvedId = $this->support->parseNullableInt($actorId);
+        if ($resolvedId === null) {
+            return null;
+        }
+
+        return $actorMap[(string) $resolvedId] ?? null;
     }
 
     /**

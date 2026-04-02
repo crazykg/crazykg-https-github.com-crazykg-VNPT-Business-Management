@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -242,6 +243,8 @@ class CustomerDomainService
         if ($scopeError instanceof JsonResponse) {
             return $scopeError;
         }
+        Gate::authorize('update', $customer);
+
         $before = $this->accessAudit->toAuditArray($customer);
 
         $rules = [
@@ -334,6 +337,7 @@ class CustomerDomainService
         }
 
         $customer = Customer::query()->findOrFail($id);
+        Gate::authorize('delete', $customer);
 
         return $this->accessAudit->deleteModel($request, $customer, 'Customer');
     }

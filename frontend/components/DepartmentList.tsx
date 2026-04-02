@@ -7,21 +7,6 @@ import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  Plus, 
-  Search, 
-  Filter, 
-  Edit, 
-  Trash2, 
-  Users, 
-  Building2, 
-  CheckCircle, 
-  XCircle,
-  Upload,
-  Download
-} from 'lucide-react';
 
 interface DepartmentListProps {
   departments: Department[];
@@ -276,255 +261,250 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   };
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      {/* Header */}
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight flex items-center gap-2">
-            <Building2 className="w-6 h-6 md:w-8 md:h-8 text-primary" />
-            Quản lý Phòng ban
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">Quản lý cơ cấu tổ chức theo mô hình cây phân cấp.</p>
+    <div className="p-3 pb-6">
+
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>business</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Quản lý Phòng ban</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Cơ cấu tổ chức theo mô hình cây phân cấp</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 lg:flex-none">
+        <div className="flex items-center gap-2">
+          {/* Import dropdown */}
+          <div className="relative">
             <button
               onClick={() => setShowImportMenu((prev) => !prev)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <Upload className="w-5 h-5" />
-              <span className="hidden sm:inline">Nhập</span>
-              <ChevronDown className="w-4 h-4" />
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+              Nhập
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
-
             {showImportMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in">
                   <button
-                    onClick={() => {
-                      setShowImportMenu(false);
-                      onOpenModal('IMPORT_DATA');
-                    }}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
                   >
-                    <Upload className="w-4 h-4" />
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
                     Nhập dữ liệu
                   </button>
                   <button
                     onClick={handleDownloadTemplate}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left border-t border-slate-100"
                   >
-                    <Download className="w-4 h-4" />
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
                     Tải file mẫu
                   </button>
                 </div>
               </>
             )}
           </div>
-          <div className="relative flex-1 lg:flex-none">
+
+          {/* Export dropdown */}
+          <div className="relative">
             <button
               onClick={() => setShowExportMenu((prev) => !prev)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <Download className="w-5 h-5" />
-              <span className="hidden sm:inline">Xuất</span>
-              <ChevronDown className="w-4 h-4" />
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+              Xuất
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
-
             {showExportMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button
-                    onClick={() => handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
-                  >
-                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute top-full right-0 mt-1.5 w-36 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in">
+                  <button onClick={() => handleExport('excel')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
                   </button>
-                  <button
-                    onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  <button onClick={() => handleExport('csv')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left border-t border-slate-100">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
                   </button>
-                  <button
-                    onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  <button onClick={() => handleExport('pdf')}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left border-t border-slate-100">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
                   </button>
                 </div>
               </>
             )}
           </div>
-          <button 
-            onClick={() => onOpenModal('ADD_DEPARTMENT')}
-            className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Thêm mới</span>
-          </button>
-        </div>
-      </header>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Tổng số</p>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <Building2 className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{departments.length}</p>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Hoạt động</p>
-            <div className="p-2 bg-green-50 text-green-600 rounded-lg">
-              <CheckCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-slate-500">Ngừng hoạt động</p>
-            <div className="p-2 bg-red-50 text-red-600 rounded-lg">
-              <XCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{inactiveCount}</p>
+          {/* Add button */}
+          <button
+            onClick={() => onOpenModal('ADD_DEPARTMENT')}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 bg-primary text-white hover:bg-deep-teal shadow-sm"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+            Thêm mới
+          </button>
         </div>
       </div>
 
-      {/* Filters & Table */}
-      <div>
-        <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex flex-col md:flex-row gap-4 items-center">
-          <div className="w-full md:flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input 
-              type="text" 
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Tổng số</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>business</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{departments.length}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">phòng ban trong hệ thống</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Hoạt động</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-success" style={{ fontSize: 15 }}>check_circle</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{activeCount}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">đang vận hành</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-neutral">Tạm ngưng</span>
+            <div className="w-7 h-7 rounded bg-tertiary/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 15 }}>cancel</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{inactiveCount}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">ngừng hoạt động</p>
+        </div>
+      </div>
+
+      {/* ── Filter toolbar + Table ── */}
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+          <div className="relative flex-1 max-w-xs">
+            <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+            <input
+              type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm kiếm mã hoặc tên phòng ban..." 
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none transition-all"
+              placeholder="Tìm mã hoặc tên phòng ban..."
+              className="w-full h-8 pl-7 pr-3 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white placeholder:text-slate-400"
             />
           </div>
-          <div className="w-full md:w-48 relative">
+          <div className="relative w-40">
+            <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" style={{ fontSize: 14 }}>filter_list</span>
             <SearchableSelect
               value={statusFilter}
               onChange={setStatusFilter}
               options={statusFilterOptions}
               placeholder="Tất cả trạng thái"
-              triggerClassName="w-full pl-9 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none cursor-pointer transition-all"
+              triggerClassName="w-full h-8 pl-7 pr-7 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white text-slate-700"
             />
-            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-              <Filter className="w-4 h-4 text-slate-400" />
-            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="bg-slate-50 border-y border-slate-200">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mã PB</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-[40%]">Tên phòng ban</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {pagedTableData.length > 0 ? (
-                  pagedTableData.map((dept) => (
-                    <tr key={String(dept.id)} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-6 py-3 text-sm font-mono text-slate-500">{dept.dept_code}</td>
-                      <td className="px-6 py-3">
-                        <div className="flex items-center" style={{ paddingLeft: `${dept.level * 24}px` }}>
-                          {dept.hasChildren && !searchTerm && !statusFilter ? (
-                            <button 
-                              onClick={() => toggleExpand(dept.id)}
-                              className="p-1 mr-2 text-slate-400 hover:text-primary rounded hover:bg-slate-200 transition-colors"
-                            >
-                              {expandedIds.has(dept.id) ? (
-                                <ChevronDown className="w-4 h-4" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4" />
-                              )}
-                            </button>
-                          ) : (
-                            <span className="w-6 h-6 mr-2 inline-block"></span>
-                          )}
-                          <div className="flex flex-col">
-                            <span className={`font-semibold text-sm ${dept.level === 0 ? 'text-slate-900' : 'text-slate-700'}`}>
-                              {dept.dept_name}
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mã PB</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider w-[42%]">Tên phòng ban</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Trạng thái</th>
+                <th className="px-4 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {pagedTableData.length > 0 ? (
+                pagedTableData.map((dept) => (
+                  <tr key={String(dept.id)} className="hover:bg-slate-50/60 transition-colors group">
+                    <td className="px-4 py-2 text-xs font-mono text-slate-500">{dept.dept_code}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center" style={{ paddingLeft: `${dept.level * 20}px` }}>
+                        {dept.hasChildren && !searchTerm && !statusFilter ? (
+                          <button
+                            onClick={() => toggleExpand(dept.id)}
+                            className="p-0.5 mr-1.5 text-slate-400 hover:text-primary rounded hover:bg-slate-100 transition-colors"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                              {expandedIds.has(dept.id) ? 'expand_more' : 'chevron_right'}
                             </span>
-                            {dept.parent_id && (searchTerm || statusFilter) && (
-                              <span className="text-xs text-slate-400">Thuộc: {departments.find(d => String(d.id) === String(dept.parent_id))?.dept_name}</span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm font-medium text-slate-700">{dept.employeeCount || 0}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium gap-1.5 ${dept.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${dept.is_active ? 'bg-green-600' : 'bg-slate-500'}`}></span>
-                          {dept.is_active ? 'Hoạt động' : 'Tạm ngưng'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={() => onOpenModal('EDIT_DEPARTMENT', dept)}
-                            className="p-1.5 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100"
-                            title="Chỉnh sửa"
-                          >
-                            <Edit className="w-4 h-4" />
                           </button>
-                          <button 
-                            onClick={() => onOpenModal(dept.employeeCount && dept.employeeCount > 0 ? 'CANNOT_DELETE' : 'DELETE_DEPARTMENT', dept)}
-                            className="p-1.5 text-slate-400 hover:text-red-500 transition-colors rounded hover:bg-red-50"
-                            title="Xóa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        ) : (
+                          <span className="w-6 mr-1.5 inline-block" />
+                        )}
+                        <div className="flex flex-col">
+                          <span className={`text-xs font-semibold ${dept.level === 0 ? 'text-slate-800' : 'text-slate-700'}`}>
+                            {dept.dept_name}
+                          </span>
+                          {dept.parent_id && (searchTerm || statusFilter) && (
+                            <span className="text-[10px] text-slate-400">
+                              Thuộc: {departments.find((d) => String(d.id) === String(dept.parent_id))?.dept_name}
+                            </span>
+                          )}
                         </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <Search className="w-10 h-10 text-slate-300" />
-                        <p>Không tìm thấy phòng ban nào phù hợp.</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-neutral" style={{ fontSize: 14 }}>group</span>
+                        <span className="text-xs font-medium text-slate-700">{dept.employeeCount || 0}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${dept.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${dept.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                        {dept.is_active ? 'Hoạt động' : 'Tạm ngưng'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => onOpenModal('EDIT_DEPARTMENT', dept)}
+                          className="p-1 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100"
+                          title="Chỉnh sửa"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+                        </button>
+                        <button
+                          onClick={() => onOpenModal(dept.employeeCount && dept.employeeCount > 0 ? 'CANNOT_DELETE' : 'DELETE_DEPARTMENT', dept)}
+                          className="p-1 text-slate-400 hover:text-error transition-colors rounded hover:bg-red-50"
+                          title="Xóa"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                        </button>
                       </div>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <PaginationControls
-            currentPage={currentPage}
-            totalItems={totalItems}
-            rowsPerPage={rowsPerPage}
-            onPageChange={(page) => setCurrentPage(page)}
-            onRowsPerPageChange={(rows) => {
-              setRowsPerPage(rows);
-              setCurrentPage(1);
-            }}
-          />
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>search</span>
+                      <p className="text-xs text-slate-500">Không tìm thấy phòng ban nào phù hợp.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+        <PaginationControls
+          currentPage={currentPage}
+          totalItems={totalItems}
+          rowsPerPage={rowsPerPage}
+          onPageChange={(page) => setCurrentPage(page)}
+          onRowsPerPageChange={(rows) => { setRowsPerPage(rows); setCurrentPage(1); }}
+        />
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ export type FilterTabKey =
   | 'partyProfilesPage'
   | 'customersPage'
   | 'projectsPage'
+  | 'productsPage'
   | 'contractsPage'
   | 'documentsPage'
   | 'auditLogsPage'
@@ -21,6 +22,7 @@ export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
   partyProfilesPage: { page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} },
   customersPage: { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} },
   projectsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
+  productsPage: { page: 1, per_page: 10, sort_by: 'product_code', sort_dir: 'asc', q: '', filters: {} },
   contractsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
   documentsPage: { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
   auditLogsPage: { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} },
@@ -32,6 +34,7 @@ const buildInitialFilters = (): Record<FilterTabKey, PaginatedQuery> => ({
   partyProfilesPage: cloneQuery(FILTER_DEFAULTS.partyProfilesPage),
   customersPage: cloneQuery(FILTER_DEFAULTS.customersPage),
   projectsPage: cloneQuery(FILTER_DEFAULTS.projectsPage),
+  productsPage: cloneQuery(FILTER_DEFAULTS.productsPage),
   contractsPage: cloneQuery(FILTER_DEFAULTS.contractsPage),
   documentsPage: cloneQuery(FILTER_DEFAULTS.documentsPage),
   auditLogsPage: cloneQuery(FILTER_DEFAULTS.auditLogsPage),

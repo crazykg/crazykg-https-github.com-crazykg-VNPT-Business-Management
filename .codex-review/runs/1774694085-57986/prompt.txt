@@ -1,0 +1,36 @@
+## Updated Plan
+The plan has been edited with 11 new supplementary sections (A7-A17).
+Read the updated plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Session Context
+Same as Round 1. Scale: 2000 concurrent users.
+
+## Issues Accepted & Fixed (all 15 accepted)
+ISSUE-12 (high): FIXED — Added A7: DB Connection Budget + Pooling. Includes connection budget table (FPM 80 + queue 10 + scheduler 1 + buffer 30), PHP-FPM tuning, ProxySQL/Octane options, read-after-write consistency rules per endpoint type.
+ISSUE-13 (high): FIXED — Added A8: Queue Operating Policy. Includes V5JobDefaults trait (tries=3, backoff, timeout, retryUntil, failed handler), named queues with priority, Supervisor/Horizon config, deploy drain procedure.
+ISSUE-14 (high): FIXED — Added A9: Session Scaling Multi-Node. Dedicated Redis DB isolation (cache=DB0, session=DB1, queue=DB2), cookie hardening (SameSite, Secure, httpOnly), session regeneration points.
+ISSUE-15 (high): FIXED — Added A10: Production Observability. 3-layer stack (Sentry production, Telescope dev, optional Prometheus). Frontend + backend Sentry. Alert thresholds table.
+ISSUE-16 (critical): FIXED — Added A11: Production Deployment Strategy. Full rolling deploy procedure (6 steps), health check endpoint, live abort thresholds table, cache warm-up procedure, worker drain/restart order.
+ISSUE-17 (high): FIXED — Added A12: Zero-Downtime Schema Migration Policy. Expand/contract pattern, ALGORITHM=INPLACE LOCK=NONE for MySQL 8, backfill with chunkById, pre-flight checklist.
+ISSUE-18 (high): FIXED — Merged into A11 (live abort thresholds during rollout).
+ISSUE-19 (high): FIXED — Added A13: HTTP Compression. Nginx gzip/brotli config, Vite build-time precompression with vite-plugin-compression.
+ISSUE-20 (high): FIXED — Merged into A13: HTTP Cache Headers Middleware with per-endpoint-type Cache-Control rules, ETag, Vary: Authorization, immutable for static assets.
+ISSUE-21 (high): FIXED — Added A14: Cache Stampede Prevention. TTL jitter (±20%), single-flight locking, background dashboard refresh (everyFourMinutes), narrower invalidation tags.
+ISSUE-22 (high): FIXED — Added A15: Read Rate Limiting. 3-tier limits: api.read 120/min, api.read.heavy 30/min (dashboards), api.search 60/min. Applied to specific route groups.
+ISSUE-23 (medium): FIXED — Added A17: Service Worker for asset precache only (workbox), kill switch, deploy-safe invalidation.
+ISSUE-24 (medium): FIXED — Added A17: Error Boundaries. AppErrorBoundary component, Sentry forwarding, placement rules (route/modal/root), retry UX.
+ISSUE-25 (high): FIXED — Added A16: CSRF bootstrap/recovery (419 auto-retry), session hardening (SameSite, Secure, regeneration points), trusted proxies.
+ISSUE-26 (high): FIXED — Added A16: Progressive brute-force protection (per-user+IP 5/min, per-IP 30/min, per-IP 100/hour), password change throttle.
+
+## Issues Disputed
+None — all 15 issues accepted.
+
+## Instructions
+1. Re-read the updated plan file thoroughly (now ~1900 lines)
+2. Verify all 15 issues are resolved
+3. Check for NEW gaps — any remaining production-readiness concerns
+4. Do NOT re-raise fixed issues
+5. End with VERDICT
+
+## Required Output Format
+Same as Round 1.

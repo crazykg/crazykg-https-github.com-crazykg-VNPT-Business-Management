@@ -2,10 +2,6 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tanstack/react-query-devtools', () => ({
-  ReactQueryDevtools: () => null,
-}));
-
 vi.mock('../App', async () => {
   const ReactModule = await import('react');
   const { useQueryClient } = await import('@tanstack/react-query');

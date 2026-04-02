@@ -44,23 +44,19 @@ interface IntegrationSettingsPanelProps {
   }>;
 }
 
+// ── Pure helpers ──────────────────────────────────────────────────────────────
+
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
 
 const buildBackblazeEndpointFromRegion = (value: unknown): string => {
   const normalizedRegion = normalizeText(value);
-  if (normalizedRegion === '') {
-    return '';
-  }
-
+  if (normalizedRegion === '') return '';
   return `https://s3.${normalizedRegion}.backblazeb2.com`;
 };
 
 const extractServiceAccountClientEmail = (rawJson: string): string | null => {
   const normalized = String(rawJson || '').trim();
-  if (normalized === '') {
-    return null;
-  }
-
+  if (normalized === '') return null;
   try {
     const parsed = JSON.parse(normalized) as { client_email?: unknown };
     const clientEmail = String(parsed?.client_email ?? '').trim();
@@ -71,24 +67,68 @@ const extractServiceAccountClientEmail = (rawJson: string): string | null => {
 };
 
 const formatTestTime = (value: string | null | undefined): string => {
-  if (!value) {
-    return '--';
-  }
-
+  if (!value) return '--';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
+  if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('vi-VN');
 };
 
-const SETTINGS_GROUP_OPTIONS: Array<{ value: SettingsGroup; label: string }> = [
-  { value: 'GOOGLE_DRIVE', label: 'Cấu hình Google Drive' },
-  { value: 'BACKBLAZE_B2', label: 'Cấu hình Backblaze B2' },
-  { value: 'CONTRACT_EXPIRY_ALERT', label: 'Cảnh báo hợp đồng sắp hết hiệu lực' },
-  { value: 'CONTRACT_PAYMENT_ALERT', label: 'Cảnh báo hợp đồng sắp thanh toán' },
+// ── Nav config ────────────────────────────────────────────────────────────────
+
+const NAV_ITEMS: Array<{ value: SettingsGroup; label: string; sub: string; icon: string; iconColor: string }> = [
+  { value: 'GOOGLE_DRIVE',           label: 'Google Drive',       sub: 'Lưu trữ tài liệu',      icon: 'cloud',        iconColor: 'text-secondary' },
+  { value: 'BACKBLAZE_B2',           label: 'Backblaze B2',       sub: 'Object Storage S3',      icon: 'cloud_upload', iconColor: 'text-secondary' },
+  { value: 'CONTRACT_EXPIRY_ALERT',  label: 'HĐ hết hiệu lực',   sub: 'Cảnh báo ngày hết HLực', icon: 'event_busy',   iconColor: 'text-tertiary'  },
+  { value: 'CONTRACT_PAYMENT_ALERT', label: 'HĐ thanh toán',     sub: 'Cảnh báo kỳ thanh toán', icon: 'payments',     iconColor: 'text-tertiary'  },
 ];
+
+// ── Shared style tokens ───────────────────────────────────────────────────────
+
+const INPUT  = 'w-full h-8 rounded border border-slate-300 px-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-400';
+const LABEL  = 'block text-xs font-semibold text-neutral mb-1';
+const BTN_SM = 'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50';
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; label: string }> = ({ checked, onChange, label }) => (
+  <div className="col-span-2 flex items-center gap-2.5 py-1.5 border-b border-slate-100 mb-1">
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-secondary/40 ${checked ? 'bg-secondary' : 'bg-slate-300'}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+    <span className={`text-xs font-semibold ${checked ? 'text-secondary' : 'text-neutral'}`}>{label}</span>
+  </div>
+);
+
+const ConnectionBadge: React.FC<{ status: string | null | undefined }> = ({ status }) => {
+  if (status === 'SUCCESS') return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Kết nối thành công</span>;
+  if (status === 'FAILED')  return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">● Kết nối lỗi</span>;
+  return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">○ Chưa kiểm tra</span>;
+};
+
+const InfoFooter: React.FC<{ source: string; testedAt: string | null; message: string }> = ({ source, testedAt, message }) => (
+  <div className="px-4 pb-3 mt-auto shrink-0">
+    <div className="grid grid-cols-3 gap-px rounded overflow-hidden border border-slate-200 text-xs">
+      {[
+        { label: 'Nguồn cấu hình', value: source },
+        { label: 'Kiểm tra gần nhất', value: formatTestTime(testedAt) },
+        { label: 'Thông điệp hệ thống', value: message || '--' },
+      ].map(({ label, value }) => (
+        <div key={label} className="bg-slate-50 px-3 py-2">
+          <span className="font-semibold text-slate-600 block mb-0.5">{label}</span>
+          <span className="text-slate-500 break-all">{value}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> = ({
   backblazeB2Settings,
@@ -112,30 +152,39 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<SettingsGroup>('GOOGLE_DRIVE');
 
-  const [isBackblazeEnabled, setIsBackblazeEnabled] = useState(false);
-  const [backblazeAccessKeyId, setBackblazeAccessKeyId] = useState('');
-  const [backblazeBucketId, setBackblazeBucketId] = useState('');
-  const [backblazeBucketName, setBackblazeBucketName] = useState('');
-  const [backblazeRegion, setBackblazeRegion] = useState('');
-  const [backblazeFilePrefix, setBackblazeFilePrefix] = useState('');
-  const [backblazeSecretAccessKey, setBackblazeSecretAccessKey] = useState('');
-  const [clearBackblazeSecret, setClearBackblazeSecret] = useState(false);
-  const [isEnabled, setIsEnabled] = useState(false);
-  const [accountEmail, setAccountEmail] = useState('');
-  const [folderId, setFolderId] = useState('');
-  const [scopes, setScopes] = useState('https://www.googleapis.com/auth/drive.file');
-  const [impersonateUser, setImpersonateUser] = useState('');
-  const [filePrefix, setFilePrefix] = useState('');
-  const [serviceAccountJson, setServiceAccountJson] = useState('');
-  const [clearCredentials, setClearCredentials] = useState(false);
-  const [expiryWarningDays, setExpiryWarningDays] = useState('30');
+  // Backblaze state
+  const [isBackblazeEnabled,      setIsBackblazeEnabled]      = useState(false);
+  const [backblazeAccessKeyId,    setBackblazeAccessKeyId]    = useState('');
+  const [backblazeBucketId,       setBackblazeBucketId]       = useState('');
+  const [backblazeBucketName,     setBackblazeBucketName]     = useState('');
+  const [backblazeRegion,         setBackblazeRegion]         = useState('');
+  const [backblazeFilePrefix,     setBackblazeFilePrefix]     = useState('');
+  const [backblazeSecretAccessKey,setBackblazeSecretAccessKey]= useState('');
+  const [clearBackblazeSecret,    setClearBackblazeSecret]    = useState(false);
+
+  // Google Drive state
+  const [isEnabled,           setIsEnabled]           = useState(false);
+  const [accountEmail,        setAccountEmail]        = useState('');
+  const [folderId,            setFolderId]            = useState('');
+  const [scopes,              setScopes]              = useState('https://www.googleapis.com/auth/drive.file');
+  const [impersonateUser,     setImpersonateUser]     = useState('');
+  const [filePrefix,          setFilePrefix]          = useState('');
+  const [serviceAccountJson,  setServiceAccountJson]  = useState('');
+  const [clearCredentials,    setClearCredentials]    = useState(false);
+
+  // Alert state
+  const [expiryWarningDays,  setExpiryWarningDays]  = useState('30');
   const [paymentWarningDays, setPaymentWarningDays] = useState('30');
-  const [displayedBackblazeTestStatus, setDisplayedBackblazeTestStatus] = useState<BackblazeB2IntegrationSettings['last_test_status']>(null);
+
+  // Displayed test results (optimistic update)
+  const [displayedBackblazeTestStatus,  setDisplayedBackblazeTestStatus]  = useState<BackblazeB2IntegrationSettings['last_test_status']>(null);
   const [displayedBackblazeTestMessage, setDisplayedBackblazeTestMessage] = useState('');
-  const [displayedBackblazeTestedAt, setDisplayedBackblazeTestedAt] = useState<string | null>(null);
-  const [displayedTestStatus, setDisplayedTestStatus] = useState<GoogleDriveIntegrationSettings['last_test_status']>(null);
+  const [displayedBackblazeTestedAt,    setDisplayedBackblazeTestedAt]    = useState<string | null>(null);
+  const [displayedTestStatus,  setDisplayedTestStatus]  = useState<GoogleDriveIntegrationSettings['last_test_status']>(null);
   const [displayedTestMessage, setDisplayedTestMessage] = useState('');
-  const [displayedTestedAt, setDisplayedTestedAt] = useState<string | null>(null);
+  const [displayedTestedAt,    setDisplayedTestedAt]    = useState<string | null>(null);
+
+  // ── Effects ─────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     setIsBackblazeEnabled(Boolean(backblazeB2Settings?.is_enabled));
@@ -150,7 +199,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 
   const backblazeDerivedEndpoint = useMemo(
     () => buildBackblazeEndpointFromRegion(backblazeRegion),
-    [backblazeRegion]
+    [backblazeRegion],
   );
 
   useEffect(() => {
@@ -166,20 +215,12 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 
   useEffect(() => {
     const value = Number(contractExpiryAlertSettings?.warning_days ?? 30);
-    if (Number.isFinite(value) && value > 0) {
-      setExpiryWarningDays(String(Math.floor(value)));
-      return;
-    }
-    setExpiryWarningDays('30');
+    setExpiryWarningDays(Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '30');
   }, [contractExpiryAlertSettings]);
 
   useEffect(() => {
     const value = Number(contractPaymentAlertSettings?.warning_days ?? 30);
-    if (Number.isFinite(value) && value > 0) {
-      setPaymentWarningDays(String(Math.floor(value)));
-      return;
-    }
-    setPaymentWarningDays('30');
+    setPaymentWarningDays(Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '30');
   }, [contractPaymentAlertSettings]);
 
   useEffect(() => {
@@ -194,51 +235,24 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     setDisplayedTestedAt(settings?.last_tested_at || null);
   }, [settings?.last_test_message, settings?.last_test_status, settings?.last_tested_at]);
 
-  const backblazeTestStatusClass = useMemo(() => {
-    if (displayedBackblazeTestStatus === 'SUCCESS') {
-      return 'bg-emerald-100 text-emerald-700';
-    }
-    if (displayedBackblazeTestStatus === 'FAILED') {
-      return 'bg-red-100 text-red-700';
-    }
-    return 'bg-slate-100 text-slate-600';
-  }, [displayedBackblazeTestStatus]);
+  // ── Derived ──────────────────────────────────────────────────────────────────
 
-  const testStatusClass = useMemo(() => {
-    if (displayedTestStatus === 'SUCCESS') {
-      return 'bg-emerald-100 text-emerald-700';
-    }
-    if (displayedTestStatus === 'FAILED') {
-      return 'bg-red-100 text-red-700';
-    }
-    return 'bg-slate-100 text-slate-600';
-  }, [displayedTestStatus]);
+  const globalBusy = isLoading || isSavingBackblazeB2 || isTestingBackblazeB2 || isSaving || isTesting || isSavingContractExpiryAlert || isSavingContractPaymentAlert;
 
-  const globalBusy =
-    isLoading ||
-    isSavingBackblazeB2 ||
-    isTestingBackblazeB2 ||
-    isSaving ||
-    isTesting ||
-    isSavingContractExpiryAlert ||
-    isSavingContractPaymentAlert;
+  // ── Payload builders ──────────────────────────────────────────────────────────
 
   const buildBackblazePayload = (): BackblazeB2IntegrationSettingsUpdatePayload => {
     const payload: BackblazeB2IntegrationSettingsUpdatePayload = {
-      is_enabled: isBackblazeEnabled,
-      access_key_id: normalizeText(backblazeAccessKeyId) || null,
-      bucket_id: normalizeText(backblazeBucketId) || null,
-      bucket_name: normalizeText(backblazeBucketName) || null,
-      region: normalizeText(backblazeRegion) || null,
-      file_prefix: normalizeText(backblazeFilePrefix) || null,
+      is_enabled:             isBackblazeEnabled,
+      access_key_id:          normalizeText(backblazeAccessKeyId)  || null,
+      bucket_id:              normalizeText(backblazeBucketId)     || null,
+      bucket_name:            normalizeText(backblazeBucketName)   || null,
+      region:                 normalizeText(backblazeRegion)       || null,
+      file_prefix:            normalizeText(backblazeFilePrefix)   || null,
       clear_secret_access_key: clearBackblazeSecret,
     };
-
     const rawSecret = normalizeText(backblazeSecretAccessKey);
-    if (rawSecret !== '' && !clearBackblazeSecret) {
-      payload.secret_access_key = rawSecret;
-    }
-
+    if (rawSecret !== '' && !clearBackblazeSecret) payload.secret_access_key = rawSecret;
     return payload;
   };
 
@@ -246,29 +260,22 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     const rawJson = normalizeText(serviceAccountJson);
     const clientEmailFromJson = !clearCredentials ? extractServiceAccountClientEmail(rawJson) : null;
     const payload: GoogleDriveIntegrationSettingsUpdatePayload = {
-      is_enabled: isEnabled,
-      account_email: clientEmailFromJson ?? (normalizeText(accountEmail) || null),
-      folder_id: normalizeText(folderId) || null,
-      scopes: normalizeText(scopes) || null,
-      impersonate_user: normalizeText(impersonateUser) || null,
-      file_prefix: normalizeText(filePrefix) || null,
-      clear_service_account_json: clearCredentials,
+      is_enabled:                  isEnabled,
+      account_email:               clientEmailFromJson ?? (normalizeText(accountEmail) || null),
+      folder_id:                   normalizeText(folderId)         || null,
+      scopes:                      normalizeText(scopes)           || null,
+      impersonate_user:            normalizeText(impersonateUser)  || null,
+      file_prefix:                 normalizeText(filePrefix)       || null,
+      clear_service_account_json:  clearCredentials,
     };
-
-    if (rawJson && !clearCredentials) {
-      payload.service_account_json = rawJson;
-    }
-
+    if (rawJson && !clearCredentials) payload.service_account_json = rawJson;
     return payload;
   };
 
-  const handleSaveBackblaze = async () => {
-    await onSaveBackblazeB2(buildBackblazePayload());
-  };
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
-  const handleSaveGoogleDrive = async () => {
-    await onSave(buildGoogleDrivePayload());
-  };
+  const handleSaveBackblaze = async () => { await onSaveBackblazeB2(buildBackblazePayload()); };
+  const handleSaveGoogleDrive = async () => { await onSave(buildGoogleDrivePayload()); };
 
   const handleTestBackblaze = async () => {
     try {
@@ -277,9 +284,8 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       setDisplayedBackblazeTestMessage(result.message || 'Kết nối thành công.');
       setDisplayedBackblazeTestedAt(result.tested_at || new Date().toISOString());
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       setDisplayedBackblazeTestStatus('FAILED');
-      setDisplayedBackblazeTestMessage(message);
+      setDisplayedBackblazeTestMessage(error instanceof Error ? error.message : 'Lỗi không xác định');
       setDisplayedBackblazeTestedAt(new Date().toISOString());
     }
   };
@@ -291,506 +297,453 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       setDisplayedTestMessage(result.message || 'Kết nối thành công.');
       setDisplayedTestedAt(result.tested_at || new Date().toISOString());
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Lỗi không xác định';
       setDisplayedTestStatus('FAILED');
-      setDisplayedTestMessage(message);
+      setDisplayedTestMessage(error instanceof Error ? error.message : 'Lỗi không xác định');
       setDisplayedTestedAt(new Date().toISOString());
     }
   };
 
   const handleSaveContractExpiryAlert = async () => {
     const parsed = Number(expiryWarningDays);
-    const normalized = Number.isFinite(parsed) ? Math.floor(parsed) : 0;
-    await onSaveContractExpiryAlert({ warning_days: normalized });
+    await onSaveContractExpiryAlert({ warning_days: Number.isFinite(parsed) ? Math.floor(parsed) : 0 });
   };
 
   const handleSaveContractPaymentAlert = async () => {
     const parsed = Number(paymentWarningDays);
-    const normalized = Number.isFinite(parsed) ? Math.floor(parsed) : 0;
-    await onSaveContractPaymentAlert({ warning_days: normalized });
+    await onSaveContractPaymentAlert({ warning_days: Number.isFinite(parsed) ? Math.floor(parsed) : 0 });
   };
 
+  // ── Render ───────────────────────────────────────────────────────────────────
+
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Cấu hình tích hợp</h2>
-          <p className="text-slate-500 text-sm mt-1">Quản trị kết nối hệ thống và các ngưỡng cảnh báo tiện ích.</p>
+    <div className="p-3 pb-6">
+
+      {/* ── Page header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>tune</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Cấu hình tích hợp</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Kết nối hệ thống & ngưỡng cảnh báo tiện ích</p>
+          </div>
         </div>
         <button
           type="button"
           onClick={() => void onRefresh()}
           disabled={globalBusy}
-          className="inline-flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
+          className={`${BTN_SM} border border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
         >
-          <span className="material-symbols-outlined text-base">refresh</span>
+          <span className={`material-symbols-outlined text-sm ${isLoading ? 'animate-spin' : ''}`}>refresh</span>
           Làm mới
         </button>
-      </header>
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-5 md:p-6 border-b border-slate-100">
-          <label className="text-sm font-bold text-slate-700">Chọn nhóm cấu hình</label>
-          <select
-            value={selectedGroup}
-            onChange={(event) => setSelectedGroup(event.target.value as SettingsGroup)}
-            className="mt-2 w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-          >
-            {SETTINGS_GROUP_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {selectedGroup === 'BACKBLAZE_B2' && (
-          <>
-            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
-                  <span className="material-symbols-outlined text-primary text-base">cloud_upload</span>
-                  Cấu hình Backblaze B2
-                </span>
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${backblazeTestStatusClass}`}>
-                  {displayedBackblazeTestStatus === 'SUCCESS'
-                    ? 'Kết nối thành công'
-                    : displayedBackblazeTestStatus === 'FAILED'
-                      ? 'Kết nối lỗi'
-                      : 'Chưa kiểm tra'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleTestBackblaze()}
-                  disabled={globalBusy}
-                  className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-3 py-2 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
-                >
-                  <span className={`material-symbols-outlined text-base ${isTestingBackblazeB2 ? 'animate-spin' : ''}`}>
-                    {isTestingBackblazeB2 ? 'progress_activity' : 'verified'}
-                  </span>
-                  Kiểm tra kết nối
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveBackblaze()}
-                  disabled={globalBusy}
-                  className="flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-3 py-2 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
-                >
-                  <span className={`material-symbols-outlined text-base ${isSavingBackblazeB2 ? 'animate-spin' : ''}`}>
-                    {isSavingBackblazeB2 ? 'progress_activity' : 'save'}
-                  </span>
-                  Lưu cấu hình
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Bật tích hợp Backblaze B2</label>
-                <button
-                  type="button"
-                  onClick={() => setIsBackblazeEnabled((prev) => !prev)}
-                  className={`w-full h-11 rounded-lg border text-sm font-bold transition-colors ${
-                    isBackblazeEnabled
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-slate-50 border-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isBackblazeEnabled ? 'Đang bật' : 'Đang tắt'}
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Application Key ID</label>
-                <input
-                  type="text"
-                  value={backblazeAccessKeyId}
-                  onChange={(event) => setBackblazeAccessKeyId(event.target.value)}
-                  placeholder="00438a9b..."
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Bucket ID</label>
-                <input
-                  type="text"
-                  value={backblazeBucketId}
-                  onChange={(event) => setBackblazeBucketId(event.target.value)}
-                  placeholder="93f8ca298bf4d00098c80518"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Bucket name</label>
-                <input
-                  type="text"
-                  value={backblazeBucketName}
-                  onChange={(event) => setBackblazeBucketName(event.target.value)}
-                  placeholder="tailieu-qlcv"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Region</label>
-                <input
-                  type="text"
-                  value={backblazeRegion}
-                  onChange={(event) => setBackblazeRegion(event.target.value)}
-                  placeholder="us-west-004"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Endpoint suy ra từ Region</label>
-                <div className="w-full min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                  {backblazeDerivedEndpoint || 'Nhập Region để hệ thống tự suy endpoint.'}
-                </div>
-                <p className="text-xs text-slate-500">
-                  Đây là endpoint tham khảo do hệ thống tự suy từ Region, ví dụ <strong>https://s3.us-west-004.backblazeb2.com</strong>.
-                </p>
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Tiền tố file</label>
-                <input
-                  type="text"
-                  value={backblazeFilePrefix}
-                  onChange={(event) => setBackblazeFilePrefix(event.target.value)}
-                  placeholder="VNPT"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Application Key</label>
-                <textarea
-                  value={backblazeSecretAccessKey}
-                  onChange={(event) => {
-                    setBackblazeSecretAccessKey(event.target.value);
-                    if (normalizeText(event.target.value)) {
-                      setClearBackblazeSecret(false);
-                    }
-                  }}
-                  rows={5}
-                  placeholder="Dán Application Key vào đây (để trống nếu giữ nguyên cấu hình hiện tại)."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-                <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
-                  <input
-                    type="checkbox"
-                    checked={clearBackblazeSecret}
-                    onChange={(event) => {
-                      setClearBackblazeSecret(event.target.checked);
-                      if (event.target.checked) {
-                        setBackblazeSecretAccessKey('');
-                      }
-                    }}
-                    className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
-                  />
-                  Xóa Application Key đang lưu
-                </label>
-                <p className="text-xs text-slate-500">
-                  Trạng thái key hiện tại: <strong>{backblazeB2Settings?.has_secret_access_key ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
-                </p>
-                {backblazeB2Settings?.has_secret_access_key && backblazeB2Settings?.secret_access_key_preview ? (
-                  <p className="text-xs text-slate-500 break-all">
-                    Application Key đang lưu: <strong className="font-mono">{backblazeB2Settings.secret_access_key_preview}</strong>
-                  </p>
-                ) : null}
-                <p className="text-xs text-slate-500">
-                  Application Key được lưu mã hóa trên hệ thống. UI chỉ hiển thị preview đã che để đối chiếu cấu hình.
-                </p>
-              </div>
-            </div>
-
-            <div className="px-5 md:px-6 pb-5 md:pb-6">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <p className="font-bold text-slate-700">Nguồn cấu hình</p>
-                  <p>{backblazeB2Settings?.source || 'ENV'}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-700">Lần kiểm tra gần nhất</p>
-                  <p>{formatTestTime(displayedBackblazeTestedAt)}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
-                  <p className="break-words">{displayedBackblazeTestMessage || '--'}</p>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {selectedGroup === 'GOOGLE_DRIVE' && (
-          <>
-            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
-                  <span className="material-symbols-outlined text-primary text-base">cloud</span>
-                  Cấu hình Google Drive
-                </span>
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${testStatusClass}`}>
-                  {displayedTestStatus === 'SUCCESS'
-                    ? 'Kết nối thành công'
-                    : displayedTestStatus === 'FAILED'
-                      ? 'Kết nối lỗi'
-                      : 'Chưa kiểm tra'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleTestGoogleDrive()}
-                  disabled={globalBusy}
-                  className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-3 py-2 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
-                >
-                  <span className={`material-symbols-outlined text-base ${isTesting ? 'animate-spin' : ''}`}>
-                    {isTesting ? 'progress_activity' : 'verified'}
-                  </span>
-                  Kiểm tra kết nối
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveGoogleDrive()}
-                  disabled={globalBusy}
-                  className="flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-3 py-2 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
-                >
-                  <span className={`material-symbols-outlined text-base ${isSaving ? 'animate-spin' : ''}`}>
-                    {isSaving ? 'progress_activity' : 'save'}
-                  </span>
-                  Lưu cấu hình
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Bật tích hợp Google Drive</label>
-                <button
-                  type="button"
-                  onClick={() => setIsEnabled((prev) => !prev)}
-                  className={`w-full h-11 rounded-lg border text-sm font-bold transition-colors ${
-                    isEnabled
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-slate-50 border-slate-200 text-slate-600'
-                  }`}
-                >
-                  {isEnabled ? 'Đang bật' : 'Đang tắt'}
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Email tài khoản dịch vụ</label>
-                <input
-                  type="text"
-                  value={accountEmail}
-                  onChange={(event) => setAccountEmail(event.target.value)}
-                  placeholder="vnpthishg@gmail.com hoặc service-account@..."
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Google Drive Folder ID</label>
-                <input
-                  type="text"
-                  value={folderId}
-                  onChange={(event) => setFolderId(event.target.value)}
-                  placeholder="1AbCdEfGh..."
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-                <p className="text-xs text-slate-500">
-                  Nếu không dùng <strong>Impersonate user</strong>, Folder ID này phải là thư mục nằm trong <strong>Shared Drive</strong>, không phải thư mục thường trong My Drive.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-700">Tiền tố file</label>
-                <input
-                  type="text"
-                  value={filePrefix}
-                  onChange={(event) => setFilePrefix(event.target.value)}
-                  placeholder="VNPT"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Scopes</label>
-                <input
-                  type="text"
-                  value={scopes}
-                  onChange={(event) => setScopes(event.target.value)}
-                  placeholder="https://www.googleapis.com/auth/drive.file"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Impersonate user (tuỳ chọn)</label>
-                <input
-                  type="text"
-                  value={impersonateUser}
-                  onChange={(event) => setImpersonateUser(event.target.value)}
-                  placeholder="user@domain.com"
-                  className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1 lg:col-span-2">
-                <label className="text-sm font-bold text-slate-700">Service Account JSON</label>
-                <textarea
-                  value={serviceAccountJson}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setServiceAccountJson(nextValue);
-                    if (normalizeText(nextValue)) {
-                      setClearCredentials(false);
-                    }
-                    const clientEmail = extractServiceAccountClientEmail(nextValue);
-                    if (clientEmail) {
-                      setAccountEmail(clientEmail);
-                    }
-                  }}
-                  rows={8}
-                  placeholder="Dán JSON service account vào đây (để trống nếu giữ nguyên cấu hình hiện tại)."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-                <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
-                  <input
-                    type="checkbox"
-                    checked={clearCredentials}
-                    onChange={(event) => {
-                      setClearCredentials(event.target.checked);
-                      if (event.target.checked) {
-                        setServiceAccountJson('');
-                      }
-                    }}
-                    className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
-                  />
-                  Xóa Service Account JSON đang lưu
-                </label>
-                <p className="text-xs text-slate-500">
-                  Trạng thái key hiện tại: <strong>{settings?.has_service_account_json ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
-                </p>
-                <p className="text-xs text-slate-500">
-                  JSON được lưu mã hóa trên hệ thống và sẽ không hiển thị lại sau khi lưu thành công.
-                </p>
-              </div>
-            </div>
-
-            <div className="px-5 md:px-6 pb-5 md:pb-6">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <p className="font-bold text-slate-700">Nguồn cấu hình</p>
-                  <p>{settings?.source || 'ENV'}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-700">Lần kiểm tra gần nhất</p>
-                  <p>{formatTestTime(displayedTestedAt)}</p>
-                </div>
-                <div>
-                  <p className="font-bold text-slate-700">Thông điệp hệ thống</p>
-                  <p className="break-words">{displayedTestMessage || '--'}</p>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {selectedGroup === 'CONTRACT_EXPIRY_ALERT' && (
-          <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div className="space-y-1">
-              <label className="text-sm font-bold text-slate-700">Số ngày cảnh báo hợp đồng sắp hết hiệu lực</label>
-              <input
-                type="number"
-                min={1}
-                max={365}
-                step={1}
-                value={expiryWarningDays}
-                onChange={(event) => setExpiryWarningDays(event.target.value)}
-                placeholder="30"
-                className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-              />
-              <p className="text-xs text-slate-500">
-                KPI cảnh báo các hợp đồng có ngày hết hiệu lực nằm trong khoảng từ hôm nay đến số ngày này.
-              </p>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600">
-              <p className="font-bold text-slate-700">Thông tin cấu hình hiện tại</p>
-              <p className="mt-1">Nguồn cấu hình: <strong>{contractExpiryAlertSettings?.source || 'DEFAULT'}</strong></p>
-              <p className="mt-1">Lần cập nhật cuối: <strong>{formatTestTime(contractExpiryAlertSettings?.updated_at || null)}</strong></p>
-              <p className="mt-1">Ngưỡng hiện tại: <strong>{contractExpiryAlertSettings?.warning_days ?? 30} ngày</strong></p>
-            </div>
-
-            <div className="lg:col-span-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => void handleSaveContractExpiryAlert()}
-                disabled={globalBusy}
-                className="inline-flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
-              >
-                <span className={`material-symbols-outlined text-base ${isSavingContractExpiryAlert ? 'animate-spin' : ''}`}>
-                  {isSavingContractExpiryAlert ? 'progress_activity' : 'save'}
-                </span>
-                Lưu cấu hình cảnh báo hết hiệu lực
-              </button>
-            </div>
-          </div>
-        )}
-
-        {selectedGroup === 'CONTRACT_PAYMENT_ALERT' && (
-          <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div className="space-y-1">
-              <label className="text-sm font-bold text-slate-700">Số ngày cảnh báo khách hàng sắp thanh toán</label>
-              <input
-                type="number"
-                min={1}
-                max={365}
-                step={1}
-                value={paymentWarningDays}
-                onChange={(event) => setPaymentWarningDays(event.target.value)}
-                placeholder="30"
-                className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-              />
-              <p className="text-xs text-slate-500">
-                KPI chỉ tính hợp đồng theo chu kỳ (không tính một lần), và cảnh báo khi đến hạn thanh toán trong khoảng số ngày này.
-              </p>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600">
-              <p className="font-bold text-slate-700">Thông tin cấu hình hiện tại</p>
-              <p className="mt-1">Nguồn cấu hình: <strong>{contractPaymentAlertSettings?.source || 'DEFAULT'}</strong></p>
-              <p className="mt-1">Lần cập nhật cuối: <strong>{formatTestTime(contractPaymentAlertSettings?.updated_at || null)}</strong></p>
-              <p className="mt-1">Ngưỡng hiện tại: <strong>{contractPaymentAlertSettings?.warning_days ?? 30} ngày</strong></p>
-            </div>
-
-            <div className="lg:col-span-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => void handleSaveContractPaymentAlert()}
-                disabled={globalBusy}
-                className="inline-flex items-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-60"
-              >
-                <span className={`material-symbols-outlined text-base ${isSavingContractPaymentAlert ? 'animate-spin' : ''}`}>
-                  {isSavingContractPaymentAlert ? 'progress_activity' : 'save'}
-                </span>
-                Lưu cấu hình cảnh báo thanh toán
-              </button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* ── Two-pane card ────────────────────────────────────────────────────── */}
+      <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden" style={{ minHeight: 460 }}>
+
+        {/* Left navigation */}
+        <nav className="w-44 shrink-0 border-r border-slate-200 py-1 bg-slate-50/60">
+          <p className="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nhóm cấu hình</p>
+          {NAV_ITEMS.map((item) => {
+            const isActive  = selectedGroup === item.value;
+            const connStatus = item.value === 'GOOGLE_DRIVE'   ? displayedTestStatus
+                             : item.value === 'BACKBLAZE_B2'   ? displayedBackblazeTestStatus
+                             : null;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setSelectedGroup(item.value)}
+                className={`w-full text-left px-3 py-2.5 flex items-start gap-2 border-l-2 transition-colors ${
+                  isActive
+                    ? 'bg-secondary/10 border-secondary'
+                    : 'border-transparent hover:bg-white/80'
+                }`}
+              >
+                <span
+                  className={`material-symbols-outlined shrink-0 mt-0.5 ${isActive ? 'text-secondary' : item.iconColor}`}
+                  style={{ fontSize: 17 }}
+                >
+                  {item.icon}
+                </span>
+                <div className="min-w-0">
+                  <div className={`text-xs font-semibold truncate leading-tight ${isActive ? 'text-deep-teal' : 'text-slate-700'}`}>
+                    {item.label}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">{item.sub}</div>
+                  {connStatus !== null && (
+                    <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-tight ${
+                      connStatus === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700'
+                      : connStatus === 'FAILED' ? 'bg-red-100 text-red-700'
+                      : 'bg-slate-200 text-slate-500'
+                    }`}>
+                      {connStatus === 'SUCCESS' ? '● OK' : connStatus === 'FAILED' ? '● Lỗi' : '○ Chưa test'}
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Right content pane */}
+        <div className="flex-1 min-w-0 flex flex-col">
+
+          {/* ════════ BACKBLAZE B2 ════════ */}
+          {selectedGroup === 'BACKBLAZE_B2' && (
+            <>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>cloud_upload</span>
+                  <span className="text-xs font-bold text-slate-700">Backblaze B2</span>
+                  <ConnectionBadge status={displayedBackblazeTestStatus} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => void handleTestBackblaze()} disabled={globalBusy}
+                    className={`${BTN_SM} border border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isTestingBackblazeB2 ? 'animate-spin' : ''}`}>
+                      {isTestingBackblazeB2 ? 'progress_activity' : 'verified'}
+                    </span>
+                    Kiểm tra
+                  </button>
+                  <button type="button" onClick={() => void handleSaveBackblaze()} disabled={globalBusy}
+                    className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isSavingBackblazeB2 ? 'animate-spin' : ''}`}>
+                      {isSavingBackblazeB2 ? 'progress_activity' : 'save'}
+                    </span>
+                    Lưu cấu hình
+                  </button>
+                </div>
+              </div>
+
+              {/* Form body */}
+              <div className="p-4 grid grid-cols-2 gap-x-4 gap-y-3 flex-1 content-start">
+                <ToggleSwitch
+                  checked={isBackblazeEnabled}
+                  onChange={() => setIsBackblazeEnabled((p) => !p)}
+                  label={isBackblazeEnabled ? 'Tích hợp Backblaze B2 đang bật' : 'Tích hợp Backblaze B2 đang tắt'}
+                />
+
+                <div>
+                  <label className={LABEL}>Application Key ID</label>
+                  <input type="text" value={backblazeAccessKeyId}
+                    onChange={(e) => setBackblazeAccessKeyId(e.target.value)}
+                    placeholder="00438a9b..." className={INPUT} />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Bucket ID</label>
+                  <input type="text" value={backblazeBucketId}
+                    onChange={(e) => setBackblazeBucketId(e.target.value)}
+                    placeholder="93f8ca298bf4d000..." className={INPUT} />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Bucket name</label>
+                  <input type="text" value={backblazeBucketName}
+                    onChange={(e) => setBackblazeBucketName(e.target.value)}
+                    placeholder="tailieu-qlcv" className={INPUT} />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Region</label>
+                  <input type="text" value={backblazeRegion}
+                    onChange={(e) => setBackblazeRegion(e.target.value)}
+                    placeholder="us-west-004" className={INPUT} />
+                </div>
+
+                <div className="col-span-2">
+                  <label className={LABEL}>Endpoint (tự suy từ Region)</label>
+                  <div className="h-8 flex items-center px-2.5 rounded border border-slate-200 bg-slate-50 text-xs font-mono text-slate-500 truncate">
+                    {backblazeDerivedEndpoint || <span className="text-slate-400 italic">Nhập Region để hệ thống tự suy endpoint</span>}
+                  </div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className={LABEL}>Tiền tố file</label>
+                  <input type="text" value={backblazeFilePrefix}
+                    onChange={(e) => setBackblazeFilePrefix(e.target.value)}
+                    placeholder="VNPT" className={INPUT} />
+                </div>
+
+                <div className="col-span-2">
+                  <label className={LABEL}>Application Key</label>
+                  <textarea
+                    value={backblazeSecretAccessKey}
+                    onChange={(e) => {
+                      setBackblazeSecretAccessKey(e.target.value);
+                      if (normalizeText(e.target.value)) setClearBackblazeSecret(false);
+                    }}
+                    rows={3}
+                    placeholder="Dán Application Key vào đây (để trống nếu giữ nguyên)"
+                    className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none"
+                  />
+                  <div className="flex items-center gap-4 mt-1">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 select-none cursor-pointer">
+                      <input
+                        type="checkbox" checked={clearBackblazeSecret}
+                        onChange={(e) => {
+                          setClearBackblazeSecret(e.target.checked);
+                          if (e.target.checked) setBackblazeSecretAccessKey('');
+                        }}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                      />
+                      Xóa key đang lưu
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      Trạng thái: <strong className="text-slate-600">{backblazeB2Settings?.has_secret_access_key ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
+                      {backblazeB2Settings?.secret_access_key_preview && (
+                        <span className="font-mono ml-1 text-slate-500">{backblazeB2Settings.secret_access_key_preview}</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer info strip */}
+              <InfoFooter
+                source={backblazeB2Settings?.source || 'ENV'}
+                testedAt={displayedBackblazeTestedAt}
+                message={displayedBackblazeTestMessage}
+              />
+            </>
+          )}
+
+          {/* ════════ GOOGLE DRIVE ════════ */}
+          {selectedGroup === 'GOOGLE_DRIVE' && (
+            <>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>cloud</span>
+                  <span className="text-xs font-bold text-slate-700">Google Drive</span>
+                  <ConnectionBadge status={displayedTestStatus} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => void handleTestGoogleDrive()} disabled={globalBusy}
+                    className={`${BTN_SM} border border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isTesting ? 'animate-spin' : ''}`}>
+                      {isTesting ? 'progress_activity' : 'verified'}
+                    </span>
+                    Kiểm tra
+                  </button>
+                  <button type="button" onClick={() => void handleSaveGoogleDrive()} disabled={globalBusy}
+                    className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isSaving ? 'animate-spin' : ''}`}>
+                      {isSaving ? 'progress_activity' : 'save'}
+                    </span>
+                    Lưu cấu hình
+                  </button>
+                </div>
+              </div>
+
+              {/* Form body */}
+              <div className="p-4 grid grid-cols-2 gap-x-4 gap-y-3 flex-1 content-start">
+                <ToggleSwitch
+                  checked={isEnabled}
+                  onChange={() => setIsEnabled((p) => !p)}
+                  label={isEnabled ? 'Tích hợp Google Drive đang bật' : 'Tích hợp Google Drive đang tắt'}
+                />
+
+                <div>
+                  <label className={LABEL}>Email tài khoản dịch vụ</label>
+                  <input type="text" value={accountEmail}
+                    onChange={(e) => setAccountEmail(e.target.value)}
+                    placeholder="service-account@project.iam.gserviceaccount.com" className={INPUT} />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Folder ID</label>
+                  <input type="text" value={folderId}
+                    onChange={(e) => setFolderId(e.target.value)}
+                    placeholder="1AbCdEfGh..." className={INPUT} />
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                    Phải là thư mục Shared Drive nếu không dùng Impersonate user
+                  </p>
+                </div>
+
+                <div>
+                  <label className={LABEL}>Tiền tố file</label>
+                  <input type="text" value={filePrefix}
+                    onChange={(e) => setFilePrefix(e.target.value)}
+                    placeholder="VNPT" className={INPUT} />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Impersonate user <span className="font-normal text-slate-400">(tuỳ chọn)</span></label>
+                  <input type="text" value={impersonateUser}
+                    onChange={(e) => setImpersonateUser(e.target.value)}
+                    placeholder="user@domain.com" className={INPUT} />
+                </div>
+
+                <div className="col-span-2">
+                  <label className={LABEL}>Scopes</label>
+                  <input type="text" value={scopes}
+                    onChange={(e) => setScopes(e.target.value)}
+                    placeholder="https://www.googleapis.com/auth/drive.file" className={INPUT} />
+                </div>
+
+                <div className="col-span-2">
+                  <label className={LABEL}>Service Account JSON</label>
+                  <textarea
+                    value={serviceAccountJson}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      setServiceAccountJson(nextValue);
+                      if (normalizeText(nextValue)) setClearCredentials(false);
+                      const clientEmail = extractServiceAccountClientEmail(nextValue);
+                      if (clientEmail) setAccountEmail(clientEmail);
+                    }}
+                    rows={4}
+                    placeholder="Dán nội dung JSON service account vào đây (để trống nếu giữ nguyên cấu hình hiện tại)"
+                    className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none"
+                  />
+                  <div className="flex items-center gap-4 mt-1">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 select-none cursor-pointer">
+                      <input
+                        type="checkbox" checked={clearCredentials}
+                        onChange={(e) => {
+                          setClearCredentials(e.target.checked);
+                          if (e.target.checked) setServiceAccountJson('');
+                        }}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                      />
+                      Xóa JSON đang lưu
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      Trạng thái: <strong className="text-slate-600">{settings?.has_service_account_json ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
+                      {settings?.has_service_account_json && <span className="ml-1">· JSON đã lưu mã hóa, không hiển thị lại</span>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer info strip */}
+              <InfoFooter
+                source={settings?.source || 'ENV'}
+                testedAt={displayedTestedAt}
+                message={displayedTestMessage}
+              />
+            </>
+          )}
+
+          {/* ════════ CONTRACT EXPIRY ALERT ════════ */}
+          {selectedGroup === 'CONTRACT_EXPIRY_ALERT' && (
+            <>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 16 }}>event_busy</span>
+                  <span className="text-xs font-bold text-slate-700">Cảnh báo hợp đồng hết hiệu lực</span>
+                </div>
+                <button type="button" onClick={() => void handleSaveContractExpiryAlert()} disabled={globalBusy}
+                  className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm`}
+                >
+                  <span className={`material-symbols-outlined text-sm ${isSavingContractExpiryAlert ? 'animate-spin' : ''}`}>
+                    {isSavingContractExpiryAlert ? 'progress_activity' : 'save'}
+                  </span>
+                  Lưu
+                </button>
+              </div>
+
+              <div className="p-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                <div>
+                  <label className={LABEL}>Số ngày cảnh báo trước khi hết hiệu lực</label>
+                  <input
+                    type="number" min={1} max={365} step={1}
+                    value={expiryWarningDays}
+                    onChange={(e) => setExpiryWarningDays(e.target.value)}
+                    placeholder="30" className={INPUT}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                    KPI cảnh báo các hợp đồng có ngày hết hiệu lực nằm trong khoảng từ hôm nay đến số ngày này.
+                  </p>
+                </div>
+
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-slate-600 mb-2">Cấu hình đang lưu</p>
+                  <dl className="space-y-1.5 text-xs">
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Nguồn</dt>
+                      <dd className="font-semibold text-slate-700">{contractExpiryAlertSettings?.source || 'DEFAULT'}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Cập nhật</dt>
+                      <dd className="font-semibold text-slate-700">{formatTestTime(contractExpiryAlertSettings?.updated_at || null)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Ngưỡng hiện tại</dt>
+                      <dd className="font-bold text-secondary">{contractExpiryAlertSettings?.warning_days ?? 30} ngày</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ════════ CONTRACT PAYMENT ALERT ════════ */}
+          {selectedGroup === 'CONTRACT_PAYMENT_ALERT' && (
+            <>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 16 }}>payments</span>
+                  <span className="text-xs font-bold text-slate-700">Cảnh báo hợp đồng đến kỳ thanh toán</span>
+                </div>
+                <button type="button" onClick={() => void handleSaveContractPaymentAlert()} disabled={globalBusy}
+                  className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm`}
+                >
+                  <span className={`material-symbols-outlined text-sm ${isSavingContractPaymentAlert ? 'animate-spin' : ''}`}>
+                    {isSavingContractPaymentAlert ? 'progress_activity' : 'save'}
+                  </span>
+                  Lưu
+                </button>
+              </div>
+
+              <div className="p-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                <div>
+                  <label className={LABEL}>Số ngày cảnh báo trước kỳ thanh toán</label>
+                  <input
+                    type="number" min={1} max={365} step={1}
+                    value={paymentWarningDays}
+                    onChange={(e) => setPaymentWarningDays(e.target.value)}
+                    placeholder="30" className={INPUT}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                    Áp dụng cho hợp đồng theo chu kỳ. Cảnh báo khi đến hạn thanh toán trong khoảng số ngày này.
+                  </p>
+                </div>
+
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-slate-600 mb-2">Cấu hình đang lưu</p>
+                  <dl className="space-y-1.5 text-xs">
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Nguồn</dt>
+                      <dd className="font-semibold text-slate-700">{contractPaymentAlertSettings?.source || 'DEFAULT'}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Cập nhật</dt>
+                      <dd className="font-semibold text-slate-700">{formatTestTime(contractPaymentAlertSettings?.updated_at || null)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-500">Ngưỡng hiện tại</dt>
+                      <dd className="font-bold text-secondary">{contractPaymentAlertSettings?.warning_days ?? 30} ngày</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </>
+          )}
+
+        </div>{/* end right pane */}
+      </div>{/* end two-pane card */}
     </div>
   );
 };

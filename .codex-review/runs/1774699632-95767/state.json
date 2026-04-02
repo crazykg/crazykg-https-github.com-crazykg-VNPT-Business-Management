@@ -1,0 +1,16 @@
+{
+  "pid": 95774,
+  "pgid": 95774,
+  "watchdog_pid": 95775,
+  "run_id": "1774699632-95767",
+  "state_dir": "/Users/pvro86gmail.com/Downloads/QLCV/.codex-review/runs/1774699632-95767",
+  "working_dir": "/Users/pvro86gmail.com/Downloads/QLCV",
+  "effort": "xhigh",
+  "sandbox": "read-only",
+  "timeout": 3600,
+  "started_at": 1774699632,
+  "thread_id": "019d343b-55e9-74e0-9336-08afeda2b84d",
+  "last_line_count": 30,
+  "stall_count": 0,
+  "last_poll_at": 1774699777
+}

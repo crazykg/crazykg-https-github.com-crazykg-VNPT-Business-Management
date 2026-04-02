@@ -65,6 +65,24 @@ const getEmployeePhone = (employee: Employee): string => {
   return candidate || '';
 };
 
+const secondaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
+
+const primaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60';
+
+const compactInputClass =
+  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30';
+
+const compactSelectTriggerClass =
+  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+
+const menuPanelClass = 'absolute top-full z-20 mt-2 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-fade-in';
+const menuItemClass =
+  'flex items-center gap-2.5 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60';
+const tableActionButtonClass =
+  'inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors';
+
 const renderContactLink = ({
   href,
   value,
@@ -79,13 +97,13 @@ const renderContactLink = ({
   <div className="relative group">
     <a
       href={href}
-      className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+      className="flex h-7 w-7 items-center justify-center rounded border border-primary/20 bg-white text-primary transition-colors hover:bg-primary/5 hover:text-deep-teal"
       title={value}
       aria-label={ariaLabel}
     >
-      <span className="material-symbols-outlined text-lg">{icon}</span>
+      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
     </a>
-    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-base font-semibold text-white opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100">
+    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-deep-teal px-2 py-1 text-[10px] font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
       {value}
     </span>
   </div>
@@ -333,6 +351,44 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   const currentData = serverMode
     ? (employees || [])
     : filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  const visibleEmployees = serverMode ? currentData : filteredEmployees;
+  const activeVisibleCount = visibleEmployees.filter((employee) => normalizeEmployeeStatus(employee.status) === 'ACTIVE').length;
+  const vpnVisibleCount = visibleEmployees.filter((employee) => getVpnLabel(employee.vpn_status) === 'Có').length;
+  const departmentCoverageCount = new Set(
+    visibleEmployees
+      .map((employee) => getDepartmentCode(employee))
+      .filter((value) => value && value !== '--')
+  ).size;
+  const summaryCards = [
+    {
+      label: 'Nhân sự theo bộ lọc',
+      value: totalItems,
+      caption: 'Tổng số hồ sơ khớp với truy vấn hiện tại.',
+      tone: 'border-transparent bg-gradient-to-r from-primary to-primary-container text-white',
+      iconName: 'group',
+    },
+    {
+      label: 'Đang hoạt động',
+      value: activeVisibleCount,
+      caption: serverMode ? 'Đếm trên tập dữ liệu đang tải của trang hiện tại.' : 'Sẵn sàng vận hành trong tập kết quả hiện tại.',
+      tone: 'border-secondary/20 bg-secondary-fixed text-deep-teal',
+      iconName: 'verified_user',
+    },
+    {
+      label: 'Đã bật VPN',
+      value: vpnVisibleCount,
+      caption: 'Số hồ sơ có trạng thái VPN khả dụng trên dữ liệu đang hiển thị.',
+      tone: 'border-primary/10 bg-primary-container-soft text-deep-teal',
+      iconName: 'lan',
+    },
+    {
+      label: 'Phòng ban hiện diện',
+      value: departmentCoverageCount,
+      caption: 'Số đơn vị xuất hiện trong tập dữ liệu đang hiển thị.',
+      tone: 'border-tertiary/10 bg-tertiary-fixed text-tertiary',
+      iconName: 'apartment',
+    },
+  ];
 
   const buildRemoteExportQuery = (): EmployeeListQuery => ({
     page: 1,
@@ -372,9 +428,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const getStatusBadgeClass = (status: string) => {
     const normalizedStatus = normalizeEmployeeStatus(status);
-    if (normalizedStatus === 'ACTIVE') return 'bg-secondary/30 text-deep-teal';
-    if (normalizedStatus === 'SUSPENDED') return 'bg-amber-100 text-amber-700';
-    return 'bg-slate-100 text-slate-600';
+    if (normalizedStatus === 'ACTIVE') return 'bg-secondary-fixed text-deep-teal';
+    if (normalizedStatus === 'SUSPENDED') return 'bg-tertiary-fixed text-tertiary';
+    return 'bg-surface-container text-neutral';
   };
 
   const getStatusLabel = (status: string) => {
@@ -503,162 +559,223 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   };
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Quản lý danh sách nhân sự</h2>
-          <p className="text-slate-500 text-sm mt-1">Quản lý danh sách nhân sự.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 lg:flex-none">
-            <button
-              onClick={() => setShowImportMenu(!showImportMenu)}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm"
-            >
-              <span className="material-symbols-outlined text-lg">upload</span>
-              <span className="hidden sm:inline">Nhập</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
-            </button>
+    <div className="space-y-3 p-3 pb-6">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  group
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">People Directory</p>
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản lý danh sách nhân sự</h2>
+                <p className="text-[11px] leading-tight text-slate-400">
+                  Tập trung quản trị hồ sơ nhân sự, trạng thái vận hành tài khoản và các thao tác nhập xuất dữ liệu.
+                </p>
+              </div>
+            </div>
 
-            {showImportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button
-                    onClick={() => {
-                      setShowImportMenu(false);
-                      onOpenModal('IMPORT_DATA');
-                    }}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
-                  >
-                    <span className="material-symbols-outlined text-lg">upload_file</span> Nhập dữ liệu
-                  </button>
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">download</span> Tải file mẫu
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                {serverMode ? `Trang ${paginationMeta?.page || currentPage}/${totalPages}` : `${new Intl.NumberFormat('vi-VN').format(totalItems)} hồ sơ`}
+              </span>
+
+              <div className="relative">
+                <button
+                  onClick={() => setShowImportMenu(!showImportMenu)}
+                  className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                >
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
+                  Nhập
+                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
+                </button>
+
+                {showImportMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                    <div className={`${menuPanelClass} left-0 w-44`}>
+                      <button
+                        onClick={() => {
+                          setShowImportMenu(false);
+                          onOpenModal('IMPORT_DATA');
+                        }}
+                        className={menuItemClass}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
+                        Nhập dữ liệu
+                      </button>
+                      <button
+                        onClick={handleDownloadTemplate}
+                        className={`${menuItemClass} border-t border-slate-100`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                        Tải file mẫu
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={isExporting}
+                  className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                >
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>download</span>
+                  {isExporting ? 'Đang xuất' : 'Xuất'}
+                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
+                </button>
+
+                {showExportMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
+                    <div className={`${menuPanelClass} right-0 w-40`}>
+                      <button
+                        disabled={isExporting}
+                        onClick={() => handleExport('excel')}
+                        className={menuItemClass}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
+                        Excel
+                      </button>
+                      <button
+                        disabled={isExporting}
+                        onClick={() => handleExport('csv')}
+                        className={`${menuItemClass} border-t border-slate-100`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>csv</span>
+                        CSV
+                      </button>
+                      <button
+                        disabled={isExporting}
+                        onClick={() => handleExport('pdf')}
+                        className={`${menuItemClass} border-t border-slate-100`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>picture_as_pdf</span>
+                        PDF
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <button
+                onClick={() => onOpenModal('ADD_EMPLOYEE')}
+                className={primaryButtonClass}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                Thêm nhân sự
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 p-3 xl:grid-cols-4">
+          {summaryCards.map((card) => (
+            <div
+              key={card.label}
+              className={`rounded-lg border p-3 shadow-sm ${card.tone}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</p>
+                <span className={`inline-flex h-7 w-7 items-center justify-center rounded ${card.label === 'Nhân sự theo bộ lọc' ? 'bg-white/15 text-white' : 'bg-white/80 text-current'}`}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{card.iconName}</span>
+                </span>
+              </div>
+              <p className="mt-2 text-xl font-black leading-none">{new Intl.NumberFormat('vi-VN').format(card.value)}</p>
+              <p className="mt-1 text-[11px] leading-5 opacity-80">{card.caption}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 bg-slate-50/70 p-3">
+          <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>filter_alt</span>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-700">Bộ lọc và tra cứu</p>
+                <p className="text-[10px] text-slate-400">Tìm nhanh theo mã, tài khoản, email, phòng ban và trạng thái vận hành.</p>
+              </div>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+              Hiển thị {new Intl.NumberFormat('vi-VN').format(currentData.length)} / {new Intl.NumberFormat('vi-VN').format(totalItems)}
+            </span>
           </div>
 
-          <div className="relative flex-1 lg:flex-none">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={isExporting}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span className="hidden sm:inline">{isExporting ? 'Đang xuất' : 'Xuất'}</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
-            </button>
-
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button
-                    disabled={isExporting}
-                    onClick={() => handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
-                  </button>
-                  <button
-                    disabled={isExporting}
-                    onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="material-symbols-outlined text-lg">csv</span> CSV
-                  </button>
-                  <button
-                    disabled={isExporting}
-                    onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <button
-            onClick={() => onOpenModal('ADD_EMPLOYEE')}
-            className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span>Thêm nhân sự</span>
-          </button>
-        </div>
-      </header>
-
-      <div>
-        <div className="bg-white p-4 border-x border-slate-200 border-b-0 flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-wrap gap-4 items-center">
-            <div className="col-span-1 lg:flex-1 min-w-[200px] relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_220px_180px] xl:items-center">
+            <div className="relative min-w-[200px]">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral" style={{ fontSize: 16 }}>
+                search
+              </span>
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+                className={`pl-9 ${compactInputClass}`}
                 placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
               />
             </div>
             <SearchableSelect
-              className="col-span-1 lg:w-48"
+              className="col-span-1"
               value={departmentFilter}
               onChange={handleDepartmentFilterChange}
               options={departmentFilterOptions}
               placeholder="Phòng ban"
-              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              triggerClassName={compactSelectTriggerClass}
             />
-            <div className="col-span-1 lg:w-48 relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">mail</span>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral" style={{ fontSize: 16 }}>
+                mail
+              </span>
               <input
                 type="text"
                 value={emailFilter}
                 onChange={(e) => handleEmailFilterChange(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm placeholder:text-slate-400 outline-none"
+                className={`pl-9 ${compactInputClass}`}
                 placeholder="Email"
               />
             </div>
             <SearchableSelect
-              className="col-span-1 md:w-full lg:w-40"
+              className="col-span-1"
               value={statusFilter}
               onChange={handleStatusFilterChange}
               options={statusFilterOptions}
               placeholder="Trạng thái"
-              triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+              triggerClassName={compactSelectTriggerClass}
             />
           </div>
         </div>
 
-        <div className="bg-white rounded-b-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
+        <div className="flex flex-col bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1280px]">
-              <thead className="bg-slate-50 border-y border-slate-200">
+            <table className="min-w-[1240px] w-full text-left">
+              <thead className="border-b border-slate-200 bg-slate-50/90">
                 <tr>
                   {[
-                    { label: 'MÃ NV', width: 'min-w-[190px]', key: 'user_code' },
-                    { label: 'TÊN ĐĂNG NHẬP', width: 'min-w-[180px]', key: 'username' },
-                    { label: 'HỌ TÊN', width: 'min-w-[220px]', key: 'full_name' },
+                    { label: 'MÃ NV', width: 'min-w-[170px]', key: 'user_code' },
+                    { label: 'TÊN ĐĂNG NHẬP', width: 'min-w-[170px]', key: 'username' },
+                    { label: 'HỌ TÊN', width: 'min-w-[210px]', key: 'full_name' },
                     { label: 'PHÒNG BAN', width: 'min-w-[220px]', key: 'department_id' },
                     { label: 'LIÊN HỆ', width: 'min-w-[150px]', key: 'email' },
                     { label: 'CHỨC VỤ', width: 'min-w-[170px]', key: 'position_name' },
                     { label: 'CHỨC DANH', width: 'min-w-[220px]', key: 'job_title_vi' },
-                    { label: 'NGÀY SINH', width: 'min-w-[140px]', key: 'date_of_birth' },
-                    { label: 'GIỚI TÍNH', width: 'min-w-[120px]', key: 'gender' },
+                    { label: 'NGÀY SINH', width: 'min-w-[130px]', key: 'date_of_birth' },
+                    { label: 'GIỚI TÍNH', width: 'min-w-[110px]', key: 'gender' },
                     { label: 'VPN', width: 'min-w-[100px]', key: 'vpn_status' },
-                    { label: 'ĐỊA CHỈ IP', width: 'min-w-[150px]', key: 'ip_address' },
-                    { label: 'TRẠNG THÁI', width: 'min-w-[160px]', key: 'status' },
+                    { label: 'ĐỊA CHỈ IP', width: 'min-w-[140px]', key: 'ip_address' },
+                    { label: 'TRẠNG THÁI', width: 'min-w-[150px]', key: 'status' },
                   ].map((col) => (
                     <th
                       key={col.label}
-                      className={`px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider ${col.width} cursor-pointer hover:bg-slate-100 transition-colors select-none`}
+                      className={`px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral ${col.width} cursor-pointer select-none transition-colors hover:bg-slate-100`}
                       onClick={() => handleSort(col.key as keyof Employee)}
                     >
                       <div className="flex items-center gap-1">
@@ -667,22 +784,25 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right sticky right-0 bg-slate-50 z-10 shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
+                  <th className="sticky right-0 z-10 bg-slate-50/95 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)]">
                     THAO TÁC
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {currentData.length > 0 ? (
                   currentData.map((emp) => (
-                    <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-sm font-mono text-slate-500 font-bold whitespace-nowrap min-w-[190px]">{getEmployeeCode(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-700 font-semibold">{emp.username}</td>
-                      <td className="px-6 py-4 text-sm text-slate-900 font-semibold">
-                        <span>{emp.full_name}</span>
+                    <tr key={emp.id} className="group transition-colors hover:bg-slate-50/90">
+                      <td className="min-w-[170px] px-4 py-3">
+                        <div className="space-y-0.5">
+                          <p className="font-mono text-xs font-bold text-deep-teal">{getEmployeeCode(emp)}</p>
+                          <p className="text-[10px] text-slate-400">ID: {emp.id}</p>
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-700">{emp.username}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-slate-900">{emp.full_name}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">
                         {(() => {
                           const phone = getEmployeePhone(emp);
                           const email = String(emp.email || '').trim();
@@ -692,60 +812,72 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                           }
 
                           return (
-                            <div className="flex items-center gap-2">
-                              {email && (
+                            <div className="flex items-center gap-1.5">
+                              {email ? (
                                 renderContactLink({
                                   href: `mailto:${email}`,
                                   value: email,
                                   icon: 'mail',
                                   ariaLabel: `Gửi email ${email}`,
                                 })
-                              )}
-                              {phone && (
+                              ) : null}
+                              {phone ? (
                                 renderContactLink({
                                   href: `tel:${phone.replace(/[^\d+]/g, '')}`,
                                   value: phone,
                                   icon: 'call',
                                   ariaLabel: `Gọi ${phone}`,
                                 })
-                              )}
+                              ) : null}
                             </div>
                           );
                         })()}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{getPositionName(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{formatDateDdMmYyyy(emp.date_of_birth || null)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{getGenderLabel(emp.gender)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{getVpnLabel(emp.vpn_status)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 font-mono">{emp.ip_address || '--'}</td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(emp.status)}`}>
+                      <td className="px-4 py-3 text-sm text-slate-600">{getPositionName(emp)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{formatDateDdMmYyyy(emp.date_of_birth || null)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{getGenderLabel(emp.gender)}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            getVpnLabel(emp.vpn_status) === 'Có'
+                              ? 'bg-primary/10 text-primary'
+                              : getVpnLabel(emp.vpn_status) === 'Không'
+                                ? 'bg-slate-100 text-slate-500'
+                                : 'bg-surface-container text-neutral'
+                          }`}
+                        >
+                          {getVpnLabel(emp.vpn_status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-sm text-slate-600">{emp.ip_address || '--'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusBadgeClass(emp.status)}`}>
                           {getStatusLabel(emp.status)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right sticky right-0 bg-white shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.1)]">
-                        <div className="flex justify-end gap-2">
+                      <td className="sticky right-0 bg-white px-4 py-3 text-right shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)] transition-colors group-hover:bg-slate-50/90">
+                        <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY', emp)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
+                            className={`${tableActionButtonClass} hover:border-primary/20 hover:bg-primary/5 hover:text-primary`}
                             title="Luân chuyển"
                           >
-                            <span className="material-symbols-outlined text-lg">sync_alt</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>sync_alt</span>
                           </button>
                           <button
                             onClick={() => onOpenModal('EDIT_EMPLOYEE', emp)}
-                            className="p-1.5 text-slate-400 hover:text-primary transition-colors"
+                            className={`${tableActionButtonClass} hover:border-secondary/30 hover:bg-secondary-fixed hover:text-deep-teal`}
                             title="Chỉnh sửa"
                           >
-                            <span className="material-symbols-outlined text-lg">edit</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
                           </button>
                           <button
                             onClick={() => onOpenModal('DELETE_EMPLOYEE', emp)}
-                            className="p-1.5 text-slate-400 hover:text-error transition-colors"
+                            className={`${tableActionButtonClass} hover:border-error/20 hover:bg-error/10 hover:text-error`}
                             title="Xóa"
                           >
-                            <span className="material-symbols-outlined text-lg">delete</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                           </button>
                         </div>
                       </td>
@@ -753,12 +885,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={13} className="px-6 py-8 text-center text-slate-500">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <span className="material-symbols-outlined text-4xl text-slate-300">
+                    <td colSpan={13} className="px-6 py-10 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center gap-3 py-6">
+                        <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 34 }}>
                           {isLoading ? 'hourglass_top' : 'search_off'}
                         </span>
-                        <p>{isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy nhân sự nào.'}</p>
+                        <p className="text-sm font-semibold text-slate-700">
+                          {isLoading ? 'Đang tải dữ liệu...' : 'Không tìm thấy nhân sự nào.'}
+                        </p>
+                        {!isLoading ? (
+                          <p className="max-w-lg text-[11px] leading-5 text-slate-400">
+                            Hãy điều chỉnh bộ lọc hoặc thêm hồ sơ mới để mở rộng danh sách nhân sự đang theo dõi.
+                          </p>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

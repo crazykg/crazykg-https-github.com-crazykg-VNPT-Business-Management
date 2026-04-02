@@ -216,13 +216,12 @@ class InvoiceDomainService
 
         $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
-        $invoice = DB::transaction(function () use ($data, $userId, $request) {
-            // Generate code
-            $code = $this->generateCode('INV');
+        ['subtotal' => $subtotal, 'vat_amount' => $vatAmount, 'total' => $total] =
+            $this->computeAmounts($data['items'] ?? [], $data['vat_rate'] ?? null);
 
-            // Compute amounts
-            ['subtotal' => $subtotal, 'vat_amount' => $vatAmount, 'total' => $total] =
-                $this->computeAmounts($data['items'], $data['vat_rate'] ?? null);
+        $invoice = DB::transaction(function () use ($data, $userId, $request, $subtotal, $vatAmount, $total) {
+            // Generate code
+            $code = $this->generateCode('INV', $data['invoice_date'] ?? null);
 
             $invoice = Invoice::create([
                 'invoice_code'   => $code,
@@ -453,7 +452,7 @@ class InvoiceDomainService
                 // Use pre-loaded contract items (avoids N+1)
                 $contractItems = $allContractItems->get($schedule->contract_id) ?? collect();
 
-                $code = $this->generateCode('INV');
+                $code = $this->generateCode('INV', $schedule->expected_date);
 
                 // Build invoice items from contract items
                 $itemsData = $contractItems->map(fn ($ci) => [
@@ -635,9 +634,9 @@ class InvoiceDomainService
      * Generate unique code with retry on race condition.
      * Pattern: INV-YYYYMM-NNNN or RCP-YYYYMM-NNNN
      */
-    public function generateCode(string $prefix): string
+    public function generateCode(string $prefix, ?string $date = null): string
     {
-        $month = now()->format('Ym');
+        $month = $date ? \Carbon\Carbon::parse($date)->format('Ym') : now()->format('Ym');
         $pattern = $prefix . '-' . $month . '-%';
         $table = $prefix === 'INV' ? 'invoices' : 'receipts';
         $codeCol = $prefix === 'INV' ? 'invoice_code' : 'receipt_code';
@@ -869,7 +868,7 @@ class InvoiceDomainService
     private function serializeInvoice(Invoice $invoice, bool $withItems = false): array
     {
         $outstanding = round(($invoice->total_amount ?? 0) - ($invoice->paid_amount ?? 0), 2);
-        $isOverdue = ! in_array($invoice->status, self::TERMINAL_STATUSES + ['DRAFT'], true)
+        $isOverdue = ! in_array($invoice->status, [...self::TERMINAL_STATUSES, 'DRAFT'], true)
             && $invoice->due_date !== null
             && $invoice->due_date < now()->startOfDay()
             && $outstanding > 0;

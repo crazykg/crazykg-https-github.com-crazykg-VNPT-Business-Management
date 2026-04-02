@@ -214,13 +214,13 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     if (normalized === 'Inactive') {
       return {
         label: 'Không hoạt động',
-        className: 'bg-slate-100 text-slate-600',
+        className: 'bg-surface-container text-neutral',
       };
     }
 
     return {
       label: 'Hoạt động',
-      className: 'bg-green-100 text-green-700',
+      className: 'bg-secondary-fixed text-deep-teal',
     };
   };
 
@@ -501,28 +501,28 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
   };
 
   const renderPositionBadge = (item: CustomerPersonnel) => (
-    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+    <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-500">
       {resolvePositionLabel(item)}
     </span>
   );
 
   const renderStatusBadge = (item: CustomerPersonnel) => (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta(item.status).className}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${statusMeta(item.status).className}`}>
       {statusMeta(item.status).label}
     </span>
   );
 
   const renderContactInfo = (phoneNumber: string, email: string) => {
     if (!phoneNumber && !email) {
-      return <span className="text-sm text-slate-400">--</span>;
+      return <span className="text-xs text-slate-400">--</span>;
     }
 
     return (
-      <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1">
         {phoneNumber ? (
           <a
             href={`tel:${phoneNumber}`}
-            className="text-sm font-medium text-slate-700 underline-offset-2 hover:text-primary hover:underline break-all"
+            className="text-xs font-medium text-slate-700 underline-offset-2 hover:text-primary hover:underline break-all"
           >
             {phoneNumber}
           </a>
@@ -530,7 +530,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
         {email ? (
           <a
             href={`mailto:${email}`}
-            className="text-xs text-slate-500 underline-offset-2 hover:text-primary hover:underline break-all"
+            className="text-[11px] text-slate-500 underline-offset-2 hover:text-primary hover:underline break-all"
           >
             {email}
           </a>
@@ -545,72 +545,71 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
     }
 
     return (
-      <div className={`flex ${className} gap-2`}>
+      <div className={`flex ${className} gap-1`}>
         {canEdit ? (
           <button
             onClick={() => onOpenModal('EDIT_CUS_PERSONNEL', item)}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+            className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
             title="Chỉnh sửa"
           >
-            <span className="material-symbols-outlined text-lg">edit</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
           </button>
         ) : null}
         {canDelete ? (
           <button
             onClick={() => onOpenModal('DELETE_CUS_PERSONNEL', item)}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+            className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
             title="Xóa"
           >
-            <span className="material-symbols-outlined text-lg">delete</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
           </button>
         ) : null}
       </div>
     );
   };
 
-  const secondaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 lg:w-auto';
-  const primaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 lg:w-auto';
-
   return (
-    <div className="space-y-3 px-4 pb-20 pt-0 md:pb-8">
-      <div className="sticky top-0 z-30 -mx-4 bg-bg-light/95 px-4 pb-3 pt-0 backdrop-blur-sm">
-      <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Đầu mối liên hệ</h2>
+    <div className="p-3 pb-6">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>perm_contact_calendar</span>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Đầu mối liên hệ</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Quản lý nhân sự liên hệ của khách hàng.</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Import */}
           {canImport && (
-            <div className="relative w-full lg:w-auto">
+            <div className="relative">
               <button
                 onClick={() => setShowImportMenu(!showImportMenu)}
-                className={secondaryToolbarButtonClassName}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               >
-                <span className="material-symbols-outlined text-lg">upload</span>
-                <span>Nhập</span>
-                <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                Nhập
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
               </button>
               {showImportMenu && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                  <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute top-full left-0 z-20 mt-1.5 w-44 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
                     <button
-                      onClick={() => {
-                        setShowImportMenu(false);
-                        onOpenModal('IMPORT_DATA');
-                      }}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 transition-colors text-left"
+                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
                     >
-                      <span className="material-symbols-outlined text-lg">upload_file</span>
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>upload_file</span>
                       Nhập dữ liệu
                     </button>
                     <button
                       onClick={handleDownloadTemplate}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left border-t border-gray-100"
+                      className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
                     >
-                      <span className="material-symbols-outlined text-lg">download</span>
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>download</span>
                       Tải file mẫu
                     </button>
                   </div>
@@ -619,68 +618,94 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             </div>
           )}
 
-          <div className="relative w-full lg:w-auto">
+          {/* Export */}
+          <div className="relative">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className={secondaryToolbarButtonClassName}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             >
-              <span className="material-symbols-outlined text-lg">download</span>
-              <span>Xuất</span>
-              <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+              Xuất
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
             </button>
             {showExportMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)}></div>
-                <div className="absolute top-full right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                  <button
-                    onClick={() => handleExport('excel')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors text-left"
-                  >
-                    <span className="material-symbols-outlined text-lg">table_view</span> Excel
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute top-full right-0 z-20 mt-1.5 w-36 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                  <button onClick={() => handleExport('excel')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
                   </button>
-                  <button
-                    onClick={() => handleExport('csv')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-t border-gray-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">csv</span> CSV
+                  <button onClick={() => handleExport('csv')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
                   </button>
-                  <button
-                    onClick={() => handleExport('pdf')}
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-red-600 transition-colors text-left border-t border-gray-100"
-                  >
-                    <span className="material-symbols-outlined text-lg">picture_as_pdf</span> PDF
+                  <button onClick={() => handleExport('pdf')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
                   </button>
                 </div>
               </>
             )}
           </div>
 
+          {/* Add */}
           {canEdit && (
             <button
               onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
-              className={primaryToolbarButtonClassName}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
             >
-              <span className="material-symbols-outlined">add</span>
-              <span>Thêm đầu mối</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+              Thêm đầu mối
             </button>
           )}
         </div>
-        </div>
+      </div>
 
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Tổng đầu mối</span>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>perm_contact_calendar</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{totalCount}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Hoạt động</span>
+            <div className="w-7 h-7 rounded bg-secondary-fixed flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 15 }}>check_circle</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{activeCount}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Không hoạt động</span>
+            <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>pause_circle</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{inactiveCount}</p>
+        </div>
+      </div>
+
+      {/* ── Filter bar ── */}
+      <div className="bg-white px-3 py-2 rounded-t-lg border border-slate-200 border-b-0 space-y-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <div className="relative min-w-0 flex-1">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+            <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Tìm theo tên nhân sự, tên khách hàng, email..."
-              className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full h-8 pl-8 pr-3 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
             />
           </div>
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center">
+          <div className="flex flex-wrap items-center gap-2">
             <SearchableSelect
-              className="w-full md:w-auto xl:w-52"
+              className="w-48"
               value={positionFilter}
               onChange={(value) => {
                 setPositionFilter(value);
@@ -688,10 +713,10 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
               }}
               options={positionFilterOptions}
               placeholder="Tất cả vai trò"
-              triggerClassName="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              triggerClassName="h-8 text-xs border-slate-200 focus:border-primary"
             />
             <SearchableSelect
-              className="w-full md:w-auto xl:w-44"
+              className="w-40"
               value={statusFilter}
               onChange={(value) => {
                 setStatusFilter(String(value || ''));
@@ -703,7 +728,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                 { value: 'Inactive', label: 'Không hoạt động' },
               ]}
               placeholder="Tất cả trạng thái"
-              triggerClassName="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              triggerClassName="h-8 text-xs border-slate-200 focus:border-primary"
             />
             <div className="relative lg:hidden">
               <label htmlFor="cus-personnel-sort" className="sr-only">Sắp xếp danh sách</label>
@@ -711,162 +736,124 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                 id="cus-personnel-sort"
                 value={sortSelectValue}
                 onChange={(e) => handleResponsiveSortChange(e.target.value)}
-                className="h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-slate-700 outline-none transition-all focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                className="h-8 appearance-none rounded border border-slate-200 bg-slate-50 pl-2.5 pr-8 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                 aria-label="Sắp xếp danh sách"
               >
                 {RESPONSIVE_SORT_OPTIONS.map((option) => (
                   <option key={option.value || 'default'} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-                swap_vert
-              </span>
+              <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>swap_vert</span>
             </div>
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors ${showAdvanced ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+              className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-semibold transition-colors ${showAdvanced ? 'border-primary/20 bg-primary-container-soft text-deep-teal' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
             >
-              <span className="material-symbols-outlined text-lg">filter_list</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_list</span>
               <span className="hidden md:inline">Bộ lọc</span>
             </button>
             {hasActiveFilters ? (
               <button
                 onClick={resetFilters}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 whitespace-nowrap"
               >
-                <span className="material-symbols-outlined text-lg">filter_alt_off</span>
-                Xóa bộ lọc
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
+                Xóa lọc
               </button>
             ) : null}
           </div>
         </div>
 
         {showAdvanced ? (
-          <div className="grid grid-cols-1 gap-4 border-t border-gray-200 pt-4 md:grid-cols-2 animate-slide-in">
-              <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">call</span>
-                <input
-                  type="text"
-                  value={phoneInput}
-                  onChange={(e) => setPhoneInput(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Lọc theo số điện thoại"
-                />
-              </div>
-              <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">mail</span>
-                <input
-                  type="text"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Lọc theo email"
-                />
-              </div>
+          <div className="grid grid-cols-1 gap-2 border-t border-slate-100 pt-2 md:grid-cols-2">
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 14 }}>call</span>
+              <input
+                type="text"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
+                placeholder="Lọc theo số điện thoại"
+              />
+            </div>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 14 }}>mail</span>
+              <input
+                type="text"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
+                placeholder="Lọc theo email"
+              />
+            </div>
           </div>
         ) : null}
 
         {hasActiveFilters ? (
-          <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                <span className="material-symbols-outlined text-sm">filter_alt</span>
-                Đang lọc
-              </span>
-              {searchInput.trim() && <p className="text-xs text-slate-500">Từ khóa: "{searchInput.trim()}"</p>}
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt</span>
+              Đang lọc
+            </span>
+            {searchInput.trim() && <p className="text-[10px] text-slate-500">Từ khóa: "{searchInput.trim()}"</p>}
           </div>
         ) : null}
-      </section>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Tổng đầu mối</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{totalCount}</p>
-            </div>
-            <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-              <span className="material-symbols-outlined">perm_contact_calendar</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Hoạt động</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{activeCount}</p>
-            </div>
-            <div className="rounded-2xl bg-green-50 p-3 text-green-600">
-              <span className="material-symbols-outlined">check_circle</span>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Không hoạt động</p>
-              <p className="mt-4 text-3xl font-semibold text-slate-900">{inactiveCount}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-100 p-3 text-slate-600">
-              <span className="material-symbols-outlined">pause_circle</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">Danh sách đầu mối liên hệ</h3>
-          </div>
+      {/* ── Table section ── */}
+      <div className="bg-white rounded-b-lg border border-slate-200 overflow-hidden shadow-sm">
+        {/* Table header bar */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100">
+          <span className="text-xs font-bold text-slate-700">Danh sách đầu mối liên hệ</span>
           {hasActiveFilters ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              <span className="material-symbols-outlined text-sm">filter_alt</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt</span>
               Bộ lọc đang bật
-            </div>
+            </span>
           ) : null}
         </div>
 
         <div className="overflow-hidden">
           {currentData.length > 0 ? (
             <>
-              <div data-testid="cus-personnel-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+              {/* Mobile cards */}
+              <div data-testid="cus-personnel-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:hidden">
                 {currentData.map((item) => {
                   const phoneNumber = String(item.phoneNumber || '').trim();
                   const email = String(item.email || '').trim();
 
                   return (
-                    <article key={`mobile-${String(item.id)}`} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                      <div className="flex items-start gap-3">
+                    <article key={`mobile-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Khách hàng</p>
-                          <p className="mt-1 break-words text-sm font-semibold leading-6 text-slate-800" title={getCustomerName(item.customerId)}>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Khách hàng</p>
+                          <p className="mt-0.5 break-words text-xs font-semibold leading-5 text-slate-800" title={getCustomerName(item.customerId)}>
                             {getCustomerName(item.customerId)}
                           </p>
                         </div>
                         <div className="shrink-0">{renderActionButtons(item)}</div>
                       </div>
 
-                      <div className="mt-4 space-y-4">
+                      <div className="mt-2.5 space-y-2">
                         <div>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Họ và tên</p>
-                          <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.fullName || '--'}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Họ và tên</p>
+                          <p className="mt-0.5 break-words text-xs font-bold leading-5 text-slate-900">{item.fullName || '--'}</p>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngày sinh</p>
-                            <p className="mt-1 text-sm font-medium text-slate-700">{formatBirthday(item.birthday)}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày sinh</p>
+                            <p className="mt-0.5 text-xs font-medium text-slate-700">{formatBirthday(item.birthday)}</p>
                           </div>
-                          <div className="flex flex-wrap items-start gap-2 sm:justify-end">
+                          <div className="flex flex-wrap items-start gap-1">
                             {renderPositionBadge(item)}
                             {renderStatusBadge(item)}
                           </div>
                         </div>
 
                         <div>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Liên hệ</p>
-                          <div className="mt-1 min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Liên hệ</p>
+                          <div className="mt-0.5 min-w-0">
                             {renderContactInfo(phoneNumber, email)}
                           </div>
                         </div>
@@ -876,24 +863,25 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                 })}
               </div>
 
+              {/* Desktop table */}
               <div className="hidden overflow-x-auto lg:block">
                 <table
                   data-testid="cus-personnel-desktop-table"
-                  className={`w-full table-fixed text-left border-collapse ${showActionColumn ? 'min-w-[1340px]' : 'min-w-[1220px]'}`}
+                  className={`w-full table-fixed text-left border-collapse ${showActionColumn ? 'min-w-[1200px]' : 'min-w-[1100px]'}`}
                 >
-                  <thead className="bg-gray-50 border-y border-gray-200">
+                  <thead className="bg-slate-50 border-y border-slate-200">
                     <tr>
                       {[
-                        { label: 'Khách hàng', key: 'customerId', widthClassName: 'w-[300px] min-w-[300px]' },
-                        { label: 'Họ và tên', key: 'fullName', widthClassName: 'w-[250px] min-w-[250px]' },
-                        { label: 'Ngày sinh', key: 'birthday', widthClassName: 'w-[150px] min-w-[150px]' },
-                        { label: 'Chức vụ', key: 'positionType', widthClassName: 'w-[170px] min-w-[170px]' },
-                        { label: 'Trạng thái', key: 'status', widthClassName: 'w-[170px] min-w-[170px]' },
-                        { label: 'Liên hệ', key: 'phoneNumber', widthClassName: 'w-[300px] min-w-[300px]' },
+                        { label: 'Khách hàng', key: 'customerId', widthClassName: 'w-[260px] min-w-[260px]' },
+                        { label: 'Họ và tên', key: 'fullName', widthClassName: 'w-[220px] min-w-[220px]' },
+                        { label: 'Ngày sinh', key: 'birthday', widthClassName: 'w-[130px] min-w-[130px]' },
+                        { label: 'Chức vụ', key: 'positionType', widthClassName: 'w-[160px] min-w-[160px]' },
+                        { label: 'Trạng thái', key: 'status', widthClassName: 'w-[150px] min-w-[150px]' },
+                        { label: 'Liên hệ', key: 'phoneNumber', widthClassName: 'w-[260px] min-w-[260px]' },
                       ].map((col) => (
                         <th
                           key={col.key}
-                          className={`cursor-pointer select-none px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
                           onClick={() => handleSort(col.key as keyof CustomerPersonnel)}
                         >
                           <div className="flex items-center gap-1">
@@ -903,41 +891,41 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
                         </th>
                       ))}
                       {showActionColumn ? (
-                        <th className="sticky right-0 w-[120px] min-w-[120px] bg-gray-50 px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                        <th className="sticky right-0 w-[90px] min-w-[90px] bg-slate-50 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
                           Thao tác
                         </th>
                       ) : null}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody className="divide-y divide-slate-100">
                     {currentData.map((item) => {
                       const phoneNumber = String(item.phoneNumber || '').trim();
                       const email = String(item.email || '').trim();
 
                       return (
-                        <tr key={String(item.id)} className="transition-colors hover:bg-gray-50">
-                          <td className="px-4 py-3 align-top text-sm font-medium text-slate-700" title={getCustomerName(item.customerId)}>
-                            <div className="max-w-[268px] whitespace-normal break-words leading-6">
+                        <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
+                          <td className="px-3 py-2 align-top text-xs font-medium text-slate-700" title={getCustomerName(item.customerId)}>
+                            <div className="max-w-[230px] whitespace-normal break-words leading-5">
                               {getCustomerName(item.customerId)}
                             </div>
                           </td>
-                          <td className="px-4 py-3 align-top text-sm font-semibold text-slate-900">
-                            <div className="max-w-[220px] whitespace-normal break-words leading-6">
+                          <td className="px-3 py-2 align-top text-xs font-semibold text-slate-900">
+                            <div className="max-w-[190px] whitespace-normal break-words leading-5">
                               {item.fullName || '--'}
                             </div>
                           </td>
-                          <td className="px-4 py-3 align-top text-sm text-slate-600">{formatBirthday(item.birthday)}</td>
-                          <td className="px-4 py-3 align-top">
+                          <td className="px-3 py-2 align-top text-xs text-slate-600">{formatBirthday(item.birthday)}</td>
+                          <td className="px-3 py-2 align-top">
                             {renderPositionBadge(item)}
                           </td>
-                          <td className="px-4 py-3 align-top">
+                          <td className="px-3 py-2 align-top">
                             {renderStatusBadge(item)}
                           </td>
-                          <td className="px-4 py-3 align-top">
+                          <td className="px-3 py-2 align-top">
                             {renderContactInfo(phoneNumber, email)}
                           </td>
                           {showActionColumn ? (
-                            <td className="sticky right-0 bg-white px-4 py-3 text-right align-top shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                            <td className="sticky right-0 bg-white px-3 py-2 text-right align-top shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
                               {renderActionButtons(item)}
                             </td>
                           ) : null}
@@ -949,36 +937,36 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
               </div>
             </>
           ) : (
-            <div className="px-6 py-12 text-center text-slate-500">
-              <div className="flex flex-col items-center gap-3">
-                <span className="material-symbols-outlined text-4xl text-slate-300">
+            <div className="px-3 py-8 text-center text-slate-500">
+              <div className="flex flex-col items-center gap-2">
+                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>
                   {showNoDataState ? 'perm_contact_calendar' : 'search_off'}
                 </span>
                 <div className="space-y-1">
-                  <p className="text-base font-semibold text-slate-700">
+                  <p className="text-xs font-semibold text-slate-700">
                     {showNoDataState ? 'Chưa có nhân sự liên hệ nào.' : 'Không tìm thấy nhân sự phù hợp.'}
                   </p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-[11px] text-slate-400">
                     {showNoDataState
-                      ? (canEdit ? 'Nhấn "Thêm mới" để bắt đầu tạo đầu mối liên hệ đầu tiên.' : 'Dữ liệu nhân sự liên hệ sẽ hiển thị tại đây khi có phát sinh.')
+                      ? (canEdit ? 'Nhấn "Thêm đầu mối" để bắt đầu.' : 'Dữ liệu sẽ hiển thị tại đây khi có phát sinh.')
                       : 'Thử thay đổi bộ lọc hoặc xóa bộ lọc để xem lại danh sách.'}
                   </p>
                 </div>
                 {showNoDataState && canEdit ? (
                   <button
                     onClick={() => onOpenModal('ADD_CUS_PERSONNEL')}
-                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-deep-teal shadow-sm"
                   >
-                    <span className="material-symbols-outlined text-lg">add</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                     Thêm đầu mối
                   </button>
                 ) : null}
                 {showNoMatchState && hasActiveFilters ? (
                   <button
                     onClick={resetFilters}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                   >
-                    <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>filter_alt_off</span>
                     Xóa bộ lọc
                   </button>
                 ) : null}
@@ -998,7 +986,7 @@ export const CusPersonnelList: React.FC<CusPersonnelListProps> = ({
             }}
           />
         </div>
-      </section>
+      </div>
     </div>
   );
 };

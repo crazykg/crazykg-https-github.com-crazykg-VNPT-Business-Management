@@ -1,4 +1,5 @@
 import type { PaginatedQuery, PaginatedResult } from '../../types/common';
+import type { Employee } from '../../types/employee';
 import type {
   Product,
   ProductFeatureCatalog,
@@ -60,6 +61,25 @@ export interface ProductQuotationDraftPayload {
 }
 
 export interface ProductQuotationExportPayload extends ProductQuotationDraftPayload {}
+
+export interface ProductQuotationDefaultSettingsPayload {
+  scope_summary?: string | null;
+  validity_days?: number | null;
+  notes_text?: string | null;
+  contact_line?: string | null;
+  closing_message?: string | null;
+  signatory_title?: string | null;
+  signatory_unit?: string | null;
+  signatory_name?: string | null;
+}
+
+export interface ProductQuotationDefaultSettingsRecord extends ProductQuotationDefaultSettingsPayload {
+  user_id?: number | null;
+  validity_days: number;
+  is_persisted: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
 
 export interface ProductQuotationDraftItem {
   id: number;
@@ -146,6 +166,7 @@ export interface ProductQuotationVersionRecord {
   content_hash?: string | null;
   printed_at?: string | null;
   printed_by?: number | null;
+  printed_by_actor?: Pick<Employee, 'id' | 'user_code' | 'full_name' | 'username'> | null;
   created_at?: string | null;
 }
 
@@ -196,6 +217,7 @@ export interface ProductQuotationEventRecord {
   ip_address?: string | null;
   user_agent?: string | null;
   created_by?: number | null;
+  actor?: Pick<Employee, 'id' | 'user_code' | 'full_name' | 'username'> | null;
   created_at?: string | null;
 }
 
@@ -498,6 +520,46 @@ export const fetchProductQuotationsPage = async (
   query: PaginatedQuery
 ): Promise<PaginatedResult<ProductQuotationDraftListItem>> =>
   fetchPaginatedList<ProductQuotationDraftListItem>('/api/v5/products/quotations', query);
+
+export const fetchProductQuotationDefaultSettings = async (): Promise<ProductQuotationDefaultSettingsRecord> => {
+  const res = await apiFetch('/api/v5/products/quotation-default-settings', {
+    method: 'GET',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_QUOTATION_DEFAULT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationDefaultSettingsRecord>(res);
+};
+
+export const updateProductQuotationDefaultSettings = async (
+  payload: ProductQuotationDefaultSettingsPayload
+): Promise<ProductQuotationDefaultSettingsRecord> => {
+  const res = await apiFetch('/api/v5/products/quotation-default-settings', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      scope_summary: normalizeNullableText(payload.scope_summary),
+      validity_days: normalizeNullableNumber(payload.validity_days),
+      notes_text: normalizeNullableText(payload.notes_text),
+      contact_line: normalizeNullableText(payload.contact_line),
+      closing_message: normalizeNullableText(payload.closing_message),
+      signatory_title: normalizeNullableText(payload.signatory_title),
+      signatory_unit: normalizeNullableText(payload.signatory_unit),
+      signatory_name: normalizeNullableText(payload.signatory_name),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_QUOTATION_DEFAULT_SETTINGS_FAILED'));
+  }
+
+  return parseItemJson<ProductQuotationDefaultSettingsRecord>(res);
+};
 
 export const fetchProductQuotation = async (id: string | number): Promise<ProductQuotationDraft> => {
   const res = await apiFetch(`/api/v5/products/quotations/${id}`, {

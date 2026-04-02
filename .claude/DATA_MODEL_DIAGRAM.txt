@@ -1,0 +1,265 @@
+╔════════════════════════════════════════════════════════════════════════════════════════╗
+║            VNPT BUSINESS MANAGEMENT: PRODUCTS, CONTRACTS & CUSTOMERS                  ║
+║                        Data Model Architecture Overview                                ║
+╚════════════════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                               CUSTOMER ENTITY                                         │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ id, uuid, customer_code, customer_name, tax_code, address                            │
+│ customer_sector (HEALTHCARE | GOVERNMENT | INDIVIDUAL | OTHER)                       │
+│ healthcare_facility_type (PUBLIC_HOSPITAL | PRIVATE_HOSPITAL | MEDICAL_CENTER | ...) │
+│ bed_capacity, company_name, data_scope, created_at, updated_at, deleted_at           │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+                                      ▼
+                    ┌──────────────────────────────────┐
+                    │    contracts: HasMany([])         │ (1-to-many)
+                    │    opportunities: HasMany([])     │
+                    │    projects: HasMany([])          │
+                    └──────────────────────────────────┘
+                         │                  │                  │
+              ┌──────────┴──────────┐       │        ┌─────────┴──────┐
+              ▼                     ▼       ▼        ▼                ▼
+        ┌─────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+        │CONTRACT      │  │  OPPORTUNITY        │  │  PROJECT             │
+        ├─────────────┤  ├──────────────────────┤  ├──────────────────────┤
+        │ id          │  │ id                   │  │ id                   │
+        │ code        │  │ customer_id (FK)     │  │ customer_id (FK)     │
+        │ customer_id ├──┤ stage (NEW|QUOTED|..)│  │ status               │
+        │ (FK)        │  │ amount               │  │ project_code         │
+        │ project_id  ├──┤ created_at, ...      │  │ project_name         │
+        │ (FK)        │  └──────────────────────┘  │ created_at, ...      │
+        │ value       │                             └──────────────────────┘
+        │ status      │
+        │ (DRAFT|     │
+        │  SIGNED|    │  ┌─────────────────────────────────────┐
+        │  RENEWED)   │  │    CONTRACT RELATIONSHIPS           │
+        │ sign_date   │  ├─────────────────────────────────────┤
+        │ effective_  │  │ parent_contract_id (for renewals)   │
+        │   date      │  │ addendum_type                       │
+        │ expiry_date │  │ gap_days (days between parent & new)│
+        │ payment_    │  │ continuity_status                   │
+        │   cycle     │  │ penalty_rate (for late payments)    │
+        │ term_unit   │  └─────────────────────────────────────┘
+        │ term_value  │
+        │ deleted_at  │
+        └─────────────┘
+              │
+              │ items: HasMany([])  (1-to-many)
+              │
+              ▼
+        ┌──────────────────────────────────┐
+        │   CONTRACT_ITEM (Line Items)     │
+        ├──────────────────────────────────┤
+        │ id                               │
+        │ contract_id (FK)                 │
+        │ product_id (FK)                  │
+        │ quantity, unit_price             │
+        │ vat_rate, vat_amount             │
+        │ created_at, updated_at           │
+        └──────────────────────────────────┘
+              │
+              │ product: BelongsTo()
+              │
+              ▼
+        ┌──────────────────────────────────┐
+        │     PRODUCT ENTITY               │
+        ├──────────────────────────────────┤
+        │ id, uuid, product_code           │
+        │ product_name, package_name       │
+        │ domain_id (FK) ──────────────┐   │
+        │ vendor_id (FK)               │   │
+        │ standard_price               │   │
+        │ unit (e.g., "per month")     │   │
+        │ service_group                │   │
+        │ (GROUP_A | GROUP_B | GROUP_C)│   │
+        │ is_active, description       │   │
+        │ attachments[]                │   │
+        │ deleted_at                   │   │
+        └──────────────────────────────────┘
+                                           │
+                ┌──────────────────────────┘
+                │
+                ▼
+        ┌──────────────────────────────────┐
+        │   BUSINESS_DOMAIN                │
+        ├──────────────────────────────────┤
+        │ id, domain_code, domain_name     │
+        │ vat_multiplier (1.10, 1.08, 1.00)│ ← Used by CustomerInsightService
+        └──────────────────────────────────┘
+
+                ┌──────────────────────────────────┐
+                │  PAYMENT_SCHEDULE                │
+                ├──────────────────────────────────┤
+                │ id, contract_id (FK)             │ (1-to-many from Contract)
+                │ project_id (FK)                  │
+                │ milestone_name                   │
+                │ cycle_number (1,2,3,...)         │
+                │ expected_date, expected_amount   │
+                │ actual_paid_date, actual_paid... │
+                │ status (PENDING|PAID|OVERDUE)    │
+                │ confirmed_by, confirmed_at       │
+                │ penalty_rate, penalty_amount     │
+                │ original_amount (for audits)     │
+                │ created_at, updated_at           │
+                └──────────────────────────────────┘
+
+════════════════════════════════════════════════════════════════════════════════════════
+
+UPSELL RECOMMENDATION PIPELINE (CustomerInsightService):
+═════════════════════════════════════════════════════════════════════════════════════════
+
+INPUT: customer_id
+  │
+  ├──────► Step 1: Get products customer ALREADY USES
+  │         └─► Query: contract_items → contracts (customer_id=?) → products
+  │
+  ├──────► Step 2: Check for HIS products
+  │         └─► If customer has ANY HIS → Exclude ALL HIS from suggestions
+  │
+  ├──────► Step 3: Pre-aggregate product POPULARITY (single query)
+  │         └─► For each product: COUNT(DISTINCT customer_id) where using this product
+  │         └─► This is social proof: "47 other customers use this"
+  │
+  ├──────► Step 4: Query UPSELL CANDIDATES
+  │         └─► active products NOT in customer's contracts
+  │         └─► Order by: GROUP_A first, then popularity DESC
+  │         └─► Limit: 8 suggestions
+  │
+  ├──────► Step 5: Get REFERENCE CUSTOMERS (≤3 per product)
+  │         └─► Who else is using each suggested product?
+  │         └─► Provides social proof
+  │
+  └──────► OUTPUT: upsell_candidates[] with:
+           - product_id, product_name, standard_price
+           - service_group (A/B/C), is_priority (A=true)
+           - popularity (count of other customers)
+           - reference_customers (≤3 names as proof)
+
+════════════════════════════════════════════════════════════════════════════════════════
+
+CUSTOMER INSIGHT ENDPOINT: GET /api/v5/customers/{id}/insight
+═════════════════════════════════════════════════════════════════════════════════════════
+
+Response Structure:
+{
+  data: {
+    customer: { id, name, sector, facility_type, bed_capacity, ... },
+    
+    contracts_summary: {
+      total_count: 12,
+      total_value: 500000,
+      active_value: 450000,
+      by_status: { SIGNED: 8, RENEWED: 3, DRAFT: 1 }
+    },
+    
+    services_used: [                      ← Products already in contracts
+      {
+        product_id: 5,
+        product_name: "HIS Pro",
+        contract_count: 2,               ← 2 contracts use this
+        total_value: 100000,
+        service_group: "GROUP_A"
+      },
+      ...
+    ],
+    
+    opportunities_summary: {              ← Open sales pipeline
+      total_count: 3,
+      total_amount: 150000,
+      by_stage: { NEW: 1, QUOTED: 2 }
+    },
+    
+    crc_summary: {                        ← Support cases
+      total_cases: 15,
+      open_cases: 3,
+      by_status: { "analysis": 2, "in_progress": 1 }
+    },
+    
+    upsell_candidates: [                  ← RECOMMENDATIONS ⭐
+      {
+        product_id: 8,
+        product_name: "ERP Module",
+        standard_price: 25000,
+        unit: "per year",
+        service_group: "GROUP_B",
+        service_group_label: "Dịch vụ nhóm B",
+        reason: "Dịch vụ nhóm B",
+        popularity: 42,                   ← 42 customers use this
+        is_priority: false,
+        reference_customers: ["Hospital X", "Hospital Y", "Clinic Z"]
+      },
+      ...
+    ]
+  }
+}
+
+Cache: 5 minutes (v5:customer-insight:{id}:v1)
+Invalidated on: customer/contract/CRC updates
+
+════════════════════════════════════════════════════════════════════════════════════════
+
+KEY FILES FOR DEVELOPMENT:
+═════════════════════════════════════════════════════════════════════════════════════════
+
+Frontend:
+  • frontend/types.ts                  ← All TypeScript interfaces
+  • frontend/services/v5Api.ts         ← All API calls
+  • frontend/components/ProductList.tsx
+  • frontend/components/ContractList.tsx
+
+Backend:
+  • backend/app/Models/Product.php
+  • backend/app/Models/Contract.php
+  • backend/app/Models/ContractItem.php
+  • backend/app/Models/Customer.php
+  • backend/app/Services/V5/Domain/CustomerInsightService.php  ⭐⭐⭐ CORE
+  • backend/app/Http/Controllers/Api/V5/CustomerController.php
+
+Database:
+  • backend/database/migrations/2026_02_23_134500_create_v5_enterprise_master_tables.php
+  • backend/database/migrations/2026_03_19_170000_create_contract_items_table.php
+
+════════════════════════════════════════════════════════════════════════════════════════
+
+OPPORTUNITIES FOR SALES SUGGESTIONS:
+═════════════════════════════════════════════════════════════════════════════════════════
+
+✅ Already Implemented:
+  • Upsell recommendations based on popularity
+  • Social proof (reference customers)
+  • Priority flagging (GROUP_A products)
+  • HIS product exclusion logic
+  • Services used analysis
+
+🚫 NOT Yet Implemented:
+  • Similar customer discovery (find comparable hospitals)
+  • Product affinity analysis ("frequently bought with")
+  • RFM segmentation (Recency/Frequency/Monetary)
+  • Payment health scoring
+  • Renewal opportunity pipeline
+  • Cross-sell recommendations
+  • Market basket analysis
+
+════════════════════════════════════════════════════════════════════════════════════════
+
+PERFORMANCE OPTIMIZATIONS:
+═════════════════════════════════════════════════════════════════════════════════════════
+
+1. VAT Rate Memoization
+   • Load business_domains once per request
+   • Use PHP map instead of SQL CASE per product
+
+2. Pre-aggregated Popularity
+   • Single derived table query (not correlated subqueries)
+   • Avoids N queries for N products
+
+3. Covering Indexes
+   • idx_ci_product_contract on contract_items
+   • idx_ps_contract_expected_status on payment_schedules
+
+4. Query Caching
+   • 5-minute cache on insight per customer
+   • Invalidated on data changes
+
+════════════════════════════════════════════════════════════════════════════════════════

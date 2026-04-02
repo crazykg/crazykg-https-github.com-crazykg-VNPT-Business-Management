@@ -1,0 +1,235 @@
+================================================================================
+BACKEND AUTHORIZATION EXPLORATION - EXECUTIVE SUMMARY
+================================================================================
+Date: 2026-04-01
+Codebase: QLCV Backend (Laravel 11)
+
+================================================================================
+1. FINDINGS
+================================================================================
+
+AUTHORIZATION IMPLEMENTATION STATUS:
+✓ Complete: Policy system with department scoping + role-based permissions
+✓ Partial: Only CustomerController has authorization checks
+✗ Gap: 40+ controllers missing Gate::authorize() calls
+✓ Service: UserAccessService handles all permission/scope logic
+
+ARCHITECTURE:
+- Pattern: Laravel Gates + Policies (NOT middleware-based)
+- Registration: Auto-discovered (NOT in config/services)
+- Trait: ResolvesDepartmentScopedAccess (core logic)
+- Backend: UserAccessService (permissions, department scopes)
+
+EXISTING POLICIES (Fully Implemented):
+1. CustomerRequestCasePolicy.php (multi-owner, complex)
+2. ContractPolicy.php (indirect dept resolution via Project)
+3. InvoicePolicy.php (with business rule checks)
+4. CustomerPolicy.php (no explicit permission check)
+
+CONTROLLER STATUS:
+- ✓ Authorized: CustomerController.php (lines 43, 55)
+- ✗ Missing: CustomerRequestCaseController, DocumentController, EmployeeController, etc.
+
+================================================================================
+2. KEY PATTERNS TO REPLICATE
+================================================================================
+
+POLICY STRUCTURE (Copy-Paste Template):
+└── app/Policies/YourModelPolicy.php
+    ├── Use ResolvesDepartmentScopedAccess trait
+    ├── Implement: view(), update(), delete()
+    ├── Call: hasPermission() for permission check
+    ├── Call: isAllowedByDepartmentScope() for scope/ownership
+    └── Implement: resolveDepartmentIds() helper
+
+CONTROLLER USAGE:
+└── Before each mutation, add ONE line:
+    Gate::authorize('update', Model::findOrFail($id));
+
+PERMISSION KEY NAMING:
+├── domain.read (view/list)
+├── domain.write (create/update)
+└── domain.delete (delete)
+
+AUTHORIZATION LOGIC FLOW:
+1. Check hasPermission(user, 'domain.action')
+   └─ Consult role + user permissions in database
+2. Check isAllowedByDepartmentScope(user, deptIds, ownerUserIds)
+   ├─ Is user admin? → ALLOW
+   ├─ User has ALL scope? → ALLOW
+   ├─ User's depts overlap? → ALLOW
+   └─ User is owner? → ALLOW
+
+================================================================================
+3. CORE FILES (Reference)
+================================================================================
+
+Backend Authorization:
+├── app/Support/Auth/UserAccessService.php
+│   └── Methods: hasPermission(), departmentScopesForUser(), isAdmin()
+│
+└── app/Policies/Concerns/ResolvesDepartmentScopedAccess.php
+    ├── hasPermission(InternalUser, string): bool
+    └── isAllowedByDepartmentScope(InternalUser, $deptIds, $ownerUserIds): bool
+
+Example Policies:
+├── app/Policies/CustomerRequestCasePolicy.php (multi-owner, 65 lines)
+├── app/Policies/ContractPolicy.php (indirect dept, 51 lines)
+├── app/Policies/InvoicePolicy.php (with status checks, 59 lines)
+└── app/Policies/CustomerPolicy.php (no permission key, 63 lines)
+
+Controller Example:
+└── app/Http/Controllers/Api/V5/CustomerController.php
+    ├── Line 43: Gate::authorize('update', Customer::query()->findOrFail($id));
+    └── Line 55: Gate::authorize('delete', Customer::query()->findOrFail($id));
+
+================================================================================
+4. DEPARTMENT SCOPE RESOLUTION STRATEGIES
+================================================================================
+
+Strategy 1: Direct (Simplest)
+└─ return [(int) $model->dept_id];
+
+Strategy 2: Via Related Model
+└─ return [(int) $model->project->dept_id];
+
+Strategy 3: Multiple Relations (Complex)
+└─ Check project, fallback to contract.project, return unique
+
+Strategy 4: Eloquent Query (with Schema guards)
+└─ Use relations.pluck().filter() to find all related dept_ids
+
+RECOMMENDED:
+├─ Simple resources: Strategy 1
+├─ Related via FK: Strategy 2
+├─ Complex paths: Strategy 3
+└─ Highly dynamic: Strategy 4 (see CustomerPolicy.php)
+
+================================================================================
+5. OWNERSHIP PATTERNS
+================================================================================
+
+Single Owner:
+├── ownerUserIds: [(int) $model->created_by]
+
+Multiple Owners (Support Case):
+├── ownerUserIds: [
+│   created_by,
+│   received_by_user_id,
+│   dispatcher_user_id,
+│   performer_user_id
+├── ]
+
+Different Actions, Different Owners:
+├── update(): Allow all involved parties
+└── delete(): Allow only creator/dispatcher (NOT performer)
+
+================================================================================
+6. BUSINESS RULE INTEGRATION
+================================================================================
+
+Add before isAllowedByDepartmentScope():
+├── Status checks (e.g., "don't edit PAID invoices")
+├── State validation (e.g., "can't delete finalized records")
+└── Conditional logic based on model attributes
+
+EXAMPLE (from InvoicePolicy):
+if (in_array((string) $invoice->status, ['PAID', 'CANCELLED', 'VOID'], true)) {
+    return false;  // Reject early, before scope check
+}
+
+================================================================================
+7. DATABASE TABLES (Reference)
+================================================================================
+
+Permission System:
+├── permissions(id, perm_key, perm_name, is_active)
+├── user_roles(id, user_id, role_id, is_active, expires_at)
+├── role_permission(role_id, permission_id)
+└── user_permissions(id, user_id, permission_id, type=GRANT|DENY, expires_at)
+
+Department Scoping:
+└── user_dept_scopes(id, user_id, dept_id, scope_type)
+    └── scope_type: 'ALL', 'SELF_ONLY', 'DEPT_ONLY', 'DEPT_AND_CHILDREN'
+
+================================================================================
+8. QUICK REPLICATION STEPS
+================================================================================
+
+1. Create Policy:
+   └─ Copy CustomerRequestCasePolicy.php as template
+   ├── Rename class
+   ├── Update model imports
+   ├── Adjust department resolution method
+   └── Adjust ownership fields
+
+2. Add Permission Keys (in database):
+   ├── domain.read
+   ├── domain.write
+   └── domain.delete
+
+3. Update Controller:
+   └─ Add 2 lines per mutation method:
+      use Illuminate\Support\Facades\Gate;
+      Gate::authorize('action', Model::findOrFail($id));
+
+4. Link to Roles:
+   └─ Update role_permission table to grant keys
+
+================================================================================
+9. COMMON MISTAKES TO AVOID
+================================================================================
+
+✗ Missing hasPermission() → Only scope/ownership checked
+✗ Forgetting Gate import → Undefined class error
+✗ Passing null/0 owner IDs → Trait handles filtering, but validate input
+✗ Wrong permission key naming → Use consistent domain.action pattern
+✗ Not handling indirect dept resolution → Check all FK paths
+✗ Different ownership logic per action → Explicitly vary ownerUserIds array
+
+================================================================================
+10. FILES CREATED (In /Downloads/QLCV/)
+================================================================================
+
+1. AUTHORIZATION_PATTERNS.md (679 lines)
+   └─ Complete exploration with full code excerpts
+      - All 4 policy implementations
+      - UserAccessService methods
+      - Controller usage patterns
+      - Decision trees and flow diagrams
+
+2. AUTH_QUICK_REFERENCE.md
+   └─ 1-minute pattern guide
+      - Template code to copy
+      - Department resolution strategies
+      - Ownership patterns
+      - Business rule integration
+      - Real-world example
+
+3. EXPLORATION_SUMMARY.txt (This file)
+   └─ Executive summary
+      - Quick reference table
+      - Key findings
+      - Replication checklist
+
+================================================================================
+RECOMMENDATION
+================================================================================
+
+START WITH:
+1. Read AUTH_QUICK_REFERENCE.md (5 min) - Template structure
+2. Copy CustomerRequestCasePolicy.php as template
+3. Adapt for your model (dept resolution + owners)
+4. Add Gate::authorize() to controller (1 line per action)
+5. Add permission keys to database
+6. Test authorization flow
+
+COPY FROM EXISTING:
+├── CustomerRequestCasePolicy.php → Multi-owner patterns
+├── InvoicePolicy.php → Business rule checks
+├── CustomerPolicy.php → No permission key variant
+└── CustomerController.php → Gate usage example
+
+================================================================================
+END OF SUMMARY
+================================================================================

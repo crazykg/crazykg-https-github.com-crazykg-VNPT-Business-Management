@@ -271,7 +271,7 @@ describe('ProductFeatureCatalogModal', () => {
     expect(screen.getByText(/^I$/)).toBeInTheDocument();
     expect(screen.queryByText('1.1')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Danh mục chức năng: Phần mềm VNPT-HIS' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Nhập file/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Nhập$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Xuất Excel/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Xuất PDF/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Mã sản phẩm VNPT_HIS_L2 - Phần mềm VNPT-HIS')).not.toBeInTheDocument();
@@ -652,7 +652,8 @@ describe('ProductFeatureCatalogModal', () => {
       expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: /^Nhập$/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
 
     expect(screen.getByRole('heading', { name: 'Nhập dữ liệu danh mục chức năng' })).toBeInTheDocument();
     expect(screen.queryByDisplayValue('Khám bệnh')).not.toBeInTheDocument();
@@ -700,7 +701,8 @@ describe('ProductFeatureCatalogModal', () => {
       expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: /^Nhập$/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
     await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
 
     await waitFor(() => {
@@ -742,7 +744,8 @@ describe('ProductFeatureCatalogModal', () => {
       expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: /^Nhập$/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
     await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
 
     await waitFor(() => {
@@ -782,7 +785,8 @@ describe('ProductFeatureCatalogModal', () => {
       expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Nhập file/i }));
+    await user.click(screen.getByRole('button', { name: /^Nhập$/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
     await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
 
     await waitFor(() => {

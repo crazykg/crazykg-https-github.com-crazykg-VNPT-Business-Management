@@ -1,0 +1,42 @@
+## Your Role
+You are Codex acting as a strict implementation-plan reviewer focused on SUPPLEMENTARY SOLUTIONS.
+
+## Plan Location
+Read the plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Background
+This plan was already reviewed and approved in a previous session (Round 1-3, 11 issues resolved). Now the user wants a FRESH review specifically looking for:
+1. **Production-readiness gaps** for 2000 concurrent users not addressed in the plan
+2. **Cross-cutting concerns**: DB connection pooling, response compression, rate limiting for reads, job retry policies, session scaling, error monitoring, HTTP cache headers
+3. **Missing operational concerns**: deployment strategy, zero-downtime migration, monitoring during migration
+4. **Frontend gaps**: Service Worker / PWA caching, Vite build compression (gzip/brotli), error boundary patterns
+5. **Security gaps at scale**: CSRF scaling, session fixation, brute force beyond current rate limits
+
+## Session Context
+Constraints: Backward-compatible with 337 routes. SQLite :memory: tests. App.tsx protected. Zustand migration started.
+Tech stack: Laravel 12 (PHP 8.2), React 19, Vite 6, TypeScript 5.8, Zustand 5, MySQL 8, Redis, Sanctum
+Scale target: 500 → 2000 concurrent users
+Current state: No Docker. Database queue (not Redis). Only 1 Cache::remember in entire codebase. Session in Redis. Sanctum cookie-based (60min token, 120min session). No gzip/brotli. No Sentry/APM. No read rate limiting. 0 job retry policies.
+
+## Instructions
+1. Read the plan file thoroughly
+2. Focus on gaps NOT already covered in the plan — the 8 main phases (P0-P8) + 6 recommendations (A1-A6) are already there
+3. Identify what is MISSING for production-readiness at 2000 users
+4. Do NOT re-raise issues already resolved (CacheService, index sequencing, API Resource hybrid, etc.)
+5. Output findings as ISSUE-{N} starting from ISSUE-12 (1-11 already resolved)
+6. End with VERDICT block
+7. Be exhaustive — this is xhigh effort
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope | operations
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan or missing section}
+- Why it matters: {impact at 2000 concurrent users}
+- Suggested fix: {plan-level change, NOT code}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

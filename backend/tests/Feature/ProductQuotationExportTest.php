@@ -63,7 +63,7 @@ class ProductQuotationExportTest extends TestCase
         $this->assertStringContainsString('232.100.000', $documentXml);
         $this->assertStringContainsString('PHAN VĂN RỞ', $documentXml);
         $this->assertStringContainsString('<w:pgSz w:w="11907" w:h="16840" w:orient="portrait"/>', $documentXml);
-        $this->assertStringContainsString('<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"', $documentXml);
+        $this->assertStringContainsString('<w:pgMar w:top="810" w:right="1134" w:bottom="1134" w:left="1134"', $documentXml);
         $this->assertStringContainsString('<w:tblW w:w="9639" w:type="dxa"/>', $documentXml);
         $this->assertStringContainsString('<w:tblGrid><w:gridCol w:w="2656"/><w:gridCol w:w="6983"/></w:tblGrid>', $documentXml);
         $this->assertStringContainsString('<wp:extent cx="1450000" cy="457344"/>', $documentXml);
@@ -128,6 +128,47 @@ class ProductQuotationExportTest extends TestCase
         $this->assertStringContainsString('198.000.000', $documentXml);
         $this->assertStringContainsString('2.480.000', $documentXml);
         $this->assertStringContainsString('231.480.000', $documentXml);
+    }
+
+    public function test_it_appends_feature_catalog_appendices_for_each_quotation_item(): void
+    {
+        $response = $this->post('/api/v5/products/quotation/export-word', $this->quotationPayload());
+
+        $response->assertOk();
+
+        $binary = $response->getContent();
+        $this->assertIsString($binary);
+        $this->assertNotSame('', $binary);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'quote_word_appendix_');
+        $this->assertNotFalse($tempFile);
+        file_put_contents($tempFile, $binary);
+
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($tempFile) === true);
+
+        $documentXml = $zip->getFromName('word/document.xml');
+        $zip->close();
+        @unlink($tempFile);
+
+        $this->assertIsString($documentXml);
+        $this->assertStringContainsString('PHỤ LỤC 1', $documentXml);
+        $this->assertStringContainsString('PHỤ LỤC 2', $documentXml);
+        $this->assertStringContainsString('VNPT HIS CLOUD', $documentXml);
+        $this->assertStringContainsString('VNPT EMR', $documentXml);
+        $this->assertStringContainsString('Quản trị hệ thống (Quản lý người dùng, quản lý cấu hình)', $documentXml);
+        $this->assertStringContainsString('Đăng nhập', $documentXml);
+        $this->assertStringContainsString('Trang chủ', $documentXml);
+        $this->assertStringContainsString('Bệnh án điện tử', $documentXml);
+        $this->assertStringContainsString('Quản lý hồ sơ bệnh án', $documentXml);
+        $this->assertStringContainsString('Đính kèm báo giá ngày 25/03/2026', $documentXml);
+        $this->assertStringContainsString('Trung tâm Kinh doanh Giải pháp – VNPT Cần Thơ', $documentXml);
+        $this->assertStringContainsString('phát hành đến BỆNH VIỆN ĐA KHOA CẦN THƠ', $documentXml);
+        $this->assertStringContainsString('Danh mục chức năng', $documentXml);
+        $this->assertStringContainsString('Mô tả chi tiết', $documentXml);
+        $this->assertStringContainsString('w:trHeight w:val="575" w:hRule="atLeast"', $documentXml);
+        $this->assertStringContainsString('w:trHeight w:val="315" w:hRule="atLeast"', $documentXml);
+        $this->assertStringContainsString('<w:tcMar><w:top w:w="30" w:type="dxa"/><w:left w:w="45" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:right w:w="45" w:type="dxa"/></w:tcMar>', $documentXml);
     }
 
     public function test_it_exports_product_quotation_as_excel_document(): void
@@ -239,6 +280,8 @@ class ProductQuotationExportTest extends TestCase
 
     private function setUpSchema(): void
     {
+        Schema::dropIfExists('product_features');
+        Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('products');
 
         Schema::create('products', function (Blueprint $table): void {
@@ -251,6 +294,77 @@ class ProductQuotationExportTest extends TestCase
         DB::table('products')->insert([
             ['id' => 1, 'product_name' => 'VNPT HIS Cloud', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 2, 'product_name' => 'VNPT EMR', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        Schema::create('product_feature_groups', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('product_id');
+            $table->string('group_name', 255);
+            $table->integer('display_order')->default(0);
+            $table->timestamps();
+        });
+
+        Schema::create('product_features', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('group_id');
+            $table->string('feature_name', 255);
+            $table->text('detail_description')->nullable();
+            $table->integer('display_order')->default(0);
+            $table->string('status', 20)->default('ACTIVE');
+            $table->timestamps();
+        });
+
+        DB::table('product_feature_groups')->insert([
+            [
+                'id' => 1,
+                'product_id' => 1,
+                'group_name' => 'Quản trị hệ thống (Quản lý người dùng, quản lý cấu hình)',
+                'display_order' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 2,
+                'product_id' => 2,
+                'group_name' => 'Bệnh án điện tử',
+                'display_order' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('product_features')->insert([
+            [
+                'product_id' => 1,
+                'group_id' => 1,
+                'feature_name' => 'Đăng nhập',
+                'detail_description' => "Nhập thông tin tài khoản\n- Kiểm tra OTP",
+                'display_order' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'product_id' => 1,
+                'group_id' => 1,
+                'feature_name' => 'Trang chủ',
+                'detail_description' => "Hiển thị thông tin trang chủ\n- Kiểm tra các thông tin thông báo",
+                'display_order' => 2,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'product_id' => 2,
+                'group_id' => 2,
+                'feature_name' => 'Quản lý hồ sơ bệnh án',
+                'detail_description' => 'Tạo lập và theo dõi hồ sơ bệnh án điện tử.',
+                'display_order' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
     }
 }

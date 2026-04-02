@@ -79,6 +79,8 @@ Route::get('/products/{id}/target-segments', [ProductController::class, 'targetS
     ->middleware('permission:products.read');
 Route::get('/products/quotations', [ProductController::class, 'quotations'])
     ->middleware('permission:products.read');
+Route::get('/products/quotation-default-settings', [ProductController::class, 'quotationDefaultSettings'])
+    ->middleware('permission:products.read');
 Route::get('/products/quotations/{id}', [ProductController::class, 'showQuotation'])
     ->middleware('permission:products.read');
 Route::get('/products/quotations/{id}/versions', [ProductController::class, 'quotationVersions'])
@@ -94,6 +96,8 @@ Route::post('/products/quotation/export-word', [ProductController::class, 'expor
 Route::post('/products/quotation/export-excel', [ProductController::class, 'exportQuotationExcel'])
     ->middleware(['permission:products.read', 'throttle:api.write.heavy']);
 Route::post('/products/quotations', [ProductController::class, 'storeQuotation'])
+    ->middleware('permission:products.write');
+Route::put('/products/quotation-default-settings', [ProductController::class, 'updateQuotationDefaultSettings'])
     ->middleware('permission:products.write');
 Route::put('/products/quotations/{id}', [ProductController::class, 'updateQuotation'])
     ->middleware('permission:products.write');

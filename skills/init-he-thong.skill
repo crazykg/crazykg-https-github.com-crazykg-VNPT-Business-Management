@@ -163,15 +163,7 @@ Hoặc nếu có thay đổi:
 
 ```bash
 # From project root
-node scripts/update-codebase-docs.js
-```
-
-### Chạy Qua NPM
-
-```bash
-npm run update:docs
-# hoặc
-npm run skill:init
+node backend/scripts/update-codebase-docs.js
 ```
 
 ---
@@ -211,11 +203,11 @@ npm run skill:init
 
 | File | Mục đích |
 |------|----------|
-| `skills/init-he-thong.md` | Skill documentation (file này) |
-| `scripts/update-codebase-docs.js` | Automation script |
+| `skills/init-he-thong.skill` | Skill documentation (file này) |
+| `backend/scripts/update-codebase-docs.js` | Automation script |
 | `CODE_BASE_HE_THONG.md` | Output file - codebase documentation |
 | `.last-scan.json` | State file - kết quả quét lần trước |
-| `package.json` | Root package.json với npm scripts |
+| `frontend/package.json`, `backend/composer.json` | Nguồn version để cập nhật metrics và Tech Stack |
 
 ---
 
@@ -245,7 +237,7 @@ Khi agent mới bắt đầu session, chạy:
 ```
 1. Check if CODE_BASE_HE_THONG.md exists
 2. If older than 24 hours or first run:
-   - Execute: node scripts/update-codebase-docs.js
+   - Execute: node backend/scripts/update-codebase-docs.js
    - Read updated file for context
 3. Proceed with user's task
 ```

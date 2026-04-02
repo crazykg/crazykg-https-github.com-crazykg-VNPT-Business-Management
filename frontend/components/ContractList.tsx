@@ -487,80 +487,67 @@ export const ContractList: React.FC<ContractListProps> = ({
     ));
 
   return (
-    <div className="p-4 md:p-8 pb-20 md:pb-8">
-      <header className="mb-6 flex flex-col gap-4 md:mb-8 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-deep-teal tracking-tight">Hợp đồng &amp; Doanh thu</h2>
-          <p className="mt-1 text-sm text-slate-500">Quản lý hợp đồng, theo dõi doanh thu dự kiến và thực thu theo kỳ chọn.</p>
+    <div className="p-3 pb-6">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>description</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Hợp đồng &amp; Doanh thu</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Quản lý hợp đồng, theo dõi doanh thu dự kiến và thực thu.</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* View toggle */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
             <button
               type="button"
               onClick={() => setViewMode('CONTRACTS')}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                viewMode === 'CONTRACTS'
-                  ? 'bg-primary text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                viewMode === 'CONTRACTS' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
               }`}
             >
-              <span className="material-symbols-outlined text-base">description</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
               Hợp đồng
             </button>
             <button
               type="button"
               onClick={() => setViewMode('REVENUE')}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                viewMode === 'REVENUE'
-                  ? 'bg-primary text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                viewMode === 'REVENUE' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
               }`}
             >
-              <span className="material-symbols-outlined text-base">bar_chart</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>bar_chart</span>
               Doanh thu
             </button>
           </div>
 
+          {/* Export + Add (contracts only) */}
           {viewMode === 'CONTRACTS' && (
             <>
-              <div className="relative flex-auto lg:flex-none">
+              <div className="relative">
                 <button
                   type="button"
                   onClick={() => setShowExportMenu((current) => !current)}
                   disabled={isExporting}
-                  className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 transition-all text-slate-600 px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-sm disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                 >
-                  <span className={`material-symbols-outlined text-lg ${isExporting ? 'animate-spin' : ''}`}>
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
                     {isExporting ? 'progress_activity' : 'download'}
                   </span>
-                  <span>{isExporting ? 'Đang xuất...' : 'Xuất dữ liệu'}</span>
-                  <span className="material-symbols-outlined text-sm">expand_more</span>
+                  {isExporting ? 'Đang xuất...' : 'Xuất dữ liệu'}
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>expand_more</span>
                 </button>
                 {showExportMenu && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in flex flex-col">
-                      <button
-                        type="button"
-                        onClick={() => void handleExport('excel')}
-                        className="px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Xuất Excel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleExport('csv')}
-                        className="px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Xuất CSV
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleExport('pdf')}
-                        className="px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Xuất PDF
-                      </button>
+                    <div className="absolute top-full right-0 mt-1.5 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden flex flex-col">
+                      <button type="button" onClick={() => void handleExport('excel')} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất Excel</button>
+                      <button type="button" onClick={() => void handleExport('csv')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất CSV</button>
+                      <button type="button" onClick={() => void handleExport('pdf')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất PDF</button>
                     </div>
                   </>
                 )}
@@ -569,148 +556,142 @@ export const ContractList: React.FC<ContractListProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenModal('ADD_CONTRACT')}
-                  className="flex-auto lg:flex-none flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2 md:px-5 md:py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
                 >
-                  <span className="material-symbols-outlined">add</span>
-                  <span>Thêm mới</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                  Thêm mới
                 </button>
               )}
             </>
           )}
         </div>
-      </header>
+      </div>
 
-      <div className="mb-4">
-        <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur-sm">
-          <div className="flex flex-col gap-3">
-            {viewMode === 'CONTRACTS' && (
-              <div className="flex flex-col items-center gap-3 md:flex-row">
-                <div className="relative w-full md:flex-1">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-                  <input
-                    type="text"
-                    value={searchInput}
-                    onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="Tìm theo mã/tên hợp đồng, khách hàng, dự án..."
-                    className="w-full rounded-lg border-none bg-slate-50 py-2 pl-10 pr-10 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-slate-400"
-                  />
-                  {searchInput && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchInput('');
-                        setDebouncedSearchTerm('');
-                        setCurrentPage(1);
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      <span className="material-symbols-outlined text-sm">close</span>
-                    </button>
-                  )}
-                </div>
-                <SearchableSelect
-                  className="w-full md:w-52"
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                  options={statusFilterOptions}
-                  placeholder="Tất cả trạng thái"
-                  triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
+      {/* ── Filter bar ── */}
+      <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-2">
+          {viewMode === 'CONTRACTS' && (
+            <div className="flex flex-col items-center gap-2 md:flex-row">
+              <div className="relative w-full md:flex-1">
+                <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  placeholder="Tìm theo mã/tên hợp đồng, khách hàng, dự án..."
+                  className="w-full h-8 rounded border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary placeholder:text-slate-400"
                 />
-                <SearchableSelect
-                  className="w-full md:w-44"
-                  value={typeFilter}
-                  onChange={(v) => setTypeFilter(v as '' | 'STANDALONE' | 'ADDENDUM')}
-                  options={[
-                    { value: '', label: 'Tất cả loại' },
-                    { value: 'STANDALONE', label: 'HĐ gốc' },
-                    { value: 'ADDENDUM', label: 'Phụ lục / Gia hạn' },
-                  ]}
-                  placeholder="Tất cả loại"
-                  triggerClassName="w-full pl-3 pr-8 py-2 h-10 bg-slate-50 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm text-slate-600 outline-none"
-                />
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="shrink-0 text-xs font-medium text-slate-500">
-                {viewMode === 'CONTRACTS' ? 'Kỳ ngày ký:' : 'Kỳ doanh thu:'}
-              </span>
-              <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                {([
-                  { value: 'this_month', label: 'T.này' },
-                  { value: 'last_month', label: 'T.trước' },
-                  { value: 'this_quarter', label: 'Quý này' },
-                  { value: 'this_year', label: 'Năm này' },
-                  { value: 'custom', label: 'Tùy chọn' },
-                ] as const).map((opt) => (
+                {searchInput && (
                   <button
-                    key={opt.value}
                     type="button"
-                    onClick={() => setPeriodPreset(opt.value)}
-                    className={`whitespace-nowrap border-r border-slate-200 px-3 py-1.5 text-xs font-semibold transition-colors last:border-r-0 ${
-                      periodPreset === opt.value
-                        ? 'bg-primary text-white'
-                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                    }`}
+                    onClick={() => { setSearchInput(''); setDebouncedSearchTerm(''); setCurrentPage(1); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
-                    {opt.label}
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
                   </button>
-                ))}
+                )}
               </div>
-              {periodPreset === 'custom' && (
-                <>
-                  <input
-                    type="date"
-                    value={customDateFrom}
-                    onChange={(event) => setCustomDateFrom(event.target.value)}
-                    className="h-9 w-36 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                  <span className="text-xs text-slate-400">→</span>
-                  <input
-                    type="date"
-                    value={customDateTo}
-                    onChange={(event) => setCustomDateTo(event.target.value)}
-                    className="h-9 w-36 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </>
-              )}
-              {hasActiveFilter && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="flex items-center justify-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
-                >
-                  <span className="material-symbols-outlined text-sm">filter_list_off</span>
-                  Xóa lọc
-                </button>
-              )}
+              <SearchableSelect
+                className="w-full md:w-48"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusFilterOptions}
+                placeholder="Tất cả trạng thái"
+                triggerClassName="h-8 text-xs border-slate-200 bg-slate-50 focus:border-primary"
+              />
+              <SearchableSelect
+                className="w-full md:w-40"
+                value={typeFilter}
+                onChange={(v) => setTypeFilter(v as '' | 'STANDALONE' | 'ADDENDUM')}
+                options={[
+                  { value: '', label: 'Tất cả loại' },
+                  { value: 'STANDALONE', label: 'HĐ gốc' },
+                  { value: 'ADDENDUM', label: 'Phụ lục / Gia hạn' },
+                ]}
+                placeholder="Tất cả loại"
+                triggerClassName="h-8 text-xs border-slate-200 bg-slate-50 focus:border-primary"
+              />
             </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="shrink-0 text-[11px] font-semibold text-neutral">
+              {viewMode === 'CONTRACTS' ? 'Kỳ ngày ký:' : 'Kỳ doanh thu:'}
+            </span>
+            <div className="flex shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-50">
+              {([
+                { value: 'this_month', label: 'T.này' },
+                { value: 'last_month', label: 'T.trước' },
+                { value: 'this_quarter', label: 'Quý này' },
+                { value: 'this_year', label: 'Năm này' },
+                { value: 'custom', label: 'Tùy chọn' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setPeriodPreset(opt.value)}
+                  className={`whitespace-nowrap border-r border-slate-200 px-2.5 py-1 text-[11px] font-semibold transition-colors last:border-r-0 ${
+                    periodPreset === opt.value ? 'bg-primary text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {periodPreset === 'custom' && (
+              <>
+                <input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(event) => setCustomDateFrom(event.target.value)}
+                  className="h-8 w-32 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                <span className="text-xs text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(event) => setCustomDateTo(event.target.value)}
+                  className="h-8 w-32 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </>
+            )}
+            {hasActiveFilter && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-error"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>filter_list_off</span>
+                Xóa lọc
+              </button>
+            )}
           </div>
         </div>
       </div>
 
+      {/* ── KPI cards ── */}
       {viewMode === 'CONTRACTS' && (isContractsPageLoading ? renderLoadingKpis() : (
-        <div className="mb-4">
-          <div className="mb-2.5 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-primary">date_range</span>
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+        <div className="mb-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary" style={{ fontSize: 14 }}>date_range</span>
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
               Kỳ: {periodLabel}
             </span>
-            <span className="hidden text-xs text-slate-400 sm:inline">· lọc theo ngày ký</span>
+            <span className="hidden text-[10px] text-slate-400 sm:inline">· lọc theo ngày ký</span>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="truncate text-xs font-medium text-slate-500">Tổng hợp đồng</p>
-              <p className="mt-1 text-xl font-black text-slate-900">{totalContractsKpi.toLocaleString('vi-VN')}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">
+            {/* Tổng HĐ */}
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="truncate text-[11px] font-semibold text-neutral">Tổng hợp đồng</p>
+              <p className="mt-1 text-xl font-black text-deep-teal">{totalContractsKpi.toLocaleString('vi-VN')}</p>
+              <p className="mt-0.5 truncate text-[10px] text-slate-400">
                 {draftCount} nháp · {renewedCount} gia hạn
                 {(() => {
                   const rate = contractsPageMeta?.kpis?.continuity_rate;
                   if (rate == null) return null;
                   return (
-                    <span className="ml-1.5 font-medium text-emerald-600" title="Tỷ lệ tiếp tục (HĐ có phụ lục / tổng HĐ hết hạn)">
+                    <span className="ml-1 font-medium text-success" title="Tỷ lệ tiếp tục">
                       · {rate}% tiếp tục
                     </span>
                   );
@@ -718,74 +699,80 @@ export const ContractList: React.FC<ContractListProps> = ({
               </p>
             </div>
 
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
-              <p className="truncate text-xs font-medium text-emerald-700">Ký kết trong kỳ</p>
+            {/* Ký kết trong kỳ */}
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
+              <p className="truncate text-[11px] font-semibold text-emerald-700">Ký kết trong kỳ</p>
               <p className="mt-1 text-xl font-black text-emerald-800">{newSignedCount.toLocaleString('vi-VN')}</p>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-emerald-200">
-                <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${newSignedPercent}%` }} />
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-emerald-200">
+                <div className="h-full rounded-full bg-success transition-all" style={{ width: `${newSignedPercent}%` }} />
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-xs font-medium text-slate-500">Giá trị HĐ ký trong kỳ</p>
-              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(newSignedValue)}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">{periodLabel}</p>
+            {/* Giá trị ký trong kỳ */}
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-1">
+              <p className="truncate text-[11px] font-semibold text-neutral">Giá trị HĐ ký trong kỳ</p>
+              <p className="mt-1 text-sm font-black text-deep-teal leading-tight">{formatCurrency(newSignedValue)}</p>
+              <p className="mt-0.5 truncate text-[10px] text-slate-400">{periodLabel}</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-xs font-medium text-slate-500">Tổng GT HĐ đang ký</p>
-              <p className="mt-1 text-base font-black text-slate-900 leading-tight">{formatCurrency(aggregateKpis?.signedTotalValue ?? 0)}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-400">toàn bộ HĐ có trạng thái Đã ký</p>
+            {/* Tổng GT HĐ đang ký */}
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-1">
+              <p className="truncate text-[11px] font-semibold text-neutral">Tổng GT HĐ đang ký</p>
+              <p className="mt-1 text-sm font-black text-deep-teal leading-tight">{formatCurrency(aggregateKpis?.signedTotalValue ?? 0)}</p>
+              <p className="mt-0.5 truncate text-[10px] text-slate-400">toàn bộ HĐ có trạng thái Đã ký</p>
             </div>
 
+            {/* Sắp đến kỳ thanh toán */}
             {(() => {
               const upcomingCount = contractsPageMeta?.kpis?.upcoming_payment_contracts ?? 0;
               const warningDays = contractsPageMeta?.kpis?.payment_warning_days ?? 30;
               const hasUpcoming = upcomingCount > 0;
               return (
-                <div className={`rounded-xl border px-4 py-3 shadow-sm ${hasUpcoming ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+                <div className={`rounded-lg border p-3 shadow-sm ${hasUpcoming ? 'border-secondary/30 bg-secondary/5' : 'border-slate-200 bg-white'}`}>
                   <div className="flex items-center justify-between">
-                    <p className={`truncate text-xs font-medium ${hasUpcoming ? 'text-violet-700' : 'text-slate-500'}`}>
+                    <p className={`truncate text-[11px] font-semibold ${hasUpcoming ? 'text-secondary' : 'text-neutral'}`}>
                       Sắp đến kỳ TT
                     </p>
-                    <span className={`material-symbols-outlined text-base ${hasUpcoming ? 'text-violet-500' : 'text-slate-300'}`}>payments</span>
+                    <span className={`material-symbols-outlined ${hasUpcoming ? 'text-secondary' : 'text-slate-300'}`} style={{ fontSize: 15 }}>payments</span>
                   </div>
-                  <p className={`mt-1 text-xl font-black ${hasUpcoming ? 'text-violet-800' : 'text-slate-900'}`}>
+                  <p className={`mt-1 text-xl font-black ${hasUpcoming ? 'text-deep-teal' : 'text-deep-teal'}`}>
                     {upcomingCount}
                   </p>
-                  <p className={`mt-0.5 truncate text-[11px] ${hasUpcoming ? 'text-violet-600' : 'text-slate-400'}`}>
+                  <p className={`mt-0.5 truncate text-[10px] ${hasUpcoming ? 'text-secondary' : 'text-slate-400'}`}>
                     trong {warningDays} ngày tới
                   </p>
                 </div>
               );
             })()}
 
-            <div className={`rounded-xl border px-4 py-3 shadow-sm ${expiringSoonContractsKpi > 0 ? 'border-orange-200 bg-orange-50' : 'border-slate-200 bg-white'}`}>
+            {/* Sắp hết hiệu lực */}
+            <div className={`rounded-lg border p-3 shadow-sm ${expiringSoonContractsKpi > 0 ? 'border-warning/30 bg-warning/5' : 'border-slate-200 bg-white'}`}>
               <div className="flex items-center justify-between">
-                <p className={`truncate text-xs font-medium ${expiringSoonContractsKpi > 0 ? 'text-orange-700' : 'text-slate-500'}`}>
+                <p className={`truncate text-[11px] font-semibold ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-neutral'}`}>
                   Sắp hết hiệu lực
                 </p>
-                <span className={`material-symbols-outlined text-base ${expiringSoonContractsKpi > 0 ? 'text-orange-500' : 'text-slate-300'}`}>schedule</span>
+                <span className={`material-symbols-outlined ${expiringSoonContractsKpi > 0 ? 'text-warning' : 'text-slate-300'}`} style={{ fontSize: 15 }}>schedule</span>
               </div>
-              <p className={`mt-1 text-xl font-black ${expiringSoonContractsKpi > 0 ? 'text-orange-800' : 'text-slate-900'}`}>
+              <p className={`mt-1 text-xl font-black ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-deep-teal'}`}>
                 {expiringSoonContractsKpi}
               </p>
-              <p className={`mt-0.5 truncate text-[11px] ${expiringSoonContractsKpi > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+              <p className={`mt-0.5 truncate text-[10px] ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-slate-400'}`}>
                 trong {expiryWarningDays} ngày tới
               </p>
             </div>
 
-            <div className={`rounded-xl border px-4 py-3 shadow-sm ${overduePaymentAmount > 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
+            {/* Quá hạn TT */}
+            <div className={`rounded-lg border p-3 shadow-sm ${overduePaymentAmount > 0 ? 'border-error/20 bg-error/5' : 'border-slate-200 bg-white'}`}>
               <div className="flex items-center justify-between">
-                <p className={`truncate text-xs font-medium ${overduePaymentAmount > 0 ? 'text-red-700' : 'text-slate-500'}`}>
+                <p className={`truncate text-[11px] font-semibold ${overduePaymentAmount > 0 ? 'text-error' : 'text-neutral'}`}>
                   Quá hạn TT
                 </p>
-                <span className={`material-symbols-outlined text-base ${overduePaymentAmount > 0 ? 'text-red-500' : 'text-slate-300'}`}>money_off</span>
+                <span className={`material-symbols-outlined ${overduePaymentAmount > 0 ? 'text-error' : 'text-slate-300'}`} style={{ fontSize: 15 }}>money_off</span>
               </div>
-              <p className={`mt-1 text-sm font-black leading-tight ${overduePaymentAmount > 0 ? 'text-red-800' : 'text-slate-900'}`}>
+              <p className={`mt-1 text-sm font-black leading-tight ${overduePaymentAmount > 0 ? 'text-error' : 'text-deep-teal'}`}>
                 {formatCurrency(overduePaymentAmount)}
               </p>
-              <p className={`mt-0.5 truncate text-[11px] ${overduePaymentAmount > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+              <p className={`mt-0.5 truncate text-[10px] ${overduePaymentAmount > 0 ? 'text-error' : 'text-slate-400'}`}>
                 {overduePaymentAmount > 0 ? 'cần đôn đốc thu' : 'không có quá hạn'}
               </p>
             </div>
@@ -793,10 +780,10 @@ export const ContractList: React.FC<ContractListProps> = ({
         </div>
       ))}
 
+      {/* ── Table / Revenue view ── */}
       <div>
-
         {viewMode === 'CONTRACTS' ? (
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_24px_-8px_rgba(15,23,42,0.12)]">
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className={`w-full border-collapse text-left ${showActionColumn ? 'min-w-[1060px]' : 'min-w-[960px]'}`}>
                 <thead className="border-y border-slate-200 bg-slate-50">
@@ -814,7 +801,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                     ].map((col) => (
                       <th
                         key={col.key}
-                        className="cursor-pointer select-none px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100"
+                        className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100"
                         onClick={() => handleSort(col.key as keyof Contract)}
                       >
                         <div className="flex items-center gap-0.5">
@@ -824,30 +811,30 @@ export const ContractList: React.FC<ContractListProps> = ({
                       </th>
                     ))}
                     {showActionColumn && (
-                      <th className="sticky right-0 bg-slate-50 px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                      <th className="sticky right-0 bg-slate-50 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Thao tác
                       </th>
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-100">
                   {isContractsPageLoading ? (
                     renderLoadingRows()
                   ) : currentData.length > 0 ? (
                     currentData.map((item) => (
-                      <tr key={item.id} className="transition-colors hover:bg-slate-50/80">
+                      <tr key={item.id} className="transition-colors hover:bg-slate-50/70">
                         <td className="whitespace-nowrap px-3 py-2 text-xs font-mono font-bold text-slate-600">
                           {item.contract_code}
                           {item.parent_contract_id != null && (
                             <span
-                              className="ml-1.5 inline-flex items-center rounded-sm bg-violet-100 px-1 py-0.5 text-[10px] font-semibold leading-none text-violet-700"
+                              className="ml-1.5 inline-flex items-center rounded bg-deep-teal/10 px-1 py-0.5 text-[10px] font-bold leading-none text-deep-teal"
                               title="Phụ lục / Gia hạn"
                             >
                               PL
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-sm font-semibold text-slate-900">
+                        <td className="px-3 py-2 text-xs font-semibold text-slate-900">
                           <div className="max-w-[200px] truncate" title={item.contract_name}>{item.contract_name}</div>
                         </td>
                         <td className="px-3 py-2 text-xs text-slate-600">
@@ -857,36 +844,36 @@ export const ContractList: React.FC<ContractListProps> = ({
                           <div className="max-w-[180px] truncate" title={getProjectName(item.project_id)}>{getProjectName(item.project_id)}</div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{getPaymentCycleLabel(item.payment_cycle)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-sm font-bold text-slate-900">{formatCurrency(resolveContractValue(item))}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-900">{formatCurrency(resolveContractValue(item))}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.effective_date || null)}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.expiry_date || null)}</td>
                         <td className="px-3 py-2">
-                          <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(item.status)}`}>
-                            <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>{getStatusIcon(item.status)}</span>
+                          <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusColor(item.status)}`}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{getStatusIcon(item.status)}</span>
                             {getStatusLabel(item.status)}
                           </span>
                         </td>
                         {showActionColumn && (
-                          <td className="sticky right-0 bg-white px-3 py-2 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.08)]">
+                          <td className="sticky right-0 bg-white px-3 py-2 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
                             <div className="flex justify-end gap-1">
                               {canEdit && (
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('EDIT_CONTRACT', item)}
-                                  className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-primary/5"
+                                  className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
                                   title="Chỉnh sửa"
                                 >
-                                  <span className="material-symbols-outlined text-base">edit</span>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
                                 </button>
                               )}
                               {canDelete && (
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('DELETE_CONTRACT', item)}
-                                  className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-error/5"
+                                  className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
                                   title="Xóa"
                                 >
-                                  <span className="material-symbols-outlined text-base">delete</span>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                                 </button>
                               )}
                             </div>
@@ -896,20 +883,20 @@ export const ContractList: React.FC<ContractListProps> = ({
                     ))
                   ) : isEmptyData ? (
                     <tr>
-                      <td colSpan={tableColSpan} className="px-6 py-10 text-center">
-                        <div className="flex flex-col items-center gap-3 text-slate-500">
-                          <span className="material-symbols-outlined text-4xl text-slate-300">description</span>
+                      <td colSpan={tableColSpan} className="px-4 py-8 text-center">
+                        <div className="flex flex-col items-center gap-2 text-slate-500">
+                          <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>description</span>
                           <div>
-                            <p className="text-sm font-semibold text-slate-700">Chưa có hợp đồng nào.</p>
-                            <p className="mt-1 text-sm text-slate-500">Bắt đầu bằng cách thêm mới hợp đồng đầu tiên.</p>
+                            <p className="text-xs font-semibold text-slate-700">Chưa có hợp đồng nào.</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">Bắt đầu bằng cách thêm mới hợp đồng đầu tiên.</p>
                           </div>
                           {canAdd && (
                             <button
                               type="button"
                               onClick={() => onOpenModal('ADD_CONTRACT')}
-                              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-deep-teal"
+                              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-deep-teal shadow-sm"
                             >
-                              <span className="material-symbols-outlined text-base">add</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                               Thêm mới
                             </button>
                           )}
@@ -918,19 +905,19 @@ export const ContractList: React.FC<ContractListProps> = ({
                     </tr>
                   ) : isFilterNoMatch ? (
                     <tr>
-                      <td colSpan={tableColSpan} className="px-6 py-10 text-center">
-                        <div className="flex flex-col items-center gap-3 text-slate-500">
-                          <span className="material-symbols-outlined text-4xl text-slate-300">filter_list_off</span>
+                      <td colSpan={tableColSpan} className="px-4 py-8 text-center">
+                        <div className="flex flex-col items-center gap-2 text-slate-500">
+                          <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>filter_list_off</span>
                           <div>
-                            <p className="text-sm font-semibold text-slate-700">Không tìm thấy hợp đồng phù hợp.</p>
-                            <p className="mt-1 text-sm text-slate-500">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm.</p>
+                            <p className="text-xs font-semibold text-slate-700">Không tìm thấy hợp đồng phù hợp.</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm.</p>
                           </div>
                           <button
                             type="button"
                             onClick={resetFilters}
-                            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                           >
-                            <span className="material-symbols-outlined text-base">filter_list_off</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>filter_list_off</span>
                             Xóa bộ lọc
                           </button>
                         </div>
@@ -954,7 +941,7 @@ export const ContractList: React.FC<ContractListProps> = ({
             />
           </div>
         ) : (
-          <div className="mt-4">
+          <div className="mt-3">
             <ContractRevenueView
               periodFrom={dateFrom}
               periodTo={dateTo}

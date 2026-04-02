@@ -1,8 +1,27 @@
 # Danh sách Skills - Workflow 5 Bước
 
-**Cập nhật**: 2026-03-27
+**Cập nhật**: 2026-04-01
 
 ## Skills Hiện có
+
+### 4. ui-redesign ✅
+- **Location**: `.claude/skills/ui-redesign/SKILL.md`
+- **Mô tả**: Redesign UI/UX component theo design system VNPT. Paste URL là tự tìm file và chỉnh.
+- **Shared source of truth**: `docs/ui-redesign.md`
+- **Repo skill**: `skills/ui-redesign.skill`
+- **Cú pháp**:
+  ```bash
+  /ui-redesign http://127.0.0.1:5174/internal-user-dashboard
+  /ui-redesign /internal-user-dashboard
+  /ui-redesign internal-user-dashboard
+  /ui-redesign internal_user_dashboard
+  ```
+- **Workflow**:
+  1. Parse URL → tab key → tìm component file
+  2. Đọc file, phân tích delta với design system
+  3. Rewrite JSX (giữ nguyên logic/state/hooks)
+  4. Chạy `npm run lint`, sửa lỗi
+  5. Báo cáo file đã sửa + thay đổi chính
 
 ### 1. code-theo-plan ✅
 - **Location**: `.claude/skills/code-theo-plan/SKILL.md`
@@ -18,6 +37,23 @@
 - **Location**: `.claude/skills/template/SKILL.md`
 - **Mô tả**: Template cho việc tạo skills mới
 - **Workflow**: 5 bước chuẩn cho tất cả skills
+
+### 3. basecode-dev ✅
+- **Location**: `.claude/skills/basecode-dev/SKILL.md`
+- **Mô tả**: Implement từng phase của Architecture Upgrade DEV plan
+- **Workflow**:
+  1. Parse argument (phase ID / status / next)
+  2. Kiểm tra pre-req trong Plan_basecode.md
+  3. Tạo feature branch + đọc DEV plan section
+  4. Implement code bám sát DEV plan, chạy tests
+  5. Update Plan_basecode.md + báo cáo kết quả
+- **Cú pháp**:
+  ```bash
+  /basecode-dev A19      # implement pre-req A19
+  /basecode-dev P1A      # implement phase 1A
+  /basecode-dev status   # xem trạng thái tất cả phases
+  /basecode-dev next     # tự chọn task tiếp theo
+  ```
 
 ## Skills Đề xuất (Chưa implement)
 

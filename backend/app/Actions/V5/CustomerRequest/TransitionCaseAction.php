@@ -2,14 +2,14 @@
 
 namespace App\Actions\V5\CustomerRequest;
 
-use App\Services\V5\CustomerRequest\CustomerRequestCaseWriteService;
+use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class TransitionCaseAction
 {
     public function __construct(
-        private readonly CustomerRequestCaseWriteService $writeService,
+        private readonly CaseWriteOrchestrator $writeService,
     ) {}
 
     /**

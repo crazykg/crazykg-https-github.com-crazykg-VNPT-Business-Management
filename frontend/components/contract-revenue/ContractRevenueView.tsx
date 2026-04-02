@@ -59,20 +59,20 @@ const clampPercent = (value: number): number => {
 };
 
 const progressTone = (value: number): string => {
-  if (value >= 80) return 'bg-emerald-500';
-  if (value >= 50) return 'bg-amber-500';
-  return 'bg-rose-500';
+  if (value >= 80) return 'bg-success';
+  if (value >= 50) return 'bg-warning';
+  return 'bg-error';
 };
 
 const toneBadgeClass = (value: number): string => {
-  if (value >= 80) return 'bg-emerald-50 text-emerald-700';
-  if (value >= 50) return 'bg-amber-50 text-amber-700';
-  return 'bg-rose-50 text-rose-700';
+  if (value >= 80) return 'bg-emerald-100 text-emerald-700';
+  if (value >= 50) return 'bg-amber-100 text-amber-700';
+  return 'bg-red-100 text-red-700';
 };
 
 const overdueTone = (days: number): string => {
-  if (days >= 30) return 'text-rose-700 bg-rose-50';
-  if (days >= 7) return 'text-amber-700 bg-amber-50';
+  if (days >= 30) return 'text-error bg-error/10';
+  if (days >= 7) return 'text-warning bg-warning/15';
   return 'text-slate-700 bg-slate-100';
 };
 
@@ -211,13 +211,13 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
 
   const renderSortIcon = (field: RevenueSortField): React.ReactNode => {
     if (sortBy !== field) {
-      return <span className="material-symbols-outlined text-sm text-slate-300">unfold_more</span>;
+      return <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 14 }}>unfold_more</span>;
     }
 
     return (
       <span
-        className="material-symbols-outlined text-sm transition-transform duration-200"
-        style={{ transform: sortDir === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        className="material-symbols-outlined transition-transform duration-200"
+        style={{ fontSize: 14, transform: sortDir === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
       >
         arrow_upward
       </span>
@@ -226,7 +226,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
 
   if (!periodFrom || !periodTo) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
+      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
         Chọn khoảng thời gian để xem phân tích doanh thu.
       </div>
     );
@@ -234,20 +234,20 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
 
   if (isLoading && !analytics) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
-            <div key={`rev-kpi-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
-              <div className="mt-4 h-8 w-36 animate-pulse rounded bg-slate-200" />
-              <div className="mt-3 h-3 w-24 animate-pulse rounded bg-slate-200" />
+            <div key={`rev-kpi-${index}`} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="h-3 w-28 animate-pulse rounded bg-slate-200" />
+              <div className="mt-3 h-6 w-32 animate-pulse rounded bg-slate-200" />
+              <div className="mt-2 h-2.5 w-20 animate-pulse rounded bg-slate-200" />
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {Array.from({ length: 2 }).map((_, index) => (
-            <div key={`rev-chart-${index}`} className="h-[320px] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="h-full animate-pulse rounded-2xl bg-slate-100" />
+            <div key={`rev-chart-${index}`} className="h-[280px] rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="h-full animate-pulse rounded-lg bg-slate-100" />
             </div>
           ))}
         </div>
@@ -257,7 +257,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
 
   if (!analytics) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+      <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
         Không có dữ liệu doanh thu cho kỳ {periodLabel}.
       </div>
     );
@@ -266,13 +266,14 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
   const { kpis } = analytics;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-4">
+      {/* ── Section header + grouping toggle ── */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-lg font-black text-deep-teal">Phân tích doanh thu hợp đồng</h3>
-          <p className="mt-1 text-sm text-slate-500">Theo dõi dự kiến, thực thu, tồn đọng và chi tiết thu tiền trong kỳ {periodLabel}.</p>
+          <h3 className="text-xs font-bold text-slate-700">Phân tích doanh thu hợp đồng</h3>
+          <p className="mt-0.5 text-[11px] text-slate-400">Theo dõi dự kiến, thực thu, tồn đọng và chi tiết thu tiền trong kỳ {periodLabel}.</p>
         </div>
-        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
           {([
             { value: 'month', label: 'Theo tháng' },
             { value: 'quarter', label: 'Theo quý' },
@@ -281,7 +282,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
               key={option.value}
               type="button"
               onClick={() => setGrouping(option.value)}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
                 grouping === option.value
                   ? 'bg-primary text-white shadow-sm'
                   : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
@@ -293,58 +294,62 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         {[
           {
             label: 'Doanh thu dự kiến',
             value: formatCurrency(kpis.expected_revenue),
             hint: 'Tổng dòng tiền đến hạn trong kỳ',
             icon: 'account_balance',
-            tone: 'bg-blue-50 text-blue-600',
+            tone: 'bg-secondary/15 text-secondary',
           },
           {
             label: 'Đã thu được',
             value: formatCurrency(kpis.actual_collected),
             hint: `${kpis.collection_rate}% kế hoạch kỳ này`,
             icon: 'payments',
-            tone: 'bg-emerald-50 text-emerald-600',
+            tone: 'bg-emerald-100 text-emerald-700',
           },
           {
             label: 'Tồn chưa thu',
             value: formatCurrency(kpis.outstanding),
             hint: 'Giá trị chưa thu trong kỳ hiện tại',
             icon: 'pending_actions',
-            tone: 'bg-amber-50 text-amber-600',
+            tone: 'bg-amber-100 text-amber-700',
           },
           {
             label: 'Quá hạn TT',
             value: formatCurrency(kpis.overdue_amount),
             hint: `${kpis.overdue_count} đợt quá hạn`,
             icon: 'warning',
-            tone: kpis.overdue_amount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500',
+            tone: kpis.overdue_amount > 0 ? 'bg-error/10 text-error' : 'bg-slate-100 text-slate-500',
           },
           {
             label: 'Dồn kỳ trước',
             value: formatCurrency(kpis.carry_over_from_previous),
             hint: 'Công nợ mở đầu kỳ',
             icon: 'history',
-            tone: 'bg-violet-50 text-violet-600',
+            tone: 'bg-deep-teal/10 text-deep-teal',
           },
         ].map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{card.label}</p>
-                <p className="mt-3 text-2xl font-black text-slate-900">{card.value}</p>
-                <p className="mt-3 text-xs text-slate-500">{card.hint}</p>
+          <div key={card.label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-neutral">{card.label}</p>
+                <p className="mt-1.5 text-xl font-black text-deep-teal leading-tight">{card.value}</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">{card.hint}</p>
               </div>
-              <span className={`material-symbols-outlined rounded-xl p-3 ${card.tone}`}>{card.icon}</span>
+              <div className={`w-7 h-7 rounded flex items-center justify-center shrink-0 ${card.tone}`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{card.icon}</span>
+              </div>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2 xl:grid-cols-5">
+      {/* ── Secondary metrics row ── */}
+      <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-2 xl:grid-cols-5">
         {[
           {
             label: 'Tỷ lệ thu tiền',
@@ -367,7 +372,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
             label: 'Số đợt quá hạn',
             value: `${kpis.overdue_count}`,
             meta: 'Các đợt đang mang trạng thái OVERDUE',
-            badgeClass: kpis.overdue_count > 0 ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600',
+            badgeClass: kpis.overdue_count > 0 ? 'bg-error/10 text-error' : 'bg-slate-100 text-slate-600',
           },
           {
             label: 'Lũy kế đã thu',
@@ -375,17 +380,21 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
             meta: `Đến hết ${formatDate(periodTo)}`,
           },
         ].map((metric) => (
-          <div key={metric.label} className="rounded-xl bg-slate-50 px-4 py-4">
-            <div className="flex items-start justify-between gap-3">
+          <div key={metric.label} className="rounded-lg bg-slate-50 px-3 py-3">
+            <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{metric.label}</p>
-                <p className="mt-2 text-lg font-black text-slate-900">{metric.value}</p>
-                <p className="mt-2 text-xs text-slate-500">{metric.meta}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-neutral">{metric.label}</p>
+                <p className="mt-1 text-base font-black text-deep-teal leading-tight">{metric.value}</p>
+                <p className="mt-0.5 text-[10px] text-slate-400">{metric.meta}</p>
               </div>
-              {metric.badgeClass && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${metric.badgeClass}`}>{metric.value}</span>}
+              {metric.badgeClass && (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${metric.badgeClass}`}>
+                  {metric.value}
+                </span>
+              )}
             </div>
             {typeof metric.progress === 'number' && (
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
                 <div className={`h-full rounded-full transition-all ${progressTone(metric.progress)}`} style={{ width: `${metric.progress}%` }} />
               </div>
             )}
@@ -393,49 +402,51 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* ── Charts ── */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <RevenueBarChart data={analytics.by_period} />
         <RevenueCumulativeChart data={analytics.by_period} />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-3">
+      {/* ── By cycle table ── */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h4 className="text-sm font-black text-slate-900">Doanh thu theo chu kỳ thanh toán</h4>
-            <p className="mt-1 text-xs text-slate-500">Xem chu kỳ nào đang đóng góp doanh thu lớn nhất trong kỳ.</p>
+            <h4 className="text-xs font-bold text-slate-700">Doanh thu theo chu kỳ thanh toán</h4>
+            <p className="mt-0.5 text-[11px] text-slate-400">Xem chu kỳ nào đang đóng góp doanh thu lớn nhất trong kỳ.</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
             <thead className="border-b border-slate-200">
-              <tr className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                <th className="pb-3">Chu kỳ</th>
-                <th className="pb-3">Số HĐ</th>
-                <th className="pb-3">DT dự kiến</th>
-                <th className="pb-3">Đã thu</th>
-                <th className="pb-3">Tỷ trọng</th>
+              <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <th className="pb-2">Chu kỳ</th>
+                <th className="pb-2">Số HĐ</th>
+                <th className="pb-2">DT dự kiến</th>
+                <th className="pb-2">Đã thu</th>
+                <th className="pb-2">Tỷ trọng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {analytics.by_cycle.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                  <td colSpan={5} className="py-6 text-center text-xs text-slate-500">
                     Chưa có chu kỳ thanh toán nào trong kỳ đã chọn.
                   </td>
                 </tr>
               ) : (
                 analytics.by_cycle.map((row) => (
-                  <tr key={row.cycle} className="text-sm text-slate-700">
-                    <td className="py-4 font-semibold text-slate-900">{row.cycle_label}</td>
-                    <td className="py-4">{row.contract_count}</td>
-                    <td className="py-4 font-semibold">{formatCurrency(row.expected)}</td>
-                    <td className="py-4">{formatCurrency(row.actual)}</td>
-                    <td className="py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-2 w-32 overflow-hidden rounded-full bg-slate-100">
+                  <tr key={row.cycle} className="text-xs text-slate-700">
+                    <td className="py-2.5 font-semibold text-slate-900">{row.cycle_label}</td>
+                    <td className="py-2.5">{row.contract_count}</td>
+                    <td className="py-2.5 font-semibold">{formatCurrency(row.expected)}</td>
+                    <td className="py-2.5">{formatCurrency(row.actual)}</td>
+                    <td className="py-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
                           <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, row.percentage_of_total)}%` }} />
                         </div>
-                        <span className="text-xs font-semibold text-slate-500">{row.percentage_of_total}%</span>
+                        <span className="text-[10px] font-semibold text-slate-500">{row.percentage_of_total}%</span>
                       </div>
                     </td>
                   </tr>
@@ -446,31 +457,32 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-3">
+      {/* ── By contract table ── */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h4 className="text-sm font-black text-slate-900">Doanh thu theo hợp đồng</h4>
-            <p className="mt-1 text-xs text-slate-500">Mở rộng từng hợp đồng để xem phân bổ doanh thu theo hạng mục.</p>
+            <h4 className="text-xs font-bold text-slate-700">Doanh thu theo hợp đồng</h4>
+            <p className="mt-0.5 text-[11px] text-slate-400">Mở rộng từng hợp đồng để xem phân bổ doanh thu theo hạng mục.</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-[1120px] w-full text-left">
             <thead className="border-b border-slate-200">
-              <tr className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                <th className="pb-3">Chi tiết</th>
-                <th className="pb-3 cursor-pointer" onClick={() => handleSort('contract_name')}>
+              <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <th className="pb-2">Chi tiết</th>
+                <th className="pb-2 cursor-pointer" onClick={() => handleSort('contract_name')}>
                   <div className="inline-flex items-center gap-1">Hợp đồng {renderSortIcon('contract_name')}</div>
                 </th>
-                <th className="pb-3">Khách hàng</th>
-                <th className="pb-3">Chu kỳ</th>
-                <th className="pb-3">Giá trị HĐ</th>
-                <th className="pb-3 cursor-pointer" onClick={() => handleSort('expected_in_period')}>
+                <th className="pb-2">Khách hàng</th>
+                <th className="pb-2">Chu kỳ</th>
+                <th className="pb-2">Giá trị HĐ</th>
+                <th className="pb-2 cursor-pointer" onClick={() => handleSort('expected_in_period')}>
                   <div className="inline-flex items-center gap-1">DT kỳ {renderSortIcon('expected_in_period')}</div>
                 </th>
-                <th className="pb-3 cursor-pointer" onClick={() => handleSort('actual_in_period')}>
+                <th className="pb-2 cursor-pointer" onClick={() => handleSort('actual_in_period')}>
                   <div className="inline-flex items-center gap-1">Thực thu {renderSortIcon('actual_in_period')}</div>
                 </th>
-                <th className="pb-3 cursor-pointer" onClick={() => handleSort('outstanding')}>
+                <th className="pb-2 cursor-pointer" onClick={() => handleSort('outstanding')}>
                   <div className="inline-flex items-center gap-1">Tồn đọng {renderSortIcon('outstanding')}</div>
                 </th>
               </tr>
@@ -478,7 +490,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
             <tbody className="divide-y divide-slate-100">
               {sortedContracts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="py-6 text-center text-xs text-slate-500">
                     Chưa có hợp đồng phát sinh doanh thu trong kỳ này.
                   </td>
                 </tr>
@@ -490,29 +502,29 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
 
                   return (
                     <React.Fragment key={row.contract_id}>
-                      <tr className="text-sm text-slate-700 hover:bg-slate-50/70">
-                        <td className="py-4">
+                      <tr className="text-xs text-slate-700 hover:bg-slate-50/70">
+                        <td className="py-2.5">
                           <button
                             type="button"
                             onClick={() => toggleExpandContract(row.contract_id)}
-                            className="inline-flex items-center rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            className="inline-flex items-center rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                           >
-                            <span className="material-symbols-outlined text-sm">{isExpanded ? 'expand_less' : 'expand_more'}</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{isExpanded ? 'expand_less' : 'expand_more'}</span>
                           </button>
                         </td>
-                        <td className="py-4">
+                        <td className="py-2.5">
                           <div className="font-semibold text-slate-900">{row.contract_code}</div>
-                          <div className="mt-1 text-xs text-slate-500">{row.contract_name}</div>
+                          <div className="mt-0.5 text-[10px] text-slate-500">{row.contract_name}</div>
                         </td>
-                        <td className="py-4 text-slate-600">{row.customer_name || '-'}</td>
-                        <td className="py-4 text-slate-600">{paymentCycleLabel(row.payment_cycle)}</td>
-                        <td className="py-4 font-semibold text-slate-900">
+                        <td className="py-2.5 text-slate-600">{row.customer_name || '-'}</td>
+                        <td className="py-2.5 text-slate-600">{paymentCycleLabel(row.payment_cycle)}</td>
+                        <td className="py-2.5 font-semibold text-slate-900">
                           {row.is_terminated ? (
                             <div>
                               <span className="line-through text-slate-400">{formatCurrency(row.contract_value)}</span>
                               {row.penalty_amount != null && row.penalty_amount > 0 && (
                                 <span
-                                  className="ml-1.5 inline-flex items-center rounded-sm bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700"
+                                  className="ml-1.5 inline-flex items-center rounded bg-error/10 px-1.5 py-0.5 text-[10px] font-bold text-error"
                                   title={`Phí phạt: ${formatCurrency(row.penalty_amount)}`}
                                 >
                                   Phạt {formatCurrency(row.penalty_amount)}
@@ -523,66 +535,66 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
                             formatCurrency(row.contract_value)
                           )}
                         </td>
-                        <td className="py-4 font-semibold text-slate-900">{formatCurrency(row.expected_in_period)}</td>
-                        <td className="py-4 text-emerald-700">{formatCurrency(row.actual_in_period)}</td>
-                        <td className="py-4">
-                          <div className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                        <td className="py-2.5 font-semibold text-slate-900">{formatCurrency(row.expected_in_period)}</td>
+                        <td className="py-2.5 text-success font-semibold">{formatCurrency(row.actual_in_period)}</td>
+                        <td className="py-2.5">
+                          <div className="inline-flex rounded-full bg-tertiary/10 px-2 py-0.5 text-[10px] font-bold text-tertiary">
                             {formatCurrency(row.outstanding)}
                           </div>
                         </td>
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={8} className="bg-slate-50 px-4 py-4">
+                          <td colSpan={8} className="bg-slate-50 px-4 py-3">
                             {isDetailLoading ? (
-                              <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                              <div className="rounded-lg border border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500">
                                 Đang tải phân bổ hạng mục...
                               </div>
                             ) : detailRows && detailRows.length > 0 ? (
-                              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                                 <table className="min-w-[960px] w-full text-left">
                                   <thead className="border-b border-slate-200 bg-slate-50">
-                                    <tr className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                                      <th className="px-4 py-3">Sản phẩm</th>
-                                      <th className="px-4 py-3">ĐVT</th>
-                                      <th className="px-4 py-3">SL</th>
-                                      <th className="px-4 py-3">Đơn giá</th>
-                                      <th className="px-4 py-3">Thành tiền</th>
-                                      <th className="px-4 py-3">Tỷ trọng</th>
-                                      <th className="px-4 py-3">DT kỳ</th>
-                                      <th className="px-4 py-3">Thực thu</th>
-                                      <th className="px-4 py-3">Tồn đọng</th>
+                                    <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                      <th className="px-3 py-2">Sản phẩm</th>
+                                      <th className="px-3 py-2">ĐVT</th>
+                                      <th className="px-3 py-2">SL</th>
+                                      <th className="px-3 py-2">Đơn giá</th>
+                                      <th className="px-3 py-2">Thành tiền</th>
+                                      <th className="px-3 py-2">Tỷ trọng</th>
+                                      <th className="px-3 py-2">DT kỳ</th>
+                                      <th className="px-3 py-2">Thực thu</th>
+                                      <th className="px-3 py-2">Tồn đọng</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
                                     {detailRows.map((item) => (
-                                      <tr key={item.product_id} className="text-sm text-slate-700">
-                                        <td className="px-4 py-3">
+                                      <tr key={item.product_id} className="text-xs text-slate-700">
+                                        <td className="px-3 py-2.5">
                                           <div className="font-semibold text-slate-900">{item.product_code}</div>
-                                          <div className="mt-1 text-xs text-slate-500">{item.product_name}</div>
+                                          <div className="mt-0.5 text-[10px] text-slate-500">{item.product_name}</div>
                                         </td>
-                                        <td className="px-4 py-3">{item.unit || '--'}</td>
-                                        <td className="px-4 py-3">{item.quantity}</td>
-                                        <td className="px-4 py-3">{formatCurrency(item.unit_price)}</td>
-                                        <td className="px-4 py-3 font-semibold">{formatCurrency(item.line_total)}</td>
-                                        <td className="px-4 py-3">
+                                        <td className="px-3 py-2.5">{item.unit || '--'}</td>
+                                        <td className="px-3 py-2.5">{item.quantity}</td>
+                                        <td className="px-3 py-2.5">{formatCurrency(item.unit_price)}</td>
+                                        <td className="px-3 py-2.5 font-semibold">{formatCurrency(item.line_total)}</td>
+                                        <td className="px-3 py-2.5">
                                           <div className="flex items-center gap-2">
-                                            <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-100">
+                                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
                                               <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, item.proportion)}%` }} />
                                             </div>
-                                            <span className="text-xs font-semibold text-slate-500">{item.proportion}%</span>
+                                            <span className="text-[10px] font-semibold text-slate-500">{item.proportion}%</span>
                                           </div>
                                         </td>
-                                        <td className="px-4 py-3 font-semibold text-slate-900">{formatCurrency(item.allocated_expected)}</td>
-                                        <td className="px-4 py-3 text-emerald-700">{formatCurrency(item.allocated_actual)}</td>
-                                        <td className="px-4 py-3 text-amber-700">{formatCurrency(item.allocated_outstanding)}</td>
+                                        <td className="px-3 py-2.5 font-semibold text-slate-900">{formatCurrency(item.allocated_expected)}</td>
+                                        <td className="px-3 py-2.5 text-success font-semibold">{formatCurrency(item.allocated_actual)}</td>
+                                        <td className="px-3 py-2.5 text-warning font-semibold">{formatCurrency(item.allocated_outstanding)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
                                 </table>
                               </div>
                             ) : (
-                              <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-center text-xs text-slate-500">
                                 Hợp đồng này chưa có hạng mục chi tiết để phân bổ doanh thu.
                               </div>
                             )}
@@ -598,15 +610,16 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-3">
+      {/* ── Overdue details ── */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h4 className="text-sm font-black text-slate-900">Chi tiết đợt thanh toán quá hạn</h4>
-            <p className="mt-1 text-xs text-slate-500">Các đợt đã quá hạn trong kỳ {periodLabel} để ưu tiên xử lý thu nợ.</p>
+            <h4 className="text-xs font-bold text-slate-700">Chi tiết đợt thanh toán quá hạn</h4>
+            <p className="mt-0.5 text-[11px] text-slate-400">Các đợt đã quá hạn trong kỳ {periodLabel} để ưu tiên xử lý thu nợ.</p>
           </div>
           {analytics.overdue_details.length > 0 && (
-            <span className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-              <span className="material-symbols-outlined text-sm">warning</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-error/10 px-2.5 py-0.5 text-[10px] font-bold text-error">
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
               {analytics.overdue_details.length} đợt cần lưu ý
             </span>
           )}
@@ -614,32 +627,32 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
             <thead className="border-b border-slate-200">
-              <tr className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                <th className="pb-3">Mã HĐ</th>
-                <th className="pb-3">Khách hàng</th>
-                <th className="pb-3">Đợt TT</th>
-                <th className="pb-3">Ngày dự kiến</th>
-                <th className="pb-3">Số tiền</th>
-                <th className="pb-3">Số ngày quá hạn</th>
+              <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <th className="pb-2">Mã HĐ</th>
+                <th className="pb-2">Khách hàng</th>
+                <th className="pb-2">Đợt TT</th>
+                <th className="pb-2">Ngày dự kiến</th>
+                <th className="pb-2">Số tiền</th>
+                <th className="pb-2">Số ngày quá hạn</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {analytics.overdue_details.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="py-6 text-center text-xs text-slate-500">
                     Không có đợt thanh toán quá hạn trong kỳ này.
                   </td>
                 </tr>
               ) : (
                 analytics.overdue_details.map((detail) => (
-                  <tr key={detail.schedule_id} className="text-sm text-slate-700">
-                    <td className="py-4 font-semibold text-slate-900">{detail.contract_code}</td>
-                    <td className="py-4">{detail.customer_name || '-'}</td>
-                    <td className="py-4">{detail.milestone_name}</td>
-                    <td className="py-4">{formatDate(detail.expected_date)}</td>
-                    <td className="py-4 font-semibold">{formatCurrency(detail.expected_amount)}</td>
-                    <td className="py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${overdueTone(detail.days_overdue)}`}>
+                  <tr key={detail.schedule_id} className="text-xs text-slate-700">
+                    <td className="py-2.5 font-semibold text-slate-900">{detail.contract_code}</td>
+                    <td className="py-2.5">{detail.customer_name || '-'}</td>
+                    <td className="py-2.5">{detail.milestone_name}</td>
+                    <td className="py-2.5">{formatDate(detail.expected_date)}</td>
+                    <td className="py-2.5 font-semibold">{formatCurrency(detail.expected_amount)}</td>
+                    <td className="py-2.5">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${overdueTone(detail.days_overdue)}`}>
                         {detail.days_overdue} ngày
                       </span>
                     </td>

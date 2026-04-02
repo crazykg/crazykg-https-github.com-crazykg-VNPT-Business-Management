@@ -17,11 +17,13 @@ const previewSpies = vi.hoisted(() => ({
 
 const quotationApiSpies = vi.hoisted(() => ({
   fetchProductQuotationsPage: vi.fn(),
+  fetchProductQuotationDefaultSettings: vi.fn(),
   fetchProductQuotation: vi.fn(),
   fetchProductQuotationVersionsPage: vi.fn(),
   fetchProductQuotationVersion: vi.fn(),
   fetchProductQuotationEventsPage: vi.fn(),
   createProductQuotation: vi.fn(),
+  updateProductQuotationDefaultSettings: vi.fn(),
   updateProductQuotation: vi.fn(),
   exportProductQuotationPdf: vi.fn(),
   printStoredProductQuotationWord: vi.fn(),
@@ -36,11 +38,13 @@ vi.mock('../services/v5Api', async () => {
   return {
     ...actual,
     fetchProductQuotationsPage: quotationApiSpies.fetchProductQuotationsPage,
+    fetchProductQuotationDefaultSettings: quotationApiSpies.fetchProductQuotationDefaultSettings,
     fetchProductQuotation: quotationApiSpies.fetchProductQuotation,
     fetchProductQuotationVersionsPage: quotationApiSpies.fetchProductQuotationVersionsPage,
     fetchProductQuotationVersion: quotationApiSpies.fetchProductQuotationVersion,
     fetchProductQuotationEventsPage: quotationApiSpies.fetchProductQuotationEventsPage,
     createProductQuotation: quotationApiSpies.createProductQuotation,
+    updateProductQuotationDefaultSettings: quotationApiSpies.updateProductQuotationDefaultSettings,
     updateProductQuotation: quotationApiSpies.updateProductQuotation,
     exportProductQuotationPdf: quotationApiSpies.exportProductQuotationPdf,
     printStoredProductQuotationWord: quotationApiSpies.printStoredProductQuotationWord,
@@ -60,6 +64,22 @@ const DEFAULT_SIGNATORY_UNIT = 'TRUNG TÂM KINH DOANH GIẢI PHÁP';
 const DEFAULT_SIGNATORY_NAME = '';
 const DEFAULT_SCOPE_SUMMARY = 'phục vụ triển khai các sản phẩm/dịch vụ theo nhu cầu của Quý đơn vị';
 const DEFAULT_VALIDITY_DAYS = '90';
+
+const buildDefaultSettingsResponse = (overrides: Record<string, unknown> = {}) => ({
+  user_id: 15,
+  scope_summary: DEFAULT_SCOPE_SUMMARY,
+  validity_days: 90,
+  notes_text: DEFAULT_NOTES_TEXT,
+  contact_line: DEFAULT_CONTACT_LINE,
+  closing_message: DEFAULT_CLOSING_MESSAGE,
+  signatory_title: DEFAULT_SIGNATORY_TITLE,
+  signatory_unit: DEFAULT_SIGNATORY_UNIT,
+  signatory_name: DEFAULT_SIGNATORY_NAME,
+  is_persisted: false,
+  created_at: null,
+  updated_at: null,
+  ...overrides,
+});
 
 const createStorageMock = () => {
   const store = new Map<string, string>();
@@ -161,6 +181,12 @@ const buildVersionResponse = (overrides: Partial<ProductQuotationVersionRecord> 
   content_hash: 'version-hash-001',
   printed_at: '2026-03-25T10:30:00+07:00',
   printed_by: 15,
+  printed_by_actor: {
+    id: 15,
+    user_code: 'NV009',
+    full_name: 'Phan Văn Rở',
+    username: 'phanvanro',
+  },
   created_at: '2026-03-25T10:30:00+07:00',
   ...overrides,
 });
@@ -182,6 +208,12 @@ const buildEventResponse = (overrides: Partial<ProductQuotationEventRecord> = {}
   ip_address: '127.0.0.1',
   user_agent: 'Vitest',
   created_by: 15,
+  actor: {
+    id: 15,
+    user_code: 'NV009',
+    full_name: 'Phan Văn Rở',
+    username: 'phanvanro',
+  },
   created_at: '2026-03-25T10:30:00+07:00',
   ...overrides,
 });
@@ -238,7 +270,9 @@ const renderProductQuotationTab = async (props: Partial<React.ComponentProps<typ
       {...restProps}
     />
   );
-  await screen.findByRole('button', { name: /Cấu hình báo giá/i });
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /Cấu hình báo giá/i })).toBeEnabled();
+  });
 };
 
 const seedSavedQuotation = (
@@ -265,9 +299,25 @@ const seedSavedQuotation = (
 };
 
 const searchAndSelectCustomer = async (user: ReturnType<typeof userEvent.setup>, searchText: string, optionName: string) => {
+  const lockedRecipientTrigger = screen.queryByRole('button', { name: /Bấm "Thêm báo giá mới" để bắt đầu/i });
+  if (lockedRecipientTrigger) {
+    await user.click(getNewQuotationButton());
+  }
   await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
   await user.type(await screen.findByLabelText('Tìm khách hàng...'), searchText);
   await user.click(await screen.findByRole('button', { name: optionName }));
+};
+
+const getNewQuotationButton = () => {
+  const button = screen
+    .getAllByRole('button', { name: /Thêm báo giá mới/i })
+    .find((element) => element.getAttribute('aria-label') !== 'Bấm "Thêm báo giá mới" để bắt đầu');
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error('Không tìm thấy nút "Thêm báo giá mới"');
+  }
+
+  return button;
 };
 
 const openSavedQuotation = async (
@@ -277,6 +327,20 @@ const openSavedQuotation = async (
   const optionPattern = new RegExp(optionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
   await user.click(await screen.findByRole('button', { name: optionPattern }));
+};
+
+const expectRecentQuotationListQuery = (query: unknown) => {
+  expect(query).toEqual(
+    expect.objectContaining({
+      page: 1,
+      per_page: 200,
+      sort_by: 'updated_at',
+      sort_dir: 'desc',
+      filters: expect.objectContaining({
+        updated_from: expect.any(String),
+      }),
+    })
+  );
 };
 
 describe('ProductQuotationTab UI', () => {
@@ -293,6 +357,7 @@ describe('ProductQuotationTab UI', () => {
       revokeObjectURL: vi.fn(),
     });
     HTMLAnchorElement.prototype.click = vi.fn();
+    quotationApiSpies.fetchProductQuotationDefaultSettings.mockResolvedValue(buildDefaultSettingsResponse());
     quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
       data: [],
       meta: { page: 1, per_page: 1, total: 0, total_pages: 1 },
@@ -338,6 +403,19 @@ describe('ProductQuotationTab UI', () => {
           : [],
       })
     );
+    quotationApiSpies.updateProductQuotationDefaultSettings.mockImplementation(async (payload: Record<string, unknown>) =>
+      buildDefaultSettingsResponse({
+        scope_summary: String(payload.scope_summary || DEFAULT_SCOPE_SUMMARY),
+        validity_days: Number(payload.validity_days || 90),
+        notes_text: String(payload.notes_text || DEFAULT_NOTES_TEXT),
+        contact_line: String(payload.contact_line || DEFAULT_CONTACT_LINE),
+        closing_message: String(payload.closing_message || DEFAULT_CLOSING_MESSAGE),
+        signatory_title: String(payload.signatory_title || DEFAULT_SIGNATORY_TITLE),
+        signatory_unit: String(payload.signatory_unit || DEFAULT_SIGNATORY_UNIT),
+        signatory_name: String(payload.signatory_name || DEFAULT_SIGNATORY_NAME),
+        is_persisted: true,
+      })
+    );
     quotationApiSpies.exportProductQuotationPdf.mockResolvedValue({
       blob: new Blob(['pdf-preview'], { type: 'application/pdf' }),
       filename: 'bao_gia_test.pdf',
@@ -354,17 +432,55 @@ describe('ProductQuotationTab UI', () => {
   it('renders a blank quotation form on mount and does not auto-load the latest draft', async () => {
     await renderProductQuotationTab();
 
-    expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledWith({
-      page: 1,
-      per_page: 200,
-      sort_by: 'updated_at',
-      sort_dir: 'desc',
-    });
+    expectRecentQuotationListQuery(quotationApiSpies.fetchProductQuotationsPage.mock.calls[0]?.[0]);
     expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
     expect(quotationApiSpies.createProductQuotation).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
     expect(screen.getByText('Form trắng')).toBeInTheDocument();
-    expect(screen.getByText(/Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá" hoặc mở báo giá cũ./i)).toBeInTheDocument();
+    expect(screen.getByText(/Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá mới" hoặc mở báo giá cũ./i)).toBeInTheDocument();
+  });
+
+  it('only enables recipient after clicking Thêm báo giá mới and only enables line items after selecting a customer', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    const recipientTrigger = screen.getByRole('button', { name: /Bấm "Thêm báo giá mới" để bắt đầu/i });
+    expect(recipientTrigger).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Thêm dòng/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toBeDisabled();
+
+    await user.click(getNewQuotationButton());
+
+    expect(screen.getByRole('button', { name: /Chọn khách hàng/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Thêm dòng/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toBeDisabled();
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+
+    expect(screen.getByRole('button', { name: /Thêm dòng/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toBeEnabled();
+  });
+
+  it('loads recent quotations when recipient is empty and reloads old quotations for the selected customer', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    expectRecentQuotationListQuery(quotationApiSpies.fetchProductQuotationsPage.mock.calls[0]?.[0]);
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+
+    await waitFor(() => {
+      expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledTimes(2);
+    });
+    expect(quotationApiSpies.fetchProductQuotationsPage.mock.calls[1]?.[0]).toEqual({
+      page: 1,
+      per_page: 200,
+      sort_by: 'updated_at',
+      sort_dir: 'desc',
+      filters: { customer_id: 10 },
+    });
   });
 
   it('renders saved quotations in updated order and hydrates the selected draft from the dropdown', async () => {
@@ -416,7 +532,7 @@ describe('ProductQuotationTab UI', () => {
     expect(within(drawer).getByLabelText(/Lời kết/i)).toHaveValue('Lời kết đã lưu cho Hậu Giang');
   });
 
-  it('resets back to a blank form when clicking Thêm báo giá from a saved quotation', async () => {
+  it('resets back to a blank form when clicking Thêm báo giá mới from a saved quotation', async () => {
     const user = userEvent.setup();
     seedSavedQuotation(
       { id: 77, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' },
@@ -427,11 +543,40 @@ describe('ProductQuotationTab UI', () => {
     await openSavedQuotation(user);
 
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
-    await user.click(screen.getByRole('button', { name: /Thêm báo giá/i }));
+    await user.click(getNewQuotationButton());
 
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
     expect(screen.getByText('Form trắng')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Chọn khách hàng/i })).toHaveTextContent('Chọn khách hàng');
+  });
+
+  it('keeps saved quotation settings such as director name when starting a new blank quotation', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const drawer = screen.getByTestId('quotation-settings-drawer');
+    const signatoryNameField = within(drawer).getByLabelText(/Tên giám đốc/i);
+
+    await user.clear(signatoryNameField);
+    await user.type(signatoryNameField, 'Nguyễn Văn A');
+    await user.click(within(drawer).getByRole('button', { name: /^Lưu$/i }));
+
+    await waitFor(() => {
+      expect(quotationApiSpies.createProductQuotation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          signatory_name: 'Nguyễn Văn A',
+        })
+      );
+    });
+
+    await user.click(getNewQuotationButton());
+    expect(screen.getByText('Form trắng')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const reopenedDrawer = screen.getByTestId('quotation-settings-drawer');
+    expect(within(reopenedDrawer).getByLabelText(/Tên giám đốc/i)).toHaveValue('Nguyễn Văn A');
   });
 
   it('creates a new quotation lazily from the blank form and refreshes the old quotation dropdown', async () => {
@@ -442,9 +587,20 @@ describe('ProductQuotationTab UI', () => {
         meta: { page: 1, per_page: 200, total: 0, total_pages: 1 },
       })
       .mockResolvedValueOnce({
+        data: [],
+        meta: { page: 1, per_page: 200, total: 0, total_pages: 1 },
+      })
+      .mockResolvedValueOnce({
         data: [buildDraftResponse({ id: 501, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
         meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
       });
+    quotationApiSpies.createProductQuotation.mockResolvedValueOnce(
+      buildDraftResponse({
+        id: 501,
+        customer_id: 10,
+        recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
+      })
+    );
     previewSpies.openProductQuotationPreview.mockImplementation(async ({ loadPdf }) => {
       await loadPdf();
       return true;
@@ -460,9 +616,90 @@ describe('ProductQuotationTab UI', () => {
 
     await waitFor(() => {
       expect(quotationApiSpies.createProductQuotation).toHaveBeenCalledTimes(1);
-      expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledTimes(2);
+      expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
+  });
+
+  it('moves focus across quotation row fields with Enter and returns to the next row product field after note', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+    await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
+    await user.type(screen.getByLabelText('Tìm kiếm...'), 'VNPT');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Gói/Năm')).toBeInTheDocument();
+    });
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Đơn vị tính dòng 1/i)).toHaveFocus();
+    });
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText(/Số lượng dòng 1/i)).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText(/Đơn giá dòng 1/i)).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText(/Thuế VAT dòng 1/i)).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText(/Ghi chú dòng 1/i)).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /Chọn sản phẩm từ danh mục/i })[1]).toHaveFocus();
+    });
+  });
+
+  it('keeps focus in note when pressing Shift+Enter and only moves to the next row on Enter', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+    await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
+    await user.type(screen.getByLabelText('Tìm kiếm...'), 'VNPT');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Gói/Năm')).toBeInTheDocument();
+    });
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Đơn vị tính dòng 1/i)).toHaveFocus();
+    });
+
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+
+    const noteField = screen.getByLabelText(/Ghi chú dòng 1/i);
+    expect(noteField).toHaveFocus();
+
+    await user.type(noteField, '{shift>}{enter}{/shift}Tiếp tục');
+
+    expect(noteField).toHaveFocus();
+    const noteLines = String((noteField as HTMLTextAreaElement).value).split('\n');
+    expect(noteLines.at(-1)).toBe('Tiếp tục');
+    expect(noteLines.length).toBeGreaterThan(2);
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /Chọn sản phẩm từ danh mục/i })[1]).toHaveFocus();
+    });
   });
 
   it('persists the signatory name immediately when saving drawer settings from a blank form', async () => {
@@ -488,6 +725,70 @@ describe('ProductQuotationTab UI', () => {
     expect(screen.queryByTestId('quotation-settings-drawer')).not.toBeInTheDocument();
   });
 
+  it('hydrates persisted default quotation settings from database on mount', async () => {
+    const user = userEvent.setup();
+    quotationApiSpies.fetchProductQuotationDefaultSettings.mockResolvedValueOnce(
+      buildDefaultSettingsResponse({
+        user_id: 77,
+        scope_summary: 'Triển khai theo cấu hình mặc định đã lưu',
+        validity_days: 45,
+        notes_text: 'Ghi chú mặc định đã lưu',
+        contact_line: 'Ông Nguyễn Văn D - 0909.111.222',
+        closing_message: 'Lời kết mặc định đã lưu',
+        signatory_title: 'PHÓ GIÁM ĐỐC',
+        signatory_unit: 'TRUNG TÂM GIẢI PHÁP SỐ',
+        signatory_name: 'Nguyễn Văn D',
+        is_persisted: true,
+      })
+    );
+
+    await renderProductQuotationTab({ currentUserId: 77 });
+
+    expect(quotationApiSpies.fetchProductQuotationDefaultSettings).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const drawer = screen.getByTestId('quotation-settings-drawer');
+    expect(within(drawer).getByLabelText(/Số ngày hiệu lực/i)).toHaveValue(45);
+    expect(within(drawer).getByLabelText(/Nội dung triển khai/i)).toHaveValue('Triển khai theo cấu hình mặc định đã lưu');
+    expect(within(drawer).getByLabelText(/Ghi chú chi tiết/i)).toHaveValue('Ghi chú mặc định đã lưu');
+    expect(within(drawer).getByLabelText(/Dòng liên hệ/i)).toHaveValue('Ông Nguyễn Văn D - 0909.111.222');
+    expect(within(drawer).getByLabelText(/Lời kết/i)).toHaveValue('Lời kết mặc định đã lưu');
+    expect(within(drawer).getByLabelText(/Chức danh ký/i)).toHaveValue('PHÓ GIÁM ĐỐC');
+    expect(within(drawer).getByLabelText(/Đơn vị ký/i)).toHaveValue('TRUNG TÂM GIẢI PHÁP SỐ');
+    expect(within(drawer).getByLabelText(/Tên giám đốc/i)).toHaveValue('Nguyễn Văn D');
+  });
+
+  it('persists default quotation settings to database for the current user when saving the drawer', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab({ currentUserId: 15 });
+
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const drawer = screen.getByTestId('quotation-settings-drawer');
+    const signatoryNameField = within(drawer).getByLabelText(/Tên giám đốc/i);
+    const contactLineField = within(drawer).getByLabelText(/Dòng liên hệ/i);
+
+    await user.clear(signatoryNameField);
+    await user.type(signatoryNameField, 'Nguyễn Văn A');
+    await user.clear(contactLineField);
+    await user.type(contactLineField, 'Ông Nguyễn Văn A - 0912.000.123');
+    await user.click(within(drawer).getByRole('button', { name: /^Lưu$/i }));
+
+    await waitFor(() => {
+      expect(quotationApiSpies.updateProductQuotationDefaultSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          signatory_name: 'Nguyễn Văn A',
+          contact_line: 'Ông Nguyễn Văn A - 0912.000.123',
+        })
+      );
+    });
+
+    await user.click(getNewQuotationButton());
+    await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
+    const reopenedDrawer = screen.getByTestId('quotation-settings-drawer');
+    expect(within(reopenedDrawer).getByLabelText(/Tên giám đốc/i)).toHaveValue('Nguyễn Văn A');
+    expect(within(reopenedDrawer).getByLabelText(/Dòng liên hệ/i)).toHaveValue('Ông Nguyễn Văn A - 0912.000.123');
+  });
+
   it('renders version history and audit history from backend', async () => {
     const user = userEvent.setup();
     seedSavedQuotation();
@@ -511,6 +812,7 @@ describe('ProductQuotationTab UI', () => {
     expect(screen.getAllByText('Xác nhận in').length).toBeGreaterThan(0);
     expect(screen.getByText('1 phiên bản')).toBeInTheDocument();
     expect(screen.getByText('1 audit')).toBeInTheDocument();
+    expect(screen.getAllByText('User: NV009 - Phan Văn Rở').length).toBeGreaterThan(0);
   });
 
   it('refreshes history after a successful confirmed print', async () => {
@@ -526,8 +828,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
-    await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
-    await user.click(screen.getByRole('button', { name: 'Bệnh viện Đa khoa Cần Thơ' }));
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
     await user.click(screen.getByRole('button', { name: /Xuất báo giá/i }));
@@ -620,6 +921,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 
@@ -642,18 +944,19 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
-    await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
-    await user.click(screen.getByRole('button', { name: 'Bệnh viện Đa khoa Cần Thơ' }));
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 
-    const quantityInput = screen.getByDisplayValue('1');
+    const quantityInput = screen.getByLabelText(/Số lượng dòng 1/i);
     await user.clear(quantityInput);
     await user.type(quantityInput, '1234,75');
 
-    expect(screen.getByDisplayValue('1.234,75')).toBeInTheDocument();
-    expect(screen.getAllByText('222.255.000.000').length).toBeGreaterThan(0);
-    expect(screen.getByText('Hai trăm bốn mươi tư tỷ, bốn trăm tám mươi triệu, năm trăm nghìn đồng')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Số lượng dòng 1/i)).toHaveValue('1.234,75');
+      expect(screen.getAllByText('222.255.000.000').length).toBeGreaterThan(0);
+      expect(screen.getByText('Hai trăm bốn mươi tư tỷ, bốn trăm tám mươi triệu, năm trăm nghìn đồng')).toBeInTheDocument();
+    });
 
     await user.click(screen.getByRole('button', { name: /Xuất báo giá/i }));
     await user.click(screen.getByRole('button', { name: /^Xem báo giá$/i }));
@@ -678,6 +981,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.type(screen.getByLabelText('Tìm kiếm...'), '180000000');
 
@@ -701,6 +1005,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 
@@ -730,8 +1035,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
-    await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
-    await user.click(screen.getByRole('button', { name: 'Bệnh viện Đa khoa Cần Thơ' }));
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 
@@ -1013,8 +1317,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab({ onNotify });
 
-    await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
-    await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
+    await user.click(getNewQuotationButton());
     await user.click(screen.getByRole('button', { name: /Xuất báo giá/i }));
     await user.click(screen.getByRole('button', { name: /^Xem báo giá$/i }));
 
@@ -1033,8 +1336,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab({ onNotify });
 
-    await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
-    await user.click(screen.getByRole('button', { name: 'Bệnh viện Đa khoa Cần Thơ' }));
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
 
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
@@ -1062,6 +1364,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 
@@ -1075,6 +1378,7 @@ describe('ProductQuotationTab UI', () => {
 
     expect(screen.getByTestId('quotation-settings-fab')).toBeInTheDocument();
 
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
 

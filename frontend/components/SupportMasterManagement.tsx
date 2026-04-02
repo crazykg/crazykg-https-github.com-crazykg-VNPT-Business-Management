@@ -1005,31 +1005,33 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   };
 
   return (
-    <div
-      className="p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
-      style={{ backgroundColor: 'rgb(242 239 231 / var(--tw-bg-opacity, 1))' }}
-    >
-      <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
-          <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Danh mục chức vụ đầu mối liên hệ, trạng thái hỗ trợ, workflow trạng thái/field schema, SLA và giai đoạn cơ hội.
-          </p>
+    <div className="p-3 pb-6">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>tune</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Quản lý danh mục hỗ trợ</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Nhóm, chức vụ, trạng thái, workflow, SLA và lịch làm việc</p>
+          </div>
         </div>
         {supportsSupportMasterAddAction(masterType) && (
           <button
             type="button"
             disabled={!canOpenAddForm}
             onClick={handleOpenAdd}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined">add</span>
-            <span>Thêm mới</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+            Thêm mới
           </button>
         )}
-      </header>
+      </div>
 
-      <div className="bg-white/95 p-4 md:p-5 rounded-xl border border-slate-200 shadow-[0_6px_20px_rgba(15,23,42,0.04)]">
+      {/* ── Filter bar ── */}
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 mb-3">
         {showMasterFilters ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <SearchableSelect
@@ -1040,7 +1042,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             />
 
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>
                 search
               </span>
               <input
@@ -1048,7 +1050,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder="Tìm kiếm danh mục..."
-                className="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                className="w-full h-8 pl-8 pr-3 rounded border border-slate-200 bg-white text-xs text-slate-700 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none placeholder:text-slate-400"
               />
             </div>
 
@@ -1064,21 +1066,22 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,260px)_1fr] gap-3 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,240px)_1fr] gap-3 items-start">
             <SearchableSelect
               value={masterType}
               onChange={(value) => setMasterType(value as MasterType)}
               options={masterOptions}
               placeholder="Chọn danh mục"
             />
-            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
               Lịch làm việc dùng bộ điều khiển năm/tháng riêng trong khu vực nội dung, nên không áp dụng tìm kiếm, lọc trạng thái hay phân trang chuẩn.
             </div>
           </div>
         )}
       </div>
 
-      <div className="mt-4 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+      {/* ── Content table ── */}
+      <div className="mt-3 bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto custom-scrollbar">
           {masterType === 'group' ? (
             <ServiceGroupManagement
@@ -1177,23 +1180,31 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       {formMode && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/45" onClick={closeForm}></div>
-          <div className="relative bg-white w-full max-w-2xl rounded-xl border border-slate-200 shadow-[0_24px_64px_rgba(15,23,42,0.18)] overflow-hidden animate-fade-in">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-teal-50/80 to-white">
-              <h3 className="text-lg font-bold text-slate-900">
-                {masterType === 'work_calendar'
-                  ? 'Lịch làm việc'
-                  : getSupportMasterFormTitle(masterType, formMode)}
-              </h3>
+          <div className="relative bg-white w-full max-w-2xl rounded-lg border border-slate-200 shadow-xl overflow-hidden animate-fade-in">
+            {/* Modal header */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 flex-shrink-0">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                    {formMode === 'ADD' ? 'add_circle' : 'edit'}
+                  </span>
+                </div>
+                <h3 className="min-w-0 flex-1 text-sm font-bold text-deep-teal leading-tight truncate">
+                  {masterType === 'work_calendar'
+                    ? 'Lịch làm việc'
+                    : getSupportMasterFormTitle(masterType, formMode)}
+                </h3>
+              </div>
               <button
                 type="button"
                 onClick={closeForm}
-                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600"
+                className="p-1.5 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600"
               >
-                <span className="material-symbols-outlined text-xl">close</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-4 space-y-3">
               {masterType === 'group' ? (
                 <ServiceGroupFormFields
                   customerId={groupForm.customer_id}
@@ -1655,15 +1666,15 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
 
               {formError && (
-                <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700">{formError}</div>
+                <div className="px-3 py-2 rounded bg-error/5 border border-error/20 text-xs text-error">{formError}</div>
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-end gap-3">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 flex-shrink-0">
               <button
                 type="button"
                 onClick={closeForm}
-                className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               >
                 Hủy
               </button>
@@ -1671,7 +1682,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="px-6 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 shadow-lg shadow-primary/20 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm disabled:opacity-60"
               >
                 {isSubmitting ? 'Đang lưu...' : formMode === 'ADD' ? 'Thêm mới' : 'Cập nhật'}
               </button>

@@ -1,0 +1,81 @@
+## Your Role
+You are Codex acting as a strict architecture reviewer. You are evaluating 10 supplementary architecture recommendations against an existing, battle-tested plan (2083 lines, already passed 5 rounds of Codex review with 36 issues resolved).
+
+## Plan Location
+Read the plan file at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/Architecture_Upgrade_Plan_VNPT_Business_Management.md
+
+## Background
+The plan has 8 core phases (P0-P8) + 18 recommendations (A1-A18). It has been reviewed exhaustively for production-readiness at 2000 concurrent users. Now someone has proposed 10 additional architecture recommendations.
+
+## The 10 Recommendations to Evaluate
+
+### REC-1: Repository Pattern (Critical)
+Claim: "79 services mixing business logic + data access → need Repository layer to abstract data access"
+Impact: New pattern across entire backend
+
+### REC-2: DTOs / Value Objects (High)
+Claim: "Besides API Resources (output), need Input DTOs. P2 should be renamed DTO Layer."
+Impact: Changes P2 scope significantly
+
+### REC-3: Action / UseCase / Command Pattern (High)
+Claim: "Giant services >1500 LOC should be split into Action classes (1 class = 1 responsibility)"
+Impact: Overlaps with P4 (Action Classes)
+
+### REC-4: Standardized API Error Handling (High)
+Claim: "No custom Exception Handler + ApiErrorResource. Error responses are inconsistent."
+Impact: Cross-cutting, could be P1 or P2
+
+### REC-5: Rate Limiting & Throttling (Medium-High)
+Claim: "Only permission middleware, no API abuse protection"
+Impact: Security concern
+
+### REC-6: API Documentation (Scribe/OpenAPI) (Medium)
+Claim: "100+ endpoints undocumented, no auto-generated docs"
+Impact: Developer experience
+
+### REC-7: Laravel Horizon + Telescope (Medium)
+Claim: "Queue has 2 jobs but no monitoring dashboard"
+Impact: Operations
+
+### REC-8: Contracts & Interfaces (Medium)
+Claim: "Tight coupling Service→Model. Should inject via Interface."
+Impact: Architecture purity
+
+### REC-9: Database Indexing & Query Optimization (Low-Medium)
+Claim: "87 DB::raw calls, no index audit or slow query log analysis"
+Impact: Performance
+
+### REC-10: Feature Flags (Low)
+Claim: "No way to toggle features without deploy"
+Impact: Deployment safety
+
+## Session Context
+- Stack: Laravel 12, PHP 8.2, MySQL 8, Redis, React 19, TypeScript, Zustand, Sanctum
+- Scale: 500 → 2000 concurrent users
+- Current: 79 services, 88 DB::raw, 2 FormRequests, 0 API Resources, 0 Repositories, 0 Action classes
+- Plan already covers: P1 (indexes + EXPLAIN audit), P2 (FormRequests + Resources), P3 (Redis cache), P4 (Action classes), P7 (eager loading), A5 (Telescope), A8 (Horizon/queue), A15 (read rate limiting), A16 (auth throttling)
+
+## Instructions
+1. Read the FULL plan (2083 lines) carefully
+2. For each REC-N, determine: ALREADY COVERED | PARTIALLY COVERED (plan addresses some but not all) | MISSING (genuine gap)
+3. For MISSING gaps, determine: ACCEPT (should add) | REJECT (not needed for this scale/context) | DEFER (add later)
+4. For ALREADY COVERED items, cite the specific Phase/Recommendation
+5. Be very careful not to recommend adding layers that would BLOAT the architecture unnecessarily for a 2000-user enterprise app
+6. Consider: 79 services for a monolith is NORMAL. Repository pattern on top of Eloquent is often OVER-ENGINEERING.
+7. Output as REC-N analysis blocks
+8. End with VERDICT
+
+## Required Output Format
+### REC-{N}: {Title}
+- Plan status: ALREADY COVERED | PARTIALLY COVERED | MISSING
+- Coverage reference: {Phase/Rec number and what it covers}
+- Gap (if any): {what is NOT covered}
+- Recommendation: ACCEPT | REJECT | DEFER
+- Severity: critical | high | medium | low
+- Rationale: {detailed reasoning}
+
+### VERDICT
+- Recommendations to ADD to plan: {list}
+- Recommendations to REJECT: {list}
+- Recommendations to DEFER: {list}
+- Overall: {summary}

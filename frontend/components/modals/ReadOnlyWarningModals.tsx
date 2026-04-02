@@ -13,17 +13,22 @@ const BlockerModalShell: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}></div>
-      <div className="relative w-full max-w-md rounded-xl border-l-4 border-yellow-500 bg-white p-6 shadow-2xl animate-fade-in">
-        <div className="flex items-start gap-4">
-          <span className="material-symbols-outlined text-3xl text-yellow-500">warning_amber</span>
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-            <div className="mt-2 text-slate-600">{children}</div>
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="relative w-full max-w-sm rounded-lg border border-warning/30 border-l-4 border-l-warning bg-white shadow-xl animate-fade-in">
+        <div className="flex items-start gap-3 p-4">
+          <div className="w-8 h-8 rounded bg-warning/15 flex items-center justify-center shrink-0 mt-0.5">
+            <span className="material-symbols-outlined text-warning" style={{ fontSize: 17 }}>warning_amber</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-bold text-deep-teal">{title}</h3>
+            <div className="mt-1.5 text-xs text-slate-600">{children}</div>
           </div>
         </div>
-        <div className="mt-6 flex justify-end">
-          <button onClick={onClose} className="rounded-lg bg-slate-100 px-5 py-2 font-medium text-slate-700 hover:bg-slate-200">
+        <div className="flex justify-end border-t border-slate-100 px-4 py-3">
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+          >
             {closeLabel}
           </button>
         </div>
@@ -43,23 +48,37 @@ export const ViewDepartmentModal: React.FC<{
 
   return (
     <ModalWrapper onClose={onClose} title="Thông tin phòng ban" icon="apartment">
-      <div className="space-y-4 p-6">
-        <div className="grid grid-cols-2 gap-4">
-          <div><label className="text-xs font-medium uppercase text-slate-500">Mã phòng ban</label><p className="font-mono font-medium text-slate-900">{data.dept_code}</p></div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Tên phòng ban</label><p className="font-medium text-slate-900">{data.dept_name}</p></div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Phòng ban cha</label><p className="text-slate-900">{parentName}</p></div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Trạng thái</label>
-            <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-bold ${data.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {data.is_active ? 'Hoạt động' : 'Ngừng hoạt động'}
-            </span>
+      <div className="space-y-3 p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã phòng ban</label><p className="mt-0.5 font-mono text-xs font-semibold text-slate-900">{data.dept_code}</p></div>
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên phòng ban</label><p className="mt-0.5 text-xs font-medium text-slate-900">{data.dept_name}</p></div>
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Phòng ban cha</label><p className="mt-0.5 text-xs text-slate-700">{parentName}</p></div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Trạng thái</label>
+            <div className="mt-0.5">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${data.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                {data.is_active ? 'Hoạt động' : 'Ngừng hoạt động'}
+              </span>
+            </div>
           </div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Số lượng nhân sự</label><p className="text-slate-900">{data.employeeCount || 0} nhân viên</p></div>
-          <div><label className="text-xs font-medium uppercase text-slate-500">Ngày tạo</label><p className="text-slate-900">---</p></div>
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Số lượng nhân sự</label><p className="mt-0.5 text-xs text-slate-700">{data.employeeCount || 0} nhân viên</p></div>
+          <div><label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</label><p className="mt-0.5 text-xs text-slate-400">---</p></div>
         </div>
       </div>
-      <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-        <button onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-100">Đóng</button>
-        <button onClick={() => { onClose(); onEdit(); }} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-white hover:bg-deep-teal"><span className="material-symbols-outlined text-lg">edit</span> Chỉnh sửa</button>
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
+        <button
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+        >
+          Đóng
+        </button>
+        <button
+          onClick={() => { onClose(); onEdit(); }}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span>
+          Chỉnh sửa
+        </button>
       </div>
     </ModalWrapper>
   );

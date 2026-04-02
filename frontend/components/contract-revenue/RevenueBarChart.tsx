@@ -35,9 +35,9 @@ export const RevenueBarChart: React.FC<RevenueBarChartProps> = ({ data }) => {
 
   if (data.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-700">Doanh thu dự kiến vs thực thu</p>
-        <p className="mt-3 text-sm text-slate-500">Chưa có dữ liệu doanh thu trong kỳ đã chọn.</p>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-bold text-slate-700">Doanh thu dự kiến vs thực thu</p>
+        <p className="mt-2 text-xs text-slate-500">Chưa có dữ liệu doanh thu trong kỳ đã chọn.</p>
       </div>
     );
   }
@@ -47,26 +47,26 @@ export const RevenueBarChart: React.FC<RevenueBarChartProps> = ({ data }) => {
   const barGap = Math.min(12, Math.max(6, groupWidth / 8));
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-bold text-slate-900">Dự kiến vs thực thu</p>
-          <p className="text-xs text-slate-500">So sánh theo từng kỳ tháng/quý đã chọn.</p>
+          <p className="text-xs font-bold text-slate-700">Dự kiến vs thực thu</p>
+          <p className="text-[11px] text-slate-400">So sánh theo từng kỳ tháng/quý đã chọn.</p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
             Dự kiến
           </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-success shrink-0" />
             Thực thu
           </span>
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[320px] min-w-full">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] min-w-full">
           {Array.from({ length: ticks + 1 }).map((_, index) => {
             const ratio = index / ticks;
             const y = margin.top + plotHeight - ratio * plotHeight;
@@ -99,7 +99,7 @@ export const RevenueBarChart: React.FC<RevenueBarChartProps> = ({ data }) => {
                   width={barWidth}
                   height={Math.max(expectedHeight, 1)}
                   rx={8}
-                  fill="#3b82f6"
+                  fill="#005BAA"
                   opacity={0.92}
                   onMouseEnter={() =>
                     setTooltip({
@@ -118,7 +118,7 @@ export const RevenueBarChart: React.FC<RevenueBarChartProps> = ({ data }) => {
                   width={barWidth}
                   height={Math.max(actualHeight, 1)}
                   rx={8}
-                  fill="#10b981"
+                  fill="#10B981"
                   opacity={0.94}
                   onMouseEnter={() =>
                     setTooltip({
@@ -145,14 +145,14 @@ export const RevenueBarChart: React.FC<RevenueBarChartProps> = ({ data }) => {
 
           {tooltip && (
             <g transform={`translate(${Math.min(width - 220, Math.max(20, tooltip.x - 96))} ${Math.max(18, tooltip.y - 64)})`}>
-              <rect width="192" height="56" rx="12" fill="#0f172a" opacity="0.96" />
+              <rect width="192" height="56" rx="10" fill="#0f172a" opacity="0.96" />
               <text x="12" y="18" className="fill-slate-200 text-[11px] font-medium">
                 {tooltip.label}
               </text>
               <text x="12" y="34" className="fill-white text-[12px] font-semibold">
                 {tooltip.series}
               </text>
-              <text x="12" y="50" className="fill-emerald-200 text-[12px] font-bold">
+              <text x="12" y="50" fill="#6ee7b7" fontSize={12} fontWeight="bold">
                 {formatCurrency(tooltip.value)}
               </text>
             </g>

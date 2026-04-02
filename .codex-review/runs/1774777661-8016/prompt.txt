@@ -1,0 +1,41 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_29_03_Upgrade_Goi_y_ban_hang.md
+
+## Session Context
+Constraints: Must extend existing CustomerInsightService (not replace). Must use hasTable()/hasColumn() schema guards. Must preserve backward compat. MySQL 8 only (no PostgreSQL syntax).
+Assumptions: product_feature_groups and product_features tables already exist. customers table has customer_sector, healthcare_facility_type, bed_capacity columns.
+Tech stack: Laravel 12 (PHP 8.4) + MySQL 8 + Redis. React 19 + Vite + TypeScript + TailwindCSS. Sanctum auth.
+Acceptance criteria: (1) product_target_segments table. (2) 2 groups: targeted + popular. (3) /insight/product-detail/{pid}. (4) Expandable cards. (5) Cache with proper invalidation. (6) Schema guards. (7) ~626+ lines.
+
+## Issues Accepted & Fixed
+ISSUE-1 (Round 2): FIXED — §4.3 snippet now includes hasColumn() guards for customer columns and hasTable() guard for feature tables. Note at top of §4.3 cross-references §3.4 Guard Matrix as mandatory.
+ISSUE-2 (Round 2): FIXED — §5.3 now references §9 as single source of truth. §9 completely rewritten: removed Cache::flush() and Cache::tags() pseudo-APIs. Now uses ONE concrete strategy: Redis SCAN + DEL via redisScanDelete() private method. 3 concrete public methods with full PHP code.
+ISSUE-4 (Round 2): FIXED — §4.3 snippet completely rewritten to use ROW_NUMBER() OVER (PARTITION BY product_id) subquery instead of MIN/MAX aggregation. Winner row provides both segment_priority and sales_notes from the SAME row.
+ISSUE-7 (Round 2): FIXED — Removed DISTINCT ON reference from §4.2b. Explicitly states MySQL 8 only, ROW_NUMBER() approach only. §4.3 snippet implements this.
+
+## Issues Disputed
+(None — all 4 issues accepted and fixed)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory.
+2. Verify that fixed issues are actually resolved.
+3. Do NOT re-open issues marked as fixed unless you find a regression.
+4. Check plan still meets acceptance criteria.
+5. Focus on remaining open issues and any NEW findings.
+6. Maintain same numbering. New findings use next available number.
+7. End with VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range}
+- Problem: {clear statement}
+- Evidence: {quote or reference}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

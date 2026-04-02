@@ -10,10 +10,13 @@ use App\Http\Requests\V5\UpdateInvoiceRequest;
 use App\Http\Requests\V5\UpdateReceiptRequest;
 use App\Services\V5\FeeCollection\DebtAgingReportService;
 use App\Services\V5\FeeCollection\FeeCollectionDashboardService;
+use App\Models\Invoice;
+use App\Models\Receipt;
 use App\Services\V5\FeeCollection\InvoiceDomainService;
 use App\Services\V5\FeeCollection\ReceiptDomainService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class FeeCollectionController extends Controller
 {
@@ -44,11 +47,19 @@ class FeeCollectionController extends Controller
 
     public function invoiceUpdate(UpdateInvoiceRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', Invoice::query()->findOrFail($id));
+        }
+
         return $this->invoiceService->update($request, $id);
     }
 
     public function invoiceDestroy(Request $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('delete', Invoice::query()->findOrFail($id));
+        }
+
         return $this->invoiceService->destroy($request, $id);
     }
 
@@ -88,16 +99,28 @@ class FeeCollectionController extends Controller
 
     public function receiptUpdate(UpdateReceiptRequest $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('update', Receipt::query()->findOrFail($id));
+        }
+
         return $this->receiptService->update($request, $id);
     }
 
     public function receiptDestroy(Request $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('delete', Receipt::query()->findOrFail($id));
+        }
+
         return $this->receiptService->destroy($request, $id);
     }
 
     public function receiptReverse(Request $request, int $id): JsonResponse
     {
+        if (auth()->check()) {
+            Gate::authorize('reverse', Receipt::query()->findOrFail($id));
+        }
+
         return $this->receiptService->reverse($request, $id);
     }
 

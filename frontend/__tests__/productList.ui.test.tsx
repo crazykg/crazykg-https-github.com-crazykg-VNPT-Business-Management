@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BrowserRouter } from 'react-router-dom';
 import type { Business, Product, Vendor } from '../types';
 import { ProductList } from '../components/ProductList';
 import type { ProductQuotationDraft } from '../services/v5Api';
@@ -132,6 +133,18 @@ const buildDraftResponse = (overrides: Partial<ProductQuotationDraft> = {}): Pro
   ...overrides,
 });
 
+const renderProductList = (
+  props: React.ComponentProps<typeof ProductList>,
+  route = '/products'
+) => {
+  window.history.replaceState({}, '', route);
+  return render(
+    <BrowserRouter>
+      <ProductList {...props} />
+    </BrowserRouter>
+  );
+};
+
 describe('ProductList UI', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -161,16 +174,14 @@ describe('ProductList UI', () => {
   it('filters by service group and syncs the filter to the URL', async () => {
     const user = userEvent.setup();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
-    await user.click(screen.getByRole('button', { name: 'Nhóm dịch vụ' }));
+    await user.click(screen.getByRole('button', { name: 'Tất cả nhóm dịch vụ' }));
     await user.click(screen.getByRole('button', { name: 'Dịch vụ nhóm A' }));
 
     expect(screen.getByText('SP-A')).toBeInTheDocument();
@@ -181,14 +192,12 @@ describe('ProductList UI', () => {
   it('applies the matching service group filter when a KPI card is clicked', async () => {
     const user = userEvent.setup();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     await user.click(screen.getByRole('button', { name: 'Lọc theo Nhóm B' }));
 
@@ -205,15 +214,13 @@ describe('ProductList UI', () => {
   it('uses a complete import template for products', async () => {
     const user = userEvent.setup();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-        canImport={true}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+      canImport: true,
+    });
 
     await user.click(screen.getByRole('button', { name: /Nhập/i }));
     await user.click(screen.getByRole('button', { name: /Tải file mẫu/i }));
@@ -234,14 +241,12 @@ describe('ProductList UI', () => {
   it('exports an import-ready spreadsheet with full product fields', async () => {
     const user = userEvent.setup();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     await user.click(screen.getByRole('button', { name: /Xuất/i }));
     await user.click(screen.getByRole('button', { name: /Excel/i }));
@@ -266,30 +271,26 @@ describe('ProductList UI', () => {
   });
 
   it('locks fixed widths for service group, product code and price columns', () => {
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
-    expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[180px]', 'min-w-[180px]');
-    expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[160px]', 'min-w-[160px]');
-    expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[220px]', 'min-w-[220px]');
+    expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[160px]', 'min-w-[160px]');
+    expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[140px]', 'min-w-[140px]');
+    expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[200px]', 'min-w-[200px]');
   });
 
   it('renders the new product table column order and short service group badge labels', () => {
-    const { container } = render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    const { container } = renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     const headerTexts = Array.from(container.querySelectorAll('thead th')).map((element) =>
       String(element.textContent || '')
@@ -320,14 +321,12 @@ describe('ProductList UI', () => {
   });
 
   it('shows a fallback dash in the description column when a product has no description', () => {
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     const secondRow = screen.getByText('SP-B').closest('tr');
     expect(secondRow).not.toBeNull();
@@ -337,20 +336,18 @@ describe('ProductList UI', () => {
   it('wraps long product codes inside the fixed column instead of letting text spill into adjacent columns', () => {
     const longCode = 'SMARTCA_NHAN_VIEN_VNPT_SMARTCA_DANH_CHO_BAC_SI_CAN_BO_Y_TE_36_THANG';
 
-    render(
-      <ProductList
-        products={[
-          {
-            ...products[0],
-            id: 99,
-            product_code: longCode,
-          },
-        ]}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products: [
+        {
+          ...products[0],
+          id: 99,
+          product_code: longCode,
+        },
+      ],
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     const productCodeCell = screen.getByText(longCode).closest('td');
     expect(productCodeCell).toHaveClass('overflow-hidden', 'whitespace-normal');
@@ -358,14 +355,12 @@ describe('ProductList UI', () => {
   });
 
   it('does not render the old badge and title block above the product tabs', () => {
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     expect(screen.queryByText('Danh mục sản phẩm dịch vụ')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Sản phẩm' })).not.toBeInTheDocument();
@@ -375,14 +370,12 @@ describe('ProductList UI', () => {
     const user = userEvent.setup();
     const onOpenModal = vi.fn();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={onOpenModal}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal,
+    });
 
     await user.click(screen.getAllByTitle('Danh mục chức năng')[0]);
 
@@ -393,15 +386,13 @@ describe('ProductList UI', () => {
     const user = userEvent.setup();
     const onOpenModal = vi.fn();
 
-    render(
-      <ProductList
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={onOpenModal}
-        canEdit={true}
-      />
-    );
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal,
+      canEdit: true,
+    });
 
     await user.click(screen.getAllByTitle('Cấu hình đề xuất bán hàng')[0]);
 
@@ -410,7 +401,6 @@ describe('ProductList UI', () => {
 
   it('passes currentUserId to the quotation tab so floating settings hydrate per user', async () => {
     const user = userEvent.setup();
-    window.history.replaceState({}, '', '/?tab=products&products_view=quote');
     quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
       data: [buildDraftResponse({ id: 91, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
       meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
@@ -429,19 +419,18 @@ describe('ProductList UI', () => {
       })
     );
 
-    render(
-      <ProductList
-        currentUserId={91}
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      currentUserId: 91,
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Cấu hình báo giá/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Báo giá/i })).toBeInTheDocument();
     });
+    await user.click(screen.getByRole('button', { name: /Báo giá/i }));
     await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
     await user.click(await screen.findByRole('button', { name: /Bệnh viện Đa khoa Cần Thơ/i }));
     await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
@@ -453,28 +442,47 @@ describe('ProductList UI', () => {
   });
 
   it('shows the new quotation controls in quote view without auto-hydrating a saved draft', async () => {
-    window.history.replaceState({}, '', '/?tab=products&products_view=quote');
+    const user = userEvent.setup();
     quotationApiSpies.fetchProductQuotationsPage.mockResolvedValueOnce({
       data: [buildDraftResponse({ id: 91, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
       meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
     });
 
-    render(
-      <ProductList
-        currentUserId={91}
-        products={products}
-        businesses={businesses}
-        vendors={vendors}
-        onOpenModal={vi.fn()}
-      />
-    );
+    renderProductList({
+      currentUserId: 91,
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Thêm báo giá/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Báo giá/i })).toBeInTheDocument();
     });
+    await user.click(screen.getByRole('button', { name: /Báo giá/i }));
 
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
     expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
     expect(screen.getByText('Form trắng')).toBeInTheDocument();
+  });
+
+  it('opens quote view from the real /products/quote route and keeps legacy products_view out of the URL', async () => {
+    renderProductList(
+      {
+        currentUserId: 91,
+        products,
+        businesses,
+        vendors,
+        onOpenModal: vi.fn(),
+      },
+      '/products/quote?products_view=quote'
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toBeInTheDocument();
+    });
+
+    expect(window.location.pathname).toBe('/products/quote');
+    expect(window.location.search).not.toContain('products_view=quote');
   });
 });

@@ -1,0 +1,24 @@
+## Updated Plan
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_29_03_Upgrade_Goi_y_ban_hang.md
+
+## Session Context
+Constraints: Extend CustomerInsightService. hasTable()/hasColumn() guards. Backward compat. MySQL 8 only.
+Acceptance criteria: (1) product_target_segments table. (2) 2 groups: targeted + popular. (3) /insight/product-detail/{pid}. (4) Expandable cards. (5) Cache with proper invalidation. (6) Schema guards. (7) ~626+ lines.
+
+## Issues Accepted & Fixed
+ISSUE-8 (Round 4): FIXED — §5.2 backend response now returns group_name (not name), and features are explicitly mapped to { feature_name, detail_description } shape. This exactly matches §6.1 UpsellFeatureGroup interface: { id, group_name, features: { feature_name, detail_description? }[] }.
+
+## Issues Disputed
+(None)
+
+## Instructions
+1. Re-read the current plan file. Verify ISSUE-8 is resolved.
+2. Do NOT re-open fixed issues unless regression found.
+3. Focus on NEW findings only.
+4. End with VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: ...
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

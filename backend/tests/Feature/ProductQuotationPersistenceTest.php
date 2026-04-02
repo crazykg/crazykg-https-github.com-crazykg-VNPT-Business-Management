@@ -210,11 +210,117 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertJsonPath('data.0.recipient_name', 'BỆNH VIỆN USER 7');
     }
 
+    public function test_it_filters_product_quotation_index_by_customer_and_recent_updated_window(): void
+    {
+        DB::table('customers')->insert([
+            ['id' => 101, 'customer_name' => 'BỆNH VIỆN GẦN ĐÂY'],
+            ['id' => 202, 'customer_name' => 'BỆNH VIỆN KHÁC'],
+        ]);
+
+        $recentResponse = $this->postJson('/api/v5/products/quotations', array_merge($this->quotationPayload(), [
+            'customer_id' => 101,
+            'recipient_name' => 'BỆNH VIỆN GẦN ĐÂY',
+        ]));
+        $recentId = (int) $recentResponse->json('data.id');
+
+        $olderSameCustomerResponse = $this->postJson('/api/v5/products/quotations', array_merge($this->quotationPayload(), [
+            'customer_id' => 101,
+            'recipient_name' => 'BỆNH VIỆN CŨ HƠN',
+        ]));
+        $olderSameCustomerId = (int) $olderSameCustomerResponse->json('data.id');
+
+        $recentOtherCustomerResponse = $this->postJson('/api/v5/products/quotations', array_merge($this->quotationPayload(), [
+            'customer_id' => 202,
+            'recipient_name' => 'BỆNH VIỆN KHÁC',
+        ]));
+        $recentOtherCustomerId = (int) $recentOtherCustomerResponse->json('data.id');
+
+        DB::table('product_quotations')->where('id', $recentId)->update([
+            'updated_at' => Carbon::now()->subDays(10),
+        ]);
+        DB::table('product_quotations')->where('id', $olderSameCustomerId)->update([
+            'updated_at' => Carbon::now()->subDays(120),
+        ]);
+        DB::table('product_quotations')->where('id', $recentOtherCustomerId)->update([
+            'updated_at' => Carbon::now()->subDays(5),
+        ]);
+
+        $recentResponse = $this->getJson('/api/v5/products/quotations?updated_from=' . urlencode(Carbon::now()->subDays(90)->toIso8601String()));
+        $recentResponse->assertOk();
+        $recentResponse->assertJsonCount(2, 'data');
+        $recentRecipients = array_column($recentResponse->json('data'), 'recipient_name');
+        $this->assertContains('BỆNH VIỆN GẦN ĐÂY', $recentRecipients);
+        $this->assertContains('BỆNH VIỆN KHÁC', $recentRecipients);
+        $this->assertNotContains('BỆNH VIỆN CŨ HƠN', $recentRecipients);
+
+        $customerResponse = $this->getJson('/api/v5/products/quotations?customer_id=101');
+        $customerResponse->assertOk();
+        $customerResponse->assertJsonCount(2, 'data');
+        $customerRecipients = array_column($customerResponse->json('data'), 'recipient_name');
+        $this->assertContains('BỆNH VIỆN GẦN ĐÂY', $customerRecipients);
+        $this->assertContains('BỆNH VIỆN CŨ HƠN', $customerRecipients);
+        $this->assertNotContains('BỆNH VIỆN KHÁC', $customerRecipients);
+    }
+
+    public function test_it_returns_product_quotation_default_settings_with_system_defaults_when_no_row_exists(): void
+    {
+        $this->actingAs(new GenericUser(['id' => 15]));
+
+        $response = $this->getJson('/api/v5/products/quotation-default-settings');
+
+        $response->assertOk();
+        $response->assertJsonPath('data.user_id', 15);
+        $response->assertJsonPath('data.scope_summary', 'phục vụ triển khai các sản phẩm/dịch vụ theo nhu cầu của Quý đơn vị');
+        $response->assertJsonPath('data.validity_days', 90);
+        $response->assertJsonPath('data.is_persisted', false);
+    }
+
+    public function test_it_persists_product_quotation_default_settings_for_the_authenticated_user(): void
+    {
+        $this->actingAs(new GenericUser(['id' => 15]));
+
+        $response = $this->putJson('/api/v5/products/quotation-default-settings', [
+            'scope_summary' => 'Triển khai theo cấu hình mặc định đã lưu',
+            'validity_days' => 45,
+            'notes_text' => "Dòng 1\nDòng 2",
+            'contact_line' => 'Ông Nguyễn Văn A - 0912.000.123',
+            'closing_message' => 'Lời kết mặc định đã lưu',
+            'signatory_title' => 'PHÓ GIÁM ĐỐC',
+            'signatory_unit' => 'TRUNG TÂM GIẢI PHÁP SỐ',
+            'signatory_name' => 'Nguyễn Văn A',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.user_id', 15);
+        $response->assertJsonPath('data.scope_summary', 'Triển khai theo cấu hình mặc định đã lưu');
+        $response->assertJsonPath('data.validity_days', 45);
+        $response->assertJsonPath('data.signatory_name', 'Nguyễn Văn A');
+        $response->assertJsonPath('data.is_persisted', true);
+
+        $this->assertDatabaseHas('product_quotation_default_settings', [
+            'user_id' => 15,
+            'scope_summary' => 'Triển khai theo cấu hình mặc định đã lưu',
+            'validity_days' => 45,
+            'signatory_name' => 'Nguyễn Văn A',
+            'created_by' => 15,
+            'updated_by' => 15,
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => 'product_quotation_default_settings',
+            'event' => 'INSERT',
+        ]);
+    }
+
     private function setUpSchema(): void
     {
         Schema::create('products', function (Blueprint $table): void {
             $table->id();
             $table->string('product_name')->nullable();
+        });
+
+        Schema::create('customers', function (Blueprint $table): void {
+            $table->id();
+            $table->string('customer_name')->nullable();
         });
 
         Schema::create('audit_logs', function (Blueprint $table): void {
@@ -344,6 +450,22 @@ class ProductQuotationPersistenceTest extends TestCase
             $table->string('user_agent')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->dateTime('created_at')->nullable();
+        });
+
+        Schema::create('product_quotation_default_settings', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->unique();
+            $table->text('scope_summary')->nullable();
+            $table->unsignedSmallInteger('validity_days')->default(90);
+            $table->text('notes_text')->nullable();
+            $table->text('contact_line')->nullable();
+            $table->text('closing_message')->nullable();
+            $table->string('signatory_title', 255)->nullable();
+            $table->string('signatory_unit', 255)->nullable();
+            $table->string('signatory_name', 255)->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
         });
 
         DB::table('products')->insert([

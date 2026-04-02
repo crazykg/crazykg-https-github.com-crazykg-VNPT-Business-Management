@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import type { Contract, ContractItem, Product, Project, ProjectItemMaster } from '../../types';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 
@@ -85,6 +84,12 @@ interface ContractDetailsTabProps {
   };
 }
 
+const fieldLabelClass = 'text-xs font-semibold text-neutral';
+const fieldInputClass = 'w-full h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
+const fieldInputErrorClass = 'border-error ring-1 ring-error/20';
+const cardClass = 'rounded-lg border border-slate-200 bg-white shadow-sm';
+const compactTriggerClass = 'h-8 rounded border border-slate-300 px-3 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+
 export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   formData,
   errors,
@@ -156,11 +161,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   const { formatCurrency, formatQuantity, parseCurrency } = formatters;
 
   return (
-    <div className="p-6 space-y-5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div className="space-y-3 p-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">
-            Mã hợp đồng <span className="text-red-500">*</span>
+          <label className={fieldLabelClass}>
+            Mã hợp đồng <span className="text-error">*</span>
           </label>
           <input
             type="text"
@@ -168,22 +173,21 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onChange={(event) => onFieldChange('contract_code', event.target.value)}
             onBlur={() => onFieldBlur('contract_code')}
             placeholder="HD-2026-001"
-            className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-              errors.contract_code
-                ? 'border-red-500 ring-1 ring-red-500'
-                : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-            }`}
+            className={`${fieldInputClass} ${errors.contract_code ? fieldInputErrorClass : ''}`}
           />
           {errors.contract_code && (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.contract_code}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.contract_code}
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">
-            Tên hợp đồng <span className="text-red-500">*</span>
+          <label className={fieldLabelClass}>
+            Tên hợp đồng <span className="text-error">*</span>
           </label>
           <input
             type="text"
@@ -191,32 +195,31 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onChange={(event) => onFieldChange('contract_name', event.target.value)}
             onBlur={() => onFieldBlur('contract_name')}
             placeholder="Hợp đồng triển khai giải pháp..."
-            className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-              errors.contract_name
-                ? 'border-red-500 ring-1 ring-red-500'
-                : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-            }`}
+            className={`${fieldInputClass} ${errors.contract_name ? fieldInputErrorClass : ''}`}
           />
           {errors.contract_name && (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.contract_name}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.contract_name}
             </p>
           )}
         </div>
 
-        <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 shadow-sm">
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-semibold text-slate-800">Nguồn hợp đồng</p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs font-bold text-slate-700">Nguồn hợp đồng</p>
+            <p className="text-[11px] text-slate-500">
               Chọn hợp đồng theo dự án để lấy khách hàng từ dự án, hoặc chuyển sang đầu kỳ khi hợp đồng chưa gắn dự án cụ thể.
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => onSourceModeChange('PROJECT')}
               disabled={areScheduleSourceFieldsLocked}
-              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+              className={`inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                 sourceMode === 'PROJECT'
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
@@ -229,7 +232,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               type="button"
               onClick={() => onSourceModeChange('INITIAL')}
               disabled={areScheduleSourceFieldsLocked}
-              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+              className={`inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                 sourceMode === 'INITIAL'
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
@@ -255,6 +258,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               placeholder={isProjectSelectionLoading ? 'Đang tải danh mục dự án...' : 'Chọn dự án'}
               error={errors.project_id}
               disabled={isProjectSelectionDisabled}
+              triggerClassName={compactTriggerClass}
+              denseLabel
             />
           </div>
         ) : (
@@ -272,6 +277,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                 placeholder={isInitialCustomerSelectionLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
                 error={errors.customer_id}
                 disabled={isInitialCustomerSelectionDisabled}
+                triggerClassName={compactTriggerClass}
+                denseLabel
               />
             </div>
 
@@ -288,25 +295,27 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                 placeholder="Chọn loại dự án"
                 error={errors.project_type_code}
                 disabled={isInitialProjectTypeSelectionDisabled}
+                triggerClassName={compactTriggerClass}
+                denseLabel
               />
             </div>
           </>
         )}
 
         {isProjectSelectionLoading && sourceMode === 'PROJECT' && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
             Đang tải dữ liệu dự án để liên kết hợp đồng.
           </div>
         )}
 
         {isInitialCustomerSelectionLoading && sourceMode === 'INITIAL' && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
             Đang tải dữ liệu khách hàng cho hợp đồng đầu kỳ.
           </div>
         )}
 
         {sourceMode === 'PROJECT' && selectedProject && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
             Dự án: <span className="font-semibold text-slate-800">{selectedProject.project_code} - {selectedProject.project_name}</span>
             {' | '}KH: <span className="font-semibold text-slate-800">{selectedProjectCustomerName || '--'}</span>
             {' | '}Giá trị hạng mục DA: <span className="font-semibold text-slate-800">{formatCurrency(selectedProjectValue)} VNĐ ({selectedProjectItems.length} HM)</span>
@@ -315,10 +324,10 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               <>
                 {' | '}
                 <span
-                  className="inline-flex items-center gap-1 font-semibold text-amber-700"
+                  className="inline-flex items-center gap-1 font-semibold text-warning"
                   title={projectTypeLockMessage}
                 >
-                  <span className="material-symbols-outlined text-sm">lock</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
                   Đã khóa loại dự án
                 </span>
               </>
@@ -327,7 +336,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {sourceMode === 'INITIAL' && (formData.customer_id || formData.project_type_code) && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
             Khách hàng:{' '}
             <span className="font-semibold text-slate-800">
               {customerOptions.find((item) => String(item.value) === String(formData.customer_id || ''))?.label || '--'}
@@ -339,22 +348,22 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
 
         {sourceMode === 'PROJECT' && selectedProject && (
           <div className="md:col-span-2 space-y-3">
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className={cardClass}>
               <button
                 type="button"
                 onClick={onToggleProjectItemsReference}
-                className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 text-left"
+                className="flex w-full flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">
+                  <h4 className="text-xs font-bold text-slate-700">
                     Hạng mục dự án gốc ({selectedProjectItems.length} hạng mục)
                   </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="mt-0.5 text-[11px] text-slate-500">
                     Chỉ để tham chiếu read-only từ dự án liên kết, không ràng buộc logic hợp đồng.
                   </p>
                 </div>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600">
-                  <span className="material-symbols-outlined text-base">
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
                     {isProjectItemsReferenceOpen ? 'expand_less' : 'expand_more'}
                   </span>
                   {isProjectItemsReferenceOpen ? 'Thu gọn' : 'Xem chi tiết'}
@@ -428,14 +437,14 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-              <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div className={cardClass}>
+              <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900">
+                    <h4 className="text-xs font-bold text-slate-700">
                       Hạng mục hợp đồng ({draftItems.length} hạng mục)
                     </h4>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="mt-0.5 text-[11px] text-slate-500">
                       Snapshot thương mại riêng của hợp đồng, không ghi ngược về dự án.
                     </p>
                   </div>
@@ -443,14 +452,16 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                     <button
                       type="button"
                       onClick={onAddDraftItem}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/15"
+                      className="inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                        add
+                      </span>
                       Thêm hạng mục
                     </button>
                   ) : (
-                    <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                      <span className="material-symbols-outlined text-sm">lock</span>
+                    <div className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-warning">
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
                       Không thể sửa - đã có kỳ thanh toán
                     </div>
                   )}
@@ -517,6 +528,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                   compact
                                   usePortal
                                   disabled={isContractProductOptionsLoading}
+                                  triggerClassName={compactTriggerClass}
                                 />
                               ) : (
                                 item.product_name || item.product_code || '--'
@@ -536,7 +548,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                     const parsed = Number(event.target.value);
                                     onDraftItemChange(index, 'quantity', Number.isFinite(parsed) ? parsed : 0);
                                   }}
-                                  className="w-24 h-10 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                  className="h-8 w-24 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                                 />
                               ) : (
                                 formatQuantity(quantity)
@@ -548,7 +560,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                   type="text"
                                   value={formatCurrency(unitPrice)}
                                   onChange={(event) => onDraftItemChange(index, 'unit_price', parseCurrency(event.target.value))}
-                                  className="w-36 h-10 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                  className="h-8 w-36 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                                 />
                               ) : (
                                 `${formatCurrency(unitPrice)} đ`
@@ -559,7 +571,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                             </td>
                             <td className="px-4 py-3 text-center">
                               {vatLabel !== '--' ? (
-                                <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                                <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-0.5 text-[10px] font-bold text-tertiary">
                                   {vatLabel}
                                 </span>
                               ) : (
@@ -573,7 +585,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                   value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
                                   onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
                                   placeholder="0"
-                                  className="w-36 h-10 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                  className="h-8 w-36 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                                 />
                               ) : (
                                 <span className="font-semibold text-slate-900">
@@ -591,10 +603,12 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onRemoveDraftItem(index)}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-error/20 text-error hover:bg-error/10"
                                   aria-label={`Xóa hạng mục ${index + 1}`}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                    delete
+                                  </span>
                                 </button>
                               </td>
                             )}
@@ -628,15 +642,17 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {!!inlineNotice && (
-          <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 inline-flex items-center gap-1.5">
-            <AlertCircle className="w-3.5 h-3.5" />
+          <div className="md:col-span-2 inline-flex items-center gap-1.5 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
+              info
+            </span>
             <span>{inlineNotice}</span>
           </div>
         )}
 
         {areScheduleSourceFieldsLocked && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 inline-flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm text-slate-500">lock</span>
+          <div className="md:col-span-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 14 }}>lock</span>
             <span>{scheduleSourceLockMessage}</span>
           </div>
         )}
@@ -648,6 +664,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onChange={(value) => onFieldChange('status', value)}
             options={statusOptions}
             disabled={areScheduleSourceFieldsLocked}
+            triggerClassName={compactTriggerClass}
+            denseLabel
           />
         </div>
 
@@ -662,14 +680,19 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             searchPlaceholder="Tìm theo mã, họ tên, phòng ban..."
             error={errors.signer_user_id}
             searching={isSignerOptionsLoading}
+            triggerClassName={compactTriggerClass}
+            denseLabel
           />
           {selectedSignerDepartmentLabel ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-[11px] text-slate-500">
               Phòng ban ownership sẽ lưu cho hợp đồng: <span className="font-semibold text-slate-700">{selectedSignerDepartmentLabel}</span>
             </p>
           ) : signerOptionsError ? (
-            <p className="text-xs text-amber-700 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {signerOptionsError}
+            <p className="inline-flex items-center gap-1 text-xs text-warning">
+              <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
+                warning
+              </span>
+              {signerOptionsError}
             </p>
           ) : null}
         </div>
@@ -683,33 +706,34 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             options={cycleSelectOptions}
             error={errors.payment_cycle}
             disabled={areScheduleSourceFieldsLocked}
+            triggerClassName={compactTriggerClass}
+            denseLabel
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Ngày ký</label>
+          <label className={fieldLabelClass}>Ngày ký</label>
           <input
             type="date"
             value={formData.sign_date || ''}
             onChange={(event) => onFieldChange('sign_date', event.target.value)}
             onBlur={() => onFieldBlur('sign_date')}
             disabled={areScheduleSourceFieldsLocked}
-            className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-              errors.sign_date
-                ? 'border-red-500 ring-1 ring-red-500'
-                : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-            }`}
+            className={`${fieldInputClass} ${errors.sign_date ? fieldInputErrorClass : ''}`}
           />
           {errors.sign_date && (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.sign_date}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.sign_date}
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <label className="text-sm font-semibold text-slate-700">Giá trị hợp đồng (VNĐ)</label>
+            <label className={fieldLabelClass}>Giá trị hợp đồng (VNĐ)</label>
           </div>
           <div className="relative">
             <input
@@ -719,25 +743,27 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               onBlur={() => onFieldBlur('value')}
               disabled={areScheduleSourceFieldsLocked}
               placeholder="0"
-              className={`w-full h-11 pl-4 pr-10 rounded-lg border bg-white text-slate-900 outline-none transition-all font-bold ${
-                errors.value
-                  ? 'border-red-500 ring-1 ring-red-500'
-                  : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-              }`}
+              className={`w-full ${fieldInputClass} pr-10 font-semibold ${errors.value ? fieldInputErrorClass : ''}`}
             />
-            <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none text-slate-400 font-bold">₫</div>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">₫</div>
           </div>
           {errors.value ? (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.value}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.value}
             </p>
           ) : showZeroValueWarning ? (
-            <p className="text-xs text-amber-700 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> Giá trị hợp đồng đang bằng 0 VNĐ. Vui lòng kiểm tra trước khi lưu.
+            <p className="inline-flex items-center gap-1 text-xs text-warning">
+              <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
+                warning
+              </span>
+              Giá trị hợp đồng đang bằng 0 VNĐ. Vui lòng kiểm tra trước khi lưu.
             </p>
           ) : null}
           {!errors.value && (
-            <div className="mt-1 rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5">
+            <div className="mt-1 rounded border border-primary/20 bg-primary/5 px-3 py-1.5">
               <p className="text-xs leading-relaxed text-deep-teal">
                 <span className="font-bold uppercase tracking-wide">Số tiền bằng chữ:</span>{' '}
                 <span className="font-bold text-slate-900 break-words">{valueInWords}</span>
@@ -758,11 +784,13 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             placeholder="Chọn đơn vị thời hạn"
             error={errors.term_unit}
             disabled={areScheduleSourceFieldsLocked}
+            triggerClassName={compactTriggerClass}
+            denseLabel
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Thời hạn hợp đồng</label>
+          <label className={fieldLabelClass}>Thời hạn hợp đồng</label>
           <input
             type="number"
             min={0}
@@ -781,27 +809,26 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onBlur={() => onFieldBlur('term_value')}
             disabled={areScheduleSourceFieldsLocked}
             placeholder={String(formData.term_unit || '').toUpperCase() === 'DAY' ? 'Ví dụ: 30' : 'Ví dụ: 1.5'}
-            className={`w-full h-11 px-4 rounded-lg border bg-white text-slate-900 outline-none transition-all ${
-              errors.term_value
-                ? 'border-red-500 ring-1 ring-red-500'
-                : 'border-slate-300 focus:ring-2 focus:ring-primary/20 focus:border-primary'
-            }`}
+            className={`${fieldInputClass} ${errors.term_value ? fieldInputErrorClass : ''}`}
           />
           {errors.term_value ? (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.term_value}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.term_value}
             </p>
           ) : (
-            <p className="text-xs text-slate-500">
+            <p className="text-[11px] text-slate-500">
               Mốc tính hạn: Ngày hiệu lực {'->'} Ngày ký {'->'} hôm qua. Công thức: hạn = mốc bắt đầu + N - 1.
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">
+          <label className={fieldLabelClass}>
             Ngày hiệu lực
-            {!isStatusDraft && <span className="text-red-500"> *</span>}
+            {!isStatusDraft && <span className="text-error"> *</span>}
           </label>
           <input
             type="date"
@@ -809,26 +836,29 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onChange={(event) => onFieldChange('effective_date', event.target.value)}
             onBlur={() => onFieldBlur('effective_date')}
             disabled={areScheduleSourceFieldsLocked}
-            className={`w-full h-11 px-4 rounded-lg border text-slate-900 outline-none transition-all ${
+            className={`w-full ${fieldInputClass} ${
               errors.effective_date
-                ? 'border-red-500 ring-1 ring-red-500 bg-white'
+                ? fieldInputErrorClass
                 : !isStatusDraft
-                  ? 'border-amber-300 bg-amber-50/50 focus:ring-2 focus:ring-amber-200 focus:border-amber-400'
-                  : 'border-slate-300 bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary'
+                  ? 'border-warning/30 bg-warning/10 focus:border-warning focus:ring-1 focus:ring-warning/20'
+                  : ''
             }`}
           />
           {errors.effective_date && (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.effective_date}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.effective_date}
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <label className="text-sm font-semibold text-slate-700">
+            <label className={fieldLabelClass}>
               Ngày hết hiệu lực
-              {!isStatusDraft && <span className="text-red-500"> *</span>}
+              {!isStatusDraft && <span className="text-error"> *</span>}
             </label>
             {expiryDateManualOverride && (
               <button
@@ -847,21 +877,24 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             onChange={(event) => onExpiryDateChange(event.target.value)}
             onBlur={() => onFieldBlur('expiry_date')}
             disabled={areScheduleSourceFieldsLocked}
-            className={`w-full h-11 px-4 rounded-lg border text-slate-900 outline-none transition-all ${
+            className={`w-full ${fieldInputClass} ${
               errors.expiry_date
-                ? 'border-red-500 ring-1 ring-red-500 bg-white'
+                ? fieldInputErrorClass
                 : !isStatusDraft
-                  ? 'border-amber-300 bg-amber-50/50 focus:ring-2 focus:ring-amber-200 focus:border-amber-400'
-                  : 'border-slate-300 bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary'
+                  ? 'border-warning/30 bg-warning/10 focus:border-warning focus:ring-1 focus:ring-warning/20'
+                  : ''
             }`}
           />
           {errors.expiry_date && (
-            <p className="text-xs text-red-600 inline-flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.expiry_date}
+            <p className="inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {errors.expiry_date}
             </p>
           )}
           {!errors.expiry_date && expiryDateManualOverride && (
-            <p className="text-xs text-slate-500">Đang dùng ngày hết hiệu lực chỉnh tay.</p>
+            <p className="text-[11px] text-slate-500">Đang dùng ngày hết hiệu lực chỉnh tay.</p>
           )}
         </div>
       </div>

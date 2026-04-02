@@ -50,10 +50,10 @@ const RESPONSIVE_SORT_OPTIONS: Array<{
 ];
 
 const CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR: Record<string, string> = {
-  HEALTHCARE: 'bg-sky-100 text-sky-700',
-  GOVERNMENT: 'bg-indigo-100 text-indigo-700',
+  HEALTHCARE: 'bg-secondary/15 text-secondary',
+  GOVERNMENT: 'bg-primary/10 text-primary',
   INDIVIDUAL: 'bg-emerald-100 text-emerald-700',
-  OTHER: 'bg-slate-100 text-slate-700',
+  OTHER: 'bg-slate-200 text-slate-500',
 };
 
 const EMPTY_HEALTHCARE_BREAKDOWN: CustomerAggregateKpis['healthcareBreakdown'] = {
@@ -70,12 +70,12 @@ const HEALTHCARE_BREAKDOWN_LABELS: Array<{
   label: string;
   accentClassName: string;
 }> = [
-  { key: 'publicHospital', label: 'Bệnh viện công lập', accentClassName: 'text-blue-700 bg-blue-50 border-blue-100' },
-  { key: 'privateHospital', label: 'Bệnh viện tư nhân', accentClassName: 'text-cyan-700 bg-cyan-50 border-cyan-100' },
+  { key: 'publicHospital', label: 'Bệnh viện công lập', accentClassName: 'text-primary bg-primary/5 border-primary/20' },
+  { key: 'privateHospital', label: 'Bệnh viện tư nhân', accentClassName: 'text-secondary bg-secondary/10 border-secondary/20' },
   { key: 'medicalCenter', label: 'Trung tâm Y tế', accentClassName: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
-  { key: 'privateClinic', label: 'Phòng khám tư nhân', accentClassName: 'text-violet-700 bg-violet-50 border-violet-100' },
-  { key: 'tytPkdk', label: 'TYT và PKĐK', accentClassName: 'text-amber-700 bg-amber-50 border-amber-100' },
-  { key: 'other', label: 'Khác', accentClassName: 'text-slate-700 bg-slate-50 border-slate-200' },
+  { key: 'privateClinic', label: 'Phòng khám tư nhân', accentClassName: 'text-deep-teal bg-deep-teal/5 border-deep-teal/20' },
+  { key: 'tytPkdk', label: 'TYT và PKĐK', accentClassName: 'text-warning bg-amber-50 border-amber-100' },
+  { key: 'other', label: 'Khác', accentClassName: 'text-neutral bg-slate-50 border-slate-200' },
 ] as const;
 
 export const CustomerList: React.FC<CustomerListProps> = ({
@@ -391,23 +391,23 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     return (
-      <div className={`flex ${className} gap-2`}>
+      <div className={`flex ${className} gap-1`}>
         {canEdit ? (
           <button
             onClick={() => onOpenModal('EDIT_CUSTOMER', item)}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-primary"
+            className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
             title="Chỉnh sửa"
           >
-            <span className="material-symbols-outlined text-lg">edit</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
           </button>
         ) : null}
         {canDelete ? (
           <button
             onClick={() => onOpenModal('DELETE_CUSTOMER', item)}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:text-error"
+            className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
             title="Xóa"
           >
-            <span className="material-symbols-outlined text-lg">delete</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
           </button>
         ) : null}
       </div>
@@ -417,18 +417,13 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const renderDetailButton = (item: Customer, iconOnly = false) => (
     <button
       onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
-      className={`rounded-lg text-slate-400 transition-colors hover:bg-sky-50 hover:text-sky-600 ${iconOnly ? 'p-1.5' : 'inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold'}`}
+      className={`rounded text-slate-400 transition-colors hover:bg-secondary/10 hover:text-secondary ${iconOnly ? 'p-1' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold'}`}
       title="Xem chi tiết khách hàng 360"
     >
-      <span className="material-symbols-outlined text-lg">person_search</span>
+      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_search</span>
       {iconOnly ? null : <span>Khách hàng 360</span>}
     </button>
   );
-
-  const secondaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 lg:w-auto';
-  const primaryToolbarButtonClassName =
-    'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 lg:w-auto';
 
   const renderCustomerGroup = (item: Customer, compact = false) => {
     const group = getCustomerGroupDisplay(item);
@@ -436,21 +431,21 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
     return (
       <div className={compact ? '' : 'min-w-0'}>
-        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClassName}`}>
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${badgeClassName}`}>
           {group.label}
         </span>
       </div>
     );
   };
 
-  const renderCustomerCode = (item: Customer, compact = false) => {
+  const renderCustomerCode = (item: Customer, _compact = false) => {
     const customerCode = item.customer_code || '--';
 
     return (
-      <div className={`min-w-0 ${compact ? 'space-y-1' : 'space-y-1.5'}`}>
-        <p className={`font-mono font-bold text-slate-600 ${compact ? 'text-sm' : 'text-sm'}`}>{customerCode}</p>
+      <div className="min-w-0 space-y-1">
+        <p className="font-mono font-bold text-xs text-slate-600">{customerCode}</p>
         {item.customer_code_auto_generated ? (
-          <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
             Tự sinh
           </span>
         ) : null}
@@ -458,306 +453,294 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     );
   };
 
-  return (
-    <div className="px-4 pt-0 space-y-3 pb-20 md:pb-8">
-      <section className="bg-white rounded-b-lg border border-gray-200 border-t-0 px-4 py-4 space-y-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Khách hàng</h2>
-          </div>
-          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
-            {canImport && (
-              <div className="relative w-full lg:w-auto">
-                <button
-                  onClick={() => setShowImportMenu(!showImportMenu)}
-                  className={secondaryToolbarButtonClassName}
-                >
-                  <span className="material-symbols-outlined text-lg">upload</span>
-                  <span>Nhập</span>
-                  <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
-                </button>
-                {showImportMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                    <div className="absolute top-full left-0 z-20 mt-2 flex w-48 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
-                      <button
-                        onClick={() => {
-                          setShowImportMenu(false);
-                          onOpenModal('IMPORT_DATA');
-                        }}
-                        className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
-                      >
-                        <span className="material-symbols-outlined text-lg">upload_file</span>
-                        Nhập dữ liệu
-                      </button>
-                      <button
-                        onClick={handleDownloadTemplate}
-                        className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-green-600"
-                      >
-                        <span className="material-symbols-outlined text-lg">download</span>
-                        Tải file mẫu
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+  const selectedSectorLabels = customerSectorFilterOptions
+    .filter((option) => selectedCustomerSectors.includes(String(option.value)))
+    .map((option) => option.label);
 
-            <div className="relative w-full lg:w-auto">
+  return (
+    <div className="p-3 pb-6 space-y-3">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>groups</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Khách hàng</h2>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {canImport ? (
+            <div className="relative">
               <button
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className={secondaryToolbarButtonClassName}
+                onClick={() => setShowImportMenu(!showImportMenu)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
               >
-                <span className="material-symbols-outlined text-lg">download</span>
-                <span>Xuất</span>
-                <span className="material-symbols-outlined text-sm ml-1">expand_more</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload</span>
+                Nhập
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
               </button>
-              {showExportMenu && (
+              {showImportMenu && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                  <div className="absolute top-full right-0 z-20 mt-2 flex w-40 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute top-full left-0 z-20 mt-1 flex w-44 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
                     <button
-                      onClick={() => handleExport('excel')}
-                      className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-green-600"
+                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-50 hover:text-primary"
                     >
-                      <span className="material-symbols-outlined text-lg">table_view</span>
-                      Excel
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
+                      Nhập dữ liệu
                     </button>
                     <button
-                      onClick={() => handleExport('csv')}
-                      className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-600"
+                      onClick={handleDownloadTemplate}
+                      className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-50 hover:text-primary"
                     >
-                      <span className="material-symbols-outlined text-lg">csv</span>
-                      CSV
-                    </button>
-                    <button
-                      onClick={() => handleExport('pdf')}
-                      className="flex items-center gap-3 border-t border-gray-100 px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-red-600"
-                    >
-                      <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
-                      PDF
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                      Tải file mẫu
                     </button>
                   </div>
                 </>
               )}
             </div>
+          ) : null}
 
-            {canEdit ? (
-              <button
-                onClick={() => onOpenModal('ADD_CUSTOMER')}
-                className={primaryToolbarButtonClassName}
-              >
-                <span className="material-symbols-outlined">add</span>
-                <span>Thêm khách hàng</span>
-              </button>
-            ) : null}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+              Xuất
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute top-full right-0 z-20 mt-1 flex w-36 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                  <button onClick={() => handleExport('excel')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table_view</span>
+                    Excel
+                  </button>
+                  <button onClick={() => handleExport('csv')} className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-50 hover:text-primary">
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>csv</span>
+                    CSV
+                  </button>
+                  <button onClick={() => handleExport('pdf')} className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 transition hover:bg-slate-50 hover:text-error">
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>picture_as_pdf</span>
+                    PDF
+                  </button>
+                </div>
+              </>
+            )}
           </div>
+
+          {canEdit ? (
+            <button
+              onClick={() => onOpenModal('ADD_CUSTOMER')}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+              Thêm khách hàng
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        {/* Tổng số */}
+        <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold opacity-80">Tổng số khách hàng</span>
+            <div className="w-7 h-7 rounded bg-white/15 flex items-center justify-center">
+              <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>groups</span>
+            </div>
+          </div>
+          <p className="text-xl font-black leading-tight">{effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}</p>
+          <p className="text-[10px] opacity-70 mt-0.5">Tổng quy mô được hệ thống theo dõi</p>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)_auto] xl:items-center">
-          <SearchableMultiSelect
-            values={selectedCustomerSectors}
-            options={customerSectorFilterOptions}
-            onChange={handleCustomerSectorFilterChange}
-            placeholder="Nhóm khách hàng"
-            searchPlaceholder="Tìm nhóm khách hàng..."
-            className="min-w-0"
-            triggerClassName="min-h-[42px]"
-          />
-
-          <div className="relative min-w-0">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">search</span>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Tìm kiếm mã khách hàng, tên khách hàng, mã số thuế..."
-              className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
+        {/* Y tế — clickable */}
+        <button
+          type="button"
+          aria-expanded={showHealthcareBreakdown}
+          onClick={() => {
+            if (effectiveAggregateKpis.healthcareCustomers === 0) return;
+            setShowHealthcareBreakdown((prev) => !prev);
+          }}
+          className={`rounded-lg p-3 text-left shadow-sm transition ${
+            effectiveAggregateKpis.healthcareCustomers > 0
+              ? showHealthcareBreakdown
+                ? 'border border-secondary/30 bg-secondary/10'
+                : 'border border-slate-200 bg-white hover:border-secondary/30 hover:bg-secondary/5'
+              : 'border border-slate-200 bg-white'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Khách hàng Y tế</span>
+            <div className="flex items-center gap-1">
+              <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>local_hospital</span>
+              </div>
+              {effectiveAggregateKpis.healthcareCustomers > 0 ? (
+                <span
+                  className="material-symbols-outlined text-slate-400 transition-transform duration-200"
+                  style={{ fontSize: 16, transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                >
+                  expand_more
+                </span>
+              ) : null}
+            </div>
           </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            {effectiveAggregateKpis.healthcareCustomers > 0 ? 'Nhấn để xem cơ cấu cơ sở y tế' : 'Chưa có dữ liệu y tế'}
+          </p>
+        </button>
 
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2 xl:flex xl:w-auto xl:flex-wrap xl:items-center xl:justify-end">
-            <div className="relative lg:hidden">
+        {/* Chính quyền */}
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Chính quyền</span>
+            <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>account_balance</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Cơ quan, đơn vị hành chính</p>
+        </div>
+
+        {/* Cá nhân */}
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-neutral">Cá nhân</span>
+            <div className="w-7 h-7 rounded bg-emerald-100 flex items-center justify-center">
+              <span className="material-symbols-outlined text-emerald-700" style={{ fontSize: 15 }}>person</span>
+            </div>
+          </div>
+          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng cá nhân và mua lẻ</p>
+        </div>
+      </div>
+
+      {/* ── Healthcare breakdown ── */}
+      {showHealthcareBreakdown ? (
+        <section className="rounded-lg border border-secondary/20 bg-secondary/5 p-3" data-testid="customer-healthcare-kpi-breakdown">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
+            <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+            {healthcareBreakdownItems.map((item) => (
+              <div key={item.key} className={`rounded border p-2.5 ${item.accentClassName}`}>
+                <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
+                <p className="mt-1.5 text-xl font-black text-deep-teal">
+                  {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* ── Table section ── */}
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        {/* Filter bar */}
+        <div className="border-b border-slate-200 bg-white p-3">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[240px,minmax(280px,1fr),180px,auto] xl:items-center">
+            <SearchableMultiSelect
+              values={selectedCustomerSectors}
+              options={customerSectorFilterOptions}
+              onChange={handleCustomerSectorFilterChange}
+              placeholder="Nhóm khách hàng"
+              searchPlaceholder="Tìm nhóm khách hàng..."
+              className="w-full min-w-0"
+              triggerClassName="h-8 rounded border border-slate-200 bg-white text-xs"
+            />
+
+            <div className="relative w-full min-w-0">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Tìm mã KH, tên khách hàng, mã số thuế..."
+                className="h-8 w-full rounded border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+
+            <div className="relative lg:hidden w-full">
               <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
               <select
                 id="customer-list-sort"
                 value={sortSelectValue}
                 onChange={(e) => handleResponsiveSortChange(e.target.value)}
-                className="h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-slate-700 outline-none transition-all focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                aria-label="Sắp xếp danh sách khách hàng"
+                className="h-8 w-full appearance-none rounded border border-slate-200 bg-white pl-3 pr-8 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
               >
                 {RESPONSIVE_SORT_OPTIONS.map((option) => (
                   <option key={option.value || 'default'} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              <span className="material-symbols-outlined pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">
-                swap_vert
-              </span>
+              <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>swap_vert</span>
             </div>
-            {hasActiveFilters ? (
-              <button
-                onClick={resetFilters}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <span className="material-symbols-outlined text-lg">filter_alt_off</span>
-                Xóa bộ lọc
-              </button>
-            ) : null}
-          </div>
-        </div>
 
-        {hasActiveFilters ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              <span className="material-symbols-outlined text-sm">filter_alt</span>
-              Đang lọc
-            </span>
-            {selectedCustomerSectors.length > 0 ? (
-              <p className="text-xs text-slate-500">
-                Nhóm: {customerSectorFilterOptions
-                  .filter((option) => selectedCustomerSectors.includes(String(option.value)))
-                  .map((option) => option.label)
-                  .join(', ')}
-              </p>
-            ) : null}
-            {searchTerm.trim() ? <p className="text-xs text-slate-500">Từ khóa: "{searchTerm.trim()}"</p> : null}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-slate-500">Tổng số khách hàng</p>
-                <p className="mt-4 text-3xl font-semibold text-slate-900">
-                  {effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-                <span className="material-symbols-outlined">groups_2</span>
-              </div>
+            <div className="flex items-center justify-end gap-2">
+              {hasActiveFilters ? (
+                <button
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 whitespace-nowrap"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
+                  Xóa lọc
+                </button>
+              ) : null}
             </div>
           </div>
 
-          <button
-            type="button"
-            aria-expanded={showHealthcareBreakdown}
-            onClick={() => {
-              if (effectiveAggregateKpis.healthcareCustomers === 0) {
-                return;
-              }
-              setShowHealthcareBreakdown((previous) => !previous);
-            }}
-            className={`rounded-lg border bg-white p-4 text-left transition-colors ${
-              effectiveAggregateKpis.healthcareCustomers > 0
-                ? showHealthcareBreakdown
-                  ? 'border-sky-200 bg-sky-50/60'
-                  : 'border-gray-200 hover:border-sky-200 hover:bg-sky-50/40'
-                : 'border-gray-200'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-slate-500">Khách hàng Y tế</p>
-                <p className="mt-4 text-3xl font-semibold text-slate-900">
-                  {effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  {effectiveAggregateKpis.healthcareCustomers > 0
-                    ? (showHealthcareBreakdown ? 'Ẩn chi tiết loại hình y tế' : 'Nhấn để xem chi tiết loại hình y tế')
-                    : 'Chưa có khách hàng y tế'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="rounded-2xl bg-sky-50 p-3 text-sky-600">
-                  <span className="material-symbols-outlined">local_hospital</span>
-                </div>
-                {effectiveAggregateKpis.healthcareCustomers > 0 ? (
-                  <span
-                    className="material-symbols-outlined text-slate-400 transition-transform duration-200"
-                    style={{ transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                  >
-                    expand_more
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </button>
-
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-slate-500">Chính quyền</p>
-                <p className="mt-4 text-3xl font-semibold text-slate-900">
-                  {effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600">
-                <span className="material-symbols-outlined">account_balance</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-slate-500">Cá nhân</p>
-                <p className="mt-4 text-3xl font-semibold text-slate-900">
-                  {effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
-                <span className="material-symbols-outlined">person</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {showHealthcareBreakdown ? (
-          <div className="rounded-lg border border-sky-100 bg-sky-50/50 p-4" data-testid="customer-healthcare-kpi-breakdown">
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Chi tiết KPI khách hàng Y tế</p>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-              {healthcareBreakdownItems.map((item) => (
-                <div key={item.key} className={`rounded-lg border p-3 ${item.accentClassName}`}>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em]">{item.label}</p>
-                  <p className="mt-3 text-2xl font-semibold">
-                    {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">Danh sách khách hàng</h3>
-          </div>
           {hasActiveFilters ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              <span className="material-symbols-outlined text-sm">filter_alt</span>
-              Bộ lọc đang bật
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-0.5 text-[11px] font-bold text-secondary">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>filter_alt</span>
+                Đang lọc
+              </span>
+              {selectedSectorLabels.length > 0 ? (
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-600">
+                  Nhóm: {selectedSectorLabels.join(', ')}
+                </span>
+              ) : null}
+              {searchTerm.trim() ? (
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-600">
+                  Từ khóa: "{searchTerm.trim()}"
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>
 
+        {/* Table sub-header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+          <div>
+            <h3 className="text-xs font-bold text-slate-700">Danh sách khách hàng</h3>
+          </div>
+          {hasActiveFilters ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-0.5 text-[11px] font-bold text-secondary">
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>tune</span>
+              Bộ lọc đang bật
+            </span>
+          ) : null}
+        </div>
+
         {isLoading ? (
-          <div className="px-6 py-12 text-center text-slate-500">Đang tải dữ liệu...</div>
+          <div className="px-3 py-8 text-center text-xs text-slate-500">Đang tải dữ liệu...</div>
         ) : currentData.length > 0 ? (
           <>
-            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-5 lg:hidden">
+            {/* Responsive cards (mobile) */}
+            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:hidden">
               {currentData.map((item) => (
-                <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-start gap-3">
+                <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã khách hàng</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã khách hàng</p>
                       <div className="mt-1">{renderCustomerCode(item, true)}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -766,54 +749,55 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-4">
+                  <div className="mt-2.5 space-y-2">
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tên khách hàng</p>
-                      <p className="mt-1 break-words text-base font-bold leading-6 text-slate-900">{item.customer_name}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên khách hàng</p>
+                      <p className="mt-0.5 break-words text-xs font-bold leading-5 text-slate-900">{item.customer_name}</p>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Nhóm khách hàng</p>
-                        <div className="mt-1">{renderCustomerGroup(item, true)}</div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhóm</p>
+                        <div className="mt-0.5">{renderCustomerGroup(item, true)}</div>
                       </div>
                       <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Mã số thuế</p>
-                        <p className="mt-1 font-mono text-sm font-medium text-slate-700">{item.tax_code || '--'}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã số thuế</p>
+                        <p className="mt-0.5 font-mono text-xs font-medium text-slate-700">{item.tax_code || '--'}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngày tạo</p>
-                        <p className="mt-1 text-sm font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
                       </div>
                     </div>
 
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Địa chỉ</p>
-                      <p className="mt-1 break-words text-sm leading-6 text-slate-600">{item.address || '--'}</p>
+                    <div className="rounded border border-slate-100 bg-slate-50 p-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Địa chỉ</p>
+                      <p className="mt-0.5 break-words text-xs leading-5 text-slate-600">{item.address || '--'}</p>
                     </div>
                   </div>
                 </article>
               ))}
             </div>
 
+            {/* Desktop table */}
             <div className="hidden overflow-x-auto lg:block">
               <table
                 data-testid="customer-desktop-table"
-                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1490px]' : 'min-w-[1370px]'}`}
+                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1200px]' : 'min-w-[1100px]'}`}
               >
-                <thead className="border-y border-gray-200 bg-gray-50">
+                <thead className="border-y border-slate-200 bg-slate-50/90">
                   <tr>
                     {[
-                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[180px] min-w-[180px]' },
-                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[320px] min-w-[320px]' },
-                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[240px] min-w-[240px]' },
-                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[180px] min-w-[180px]' },
-                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[300px] min-w-[300px]' },
-                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[150px] min-w-[150px]' },
+                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[160px] min-w-[160px]' },
+                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[280px] min-w-[280px]' },
+                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[200px] min-w-[200px]' },
+                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[160px] min-w-[160px]' },
+                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[260px] min-w-[260px]' },
+                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[130px] min-w-[130px]' },
                     ].map((col) => (
                       <th
                         key={col.key}
-                        className={`cursor-pointer select-none px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                        className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
                         onClick={() => handleSort(col.key as keyof Customer)}
                       >
                         <div className="flex items-center gap-1">
@@ -823,38 +807,38 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                       </th>
                     ))}
                     {showActionColumn ? (
-                      <th className="sticky right-[72px] w-[110px] min-w-[110px] bg-gray-50 px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                      <th className="sticky right-[60px] w-[90px] min-w-[90px] bg-slate-50/95 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                         Thao tác
                       </th>
                     ) : null}
-                    <th className="sticky right-0 w-[72px] min-w-[72px] bg-gray-50 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider text-slate-500">
-                      Chi tiết
+                    <th className="sticky right-0 w-[60px] min-w-[60px] bg-slate-50/95 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                      360
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-100">
                   {currentData.map((item) => (
-                    <tr key={String(item.id)} className="transition-colors hover:bg-gray-50">
-                      <td className="px-4 py-3 align-middle text-sm font-mono font-bold text-slate-500">
+                    <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
+                      <td className="px-3 py-2 align-middle text-xs font-mono font-bold text-slate-500">
                         {renderCustomerCode(item)}
                       </td>
-                      <td className="px-4 py-3 align-middle text-sm font-semibold text-slate-900">
-                        <div className="max-w-[288px] whitespace-normal break-words leading-6">{item.customer_name}</div>
+                      <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
+                        <div className="max-w-[248px] whitespace-normal break-words leading-5">{item.customer_name}</div>
                       </td>
-                      <td className="px-4 py-3 align-middle text-sm text-slate-600">
+                      <td className="px-3 py-2 align-middle text-xs text-slate-600">
                         {renderCustomerGroup(item)}
                       </td>
-                      <td className="px-4 py-3 align-middle text-sm font-mono text-slate-600">{item.tax_code || '--'}</td>
-                      <td className="px-4 py-3 align-middle text-sm text-slate-600" title={item.address || ''}>
-                        <div className="max-w-[270px] whitespace-normal break-words leading-6">{item.address || '--'}</div>
+                      <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
+                      <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
+                        <div className="max-w-[230px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
                       </td>
-                      <td className="px-4 py-3 align-middle text-sm text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                      <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
                       {showActionColumn ? (
-                        <td className="sticky right-[72px] bg-white px-4 py-3 text-right align-middle shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                        <td className="sticky right-[60px] bg-white px-3 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                           {renderActionButtons(item)}
                         </td>
                       ) : null}
-                      <td className="sticky right-0 bg-white px-4 py-3 text-center align-middle shadow-[-10px_0_10px_-10px_rgba(0,0,0,0.08)]">
+                      <td className="sticky right-0 bg-white px-3 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                         {renderDetailButton(item, true)}
                       </td>
                     </tr>
@@ -864,36 +848,36 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             </div>
           </>
         ) : (
-          <div className="px-6 py-12 text-center text-slate-500">
-            <div className="flex flex-col items-center gap-3">
-              <span className="material-symbols-outlined text-4xl text-slate-300">
+          <div className="px-3 py-8 text-center text-slate-500">
+            <div className="flex flex-col items-center gap-3 py-4">
+              <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>
                 {showNoDataState ? 'groups_2' : 'search_off'}
               </span>
               <div className="space-y-1">
-                <p className="text-base font-semibold text-slate-700">
+                <p className="text-xs font-semibold text-slate-700">
                   {showNoDataState ? 'Chưa có khách hàng nào.' : 'Không tìm thấy khách hàng phù hợp.'}
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="max-w-xs text-[11px] text-slate-400">
                   {showNoDataState
-                    ? (canEdit ? 'Nhấn "Thêm khách hàng" để bắt đầu tạo dữ liệu đầu tiên.' : 'Dữ liệu khách hàng sẽ hiển thị tại đây khi có phát sinh.')
-                    : 'Thử điều chỉnh từ khóa tìm kiếm hoặc xóa bộ lọc để xem lại dữ liệu.'}
+                    ? (canEdit ? 'Nhấn "Thêm khách hàng" để bắt đầu.' : 'Dữ liệu sẽ hiển thị tại đây khi có phát sinh.')
+                    : 'Thử điều chỉnh từ khóa tìm kiếm hoặc xóa bộ lọc.'}
                 </p>
               </div>
               {showNoDataState && canEdit ? (
                 <button
                   onClick={() => onOpenModal('ADD_CUSTOMER')}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
                 >
-                  <span className="material-symbols-outlined text-lg">add</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
                   Thêm khách hàng
                 </button>
               ) : null}
               {showNoMatchState && hasActiveFilters ? (
                 <button
                   onClick={resetFilters}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
-                  <span className="material-symbols-outlined text-lg">filter_alt_off</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
                   Xóa bộ lọc
                 </button>
               ) : null}

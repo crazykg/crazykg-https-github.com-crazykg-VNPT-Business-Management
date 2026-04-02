@@ -36,7 +36,12 @@ class AuthorizationPolicyTest extends TestCase
         $this->assertInstanceOf(CustomerRequestCasePolicy::class, Gate::getPolicyFor(CustomerRequestCase::class));
     }
 
-    public function test_invoice_policy_checks_permission_scope_and_terminal_status(): void
+    /**
+     * InvoicePolicy guards WHO can access (permission + dept scope).
+     * Terminal-status restrictions (e.g. PAID cannot be mutated) are a business rule
+     * enforced by InvoiceDomainService → returns 422, not 403.
+     */
+    public function test_invoice_policy_checks_permission_and_department_scope(): void
     {
         $staff = InternalUser::query()->findOrFail(2);
         $outsider = InternalUser::query()->findOrFail(3);
@@ -44,12 +49,20 @@ class AuthorizationPolicyTest extends TestCase
         $invoice = Invoice::query()->findOrFail(100);
         $paidInvoice = Invoice::query()->findOrFail(101);
 
+        // Authorized staff can view, update, delete their dept's invoices
         $this->assertTrue(Gate::forUser($staff)->allows('view', $invoice));
         $this->assertTrue(Gate::forUser($staff)->allows('update', $invoice));
         $this->assertTrue(Gate::forUser($admin)->allows('delete', $invoice));
+
+        // Wrong-dept staff is denied (scope check)
         $this->assertFalse(Gate::forUser($outsider)->allows('view', $invoice));
-        $this->assertFalse(Gate::forUser($staff)->allows('update', $paidInvoice));
-        $this->assertFalse(Gate::forUser($staff)->allows('delete', $paidInvoice));
+
+        // PAID invoice: policy still ALLOWS (terminal-status is a business rule → 422 in service)
+        $this->assertTrue(Gate::forUser($staff)->allows('update', $paidInvoice));
+        $this->assertTrue(Gate::forUser($staff)->allows('delete', $paidInvoice));
+
+        // But wrong-dept staff is still denied even for a PAID invoice
+        $this->assertFalse(Gate::forUser($outsider)->allows('update', $paidInvoice));
     }
 
     public function test_contract_policy_uses_department_scope(): void

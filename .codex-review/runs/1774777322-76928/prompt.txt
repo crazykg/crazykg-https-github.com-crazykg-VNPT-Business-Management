@@ -1,0 +1,43 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_29_03_Upgrade_Goi_y_ban_hang.md
+
+## Session Context
+Constraints: Must extend existing CustomerInsightService (not replace). Must use hasTable()/hasColumn() schema guards. Must preserve backward compat for reference_customers field. No breaking changes to existing /insight endpoint response.
+Assumptions: product_feature_groups and product_features tables already exist. customers table has customer_sector, healthcare_facility_type, bed_capacity columns. Frontend CustomerInsightPanel.tsx has 3-tab structure.
+Tech stack: Laravel 12 (PHP 8.4) + MySQL 8 + Redis. React 19 + Vite + TypeScript + TailwindCSS. Sanctum cookie-based auth.
+Acceptance criteria: (1) product_target_segments table with correct schema. (2) buildUpsellCandidates() returns 2 groups: targeted + popular. (3) New endpoint /insight/product-detail/{pid}. (4) Frontend expandable cards. (5) Cache strategy with proper invalidation. (6) Schema guards (hasTable) for graceful degradation. (7) ~626 lines total.
+
+## Issues Accepted & Fixed
+ISSUE-1 (Schema guard coverage): FIXED — Added §3.4 "Schema Guard Matrix" with complete table/column dependency matrix and fallback payloads for every new dependency.
+ISSUE-2 (Cache invalidation): FIXED — Replaced §9 with complete "Caching & Invalidation Strategy" including concrete invalidation matrix covering customer segment edits, contract mutations, product updates, feature updates, and product_target_segments changes, with PHP method signatures.
+ISSUE-3 (Fallback contradicts limits): FIXED — Replaced static POPULAR_LIMIT=4 with dynamic fill rule in §4.1b. TOTAL_LIMIT=12, popular_limit = TOTAL_LIMIT - targeted_count. When 0 targeted (empty table/no match), popular_limit=12, no regression.
+ISSUE-4 (Multi-match segment resolution): FIXED — Added §4.2b with deterministic winner selection rule: lowest priority > exact facility match > narrowest bed range > newest row. Implementation via ROW_NUMBER subquery instead of GROUP BY with MIN/MAX.
+ISSUE-5 (Frontend race condition): FIXED — Replaced §7.5 with race-safe keyed state: detailCache keyed by productId, expandRequestRef for stale-response protection, cache persistence across re-expands.
+ISSUE-6 (Verification too generic): FIXED — Replaced §10 with explicit test case tables: 11 backend PHPUnit tests (T1-T11) and 7 frontend Vitest tests (F1-F7), each targeting specific risky paths.
+
+## Issues Disputed
+(None — all 6 issues were accepted and fixed)
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}

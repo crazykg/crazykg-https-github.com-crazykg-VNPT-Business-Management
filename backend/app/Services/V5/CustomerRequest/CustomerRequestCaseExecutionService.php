@@ -5,11 +5,13 @@ namespace App\Services\V5\CustomerRequest;
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
 use App\Services\V5\CacheService;
+use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class CustomerRequestCaseExecutionService
 {
@@ -18,7 +20,7 @@ class CustomerRequestCaseExecutionService
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
         private readonly CacheService $cache,
-        private readonly CustomerRequestCaseWriteService $writeService,
+        private readonly CaseWriteOrchestrator $writeService,
     ) {}
 
     private function flushDashboardCaches(int $caseId): void

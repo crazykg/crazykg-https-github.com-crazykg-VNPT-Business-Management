@@ -684,8 +684,11 @@ class FeeCollectionInvoiceCrudTest extends TestCase
 
     private function setUpSchema(): void
     {
-        $tables = ['receipts', 'dunning_logs', 'invoice_items', 'invoices', 'payment_schedules',
-            'contract_items', 'contracts', 'customers', 'projects', 'internal_users', 'departments'];
+        $tables = [
+            'receipts', 'dunning_logs', 'invoice_items', 'invoices', 'payment_schedules',
+            'contract_items', 'contracts', 'customers', 'projects', 'internal_users', 'departments',
+            'role_permission', 'user_roles', 'permissions', 'roles',
+        ];
 
         foreach ($tables as $tbl) {
             Schema::dropIfExists($tbl);
@@ -875,6 +878,43 @@ class FeeCollectionInvoiceCrudTest extends TestCase
         DB::table('projects')->insert([
             ['id' => 1, 'project_code' => 'DA-001', 'project_name' => 'Dự án Test', 'customer_id' => 1, 'dept_id' => 10],
             ['id' => 2, 'project_code' => 'DA-002', 'project_name' => 'Dự án Ngoài Phạm Vi', 'customer_id' => 1, 'dept_id' => 20],
+        ]);
+
+        // Permission scaffolding: user 1 = FEE_STAFF (fee_collection.read/write/delete)
+        // NOT ADMIN so that department-scope tests still work correctly.
+        Schema::create('roles', function (Blueprint $t): void {
+            $t->bigIncrements('id');
+            $t->string('role_code', 50);
+        });
+
+        Schema::create('user_roles', function (Blueprint $t): void {
+            $t->bigIncrements('id');
+            $t->unsignedBigInteger('user_id');
+            $t->unsignedBigInteger('role_id');
+        });
+
+        Schema::create('permissions', function (Blueprint $t): void {
+            $t->bigIncrements('id');
+            $t->string('perm_key', 100);
+        });
+
+        Schema::create('role_permission', function (Blueprint $t): void {
+            $t->bigIncrements('id');
+            $t->unsignedBigInteger('role_id');
+            $t->unsignedBigInteger('permission_id');
+        });
+
+        DB::table('roles')->insert(['id' => 1, 'role_code' => 'FEE_STAFF']);
+        DB::table('user_roles')->insert(['id' => 1, 'user_id' => 1, 'role_id' => 1]);
+        DB::table('permissions')->insert([
+            ['id' => 1, 'perm_key' => 'fee_collection.read'],
+            ['id' => 2, 'perm_key' => 'fee_collection.write'],
+            ['id' => 3, 'perm_key' => 'fee_collection.delete'],
+        ]);
+        DB::table('role_permission')->insert([
+            ['role_id' => 1, 'permission_id' => 1],
+            ['role_id' => 1, 'permission_id' => 2],
+            ['role_id' => 1, 'permission_id' => 3],
         ]);
     }
 

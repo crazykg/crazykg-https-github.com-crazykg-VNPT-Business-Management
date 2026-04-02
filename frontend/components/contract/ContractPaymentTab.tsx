@@ -1,5 +1,4 @@
 import React from 'react';
-import { CircleDollarSign, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import type { ContractPaymentAllocationMode } from '../../services/api/contractApi';
 import type { PaymentSchedule, PaymentScheduleConfirmationPayload } from '../../types';
 import { PaymentScheduleTab } from '../PaymentScheduleTab';
@@ -87,6 +86,15 @@ interface ContractPaymentTabProps {
   };
 }
 
+const compactControlClass =
+  'h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
+
+const secondaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+
+const primaryButtonClass =
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50';
+
 export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
   contractSummary,
   allocation,
@@ -133,14 +141,16 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
   } = formatters;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-3 p-4">
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
-          <h3 className="text-base font-bold text-slate-900 inline-flex items-center gap-2">
-            <CircleDollarSign className="w-4 h-4 text-primary" />
+          <h3 className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+              payments
+            </span>
             Dòng tiền hợp đồng
           </h3>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="mt-1 text-[11px] text-slate-500">
             {allocationMode === 'MILESTONE'
               ? 'Theo dõi các mốc thu tiền theo tạm ứng, các đợt nghiệm thu và quyết toán.'
               : `Theo dõi các mốc thu tiền theo chu kỳ ${paymentCycleLabel}.`}
@@ -157,7 +167,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
               value={allocationMode}
               onChange={(event) => onAllocationModeChange(event.target.value as ContractPaymentAllocationMode)}
               disabled={isAllocationModeSelectionDisabled}
-              className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              className={`min-w-[180px] ${compactControlClass}`}
             >
               {allocationModeOptions.map((item) => (
                 <option key={item.value} value={item.value}>
@@ -176,7 +186,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 max={100}
                 value={advancePercentage}
                 onChange={(event) => onAdvancePercentageChange(event.target.value)}
-                className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                className={compactControlClass}
               />
             </div>
           )}
@@ -191,7 +201,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                   max={100}
                   value={retentionPercentage}
                   onChange={(event) => onRetentionPercentageChange(event.target.value)}
-                  className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  className={compactControlClass}
                 />
               </div>
               {milestoneInputMode === 'AUTO' ? (
@@ -203,13 +213,13 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                     max={50}
                     value={installmentCount}
                     onChange={(event) => onInstallmentCountChange(event.target.value)}
-                    className="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    className={compactControlClass}
                   />
                 </div>
               ) : (
                 <div className="flex flex-col gap-1 min-w-[120px]">
                   <label className="text-xs font-semibold text-slate-600">Đợt custom</label>
-                  <div className="h-10 rounded-lg border border-violet-200 bg-violet-50 px-3 inline-flex items-center text-sm font-semibold text-violet-700">
+                  <div className="inline-flex h-8 items-center rounded border border-secondary/20 bg-secondary/10 px-3 text-xs font-semibold text-secondary">
                     {Math.max(0, milestoneInstallments.length)} đợt
                   </div>
                 </div>
@@ -225,16 +235,20 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
               type="button"
               onClick={onGenerateSchedules}
               disabled={isGenerateButtonDisabled}
-              className="h-10 px-4 rounded-lg bg-primary text-white text-sm font-bold hover:bg-deep-teal disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              className={primaryButtonClass}
             >
-              {isGenerating && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isGenerating && (
+                <span className="material-symbols-outlined animate-spin" style={{ fontSize: 15 }}>
+                  progress_activity
+                </span>
+              )}
               Sinh kỳ thanh toán
             </button>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+      <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-lg border border-white/80 bg-white/80 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Mã HĐ</p>
@@ -268,37 +282,37 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
       </div>
 
       {allocationMode === 'MILESTONE' && (
-        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 space-y-3">
+        <div className="space-y-3 rounded-lg border border-secondary/20 bg-secondary/10 p-3">
           {showMilestonePreview && (
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
               <div>
-                <h4 className="text-sm font-bold text-violet-900">Preview mốc thanh toán đầu tư</h4>
-                <p className="text-xs text-violet-700 mt-1">
+                <h4 className="text-xs font-bold text-deep-teal">Preview mốc thanh toán đầu tư</h4>
+                <p className="mt-1 text-[11px] text-slate-600">
                   Lịch dưới đây là gợi ý tự động theo tạm ứng, các đợt thanh toán và quyết toán.
                 </p>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-700 border border-violet-200">
+              <span className="inline-flex items-center gap-1 rounded-full border border-secondary/20 bg-white px-2 py-0.5 text-[10px] font-bold text-secondary">
                 {investmentModeLabel}
               </span>
             </div>
           )}
 
-          <div className="rounded-xl border border-violet-100 bg-white/80 p-3 space-y-3">
+          <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-violet-500">Cách dựng mốc</p>
-                <p className="text-sm text-slate-600 mt-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral">Cách dựng mốc</p>
+                <p className="mt-1 text-sm text-slate-600">
                   Chọn dựng tự động theo công thức hoặc nhập từng đợt nghiệm thu để sinh lịch chính xác hơn.
                 </p>
               </div>
-              <div className="inline-flex rounded-lg border border-violet-200 bg-violet-50 p-1">
+              <div className="inline-flex rounded border border-slate-200 bg-slate-50 p-1">
                 <button
                   type="button"
                   onClick={() => onMilestoneInputModeChange('AUTO')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  className={`rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     milestoneInputMode === 'AUTO'
-                      ? 'bg-white text-violet-700 shadow-sm'
-                      : 'text-violet-600 hover:text-violet-800'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-white'
                   }`}
                 >
                   Tự động
@@ -306,10 +320,10 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 <button
                   type="button"
                   onClick={() => onMilestoneInputModeChange('CUSTOM')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  className={`rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     milestoneInputMode === 'CUSTOM'
-                      ? 'bg-white text-violet-700 shadow-sm'
-                      : 'text-violet-600 hover:text-violet-800'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-white'
                   }`}
                 >
                   Nhập từng đợt
@@ -318,11 +332,11 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
             </div>
 
             {milestoneInputMode === 'CUSTOM' && (
-              <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-3 space-y-3">
+              <div className="space-y-3 rounded-lg border border-secondary/20 bg-secondary/10 p-3">
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                   <div>
-                    <h5 className="text-sm font-bold text-violet-900">Editor các đợt thanh toán</h5>
-                    <p className="text-xs text-violet-700 mt-1">
+                    <h5 className="text-xs font-bold text-deep-teal">Editor các đợt thanh toán</h5>
+                    <p className="mt-1 text-[11px] text-slate-600">
                       Nhập nhãn đợt, tỷ lệ % và ngày dự kiến. Tổng tạm ứng + các đợt + giữ lại phải bằng đúng 100%.
                     </p>
                   </div>
@@ -330,35 +344,39 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                     <button
                       type="button"
                       onClick={onSyncMilestoneInstallmentsFromAuto}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+                      className={secondaryButtonClass}
                     >
-                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                        refresh
+                      </span>
                       Lấy theo cấu hình tự động
                     </button>
                     <button
                       type="button"
                       onClick={onAddMilestoneInstallment}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-700"
+                      className={primaryButtonClass}
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                        add
+                      </span>
                       Thêm đợt
                     </button>
                   </div>
                 </div>
 
-                <div className="overflow-auto rounded-lg border border-violet-100 bg-white">
+                <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
                   <table className="w-full min-w-[900px] border-collapse">
-                    <thead className="bg-violet-50 border-b border-violet-100">
+                    <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
-                        <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Đợt</th>
-                        <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Tên đợt</th>
-                        <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">% giá trị HĐ</th>
-                        <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-violet-500 font-bold">Số tiền</th>
-                        <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Ngày dự kiến</th>
-                        <th className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-violet-500 font-bold">Thao tác</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Đợt</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Tên đợt</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">% giá trị HĐ</th>
+                        <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Số tiền</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Ngày dự kiến</th>
+                        <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thao tác</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-violet-100">
+                    <tbody className="divide-y divide-slate-100">
                       {milestoneInstallments.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-3 py-4 text-sm text-slate-500 text-center">
@@ -381,7 +399,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                   value={installment.label}
                                   onChange={(event) => onMilestoneInstallmentChange(index, 'label', event.target.value)}
                                   placeholder={`Thanh toán đợt ${index + 1}`}
-                                  className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                                  className={`w-full ${compactControlClass}`}
                                 />
                               </td>
                               <td className="px-3 py-2">
@@ -393,7 +411,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                     step={0.01}
                                     value={installment.percentage}
                                     onChange={(event) => onMilestoneInstallmentChange(index, 'percentage', event.target.value)}
-                                    className="w-full h-10 pl-3 pr-8 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                                    className={`w-full ${compactControlClass} pr-8`}
                                   />
                                   <span className="absolute inset-y-0 right-0 pr-3 inline-flex items-center text-xs font-semibold text-slate-400">%</span>
                                 </div>
@@ -406,16 +424,18 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                   type="date"
                                   value={installment.expected_date}
                                   onChange={(event) => onMilestoneInstallmentChange(index, 'expected_date', event.target.value)}
-                                  className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                                  className={`w-full ${compactControlClass}`}
                                 />
                               </td>
                               <td className="px-3 py-2 text-right">
                                 <button
                                   type="button"
                                   onClick={() => onRemoveMilestoneInstallment(index)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                                  className="inline-flex items-center gap-1.5 rounded border border-error/20 bg-error/10 px-2.5 py-1.5 text-xs font-semibold text-error hover:bg-error/15"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                    delete
+                                  </span>
                                   Xóa
                                 </button>
                               </td>
@@ -428,19 +448,19 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="inline-flex items-center rounded-full bg-white px-3 py-1 font-semibold text-slate-700 border border-violet-100">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600">
                     Tạm ứng: {formatPercentageString(clampPercentage(advancePercentage, 15))}%
                   </span>
-                  <span className="inline-flex items-center rounded-full bg-white px-3 py-1 font-semibold text-slate-700 border border-violet-100">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600">
                     Các đợt: {formatPercentageString(milestoneSummary.installmentTotal)}%
                   </span>
-                  <span className="inline-flex items-center rounded-full bg-white px-3 py-1 font-semibold text-slate-700 border border-violet-100">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600">
                     Giữ lại: {formatPercentageString(clampPercentage(retentionPercentage, 5))}%
                   </span>
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 font-semibold border ${
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
                     Math.abs(milestoneSummary.overallTotal - 100) < 0.01
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                      ? 'border-success/20 bg-success/10 text-success'
+                      : 'border-warning/20 bg-warning/10 text-warning'
                   }`}>
                     Tổng: {formatPercentageString(milestoneSummary.overallTotal)}%
                   </span>
@@ -451,26 +471,26 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
 
           {showMilestonePreview && (
             milestonePreview.error ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                 {milestonePreview.error}
               </div>
             ) : (
-              <div className="overflow-auto rounded-lg border border-violet-100 bg-white">
+              <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[620px] border-collapse">
-                  <thead className="bg-violet-50 border-b border-violet-100">
+                  <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Mốc</th>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Ngày dự kiến</th>
-                      <th className="px-3 py-2 text-left text-[11px] uppercase tracking-wide text-violet-500 font-bold">Số tiền dự kiến</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Mốc</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Ngày dự kiến</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Số tiền dự kiến</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-violet-100">
+                  <tbody className="divide-y divide-slate-100">
                     {milestonePreview.rows.map((row, index) => {
                       const toneClasses = row.tone === 'ADVANCE'
-                        ? 'bg-fuchsia-100 text-fuchsia-700'
+                        ? 'bg-secondary/15 text-secondary'
                         : row.tone === 'RETENTION'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-sky-100 text-sky-700';
+                          ? 'bg-warning/15 text-warning'
+                          : 'bg-primary/10 text-primary';
 
                       return (
                         <tr key={`${row.milestoneName}-${index}`}>

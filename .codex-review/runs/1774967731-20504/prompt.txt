@@ -1,0 +1,44 @@
+## Updated Plan
+The plan has been edited based on your previous findings.
+Read the updated plan file directly at: /Users/pvro86gmail.com/Downloads/QLCV/plan-code/2026_30_03_Nang_cap_kien_truc_va_an_toan_thong_tin.md
+
+## Session Context
+Constraints: Must use existing DB schema (177 migrations), cannot break existing API contracts (/api/v5/*), must maintain backward compat for types.ts imports during migration. V5MasterDataController has already been fully decomposed (file deleted, 32 controllers active, 12 route files).
+Assumptions: Production deployment is imminent — Phase A emergency fixes must happen before go-live. Team has 2-3 full-time developers available for 12-week roadmap. Some Phase 2 artifacts already created early (contractStore, productStore).
+Tech stack: Frontend: React 19, Vite, TypeScript, Zustand, TailwindCSS. Backend: Laravel 12, PHP 8.4, MySQL 8, Redis, Sanctum. CI: GitHub Actions.
+Acceptance criteria: (1) All P0 security items identified with concrete fix code/config. (2) Architecture upgrade phases are sequenced correctly — no phase depends on incomplete prior phase. (3) OWASP mapping uses correct taxonomy consistently. (4) Acceptance criteria per phase are testable and measurable. (5) Scoring methodology is defensible with evidence from codebase.
+
+## Issues Accepted & Fixed
+ISSUE-1: ACCEPTED. Relabeled OWASP section to "Top 10:2021" consistently throughout. Removed "(2025)" references from Phu luc and added rubric note. Added Appendix B with scoring methodology and weighted formula.
+ISSUE-2: ACCEPTED. Rebaselined all numbers from current codebase (2026-03-31 verified): App.tsx=1,597 lines, types.ts=1-line re-export, types/ folder exists with 20+ files, 8 Zustand stores, V5MasterDataController DELETED (32 controllers + 12 route files active), CompatibilityLookupService acknowledged as 1,215 lines legacy shell. Section 9 added with verified evidence per task. Updated scores to FE:6.5/7.5 BE:7.5/8.5 Total:7.7.
+ISSUE-3: ACCEPTED. Moved IDOR remediation into Phase A as item A8 with go-live blocker status. Added endpoint risk matrix explaining why 4 controllers (Contract, FeeCollection, CRC, Customer) are P0 and 27 others are Phase B. Added pre-deploy verification script for A1-A5 runtime env checks. Status: CustomerController already enforced, 3 controllers remain as explicit go-live blockers.
+ISSUE-4: ACCEPTED. Removed generic OwnershipGuard sample code. Replaced with plan to extend existing Policy pattern (ContractPolicy, InvoicePolicy, CustomerRequestCasePolicy, CustomerPolicy already exist). Added endpoint-to-policy matrix. Added note about UserAccessService dept_scopes integration.
+ISSUE-5: PARTIALLY ACCEPTED. Added prerequisite gate before Phase 2: route-list snapshot test + 5 core E2E specs + Phase A completion. Task 2.0 added. However: existing 107 unit tests + 12 E2E specs (already above original 7) provide reasonable regression coverage for per-entity refactors done as individual PRs with their own test runs. Full 25-spec E2E expansion remains in Phase 3 as defense-in-depth.
+ISSUE-6: PARTIALLY ACCEPTED. Added Appendix B with scoring rubric (weights per category, evidence sources). Fixed stale gates (types/ folder count, V5MasterDataController removal acknowledged). Made Phase 3-4 optional items explicit with "(neu ap dung)" notation. However: formal weighted rubric adds process overhead disproportionate for a 2-3 dev team. Scores serve as directional targets, not audit-grade compliance scores.
+
+## Issues Disputed
+ISSUE-5 (partial dispute): The plan argues that 107 unit tests + 12 E2E specs provide sufficient regression coverage for Phase 2 refactors when done as individual PRs. The prerequisite gate (route-list snapshot + 5 core E2E) is a reasonable addition, but requiring ALL 25 E2E specs before ANY Phase 2 work would delay state migration by 3+ weeks with no clear risk reduction — each entity store migration is isolated (1 PR = 1 entity, own tests).
+ISSUE-6 (partial dispute): A formal weighted rubric with audit-grade evidence methodology is excessive for a 2-3 developer team. The plan now includes Appendix B with directional scoring, but these are planning estimates, not compliance metrics. Making them fully auditable would require dedicated QA tooling the team does not have.
+
+## Instructions
+1. Re-read the current plan file at the path above — do NOT rely on memory of the previous version.
+2. Verify that fixed issues are actually resolved in the updated plan.
+3. Do NOT re-open issues marked as fixed unless you find a regression in the updated plan.
+4. Check the plan still meets the acceptance criteria in Session Context.
+5. Focus on remaining open issues and any NEW findings from the updated plan.
+6. Maintain the same ISSUE-{N} numbering. New findings use the next available number.
+7. End with a VERDICT block.
+
+## Required Output Format
+### ISSUE-{N}: {Short title}
+- Category: correctness | architecture | sequencing | risk | scope
+- Severity: low | medium | high | critical
+- Plan section: {heading or line range in plan file}
+- Problem: {clear statement}
+- Evidence: {quote or reference from plan that shows the issue}
+- Why it matters: {impact}
+- Suggested fix: {plan-level change}
+
+### VERDICT
+- Status: APPROVE | REVISE
+- Reason: {short reason}
