@@ -3,7 +3,7 @@
 namespace Tests\Feature\Actions;
 
 use App\Actions\V5\CustomerRequest\TransitionCaseAction;
-use App\Services\V5\CustomerRequest\CustomerRequestCaseWriteService;
+use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use Illuminate\Http\Request;
 use Mockery;
 use Tests\TestCase;
@@ -18,7 +18,7 @@ class TransitionCaseActionTest extends TestCase
         $callback = static fn (): array => ['ok' => true];
         $response = response()->json(['data' => ['id' => 42]]);
 
-        $writeService = Mockery::mock(CustomerRequestCaseWriteService::class);
+        $writeService = Mockery::mock(CaseWriteOrchestrator::class);
         $writeService
             ->shouldReceive('transition')
             ->once()
