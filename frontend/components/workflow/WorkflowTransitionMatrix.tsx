@@ -48,8 +48,8 @@ const WorkflowTransitionMatrix: React.FC<WorkflowTransitionMatrixProps> = ({
     setEditDraft({
       from_status_code: transition.from_status_code,
       to_status_code: transition.to_status_code,
-      allowed_roles: [...(transition.allowed_roles || [])],
-      required_fields: (transition.required_fields || []).join(', '),
+      allowed_roles: Array.isArray(transition.allowed_roles) ? [...transition.allowed_roles] : [],
+      required_fields: Array.isArray(transition.required_fields) ? transition.required_fields.join(', ') : '',
       is_active: Boolean(transition.is_active),
     });
   };
@@ -231,11 +231,11 @@ const WorkflowTransitionMatrix: React.FC<WorkflowTransitionMatrixProps> = ({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-1">
-                        {transition.allowed_roles.map((role) => (
+                        {(Array.isArray(transition.allowed_roles) ? transition.allowed_roles : []).map((role) => (
                           <span
                             key={role}
                             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getRoleBadgeColor(
-                              transition.allowed_roles
+                              Array.isArray(transition.allowed_roles) ? transition.allowed_roles : []
                             )}`}
                           >
                             {role}
@@ -245,7 +245,7 @@ const WorkflowTransitionMatrix: React.FC<WorkflowTransitionMatrixProps> = ({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">
-                        {transition.required_fields?.length > 0
+                        {Array.isArray(transition.required_fields) && transition.required_fields.length > 0
                           ? transition.required_fields.join(', ')
                           : '-'}
                       </div>

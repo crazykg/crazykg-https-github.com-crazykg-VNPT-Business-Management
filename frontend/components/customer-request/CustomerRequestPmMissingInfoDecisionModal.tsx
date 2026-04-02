@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { resolveStatusMeta, STATUS_COLOR_MAP } from './presentation';
+import { resolveStatusMeta, resolveStaticStatusMeta } from './presentation';
 
 type CustomerRequestPmMissingInfoDecisionModalProps = {
   show: boolean;
@@ -28,8 +28,8 @@ export const CustomerRequestPmMissingInfoDecisionModal: React.FC<
   }
 
   const currentStatusMeta = resolveStatusMeta(currentStatusCode, currentStatusLabel);
-  const waitingMeta = STATUS_COLOR_MAP.waiting_customer_feedback;
-  const rejectMeta = STATUS_COLOR_MAP.not_executed;
+  const waitingMeta = resolveStaticStatusMeta('waiting_customer_feedback');
+  const rejectMeta = resolveStaticStatusMeta('not_executed');
 
   return createPortal(
     <div

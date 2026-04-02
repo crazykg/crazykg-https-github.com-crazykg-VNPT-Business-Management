@@ -6,7 +6,9 @@ use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseDashboardService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseExecutionService;
+use App\Services\V5\CustomerRequest\CustomerRequestCaseMetadataService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadModelService;
+use App\Services\V5\CustomerRequest\CustomerRequestCaseTransitionEvaluator;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadQueryService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseWriteService;
 use App\Services\V5\V5DomainSupportService;
@@ -25,27 +27,13 @@ class CustomerRequestCaseDomainService
 
     private const PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON = 'other_reason';
 
-    /**
-     * @var array<string, array{group_code:string,group_label:string}>
-     */
-    private array $statusGroups = [
-        'new_intake' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
-        'waiting_customer_feedback' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
-        'analysis' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
-        'returned_to_manager' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
-        'in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
-        'coding' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
-        'dms_transfer' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
-        'completed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
-        'customer_notified' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
-        'not_executed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
-    ];
-
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly UserAccessService $userAccess,
         private readonly CustomerRequestCaseDashboardService $dashboardService,
         private readonly CustomerRequestCaseExecutionService $executionService,
+        private readonly CustomerRequestCaseMetadataService $metadataService,
+        private readonly CustomerRequestCaseTransitionEvaluator $transitionEvaluator,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
         private readonly CustomerRequestCaseWriteService $writeService,
@@ -63,35 +51,38 @@ class CustomerRequestCaseDomainService
             ->groupBy('current_status_code')
             ->pluck('aggregate', 'current_status_code');
 
+        $workflowDefinitionId = $this->support->parseNullableInt($request->query('workflow_definition_id'));
+        $catalog = $this->metadataService->getStatusCatalog($workflowDefinitionId);
+
         $groups = [];
-        foreach (CustomerRequestCaseRegistry::all() as $definition) {
-            $statusCode = (string) $definition['status_code'];
-            $group = $this->statusGroups[$statusCode] ?? ['group_code' => 'statuses', 'group_label' => 'Trạng thái'];
-            $groupKey = $group['group_code'];
-            if (! isset($groups[$groupKey])) {
-                $groups[$groupKey] = [
-                    'group_code' => $group['group_code'],
-                    'group_label' => $group['group_label'],
+        foreach ($catalog as $definition) {
+            $statusCode = (string) ($definition['status_code'] ?? '');
+            $groupCode = (string) ($definition['group_code'] ?? 'statuses');
+            $groupLabel = (string) ($definition['group_label'] ?? 'Trạng thái');
+            if (! isset($groups[$groupCode])) {
+                $groups[$groupCode] = [
+                    'group_code' => $groupCode,
+                    'group_label' => $groupLabel,
                     'processes' => [],
                 ];
             }
 
-            $groups[$groupKey]['processes'][] = [
-                ...$this->serializeStatusMeta($definition),
+            $groups[$groupCode]['processes'][] = [
+                ...$definition,
                 'active_count' => (int) ($counts[$statusCode] ?? 0),
             ];
         }
 
         return response()->json([
             'data' => [
-                'master_fields' => CustomerRequestCaseRegistry::masterFields(),
+                'master_fields' => $this->metadataService->getMasterFields($workflowDefinitionId),
                 'groups' => array_values($groups),
                 'statuses' => array_values(array_map(
                     fn (array $definition): array => [
-                        ...$this->serializeStatusMeta($definition),
+                        ...$definition,
                         'active_count' => (int) ($counts[$definition['status_code']] ?? 0),
                     ],
-                    CustomerRequestCaseRegistry::catalog()
+                    $catalog
                 )),
             ],
         ]);
@@ -127,12 +118,21 @@ class CustomerRequestCaseDomainService
             $query->where('workflow_definition_id', $workflowDefinitionId);
         }
         
+        $resolvedWorkflowId = $this->support->parseNullableInt($workflowDefinitionId);
+        $fromStatusCode = $this->normalizeNullableString($request->query('from_status_code'));
+
+        if ($fromStatusCode !== null) {
+            return response()->json([
+                'data' => $this->metadataService->getAllowedTransitions($fromStatusCode, $resolvedWorkflowId),
+            ]);
+        }
+
         $rows = $query->orderBy('sort_order')
             ->orderBy('id')
             ->get()
             ->map(fn (object $row): array => [
                 'id' => (int) $row->id,
-                'workflow_definition_id' => (int) $row->workflow_definition_id,
+                'workflow_definition_id' => $this->support->parseNullableInt($row->workflow_definition_id ?? null),
                 'from_status_code' => (string) $row->from_status_code,
                 'to_status_code' => (string) $row->to_status_code,
                 'direction' => (string) $row->direction,
@@ -141,21 +141,10 @@ class CustomerRequestCaseDomainService
                 'sort_order' => (int) $row->sort_order,
                 'allowed_roles' => json_decode($row->allowed_roles ?? '["all"]', true),
                 'required_fields' => json_decode($row->required_fields ?? '[]', true),
+                'transition_meta' => json_decode($row->transition_meta_json ?? '{}', true),
                 'notes' => $this->normalizeNullableString($row->notes ?? null),
-                'from_status' => $this->serializeStatusMeta(CustomerRequestCaseRegistry::find((string) $row->from_status_code) ?? [
-                    'status_code' => (string) $row->from_status_code,
-                    'status_name_vi' => (string) $row->from_status_code,
-                    'table_name' => '',
-                    'list_columns' => [],
-                    'form_fields' => [],
-                ]),
-                'to_status' => $this->serializeStatusMeta(CustomerRequestCaseRegistry::find((string) $row->to_status_code) ?? [
-                    'status_code' => (string) $row->to_status_code,
-                    'status_name_vi' => (string) $row->to_status_code,
-                    'table_name' => '',
-                    'list_columns' => [],
-                    'form_fields' => [],
-                ]),
+                'from_status' => $this->metadataService->getStatusMeta((string) $row->from_status_code, $resolvedWorkflowId),
+                'to_status' => $this->metadataService->getStatusMeta((string) $row->to_status_code, $resolvedWorkflowId),
             ])
             ->values()
             ->all();
@@ -181,6 +170,26 @@ class CustomerRequestCaseDomainService
         $query = $this->baseCaseQuery($actorId);
         $this->applyCaseFilters($query, $request, $actorId, false);
 
+        if ($this->support->shouldUseSimplePagination($request)) {
+            $fetchedRows = $query
+                ->orderByDesc('crc.updated_at')
+                ->orderByDesc('crc.id')
+                ->forPage($page, $perPage + 1)
+                ->get();
+
+            $hasMorePages = $fetchedRows->count() > $perPage;
+            $rows = $fetchedRows
+                ->take($perPage)
+                ->map(fn (object $row): array => $this->serializeSimpleCaseRow($row))
+                ->values()
+                ->all();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, count($rows), $hasMorePages),
+            ]);
+        }
+
         $total = (clone $query)->count();
         $rows = $query
             ->orderByDesc('crc.updated_at')
@@ -203,7 +212,8 @@ class CustomerRequestCaseDomainService
             return $missing;
         }
 
-        $statusDefinition = CustomerRequestCaseRegistry::find($statusCode);
+        $workflowDefinitionId = $this->support->parseNullableInt($request->query('workflow_definition_id'));
+        $statusDefinition = $this->metadataService->getStatusMeta($statusCode, $workflowDefinitionId);
         if ($statusDefinition === null) {
             return response()->json(['message' => 'Trạng thái không tồn tại.'], 404);
         }
@@ -616,25 +626,49 @@ class CustomerRequestCaseDomainService
 
     public function dashboardCreator(Request $request): JsonResponse
     {
+        $useSimpleSerialization = $this->support->shouldUseSimplePagination($request);
+
         return $this->dashboardService->dashboardCreator(
             $request,
-            fn (object|array $row): array => $this->serializeCaseRow($row)
+            $useSimpleSerialization
+                ? fn (object|array $row): array => $this->serializeSimpleCaseRow($row)
+                : fn (object|array $row): array => $this->serializeCaseRow($row)
         );
     }
 
     public function dashboardDispatcher(Request $request): JsonResponse
     {
+        $useSimpleSerialization = $this->support->shouldUseSimplePagination($request);
+
         return $this->dashboardService->dashboardDispatcher(
             $request,
-            fn (object|array $row): array => $this->serializeCaseRow($row)
+            $useSimpleSerialization
+                ? fn (object|array $row): array => $this->serializeSimpleCaseRow($row)
+                : fn (object|array $row): array => $this->serializeCaseRow($row)
         );
     }
 
     public function dashboardPerformer(Request $request): JsonResponse
     {
+        $useSimpleSerialization = $this->support->shouldUseSimplePagination($request);
+
         return $this->dashboardService->dashboardPerformer(
             $request,
-            fn (object|array $row): array => $this->serializeCaseRow($row)
+            $useSimpleSerialization
+                ? fn (object|array $row): array => $this->serializeSimpleCaseRow($row)
+                : fn (object|array $row): array => $this->serializeCaseRow($row)
+        );
+    }
+
+    public function dashboardOverview(Request $request): JsonResponse
+    {
+        $useSimpleSerialization = $this->support->shouldUseSimplePagination($request);
+
+        return $this->dashboardService->dashboardOverview(
+            $request,
+            $useSimpleSerialization
+                ? fn (object|array $row): array => $this->serializeSimpleCaseRow($row)
+                : fn (object|array $row): array => $this->serializeCaseRow($row)
         );
     }
 
@@ -643,14 +677,6 @@ class CustomerRequestCaseDomainService
         return $this->dashboardService->performerWeeklyTimesheet(
             $request,
             fn (object|array $row): array => $this->serializeWorklogRow($row)
-        );
-    }
-
-    public function dashboardOverview(Request $request): JsonResponse
-    {
-        return $this->dashboardService->dashboardOverview(
-            $request,
-            fn (object|array $row): array => $this->serializeCaseRow($row)
         );
     }
 
@@ -693,7 +719,7 @@ class CustomerRequestCaseDomainService
             return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
         }
 
-        if (CustomerRequestCaseRegistry::find($statusCode) === null) {
+        if ($this->metadataService->getStatusMeta($statusCode, $case->workflow_definition_id) === null) {
             return response()->json(['message' => 'Trạng thái không tồn tại.'], 404);
         }
 
@@ -736,8 +762,9 @@ class CustomerRequestCaseDomainService
 
     private function buildStatusDetailData(CustomerRequestCase $case, string $statusCode, ?int $userId): array
     {
-        $requestedDefinition = CustomerRequestCaseRegistry::find($statusCode);
-        $currentDefinition = CustomerRequestCaseRegistry::find((string) $case->current_status_code);
+        $workflowDefinitionId = $case->workflow_definition_id;
+        $requestedDefinition = $this->metadataService->getStatusMeta($statusCode, $workflowDefinitionId);
+        $currentDefinition = $this->metadataService->getStatusMeta((string) $case->current_status_code, $workflowDefinitionId);
         $requestedInstance = $statusCode === $case->current_status_code
             ? $this->currentStatusInstance($case)
             : $this->findStatusInstanceForCase((int) $case->id, $statusCode, false);
@@ -745,20 +772,8 @@ class CustomerRequestCaseDomainService
             ? $this->loadStatusRow((string) $requestedDefinition['table_name'], $requestedInstance->status_row_id)
             : null;
         $serializedCase = $this->serializeCaseModel($case);
-        
-        // Get allowed next processes from workflow transitions
-        $workflowDefinitionId = $case->workflow_definition_id;
-        $allowedNextFromWorkflow = [];
-        if ($workflowDefinitionId !== null && $currentDefinition !== null) {
-            $allowedNextFromWorkflow = $this->getAllowedNextProcessesFromWorkflow(
-                $workflowDefinitionId,
-                (string) $case->current_status_code
-            );
-        }
-        
-        // Fallback to legacy logic if no workflow transitions found
-        $allowedNext = !empty($allowedNextFromWorkflow) ? $allowedNextFromWorkflow : (
-            $currentDefinition === null
+
+        $allowedNext = $currentDefinition === null
             ? []
             : array_values(array_map(
                 fn (array $definition): array => $this->serializeTransitionStatusMeta(
@@ -767,9 +782,8 @@ class CustomerRequestCaseDomainService
                     (string) $currentDefinition['status_code']
                 ),
                 $this->allowedStatusDefinitionsForCase($case, (string) $currentDefinition['status_code'], 'forward')
-            ))
-        );
-        
+            ));
+
         $allowedPrevious = $currentDefinition === null
             ? []
             : array_values(array_map(
@@ -785,10 +799,10 @@ class CustomerRequestCaseDomainService
             ...$serializedCase,
             'request_case' => $serializedCase,
 
-            'current_status' => $currentDefinition === null ? null : $this->serializeStatusMeta($currentDefinition),
-            'current_process' => $currentDefinition === null ? null : $this->serializeStatusMeta($currentDefinition),
-            'status' => $requestedDefinition === null ? null : $this->serializeStatusMeta($requestedDefinition),
-            'process' => $requestedDefinition === null ? null : $this->serializeStatusMeta($requestedDefinition),
+            'current_status' => $currentDefinition,
+            'current_process' => $currentDefinition,
+            'status' => $requestedDefinition,
+            'process' => $requestedDefinition,
             'status_instance' => $requestedInstance === null ? null : $this->serializeStatusInstance($requestedInstance),
             'status_row' => ($requestedDefinition === null || $statusRow === null) ? null : $this->serializeStatusRow($requestedDefinition, $statusRow),
             'process_row' => ($requestedDefinition === null || $statusRow === null) ? null : $this->serializeStatusRow($requestedDefinition, $statusRow),
@@ -808,177 +822,11 @@ class CustomerRequestCaseDomainService
     }
 
     /**
-     * Get allowed next processes from workflow transitions
-     *
-     * @param int $workflowDefinitionId
-     * @param string $fromStatusCode
-     * @return array<int, array<string, mixed>>
-     */
-    private function getAllowedNextProcessesFromWorkflow(int $workflowDefinitionId, string $fromStatusCode): array
-    {
-        $transitions = DB::table('customer_request_status_transitions')
-            ->where('workflow_definition_id', $workflowDefinitionId)
-            ->where('from_status_code', $fromStatusCode)
-            ->where('is_active', 1)
-            ->orderBy('sort_order')
-            ->get();
-
-        return $transitions->map(fn ($t) => [
-            'process_code' => $t->to_status_code,
-            'status_code' => $t->to_status_code,
-            'process_name' => $t->process_name_vi ?? $t->to_status_code,
-            'process_label' => $t->process_name_vi ?? $t->to_status_code,
-            'group_code' => $this->getGroupCodeForStatus($t->to_status_code),
-            'group_label' => $this->getGroupLabelForStatus($t->to_status_code),
-            'table_name' => $this->getTableNameForStatus($t->to_status_code),
-            'default_status' => $t->to_status_code,
-            'read_roles' => [],
-            'write_roles' => [],
-            'allowed_next_processes' => [],
-            'allowed_previous_processes' => [],
-            'form_fields' => [],
-            'list_columns' => [],
-            'allowed_roles' => json_decode($t->allowed_roles ?? '["all"]', true),
-        ])->toArray();
-    }
-
-    /**
-     * Get group code for a status code
-     */
-    private function getGroupCodeForStatus(string $statusCode): string
-    {
-        $mapping = [
-            'new_intake' => 'intake',
-            'assigned_to_receiver' => 'intake',
-            'pending_dispatch' => 'intake',
-            'receiver_in_progress' => 'processing',
-            'not_executed' => 'closure',
-            'waiting_customer_feedback' => 'intake',
-            'analysis' => 'analysis',
-            'analysis_completed' => 'analysis',
-            'analysis_suspended' => 'analysis',
-            'dms_transfer' => 'processing',
-            'dms_task_created' => 'processing',
-            'dms_in_progress' => 'processing',
-            'dms_suspended' => 'processing',
-            'coding' => 'processing',
-            'coding_in_progress' => 'processing',
-            'coding_suspended' => 'processing',
-            'completed' => 'closure',
-            'customer_notified' => 'closure',
-            'returned_to_manager' => 'analysis',
-        ];
-
-        return $mapping[$statusCode] ?? 'statuses';
-    }
-
-    /**
-     * Get group label for a status code
-     */
-    private function getGroupLabelForStatus(string $statusCode): string
-    {
-        $mapping = [
-            'intake' => 'Tiếp nhận',
-            'analysis' => 'Phân tích',
-            'processing' => 'Xử lý',
-            'closure' => 'Kết quả',
-        ];
-
-        return $mapping[$this->getGroupCodeForStatus($statusCode)] ?? 'Trạng thái';
-    }
-
-    /**
-     * Get table name for a status code
-     */
-    private function getTableNameForStatus(string $statusCode): string
-    {
-        $mapping = [
-            'new_intake' => 'customer_request_cases',
-            'assigned_to_receiver' => 'customer_request_assigned_to_receiver',
-            'pending_dispatch' => 'customer_request_pending_dispatch',
-            'receiver_in_progress' => 'customer_request_receiver_in_progress',
-            'not_executed' => 'customer_request_not_executed',
-            'waiting_customer_feedback' => 'customer_request_waiting_customer_feedbacks',
-            'analysis' => 'customer_request_analysis',
-            'analysis_completed' => 'customer_request_analysis',
-            'analysis_suspended' => 'customer_request_analysis',
-            'dms_transfer' => 'customer_request_dms_transfer',
-            'dms_task_created' => 'customer_request_dms_transfer',
-            'dms_in_progress' => 'customer_request_dms_transfer',
-            'dms_suspended' => 'customer_request_dms_transfer',
-            'coding' => 'customer_request_coding',
-            'coding_in_progress' => 'customer_request_coding',
-            'coding_suspended' => 'customer_request_coding',
-            'completed' => 'customer_request_completed',
-            'customer_notified' => 'customer_request_customer_notified',
-            'returned_to_manager' => 'customer_request_returned_to_manager',
-        ];
-
-        return $mapping[$statusCode] ?? 'customer_request_cases';
-    }
-
-    /**
-     * Get Vietnamese name for a process code
-     * @deprecated - Now using process_name_vi column in database
-     */
-    private function getProcessNameVi(string $statusCode): string
-    {
-        $mapping = [
-            'new_intake' => 'Mới tiếp nhận',
-            'assigned_to_receiver' => 'Giao R thực hiện',
-            'pending_dispatch' => 'Giao PM/Trả YC cho PM',
-            'receiver_in_progress' => 'R Đang thực hiện',
-            'not_executed' => 'Không tiếp nhận',
-            'waiting_customer_feedback' => 'Chờ khách hàng cung cấp thông tin',
-            'analysis' => 'Chuyển BA Phân tích',
-            'analysis_completed' => 'Chuyển BA Phân tích hoàn thành',
-            'analysis_suspended' => 'Chuyển BA Phân tích tạm ngưng',
-            'dms_transfer' => 'Chuyển DMS',
-            'dms_task_created' => 'Tạo task',
-            'dms_in_progress' => 'DMS Đang thực hiện',
-            'dms_suspended' => 'DMS tạm ngưng',
-            'coding' => 'Lập trình',
-            'coding_in_progress' => 'Dev đang thực hiện',
-            'coding_suspended' => 'Dev tạm ngưng',
-            'completed' => 'Hoàn thành',
-            'customer_notified' => 'Thông báo khách hàng',
-            'returned_to_manager' => 'Chuyển trả người quản lý',
-        ];
-
-        return $mapping[$statusCode] ?? $statusCode;
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function serializeStatusMeta(array $definition): array
     {
-        $statusCode = (string) $definition['status_code'];
-        $group = $this->statusGroups[$statusCode] ?? ['group_code' => 'statuses', 'group_label' => 'Trạng thái'];
-
-        return [
-            'status_code' => $statusCode,
-            'status_name_vi' => (string) $definition['status_name_vi'],
-            'process_code' => $statusCode,
-            'process_label' => (string) $definition['status_name_vi'],
-            'group_code' => $group['group_code'],
-            'group_label' => $group['group_label'],
-            'table_name' => (string) $definition['table_name'],
-            'handler_field' => $this->resolveStatusHandlerField($statusCode),
-            'default_status' => $statusCode,
-            'read_roles' => [],
-            'write_roles' => [],
-            'allowed_next_processes' => array_map(
-                static fn (array $row): string => (string) $row['to_status_code'],
-                $this->allowedTransitionRows($statusCode, 'forward')
-            ),
-            'allowed_previous_processes' => array_map(
-                static fn (array $row): string => (string) $row['to_status_code'],
-                $this->allowedTransitionRows($statusCode, 'backward')
-            ),
-            'list_columns' => array_values($definition['list_columns'] ?? []),
-            'form_fields' => array_values($definition['form_fields'] ?? []),
-        ];
+        return $definition;
     }
 
     /**
@@ -996,61 +844,13 @@ class CustomerRequestCaseDomainService
 
         return [
             ...$meta,
-            ...$this->buildDecisionMetadataForTransition($case, $fromStatusCode, (string) $definition['status_code']),
+            ...$this->transitionEvaluator->buildDecisionMetadataForTransition($case, $fromStatusCode, (string) $definition['status_code']),
         ];
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function resolveStatusHandlerField(string $statusCode): ?string
-    {
-        if (
-            $this->support->hasTable('customer_request_status_catalogs')
-            && $this->support->hasColumn('customer_request_status_catalogs', 'handler_field')
-        ) {
-            $catalogField = DB::table('customer_request_status_catalogs')
-                ->where('status_code', $statusCode)
-                ->value('handler_field');
-
-            $normalizedCatalogField = $this->normalizeNullableString($catalogField);
-            if ($normalizedCatalogField !== null) {
-                return $normalizedCatalogField;
-            }
-        }
-
-        return match ($statusCode) {
-            'new_intake' => 'received_by_user_id',
-            'pending_dispatch' => 'dispatcher_user_id',
-            'assigned_to_receiver', 'receiver_in_progress' => 'receiver_user_id',
-            'in_progress', 'analysis' => 'performer_user_id',
-            'coding' => 'developer_user_id',
-            'dms_transfer' => 'dms_contact_user_id',
-            'completed' => 'completed_by_user_id',
-            'customer_notified' => 'notified_by_user_id',
-            'returned_to_manager' => 'returned_by_user_id',
-            'not_executed' => 'decision_by_user_id',
-            default => null,
-        };
     }
 
     private function allowedTransitionRows(string $statusCode, ?string $direction = null): array
     {
-        $query = DB::table('customer_request_status_transitions')
-            ->where('from_status_code', $statusCode)
-            ->where('is_active', 1);
-
-        if ($direction !== null) {
-            $query->where('direction', $direction);
-        }
-
-        return $query
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get()
-            ->map(fn (object $row): array => (array) $row)
-            ->values()
-            ->all();
+        return $this->metadataService->getAllowedTransitions($statusCode, null, $direction);
     }
 
     /**
@@ -1058,15 +858,13 @@ class CustomerRequestCaseDomainService
      */
     private function allowedStatusDefinitions(string $statusCode, ?string $direction = null): array
     {
-        $definitions = [];
-        foreach ($this->allowedTransitionRows($statusCode, $direction) as $row) {
-            $definition = CustomerRequestCaseRegistry::find((string) ($row['to_status_code'] ?? ''));
-            if ($definition !== null) {
-                $definitions[] = $definition;
-            }
-        }
-
-        return $definitions;
+        return array_values(array_filter(array_map(
+            fn (array $row): ?array => $this->metadataService->getStatusMeta(
+                (string) ($row['to_status_code'] ?? ''),
+                $this->support->parseNullableInt($row['workflow_definition_id'] ?? null)
+            ),
+            $this->allowedTransitionRows($statusCode, $direction)
+        )));
     }
 
     /**
@@ -1077,15 +875,15 @@ class CustomerRequestCaseDomainService
         string $statusCode,
         ?string $direction = null
     ): array {
-        $definitions = [];
-        foreach ($this->allowedTransitionRowsForCase($case, $statusCode, $direction) as $row) {
-            $definition = CustomerRequestCaseRegistry::find((string) ($row['to_status_code'] ?? ''));
-            if ($definition !== null) {
-                $definitions[] = $definition;
-            }
-        }
+        $workflowDefinitionId = $case?->workflow_definition_id;
 
-        return $definitions;
+        return array_values(array_filter(array_map(
+            fn (array $row): ?array => $this->metadataService->getStatusMeta(
+                (string) ($row['to_status_code'] ?? ''),
+                $workflowDefinitionId
+            ),
+            $this->allowedTransitionRowsForCase($case, $statusCode, $direction)
+        )));
     }
 
     private function assertTransitionAllowed(string $fromStatusCode, string $toStatusCode): void
@@ -1120,21 +918,12 @@ class CustomerRequestCaseDomainService
         string $statusCode,
         ?string $direction = null
     ): array {
-        $rows = $this->allowedTransitionRows($statusCode, $direction);
-
-        if ($direction !== 'forward') {
-            return $rows;
-        }
-
-        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
-        if ($allowedTargets === null) {
-            return $rows;
-        }
-
-        return array_values(array_filter(
-            $rows,
-            static fn (array $row): bool => in_array((string) ($row['to_status_code'] ?? ''), $allowedTargets, true)
-        ));
+        return $this->transitionEvaluator->filterAllowedTransitionsForCase(
+            $case,
+            $statusCode,
+            $this->allowedTransitionRows($statusCode, $direction),
+            $direction
+        );
     }
 
     /**
@@ -1142,14 +931,6 @@ class CustomerRequestCaseDomainService
      */
     private function resolveXmlAlignedAllowedTargets(?CustomerRequestCase $case, string $statusCode): ?array
     {
-        if ($statusCode === 'new_intake') {
-            return $case === null ? null : $this->resolveNewIntakeAllowedTargets($case);
-        }
-
-        if ($statusCode === 'in_progress') {
-            return ['completed'];
-        }
-
         return null;
     }
 
@@ -1172,48 +953,6 @@ class CustomerRequestCaseDomainService
     }
 
     /**
-     * @return array<int, string>
-     */
-    private function resolveNewIntakeAllowedTargets(CustomerRequestCase $case): array
-    {
-        // Get allowed targets from workflow transitions
-        $workflowDefinitionId = $case->workflow_definition_id;
-        if ($workflowDefinitionId !== null) {
-            $transitions = DB::table('customer_request_status_transitions')
-                ->where('workflow_definition_id', $workflowDefinitionId)
-                ->where('from_status_code', 'new_intake')
-                ->where('is_active', 1)
-                ->pluck('to_status_code')
-                ->toArray();
-            
-            if (!empty($transitions)) {
-                return $transitions;
-            }
-        }
-        
-        // Fallback to legacy logic
-        return $this->resolveNewIntakeLane($case) === 'performer'
-            ? ['in_progress', 'returned_to_manager']
-            : ['not_executed', 'waiting_customer_feedback', 'in_progress', 'analysis'];
-    }
-
-    private function resolveNewIntakeLane(CustomerRequestCase $case): string
-    {
-        $dispatchRoute = trim((string) ($case->dispatch_route ?? ''));
-        $hasPerformer = $this->support->parseNullableInt($case->performer_user_id) !== null;
-
-        if ($dispatchRoute === 'self_handle' || $dispatchRoute === 'assign_direct') {
-            return 'performer';
-        }
-
-        if ($dispatchRoute === 'assign_pm') {
-            return $hasPerformer ? 'performer' : 'dispatcher';
-        }
-
-        return $hasPerformer ? 'performer' : 'dispatcher';
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function buildDecisionMetadataForTransition(
@@ -1221,24 +960,7 @@ class CustomerRequestCaseDomainService
         string $fromStatusCode,
         string $toStatusCode
     ): array {
-        if (! in_array($toStatusCode, ['waiting_customer_feedback', 'not_executed'], true)) {
-            return [];
-        }
-
-        $isDispatcherNewIntake = $fromStatusCode === 'new_intake' && $this->resolveNewIntakeLane($case) === 'dispatcher';
-        $isReturnedToManagerReview = $fromStatusCode === 'returned_to_manager';
-
-        if (! $isDispatcherNewIntake && ! $isReturnedToManagerReview) {
-            return [];
-        }
-
-        return [
-            'decision_context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
-            'decision_outcome_code' => $toStatusCode === 'waiting_customer_feedback'
-                ? self::PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO
-                : self::PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON,
-            'decision_source_status_code' => $fromStatusCode,
-        ];
+        return $this->transitionEvaluator->buildDecisionMetadataForTransition($case, $fromStatusCode, $toStatusCode);
     }
 
     /**
@@ -1249,24 +971,9 @@ class CustomerRequestCaseDomainService
         string $currentStatusCode,
         bool $enabled
     ): ?array {
-        $targets = [];
-        foreach (['waiting_customer_feedback', 'not_executed'] as $targetStatusCode) {
-            if ($this->buildDecisionMetadataForTransition($case, $currentStatusCode, $targetStatusCode) !== []) {
-                $targets[] = $targetStatusCode;
-            }
-        }
-
-        if ($targets === []) {
-            return null;
-        }
-
-        return [
-            'enabled' => $enabled,
-            'context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
-            'source_status_code' => $currentStatusCode,
-            'target_status_codes' => $targets,
-        ];
+        return $this->transitionEvaluator->buildPmMissingCustomerInfoDecisionAction($case, $currentStatusCode, $enabled);
     }
+
 
     /**
      * @return array<string, mixed>
@@ -1504,6 +1211,46 @@ class CustomerRequestCaseDomainService
     private function serializeCaseRow(object|array $row): array
     {
         return $this->readModelService->serializeCaseRow($row);
+    }
+
+    private function serializeSimpleCaseRow(object|array $row): array
+    {
+        $record = is_object($row) ? (array) $row : $row;
+
+        return [
+            'id' => (int) ($record['id'] ?? 0),
+            'request_code' => (string) ($record['request_code'] ?? ''),
+            'ma_yc' => (string) ($record['request_code'] ?? ''),
+            'summary' => (string) ($record['summary'] ?? ''),
+            'tieu_de' => (string) ($record['summary'] ?? ''),
+            'current_status_code' => (string) ($record['current_status_code'] ?? null),
+            'current_status_name_vi' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
+            'current_process_label' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
+            'trang_thai' => (string) ($record['current_status_code'] ?? null),
+            'tien_trinh_hien_tai' => (string) ($record['current_status_code'] ?? null),
+            'priority' => (int) ($record['priority'] ?? 2),
+            'do_uu_tien' => (int) ($record['priority'] ?? 2),
+            'project_name' => $this->normalizeNullableString($record['project_name'] ?? null),
+            'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
+            'khach_hang_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
+            'received_by_name' => $this->normalizeNullableString($record['received_by_name'] ?? null),
+            'dispatcher_name' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
+            'performer_name' => $this->normalizeNullableString($record['performer_name'] ?? null),
+            'current_entered_at' => $this->normalizeNullableString($record['current_entered_at'] ?? null),
+            'current_exited_at' => $this->normalizeNullableString($record['current_exited_at'] ?? null),
+            'previous_status_instance_id' => $this->support->parseNullableInt($record['previous_status_instance_id'] ?? null),
+            'next_status_instance_id' => $this->support->parseNullableInt($record['next_status_instance_id'] ?? null),
+            'current_started_at' => $this->normalizeNullableString($record['current_started_at'] ?? null),
+            'current_expected_completed_at' => $this->normalizeNullableString($record['current_expected_completed_at'] ?? null),
+            'current_completed_at' => $this->normalizeNullableString($record['current_completed_at'] ?? null),
+            'current_status_notes' => $this->normalizeNullableString($record['current_status_notes'] ?? null),
+            'current_progress_percent' => (int) ($record['current_progress_percent'] ?? 0),
+            'nguoi_xu_ly_id' => $this->support->parseNullableInt($record['nguoi_xu_ly_id'] ?? null),
+            'nguoi_xu_ly_name' => $this->normalizeNullableString($record['nguoi_xu_ly_name'] ?? null),
+            'created_by_name' => $this->normalizeNullableString($record['created_by_name'] ?? null),
+            'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
+            'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
+        ];
     }
 
     /**

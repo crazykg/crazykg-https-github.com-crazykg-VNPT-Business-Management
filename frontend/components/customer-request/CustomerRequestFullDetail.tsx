@@ -1,6 +1,6 @@
 import React from 'react';
-import type { CRCFullDetail } from '../../types';
-import { resolveStatusMeta } from './presentation';
+import type { CRCFullDetail, YeuCau } from '../../types';
+import { resolveRequestStatusMeta, resolveStatusMeta } from './presentation';
 
 type CustomerRequestFullDetailProps = {
   detail: CRCFullDetail | null;
@@ -41,7 +41,7 @@ export const CustomerRequestFullDetail: React.FC<CustomerRequestFullDetailProps>
   const summary = String(rc.summary ?? '');
   const priority = rc.priority != null ? Number(rc.priority) : null;
   const currentStatusCode = String(rc.current_status_code ?? '');
-  const statusMeta = resolveStatusMeta(currentStatusCode);
+  const statusMeta = resolveRequestStatusMeta(rc as Partial<YeuCau>);
 
   const people = (detail.people as unknown[]) ?? [];
   const timeline = (detail.timeline as unknown[]) ?? [];

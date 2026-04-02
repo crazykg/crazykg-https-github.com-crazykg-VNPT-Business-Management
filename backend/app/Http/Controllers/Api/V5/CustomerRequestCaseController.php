@@ -7,6 +7,7 @@ use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CustomerRequestCaseController extends V5BaseController
 {
@@ -40,6 +41,10 @@ class CustomerRequestCaseController extends V5BaseController
 
     public function store(Request $request): JsonResponse
     {
+        Log::debug('crc.controller.store.start', [
+            'payload_keys' => array_keys($request->all()),
+        ]);
+
         return $this->service->store($request);
     }
 

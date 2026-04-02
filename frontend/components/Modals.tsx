@@ -6653,36 +6653,36 @@ export const ReminderFormModal: React.FC<ReminderFormModalProps> = ({
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm nhắc việc' : 'Cập nhật nhắc việc'} icon="notifications_active" width="max-w-lg">
-      <div className="p-6 space-y-5">
-        <FormInput 
-            label="Tiêu đề nhắc việc" 
-            value={formData.title} 
-            onChange={(e: any) => handleChange('title', e.target.value)} 
-            placeholder="Nhập tiêu đề..." 
-            required 
+      <div className="p-3 space-y-3">
+        <FormInput
+            label="Tiêu đề nhắc việc"
+            value={formData.title}
+            onChange={(e: any) => handleChange('title', e.target.value)}
+            placeholder="Nhập tiêu đề..."
+            required
             error={errors.title}
         />
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Nội dung</label>
-          <textarea 
-            className="w-full px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all min-h-[100px] text-sm"
+          <label className="text-xs font-semibold text-neutral">Nội dung</label>
+          <textarea
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all min-h-[100px] text-xs"
             value={formData.content}
             onChange={(e) => handleChange('content', e.target.value)}
             placeholder="Chi tiết công việc cần làm..."
           />
         </div>
 
-        <FormInput 
-            label="Ngày nhắc" 
+        <FormInput
+            label="Ngày nhắc"
             type="date"
-            value={formData.remindDate} 
-            onChange={(e: any) => handleChange('remindDate', e.target.value)} 
+            value={formData.remindDate}
+            onChange={(e: any) => handleChange('remindDate', e.target.value)}
             required
             error={errors.remindDate}
         />
 
-        <SearchableSelect 
+        <SearchableSelect
             label="Người được giao"
             required
             options={employees.map(e => ({ value: String(e.id), label: getEmployeeLabel(e) }))}
@@ -6693,10 +6693,10 @@ export const ReminderFormModal: React.FC<ReminderFormModalProps> = ({
         />
       </div>
 
-      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
-        <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-           <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
+      <div className="flex items-center justify-end gap-2 px-3 py-2 bg-surface-low border-t border-slate-100">
+        <button onClick={onClose} className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-neutral font-semibold text-xs hover:bg-surface-variant transition-colors">Hủy</button>
+        <button onClick={handleSubmit} className="px-2.5 py-1.5 rounded-lg bg-gradient-to-br from-primary to-primary-container hover:bg-deep-teal text-white font-semibold text-xs shadow-sm transition-all inline-flex items-center gap-1.5">
+           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
         </button>
       </div>
     </ModalWrapper>
@@ -6704,10 +6704,10 @@ export const ReminderFormModal: React.FC<ReminderFormModalProps> = ({
 };
 
 export const DeleteReminderModal: React.FC<{ data: Reminder; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
-  <DeleteConfirmModal 
-     title="Xóa nhắc việc" 
-     message={<p>Bạn có chắc chắn muốn xóa nhắc việc <span className="font-bold text-slate-900">"{data.title}"</span>?</p>}
-     onClose={onClose} 
+  <DeleteConfirmModal
+     title="Xóa nhắc việc"
+     message={<p>Bạn có chắc chắn muốn xóa nhắc việc <span className="font-bold text-on-surface">"{data.title}"</span>?</p>}
+     onClose={onClose}
      onConfirm={onConfirm}
   />
 );

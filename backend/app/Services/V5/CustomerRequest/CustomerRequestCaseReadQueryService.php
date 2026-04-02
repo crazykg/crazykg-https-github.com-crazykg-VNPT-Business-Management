@@ -2,7 +2,6 @@
 
 namespace App\Services\V5\CustomerRequest;
 
-use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -22,6 +21,7 @@ class CustomerRequestCaseReadQueryService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly UserAccessService $userAccess,
+        private readonly CustomerRequestCaseMetadataService $metadataService,
     ) {}
 
     public function missingTablesResponse(): ?JsonResponse
@@ -281,12 +281,29 @@ class CustomerRequestCaseReadQueryService
         $selects = ['crc.*'];
 
         if ($this->support->hasTable('customer_request_status_catalogs')) {
-            $query->leftJoin('customer_request_status_catalogs as status_catalog', 'status_catalog.status_code', '=', 'crc.current_status_code');
+            $query->leftJoin('customer_request_status_catalogs as status_catalog', function ($join): void {
+                $join->on('status_catalog.status_code', '=', 'crc.current_status_code');
+
+                if ($this->support->hasColumn('customer_request_status_catalogs', 'workflow_definition_id')) {
+                    $join->on('status_catalog.workflow_definition_id', '=', 'crc.workflow_definition_id');
+                }
+            });
             $selects[] = 'status_catalog.status_name_vi as current_status_name_vi';
             if ($this->support->hasColumn('customer_request_status_catalogs', 'handler_field')) {
                 $selects[] = 'status_catalog.handler_field as handler_field';
             }
+            if ($this->support->hasColumn('customer_request_status_catalogs', 'group_code')) {
+                $selects[] = 'status_catalog.group_code as current_status_group_code';
+            }
+            if ($this->support->hasColumn('customer_request_status_catalogs', 'group_label')) {
+                $selects[] = 'status_catalog.group_label as current_status_group_label';
+            }
+            if ($this->support->hasColumn('customer_request_status_catalogs', 'ui_meta_json')) {
+                $selects[] = 'status_catalog.ui_meta_json as current_status_ui_meta_json';
+            }
         }
+
+        $selects[] = 'crc.workflow_definition_id';
 
         if ($this->support->hasTable('customers')) {
             $query->leftJoin('customers as c', 'c.id', '=', 'crc.customer_id');
@@ -333,6 +350,10 @@ class CustomerRequestCaseReadQueryService
                 $query->leftJoin('internal_users as performer_owner', 'performer_owner.id', '=', 'crc.performer_user_id');
             }
 
+            if ($this->support->hasColumn('customer_request_cases', 'nguoi_xu_ly_id')) {
+                $query->leftJoin('internal_users as current_handler', 'current_handler.id', '=', 'crc.nguoi_xu_ly_id');
+            }
+
             if ($this->support->hasColumn('internal_users', 'full_name')) {
                 if ($this->support->hasColumn('customer_request_cases', 'received_by_user_id')) {
                     $selects[] = 'intake_receiver.full_name as received_by_name';
@@ -342,6 +363,9 @@ class CustomerRequestCaseReadQueryService
                 }
                 if ($this->support->hasColumn('customer_request_cases', 'performer_user_id')) {
                     $selects[] = 'performer_owner.full_name as performer_name';
+                }
+                if ($this->support->hasColumn('customer_request_cases', 'nguoi_xu_ly_id')) {
+                    $selects[] = 'current_handler.full_name as nguoi_xu_ly_name';
                 }
                 $selects[] = 'creator.full_name as created_by_name';
                 $selects[] = 'updater.full_name as updated_by_name';
@@ -457,7 +481,7 @@ class CustomerRequestCaseReadQueryService
             'customer_request_worklogs',
             'customer_request_status_ref_tasks',
             'customer_request_status_attachments',
-            ...CustomerRequestCaseRegistry::tables(),
+            ...$this->metadataService->getStatusTables(),
         ];
     }
 }

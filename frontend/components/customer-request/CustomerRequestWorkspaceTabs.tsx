@@ -39,33 +39,33 @@ const WORKSPACE_TAB_META: WorkspaceTabMeta[] = [
     key: 'overview',
     label: 'Tổng quan',
     icon: 'space_dashboard',
-    activeClass: 'border border-slate-300 bg-slate-100 text-slate-900 shadow-sm',
+    activeClass: 'border border-slate-300 bg-gradient-to-br from-slate-100 to-slate-50 text-slate-900 shadow-md',
     badgeClass: 'bg-slate-100 text-slate-700',
-    activeBadgeClass: 'border border-slate-200 bg-white text-slate-700',
+    activeBadgeClass: 'border border-slate-200 bg-white text-slate-700 shadow-sm',
   },
   {
     key: 'creator',
     label: 'Người tạo',
     icon: 'person_add',
-    activeClass: 'border border-sky-200 bg-sky-50 text-sky-700 shadow-sm',
-    badgeClass: 'bg-sky-100 text-sky-700',
-    activeBadgeClass: 'border border-sky-100 bg-white text-sky-700',
+    activeClass: 'border border-sky-300 bg-gradient-to-br from-sky-50 to-sky-100/50 text-sky-800 shadow-md shadow-sky-100',
+    badgeClass: 'bg-gradient-to-br from-sky-100 to-sky-50 text-sky-700 shadow-sm',
+    activeBadgeClass: 'border border-sky-200 bg-white text-sky-700 shadow-sm',
   },
   {
     key: 'dispatcher',
     label: 'Điều phối',
     icon: 'manage_accounts',
-    activeClass: 'border border-amber-200 bg-amber-50 text-amber-700 shadow-sm',
-    badgeClass: 'bg-amber-100 text-amber-700',
-    activeBadgeClass: 'border border-amber-100 bg-white text-amber-700',
+    activeClass: 'border border-amber-300 bg-gradient-to-br from-amber-50 to-amber-100/50 text-amber-800 shadow-md shadow-amber-100',
+    badgeClass: 'bg-gradient-to-br from-amber-100 to-amber-50 text-amber-700 shadow-sm',
+    activeBadgeClass: 'border border-amber-200 bg-white text-amber-700 shadow-sm',
   },
   {
     key: 'performer',
     label: 'Người xử lý',
     icon: 'engineering',
-    activeClass: 'border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm',
-    badgeClass: 'bg-emerald-100 text-emerald-700',
-    activeBadgeClass: 'border border-emerald-100 bg-white text-emerald-700',
+    activeClass: 'border border-emerald-300 bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-800 shadow-md shadow-emerald-100',
+    badgeClass: 'bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-700 shadow-sm',
+    activeBadgeClass: 'border border-emerald-200 bg-white text-emerald-700 shadow-sm',
   },
 ];
 
@@ -94,7 +94,7 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
     <div className={`flex flex-col ${isMobile ? 'gap-3' : 'gap-4'}`}>
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div
-        className={`sticky top-0 z-10 rounded-2xl border border-slate-200/90 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.06)] backdrop-blur-sm ${
+        className={`sticky top-0 z-10 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white/95 to-slate-50/80 shadow-lg shadow-slate-200/50 backdrop-blur-xl ${
           isMobile ? 'px-3 py-2.5' : 'px-4 py-3'
         }`}
       >
@@ -109,21 +109,23 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
                   key={tab.key}
                   type="button"
                   onClick={() => onTabChange(tab.key)}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-xl font-semibold transition ${
+                  className={`group inline-flex shrink-0 items-center gap-2 rounded-xl font-semibold transition-all duration-200 ${
                     isMobile ? 'px-3 py-1.5 text-[13px]' : 'px-4 py-2 text-sm'
                   } ${
                     isActive
                       ? tab.activeClass
-                      : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                      : 'border border-slate-200 bg-white/80 text-slate-600 hover:border-slate-300 hover:bg-white hover:shadow-md'
                   }`}
                 >
-                  <span className={`material-symbols-outlined ${isMobile ? 'text-[16px]' : 'text-[18px]'}`}>
+                  <span className={`material-symbols-outlined transition-transform group-hover:scale-110 ${
+                    isMobile ? 'text-[16px]' : 'text-[18px]'
+                  } ${isActive ? 'text-slate-900' : 'text-slate-500 group-hover:text-slate-700'}`}>
                     {tab.icon}
                   </span>
                   {tab.label}
                   {count > 0 ? (
                     <span
-                      className={`rounded-full px-1.5 py-0.5 text-center font-bold ${
+                      className={`rounded-full px-1.5 py-0.5 text-center font-bold transition-transform group-hover:scale-110 ${
                         isMobile ? 'min-w-[18px] text-[9px]' : 'min-w-[20px] text-[10px]'
                       } ${
                         isActive ? tab.activeBadgeClass : tab.badgeClass

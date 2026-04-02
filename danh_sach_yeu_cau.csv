@@ -1,0 +1,408 @@
+STT,Nội dung yêu cầu,Đơn vị,Người yêu cầu,Nhóm Zalo,Người tiếp nhận
+1,In phiếu dinh dưỡng không được BN: Nguyễn Huỳnh Gia Phú,Bệnh viện Ung bướu Cần Thơ,,,Nguyễn Vĩnh Lạp
+2,Bổ sung tính năng theo phiếu yêu cầu,BV Sản Nhi,,,Nguyễn Nhựt Trường
+3,Yêu cầu của Phòng Kế hoạch,BVĐK KV Ngã Bảy,,,Phan Phú Thịnh
+4,"Yêu cầu đơn vị khẩn trương rà soát, nâng cấp và hoàn thiện hệ thống phần mềm quản lý bệnh viện để đáp ứng đầy đủ việc tạo lập, ký số, chuẩn hóa và liên thông dữ liệu Sổ sức khỏe điện tử tích hợp trên ứng dụng VNeID theo Quyết định của BYT; bảo đảm liên thông dữ liệu cho 100% người bệnh từ ngày 01/01/2026, đầy đủ các nhóm thông tin hành chính, tiền sử, thông tin từng đợt khám chữa bệnh và tóm tắt hồ sơ bệnh án; đồng thời bảo đảm an toàn, bảo mật dữ liệu cá nhân, phục vụ việc khai thác, sử dụng dữ liệu VNeID thay thế hồ sơ giấy trong khám chữa bệnh và giải quyết thủ tục hành chính theo quy định.",BVĐK KV Ngã Bảy,,,Dương Tố Như
+5,Tách hoặc tắt chẩn đoán YHCT ra khỏi ICD-10. Có 1 vài ca bệnh có chẩn đoán YHCT lẫn vào ICD-10 (lên cổng sẽ bị trả về). Bên PK không có khám YHCT,Phòng khám Nhơn Ái,,,Phạm Thanh Trào
+6,Khi in Bệnh án chi tiết. Mục 5. Tóm tắt triệu chứng và hội chứng bản in chỉ thể hiện được 4 dòng. Không in được hết nội dung của mục 5,Bệnh viện Tâm Thần Cần Thơ,,,Nguyễn Nhựt Trường
+7,"NHỜ VNPT XEM DÙM PHÒNG VTYT, CÔNG THỨC TÍNH BỊ SAI LỆCH",Bệnh viện Ung bướu Cần Thơ,Kiều Oanh,Dược - Vật tư | BV Ung Bướu & VNPT,Nguyễn Nhựt Trường
+8,Thêm giờ vào mục ngày xuất trong menu bán thuốc tại quầy,BV Sản Nhi,Ngọc Hạnh,Phần mềm Sản Nhi,Trương Công Quốc Huy
+9,Dạ em gửi a/c VNPT một số yêu cầu của bác Thái nhờ a/c hỗ trợ điều chỉnh cho viện giúp ạ,PK Hòa Hảo Long Mỹ,Kane Le,[PKLM] IT - Support,Lê Đào Thiên Đức
+10,"Tôi làm theo hướng dẫn thì thấy phần chẩn đoán cơ bản đủ, giống nhau giữa 2 toa. nhưng khi tôi chưa thấy tính năng hủy ký số toa thuốc, nhờ bên mình xem lại dùm, do không hủy ký số được nên khi xóa toa phải xóa từng thuốc. Với trên toa này có lấy luôn phần diễn biến bệnh của bệnh nhân nên làm cho toa thuốc dài, với không đúng mấu của thông tư 26.",TTYT KV Long Mỹ,Nguyễn Thanh Trí,Tiếp nhận yêu cầu HIS TTYT TXLM,Phan Phú Thịnh
+11,"#donvi: 93003 
+#hotro: Ngoại trú - CHUNG CHÍ TÀI - 24/2 - phòng 15 ký số phiếu PHIẾU CHỈ ĐỊNH PTTT NGOẠI TRÚ bị lỗi 
+Kiểm thử: Sau khi đổi tên DV: ""Khâu vết thương đơn giản vùng đầu, mặt, cổ [tổn thương nông chiều dài < l0 cm]"" bỏ dấu < thành ""Khâu vết thương đơn giản vùng đầu, mặt, cổ [tổn thương nông chiều dài l0 cm]"" thì mới ký số thành công",TTYT KV Long Mỹ,Nguyen Thj Anh Thu,HISs -EMR TTYT khu vực Long Mỹ,Nguyễn Hải Đăng
+12,"#donvi: 93016
+#hotro: điều chỉnh mẫu ""Bệnh án ngoại trú"" 
+BN: TRẦN THANH TRANG - khoa lọc thận
+link: /cmu_funs_emr_benhanngoaitru_yhct",BVĐK KV Ngã Bảy,Nguyễn Việt Hoàng,EMR - BVĐK Ngã Bảy,Nguyễn Hải Đăng
+13,"#donvi: 93015 - Hỏa Lựu 
+#hotro: Nhờ thêm cột ""Thành tiền"" phía sau cột ""Đơn giá"" trong Biên Bản Kiểm Kê Kho (Thành tiền = Số lượng Sổ sách * Đơn giá)
+Link ảnh: Biên Bản Kiểm Kê Kho.jpg",Trạm Y tế Hỏa Lựu,Thanh Tuyền,"HISs - 
+TYT Vị Thanh",Võ Hoàng Kiệt
+14," Sắp xếp thứ tự ưu tiên để Bác sỹ dễ thấy và xử lý
+1: ký checkin
+2: ký XML 4750
+3: Ký XML giấy ốm
+4: ký MXL giấy ra viện hưởng chế độ...
+Thứ hai: Đối với các trường hợp có chỉ định CLS. Nếu chưa có kết quả thì không cấp thuốc được nhé. Trường hợp này cổng đã bắt
+yc-93005.png",TTYT KV Châu Thành,Nguyễn Linh,Hiss IT - Châu Thành 93005,Nguyễn Nhựt Trường
+15," Cập nhật tự động Buồng, Giường phiếu phẫu thuật, thủ thuật theo thông tin hành chính và không có trường nhập, Số vào viện không cập nhật theo bệnh án (Phiếu phẫu thuật, thủ thuật),  Bác sĩ phẫu thuật/ thủ thuật nếu có điều dưỡng hỗ trợ thì sẽ điền vào chỗ nào",TTYT KV Long Mỹ,Nguyễn Thanh Trí,Tiếp nhận yêu cầu HIS TTYT TXLM,Nguyễn Vĩnh Lạp
+16,"Mẫu siêu âm tuyến giáp bị qua 2 trang giấy, mới bị hôm nay(05/03/2026)
+=>Phiếu trả kết quả cls (Phiếu siêu âm) phần chữ ký nhảy sang trang 2
+CLS lỗi 2 trang.mp4",TTYT KV Phụng Hiệp,Nguyen Phong,HIss IT - Phụng Hiệp,Nguyễn Nhựt Trường
+17,Sau khi hạn của BHYT vừa hết thì khi chỉ định ở bất kì dịch vụ nào cũng sẽ có cảnh báo đã hết hạn BHYT (dù còn trong thời hạn 15 ngày),Bệnh viện Ung bướu Cần Thơ,Ai Loan,Nội trú | BV Ung Bướu & VNPT,Phan Phú Thịnh
+18,Nhờ a/c phụ trách ký số VNPT và PM Lis kết hợp cấu hình ký số trả kết quả trên LIS giúp viện ạ,PK Hòa Hảo Long Mỹ,Tấn Dũng,[PKLM] PK Long Mỹ - Cần Thơ: HIS - LIS,Trương Công Quốc Huy
+19,"mẫu xuất trên PM đang thiếu so với mẫu gửi báo cáo
+
+KH nhắn: 2 mẫu này e xuất từ phần mềm kcb nó ko đủ các trường giống như 2 mẫu sổ trên e nhờ hỗ trợ ạ. Dạ nhờ các anh hỗ trợ sớm giúp e ạ. Vì phải bắt đầu báo của tháng 1/2026
+
+xuất file đái tháo đường ở chức năng chăm sóc sức khỏe:
+link: https://yte-haugiang.vnpthis.vn/web_his/quanlybenhnhankhonglaynhiem
+ảnh chọn bộ lọc: https://drive.google.com/file/d/1Coa-LLdfQlHk81JgfXgxinDMTkRyZRWW/view?usp=sharing
+
+Tên file đái tháo đường trên PM: DS XUẤT ĐTĐ T1
+tên file đái tháo đường mẫu: MauSo ĐTĐ
+
+file đái tháo đường trên hệ thống đang thiếu so với file mẫu:
+1. Thông tin cá nhân & Nhân khẩu học
++Giới tính (*)
++Số điện thoại
++Xã/Phường/Thị trấn (*) (Hình chỉ có cột ""Địa chỉ"" chung).
+2. Các chỉ số sức khỏe & Xét nghiệm (Bị thiếu nhiều nhất)
++Phân loại BN (*)
++Đường huyết (*)
++HbA1C
++HA tâm thu (*) & HA tâm trương (*) (Huyết áp)
++Rối loạn lipid máu (*)
++Cân nặng, Chiều cao, Vòng eo
+3. Tiền sử & Hành vi lối sống
++Hút thuốc lá
++Mức độ uống rượu bia
++Thực hành giảm ăn muối
++Thực hành ăn uống hợp lý
++Hoạt động thể lực đủ theo khuyến nghị
+4. Quản lý điều trị & Biến chứng
++Nơi phát hiện
++Theo dõi biến chứng bàn chân
++Biết xử lý hạ đường huyết
++Chẩn đoán (Hình chỉ có cột ""Bệnh"" chung)
++Thuốc điều trị & Số ngày nhận thuốc
++Biến chứng
++Kết quả điều trị
++Ngày tái khám
+
+xuất file tăng huyết áp ở chức năng chăm sóc sức khỏe:
+link: https://yte-haugiang.vnpthis.vn/web_his/quanlybenhnhankhonglaynhiem
+ảnh chọn bộ lọc: https://drive.google.com/file/d/1pg1_3lV975NAk2y-D-3Av8GlVkKMjnXd/view?usp=sharing
+
+Tên file tăng huyết áp trên PM: DS XUẤT THA T1
+tên file tăng huyết áp mẫu: MauSo THA (1)
+
+file tăng huyết áp trên hệ thống đang thiếu so với file mẫu:
+1. Thông tin cá nhân & Địa chỉ
++Giới tính (*)
++Số điện thoại
++Xã/Phường/Thị trấn (*) (Trong hình mới chỉ có ""Địa chỉ"" chung)
+2. Chỉ số sức khỏe & Xét nghiệm (Thiếu toàn bộ)
++Phân loại BN (*)
++HA tâm thu (*) & HA tâm trương (*) (Chỉ số huyết áp)
++Cân nặng, Chiều cao, Vòng eo
+3. Tiền sử & Lối sống (Thiếu toàn bộ)
++Nơi phát hiện (Trong hình chỉ có ""Ngày phát hiện"")
++Hút thuốc lá
++Mức độ uống rượu bia
++Thực hành giảm ăn muối
++Ăn đủ 400g rau và trái cây
++Hoạt động thể lực đủ theo khuyến nghị
+4. Quản lý điều trị & Theo dõi
++Chẩn đoán (Trong hình chỉ có cột ""Bệnh"" chung)
++Thuốc điều trị
++Số ngày nhận thuốc
++Biến chứng
++Kết quả điều trị
++Ngày tái khám",TTYT KV Vị Thủy,Nhien,HISs-Khoa phòng TTYT Vị Thuỷ,Phan Phú Thịnh
+20,Phiếu Điện Tim ở phần kết luận in bị thiếu dòng ,TTYT KV Châu Thành,Nguyễnlinh_93005,Hiss IT Châu Thành,Nguyễn Hải Đăng
+21,Giấy ra viện - Mục giám đốc ủy quyền thêm các bác sĩ trong danh sách excel,BVĐK KV Ngã Bảy,Khắc Nhiệm,BVĐKTP NBAY,Nguyễn Vĩnh Lạp
+22,Yêu cầu của Phòng KHNV,TTYT KV Long Mỹ,Nguyễn Thanh Trí,Tiếp nhận yêu cầu HIS TTYT TXLM,Võ Hoàng Kiệt
+23,Tân Phước Hưng xin hỗ trợ thêm dùm danh mục thuốc vào phần mềm,TTYT KV Phụng Hiệp,Trang Nguyễn Tph_93045_Tân Phước Hưng,Hiss - TYT H Phụng Hiệp,Nguyễn Hải Đăng
+24,"Chỉnh lại vị trí ký số trong phần Bác sỹ gây mê ở Phiếu Giấy cam đoan chấp thuận phẫu thuật, thủ thuật và gây mê hồi sức 
+
+Đường dẫn: Thông tin điều trị --> khác --> 18 - Giấy cam đoan chấp thuận phẫu thuật, thủ thuật và gây mê hồi sức 
+
+Tin nhắn khách hàng: Các bạn IT giúp mình canh chỉnh chữ kí của bs GMHS bị nhảy lên trên quá rồi. Có thể kéo nó xuống như bình thường đc ko? 
+
+Thông tin bệnh nhân: NGUYỄN THỊ VÂN Khoa gây mê hồi sức Vào viện: 23/03/2026 09:20:01",BVĐK KV Ngã Bảy,Dinh Vang,EMR - BVĐK Ngã Bảy,Phan Phú Thịnh
+25,"Bổ sung nút lệnh copy phiếu theo dõi lọc máu
+Bệnh án: Bệnh án Ngoại trú",TTYT KV Long Mỹ,"Nguyễn Thanh Trí
+(Trí Oad)",Tiếp nhận yêu cầu HIS TTYT TXLM,Nguyễn Vĩnh Lạp
+26, bổ sung xét nghiệm,Phòng Khám Tâm Phúc Cần Thơ,Trần Kim Sơn,PHẦN MỀM PK TÂM PHÚC,Nguyễn Hải Đăng
+27,bổ sung mục tiền công dịch vụ/chích thuốc,Phòng Khám Tâm Phúc Cần Thơ,Trần Kim Sơn,PHẦN MỀM PK TÂM PHÚC,Nguyễn Hải Đăng
+28,bổ sung dùm anh thuốc nội bộ,Phòng Khám Tâm Phúc Cần Thơ,Trần Kim Sơn,PHẦN MỀM PK TÂM PHÚC,Nguyễn Hải Đăng
+29,xóa thuốc nội trú treo từ năm 2025 và đầu năm 2026,BVCK Tâm thần & Da liễu,Sử Hoàng Vương,HISs - BV Tâm thần _ Da liễu,Trương Công Quốc Huy
+30," Thêm màu đối với các hồ sơ đã ký XML gửi cổng, hiện đang bị trùng màu vàng với các hồ sơ sẵn sàng thanh toán, kg phân biệt được trạng thái hồ sơ",,Duc Tri - Trạm Y tế xã Thạnh An,VNPT HMIS Huyện Vĩnh Thạnh,Võ Hoàng Kiệt
+31,"nhờ anh chị kiểm tra dùm em hiện tại chỗ: ""Số lưu trữ"" trên HSBA điện tử đang tự động lấy ""Số vào viện"" để điền vào.",TTYT KV Long Mỹ,Nguyễn Thanh Trí,Tiếp nhận yêu cầu HIS TTYT TXLM,Dương Tố Như
+32,"Hiện nay BV Ngã Bảy thường xuyên phát sinh trường hợp bệnh nhân có BHYT có kê DVKT THU PHÍí (Nội soi). 
+Vì vậy BV đề nghị phần mềm thiết lập chế độ in BẢNG KÊ KHÔNG BHYT đối bệnh nhân ngoại trú CÓ BHYT (tại vị trí số 1 và số 2 trong hình kèm theo), để BV theo dõi những trường hợp này",BVĐK KV Ngã Bảy,HGiang,Hiss - yêu cầu lập trình BVĐK Ngã Bảy,Nguyễn Vĩnh Lạp
+33,"nhờ các bạn hỗ trợ, phiếu truyền máu đã ký số người thực hiện XN nhưng không hiển thị 
+Phan Thị Bích Vân, khoa phụ 
+Khách hàng mong muốn: Thông tin chăm sóc -> Truyền máu -> Chọn xem phiếu diễn biến (Hiển thị chữ ký số NGƯỜI LÀM XÉT NGHIỆM tại chức năng /cmu_funs_xetnghiemtruyenmau)",BV Sản Nhi,Hồ Sơn Tùng,EMR-Bệnh viện Sản Nhi,Nguyễn Vĩnh Lạp
+34,"Vấn đề gửi chứng từ CT07 bị lỗi ""Không đọc được hồ sơ thứ 1""
+Bệnh viện đã liên hệ được với group Teca
+Sau khi xem dữ liệu xml của hồ sơ , Teca xác định không đúng chuẩn định dạng
+PM xem lại nhé",BVĐK KV Ngã Bảy,HGiang,Hiss - yêu cầu lập trình BVĐK Ngã Bảy,Nguyễn Vĩnh Lạp
+35,"Phiếu điều trị diễn tiến thêm SpO2 tiếp theo mạch, nhiệt độ,..",BV Lao phổi,,,Phạm Thanh Trào
+36,"Bổ sung ký số cho LIS, RIS trên web và app VNPT HIS",BV Sản Nhi,,,Phạm Thanh Trào
+37,Dữ liệu xuất nhập tồn lấy theo ngày dự trù (hiện tại lấy theo ngày duyệt phiếu),BV Sản Nhi,,,Phạm Thanh Trào
+38,"Bổ sung thông tin vào phiếu chỉ định XN: loại mẫu ban đầu, ngày và giờ lấy mẫu, tên nhân viện lấy mẫu, ngày giờ nhận mẫu, tên nhân viên nhận mẫu",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+39,"Cho đổ KQ “chạy nội kiểm” của các máy xét nghiệm của hệ thống LIS (có kèm theo ngày, giờ có kết quả biểu đồ Levey–Jennings thể hiện giá trị nội kiểm qua các ngày) để đáp ứng tiêu chí 8.11 (tiêu chí bắt buộc) của Quyết định 2429/QĐ-BYT ngày 12/6/2017",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+40,"Yêu cầu thêm mục sử dụng thuốc, csc 2-3 vào APP KCB",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+41,Ký số trả bệnh án trên app,BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+42,"Toa thuốc và giấy ra viện có thêm mã code , có thêm kết quả cls, ....",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+43,Điều chỉnh chức năng quản lý công nợ của bệnh nhân,Phòng khám Center Lab,,,Phạm Thanh Trào
+44,Tối ưu chức năng báo cáo thu viện phí /hgi_baocaovienphi,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+45,Tối ưu chức năng thẻ kho dược / cmu_thekhoduocchitiet,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+46,Tối ưu chức năng chuyển từ có bhyt sang không bhyt/chuyen_tu_co_sang_khong_bhyt,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+47,Thêm mới chức năng import map động bảng dữ liệu tất cả danh mục,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+48,Ký số toa thuốc ngoại trú,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+49,Chức năng xem tổng các giấy tờ tại khám bệnh ngoại trú,Hoàn thiện phần mềm,,,Phạm Thanh Trào
+50,Điều chỉnh hóa đơn điện tử thêm hinh thức thu hóa đơn điện tử thêm trạng thái gôm lại CLS và thuốc,Phòng Khám Care Medic,,,Phạm Thanh Trào
+51,"Tách hoặc tắt chuẩn đoán y học cổ truyền ra khỏi icd 10 nghe, hôm này ngày nào cũng có 1 vài ca bệnh có chuẩn đoán y học cổ truyền lẫn vào icd 10",Phòng khám Nhơn Ái,,,Phạm Thanh Trào
+52,Điều chỉnh chức năng xuất dược vật tư order by theo STT hoàn tất khám,Phòng khám Tâm An,,,Phạm Thanh Trào
+53,Yêu cầu quản lý sổ khám sức khoẻ,TTYT KV Long Mỹ,,,Phạm Thanh Trào
+54,"Bệnh nhân xuất viện có cấp toa 3 ngày, phần toa thuốc cấp hiện phí dưới dòng cấp toa 3 ngày. hiện tại toa thuốc cấp về đang nằm phía trên dòng cấp toa 3 ngày",TTYT KV Châu Thành A,,,Phạm Thanh Trào
+55,"Cảnh báo và không cho lập kết quả nếu trùng CLS ngoại trú, nội trú (chỉ định CLS, lập kết quả CLS, thực hiện thủ thuật phủ thuật)",TTYT KV Phụng Hiệp,,,Phạm Thanh Trào
+56,Bổ sung chức năng copy kết quả cận lâm sàng trong bệnh án ngoại trú tại đơn vị thận nhân tạo,BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+57,Bổ sung chức năng truy cập liệt kê cận lâm sàng đã cho trong phần bệnh án ngoại trú tại đơn vị thận nhân tạo,BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+58,"Thêm tính năng ghi xác nhận đồng ý phẫu thuật, thủ thuật và gây mê hồi sức với bảng ký (18 - Giấy cam đoan chấp thuận TTPT và GMHS)",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+59,Bổ sung chức năng khoá chấm công theo tháng (tương tự như chức năng khoá dữ liệu khám chữa bệnh). Tránh trường hợp tự thêm chấm công ở chức năng cập nhật phẩu thuật thủ thuật,BV Sản Nhi,,,Phạm Thanh Trào
+60,Chặn thực hiện nếu chưa chọn máy thực hiện theo LISt mã CDHA,BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+61,"Thực hiện điều chỉnh hiển thị tất cả các phiếu ký số theo mẫu Chữ ký mẫu , người ký , chức danh",BVĐK KV Ngã Bảy,,,Phạm Thanh Trào
+62,Bổ sung phần thông tin hành chánh ở các trang lẻ của tờ điều trị tổng,TTYT KV Long Mỹ,,,Phạm Thanh Trào
+63,"Bổ sung chức năng nhập buồng, giường trên phiếu điều trị, phiếu tường trình phẫu thuật - thủ thuật",TTYT KV Long Mỹ,,,Phạm Thanh Trào
+64,Thêm mới chức năng ghi ký hiệu ksk (bỏ ksk lái xe ) và làm chức năng báo cáo thống kê,TTYT KV Long Mỹ,,,Phạm Thanh Trào
+65,Điều chỉnh báo cáo xuất kho không theo bác sĩ,Phòng khám Center Lab,,,Phạm Thanh Trào
+66,Điều chỉnh báo cáo xuất kho theo bác sĩ,Phòng khám Center Lab,,,Phạm Thanh Trào
+67,Báo cáo chỉ định CLS,Phòng khám Center Lab,,,Phạm Thanh Trào
+68,Báo cáo thực hiện CLS,Phòng khám Center Lab,,,Phạm Thanh Trào
+69,Lập tờ chỉ định sinh thiết bổ sung ô nhập thời gian cố định bệnh phầm ( không lấy ngày giờ thống như hiện tại),BV Ung bướu CT,,,A. Khanh
+70,Thêm chức năng in lại tờ chỉ định sinh thiết với bệnh nhân đã kết thúc khám,BV Ung bướu CT,,,A. Khanh
+71,Báo cáo doanh thu BV,BV Ung bướu CT,,,C. Nữ
+72,"Phần ""Chẩn đoán lâm sàng"" ở mặt chỉ định hiển thị tự động theo chẩn đoán chính/phụ sẵn có (cho phép chỉnh sửa)",BV Ung bướu CT,,,Phát
+73,"Thêm cột mã số lame, kết quả vào phần báo cáo GPB, Phần báo cáo chưa có mã số lame, kết quả, chỉ định theo các biểu mẫu đã cung cấp cho công ty VNPT -> hiện khoa Giải phẫu bệnh vẫn phải báo cáo thủ công, rất mất thời gian và dễ sai sót.",BV Ung bướu CT,,,Phát
+74,Bảng kê dịch vụ CLS,BV Tâm Thần CT,,,Trường
+75,Báo cáo hoạt động tháng & kế hoạch tháng,BV Ung bướu CT,,,C. Nữ
+76,Bổ sung mẫu Chấp nhận & In trong chức năng duyệt phiếu lĩnh/trả,BV Ung bướu CT,,,C. Nữ
+77,"Hỗ trợ báo cáo CƠ SỞ, GIƯỜNG BỆNH VÀ HOẠT ĐỘNG KHÁM CHỮA BỆNH",BV Lao và bệnh Phổi CT,,,Luận
+78,Báo cáo doanh thu phát sinh trong ngày,BV Ung bướu CT,,,C. Nữ
+79,Báo cáo quyết toán thu chi,BV Ung bướu CT,,,C. Nữ
+80,"1. Chức năng duyệt 4210 cần lọc ra các bệnh nhân không có chi phí.
+2. Quản lý đc danh sách trả về điều trị. xem ở đâu được? nếu chưa có thì bổ sung chức năng này. ( Có lọc: theo ngày, nhóm ngày, theo đối tượng...)
+3. Thống kê được bao nhiêu cas BHYT khám bệnh trong ngày chưa kết thúc",BV Ung bướu CT,,,C. Nữ
+81,Thêm cảnh báo khi chỉ định thuốc khi bệnh nhân tái khám bác sĩ chỉ định thuốc trùng với thuốc trước đó đã cho và thuốc vẫn đang dùng chưa hết,BV Tâm Thần CT,,,Duy
+82,Mở rộng trường Tên Khoản mục trong danh mục /danhmuc/DMC140_Nhom_KT có thể lưu được 500 ký tự,BV Ung bướu CT,,,A. Khanh
+83,Tra cứu xuất nhập tồn => Cần OS để bổ sung thêm các cột tổng sum phía dưới form,BV Tâm Thần CT,,,C. Nữ
+84,Chức năng dự trù hàng và đặt hàng => Hiện tại chức năng trên hệ thống chưa sử dụng được (gọi thầu),BV Ung bướu CT,,,C. Nữ
+85,In phiếu y lệnh thuốc: BV yêu cầu cho chọn được khoảng thời gian để in phiếu,BV Tâm Thần CT,,,Duy
+86,"Hiện chưa cảnh báo bệnh nhân BHYT có chỉ định CLS có chênh lệch, chưa đóng tiền nhưng vẫn thực hiện được",BV Tâm Thần CT,,,A. Khanh
+87,Theo dõi hàng thầu cần bổ sung thêm cột số lượng còn lại,BV Tâm Thần CT,,,C. Nữ
+88,Chức năng dụ trù hàng và đặt hàng,BV Tâm Thần CT,,,C. Nữ
+89,Điều chỉnh biên bản kiểm nhập - phần giờ kiểm kê và giờ kết thúc kiểm kê,BV Tâm Thần CT,,,C. Nữ
+90,"Chức năng duyệt phiếu yêu cầu, hoàn trả — cần bổ sung tổng (sum) dưới form",BV Tâm Thần CT,,,C. Nữ
+91,"Chức năng duyệt phiếu bù tủ trực, chỉnh lại số lượng duyệt = 0, phần mềm chưa tính lại thành tiền",BV Tâm Thần CT,,,C. Nữ
+92,DsPhieu Chi hoàn ứng,PK Hòa Hảo Long Mỹ,,,A. Khanh
+93,DsPhieu Chi trả POS,PK Hòa Hảo Long Mỹ,,,A. Khanh
+94,DsPhieu Chi trả QR Code,PK Hòa Hảo Long Mỹ,,,A. Khanh
+95,DsPhieu Thu tạm ứng,PK Hòa Hảo Long Mỹ,,,A. Khanh
+96,Điều chỉnh form chỉ định cls dời cột loại thanh toán mới lên cột đầu tiên,PK Hòa Hảo Long Mỹ,,,A. Khanh
+97,nữ 11,PK Hòa Hảo Long Mỹ,,,
+98,Tự động gửi chỉ định qua BKPacs khi bấm lưu chỉ định mà không cần bấm nút gửi,PK Hòa Hảo Long Mỹ,,,
+99,Thêm hình thức thanh toán TM/CK trên hóa đơn (hiện tại chỉ có TIENMAT và CHUYENKHOAN),PK Hòa Hảo Long Mỹ,,,A. Khanh
+100,Trải nghiệm vnCare,PK Hòa Hảo Long Mỹ,,,A. Rở
+101,Phiếu thu/ Đơn thuốc/ Chỉ định in A5 nhưng để giấy ngang như A4,PK Hòa Hảo Long Mỹ,,,A. Huy
+102,"Điều chỉnh form trả kết quả tăng độ phân giải cao, text box kết luận full hàng không cột",PK Hòa Hảo Long Mỹ,,,A. Thảo
+103,Cho phép chọn ảnh cdha khi in kết siêu âm nội soi,PK Hòa Hảo Long Mỹ,,,Đăng TH
+104,Thực hiện báo cáo ADR,BV Ung bướu CT,,,C. Nữ
+105,Màn hình chờ bệnh nhân theo VNVC,PK Hòa Hảo Long Mỹ,,,Đăng TH
+106,"Xuất hoá đơn miễn giảm có tồng tiền chi tiết dịch vụ phải miễn giảm bằng tổng tiền miễn giảm của hoá đơn
+Cho phép phát hành hoá đơn gộp nhiều phiếu thu miễn giảm",PK Hòa Hảo Long Mỹ,,,A. Khanh
+107,Thẻ bhyt hết hạn khi còn đang khám chữa bệnh thì tự map các dvkt sau hạn thẻ bhyt thành dịch vụ chứ không cần chuyển thủ công,BV Lao và bệnh Phổi CT,,,A. Huy
+108,"Điều chỉnh phiếu in "" PHIẾU THỰC HIỆN Y LỆNH THUỐC""",BV Tâm Thần CT,,,C. Nữ
+109,Chưa lập được phiếu yêu cầu pha chế từ khoa lâm sàng.,BV Ung bướu CT,,,C. Nữ
+110,Chưa lập được phiếu thực hiện pha chế từng loại thuốc của người bệnh.,BV Ung bướu CT,,,C. Nữ
+111,Chưa xuất được phiếu tổng hợp pha chế thuốc của bệnh nhân trong ngày.,BV Ung bướu CT,,,C. Nữ
+112,Chức năng chống chỉ định ICD và hoạt chất,BV Ung bướu CT,,,
+113,Yêu cầu danh sách bệnh nhân thu viện phí phải sắp xếp theo thứ tự abc,BV Ung bướu CT,,,A. Khanh
+114,Không tách hoá đơn khi thu tiền,BV Ung bướu CT,,,A. Khanh
+115,Cảnh báo số ca thực hiện cận lâm sàng/máy trong một ngày,BV Ung bướu CT,,,A. Huy
+116,"Cho phép điều chỉnh Can thiệp điều dưỡng trong phiếu chăm sóc 1, 2-3",BV Ung bướu CT,,,A. Huy
+117,"Cho phép thời gian truyền máu được điều chỉnh, do trong thời gian truyền có thể tạm ngưng nên tính tự động có thể dẫn đến sai thời gian",BV Ung bướu CT,,,A. Huy
+118,Yêu cầu chức năng Bảng ghi thuốc,BV Ung bướu CT,,,
+119,"Bổ sung danh mục thuốc/vật tư thêm cột ghi chú
+Điều chỉnh chức năng kê toa của BS thể hiện thêm cột ghi chú trên lưới cho BS chọn đúng tên",BV Ung bướu CT,,,C. Nữ
+120,Sơ kết 15 ngày điều trị phần mềm hiện tại chỉ nhắc lần đầu không nhắc lại trong thời gian 15 ngày tiếp theo. Nên chỉnh lại nhắc mỗi 15 ngày.,BV Ung bướu CT,,,A. Huy
+121,"Thống kê được danh sách (mở khóa bệnh án) trả về điều trị chưa kết thúc lại, bộ lọc danh sách bệnh nhân thanh toán BHYT.",BV Ung bướu CT,,,A. Huy
+122,Tăng kích cỡ kiểu dữ liệu tên thuốc 1024,BV Ung bướu CT,,,C. Nữ
+123,"Bổ sung trường lame để nhập liệu, bổ sung trường số giải phẫu bệnh lên báo cáo thống kê",BV Ung bướu CT,,,A. Huy
+124,Điều chỉnh mẫu Kết quả giải phẫu bệnh,BV Ung bướu CT,,,
+125,Bênh án dài ngày hen phế quản,BV Lao và bệnh Phổi CT,,,C. Nữ
+126,Bệnh án dài ngày copd,BV Lao và bệnh Phổi CT,,,C. Nữ
+127,Báo cáo theo dõi thời gian chờ cấp phát thuốc,BV Tâm Thần CT,,,Đăng TH
+128,Bổ sung số vào viện trên Phiếu điện tim,BV Tâm Thần CT,,,Đăng TH
+129,Điều chỉnh hiển thị Thuốc mua ngoài đã được lựa chọn trong các phiếu điều trị,BV Tâm Thần CT,,,Đăng TH
+130,Bổ sung cửa sổ cho phép xem toàn bộ quá trình điều trị của người bệnh,BV Tâm Thần CT,,,Đăng TH
+131,Bổ sung câu hỏi trắc nghiệm tâm lý trên phần mềm,BV Tâm Thần CT,,,Đăng TH
+132,"Tách được số liệu báo cáo: BHYT nội trú, ngoại trú; Thu phí nội trú, ngoại trú; Tổng số",BV Tâm Thần CT,,,Đăng TH
+133,"Chỉnh report Giấy bảo tử
+1. Chắc năng cấp lập giấy báo tử trên form đã chọn nhưng trên mẫu in chưa hiện thị ở mục lưu ý
+2. Tại mục: Tinh trạng tử vong -> Chọn Trên đường đến CSKCB thì trên mẫu in sẽ tick vào ô Có của mục lưu ý: Tử vong khi đang trên đường đi cấp cứu",BV Lao và bệnh Phổi CT,,,Trường
+134,"Bổ sung tên bệnh nhân khi thực hiện phiếu chăm sóc cấp 1,2,3
+Người dùng phản anh khi thêm phiếu chăm sóc không có dấu hiệu nhận biết đang làm cho bệnh nhân nào",BV Ung bướu CT,,,Trường
+135,Điều chỉnh cho phép Phiếu sơ kết phương pháp điều trị lấy được số lượng thuốc,BV Tâm Thần CT,,,
+136,Khi sao chép phiếu điều trị chưa cảnh báo bác sĩ trùng y lệnh,BV Tâm Thần CT,,,
+137,Sổ lấy mẫu,BV Tâm Thần CT,,,
+138,Sổ nhận mẫu,BV Tâm Thần CT,,,
+139,Sổ trả kết quả,BV Tâm Thần CT,,,
+140,"DS bệnh nhân chưa thanh toán là những BN còn nằm trong khoa tổng tiền tạm ứng còn lại là 665tr. Dựa theo bảng tổng thực thu cả năm cắt ngay ngày 31/12 thì chị Oanh sẽ lấy báo cáo từ đầu tháng đến ngày cắt là 31/12, lấy cột Từ tạm ứng cộng cột Tổng chi, sau đó lấy Tổng tiển tạm ứng trừ 2 cái (cột Từ tạm ứng cộng cột Tổng chi) = số tiền tạm ứng của bệnh nhân thì nó không ra đúng 665tr là nó đang bị lệch chỗ đó",BV Ung bướu CT,,,
+141,Cho phép in số thứ tự CLS sau khi bấm chuyển phòng thực hiện,PK Hòa Hảo Long Mỹ,,,Phát
+142,"Hiện tại, khi PACS trả kết quả chụp (bao gồm link ca chụp, thời gian chụp, máy chụp) về HIS, trên HIS tự động chuyển trạng thái sang Đã thực hiện, dẫn đến khóa chức năng nhập kết quả.
+Yêu cầu điều chỉnh: khi PACS trả kết quả về không tự động chuyển trạng thái sang Đã có kết quả, để vẫn cho phép người dùng nhập kết quả trên HIS.",BV Ung bướu CT,,,A. Khanh
+143,Chưa có các mẫu kết quả (~1600 mẫu) gồm chẩn đoán và vi thể.,BV Ung bướu CT,,,
+144,"Chặn ra viện trước hoặc sau ngày hiện tại, chỉ mở khoá cho tài khoản được phân quyền hoặc Admin",BV Ung bướu CT,,,Đăng TH
+145,"Form sửa mã ICD10 tại Bệnh án chung và Chuyển viện những mã ICD10 có ký tự đặc biệt không lưu lại được
+Site: Ung Bướu, Lao Phổi, Tâm Thần",BV Ung bướu CT,,,Trường
+146,"Mẫu ký số: Bổ sung các mẫu phiếu do BV cung cấp (chưa có chức năng chưa có mẫu in)
+1. PHIẾU ĐÁNH GIÁ KHẨU PHẦN ĂN 24 GIỜ
+2. PHIẾU ĐÁNH GIÁ TÌNH TRẠNG DINH DƯỠNG THEO PG-SGA
+3. PHIẾU KHÁM VÀ TƯ VẤN DINH DƯỠNG CHO NGƯỜI BỆNH NGOẠI TRÚ
+4. PHIẾU HƯỚNG DẪN CHẾ ĐỘ DINH DƯỠNG CHO NGƯỜI BỆNH NỘI TRÚ
+Đính kèm file mẫu",BV Ung bướu CT,,,Trường
+147,Bổ sung Báo cáo chỉ định cận lâm sàng (BÁO CÁO CẬN LÂM SÀNG),BV Tâm Thần CT,,,C. Nữ
+148,"Mẫu ký số: Phiếu theo dõi tại phòng hồi tỉnh
+Code: 
+Nội dung điều chỉnh: chưa tìm thấy chức năng và mẫu ký số",BV Ung bướu CT,,,Trường
+149,"Mẫu ký số: Phiếu theo dõi và hồi sức người bệnh chưa mổ và sau mổ (từ giờ thứ
+25 trở đi)
+Code: 
+Nội dung điều chỉnh: chưa tìm thấy chức năng và mẫu ký số",BV Ung bướu CT,,,Trường
+150,"Mẫu ký số: Bảng kê BHYT
+Code: NGT001_BKCPKCBBHYT_QD6556_DOC_A4
+Nội dung điều chỉnh: chưa có reportcode ký số",BV Tâm Thần CT,,,Trường
+151,"Mẫu báo cáo: Báo cáo quyết toán chi phí khám bệnh, chữa bệnh bảo hiểm y tế
+Ký hiệu: 01/BH
+Tên đơn vị: CTY TNHH CA.MEDIC CẦN THƠ
+PHÒNG KHÁM ĐA KHOA HÒA HẢO - LONG MỸ
+Mã đơn vị: 92150
+Đính kèm file đơn vị cung cấp",PK Hòa Hảo Long Mỹ,,,Trường
+152,"Mẫu báo cáo: Báo cáo quyết toán chi phí khám bệnh, chữa bệnh bảo hiểm y tế
+Ký hiệu: 02/BH
+Tên đơn vị: CTY TNHH CA.MEDIC CẦN THƠ
+PHÒNG KHÁM ĐA KHOA HÒA HẢO - LONG MỸ
+Mã đơn vị: 92150
+Đính kèm file đơn vị cung cấp",PK Hòa Hảo Long Mỹ,,,Trường
+153,"Phần loại bệnh án nội khoa của site https://bvcantho.vncare.vn/ hiện tại đang null(chưa có reportcode) nên khi vào in ấn -> in bệnh án chi tiết không có report code để in nên lỗi
+Menu: Điều trị nội trú->In ấn->In bệnh án chi tiết",BV Lao và bệnh Phổi CT,,,Trường
+154,Tạo tham số chặn khi có phát sinh chi phí chênh lệch,PK Hòa Hảo Long Mỹ,,,A. Huy
+155,"1. BC SD HC CTO
+2. BC SD VT CTO
+3. BC XNT BV CTO
+4. BC KIỂM KÊ THEO TT22 PL8
+5. BB HÓA ĐƠN CTO HC-VT
+6. QUẢN LÝ VÀ IN BB KIỂM NHẬP HC-VT
+=>Bổ sung trang in",BV Ung bướu CT,,,C. Nữ
+156,Điều chỉnh các báo cáo NXT và báo cáo kiểm nhập hóa đơn theo nội dung cuộc họp ngày 16/03/2026,BV Ung bướu CT,,,C. Nữ
+157,Bổ sung thêm mẫu xuất khác,BV Lao và bệnh Phổi CT,,,C. Nữ
+158,Bổ sung tool check CCCD gắn chip theo thiết bị của BV Lao,BV Lao và bệnh Phổi CT,,,C. Nữ
+159,"Mẫu ký số: Phiếu theo dõi điều trị 
+Code: NTU020_TODIEUTRI_39BV01_QD4069_A4_ONE, 
+NTU020_TODIEUTRI_39BV01_QD4069_A4_ALL, NTU020_TODIEUTRI_39BV01_QD4069_A4_MULTI
+Nội dung điều chỉnh:
+1. In hoa tên bệnh viện
+2. Làm ký hiệu tròn, vuông, tam giác của nhóm thuốc kháng viêm, kháng sinh, an thần như mẫu in thường",BV Lao và bệnh Phổi CT,,,Trường
+160,"Chọn công khám thì sẽ đính kèm DVKT
+Tạo tham số:
+-BHYT: Nếu bệnh nhân có BHYT thì sẽ đính kèm DVKT, bệnh nhân thu phí thì không đính kèm. Nếu DVKT không có giá bhyt thì lấy giá viện phí
+-VP: ngược lại với BHYT
+-Tắt
+Khi chuyển phòng:
+-DVKT đính kèm chưa thực hiện -> xóa bỏ DVKT đó
+-DVKT đính kèm đã thực hiện -> giữ lại không xóa",PK Hòa Hảo Long Mỹ,,,A. Huy
+161,"Khi chọn công khám ban đầu đã tính tiền chênh lệch, khi chuyển phòng vẫn còn tính thêm một lần tiền chênh lệch nữa",PK Hòa Hảo Long Mỹ,,,A. Huy
+162,Chức năng xem lại bệnh án chi tiết đối với bệnh nhân đã xuất viện,BV Lao và bệnh Phổi CT,,,A. Huy
+163,Triển khai Giải pháp thanh toán không dùng tiền mặt tại Bệnh viện Ung Bướu TP Cần Thơ cùng đối tác Ngân hàng VietinBank đính kèm file,BV Ung bướu CT,,,A. Huy
+164,"Hiện tại, các đơn vị BVUB CS1,2 và CS3 đang sử dụng chung một site hóa đơn. Điều này dẫn đến khi phát hành hóa đơn tại cơ sở 3 bị trùng key hóa đơn với các hóa đơn đã phát hành trước đó của CS1 và CS2. Kính nhờ anh/chị xem xét điều chỉnh lại cơ chế sinh key hóa đơn theo cấu trúc sau: Company ID + Mã bệnh án + Mã phiếu thu + Chuỗi số thứ tự tăng dần Đảm bảo mỗi key là duy nhất trong trường hợp nhiều đơn vị cùng sử dụng chung một site hóa đơn.",BV Ung bướu CT,,,A. Huy
+165,"Mẫu ký số: Giấy chứng nhận nghỉ việc hưởng bảo hiểm xã hội
+Code: RPT_GIAYNGHI_BHXH
+Nội dung điều chỉnh: 
+1. Chưa lấy được số seri
+2. Chưa lấy được thông tin ký số người hành nghệ KB, CB
+3. Dư ký tự BS.",BV Lao và bệnh Phổi CT,,,Trường
+166,"Mẫu ký số: Đơn thuốc BHYT
+Code: NGT006_DONTHUOC_17DBV01_TT052016_A5
+Nội dung điều chỉnh: 
+1. Đổi logo thành BV Phổi
+2. Chưa load đc CCCD bệnh nhân
+3. Chưa load được thông tin thân nhân bệnh nhân
+4. Mã đơn thuốc lấy dữ liệu chưa đúng (đang load số phiếu thuốc)",BV Lao và bệnh Phổi CT,,,Trường
+167,"Mẫu ký số: Bệnh án Nội khoa
+Code: BAN_NK01
+Nội dung điều chỉnh: Chưa có mẫu ký số. Lỗi: Đã có lỗi xảy ra khi đọc file template",BV Lao và bệnh Phổi CT,,,Trường
+168,"Mẫu ký số: Phiếu khai thác tiền sử dị ứng
+Code: NTU_PHIEU_KHAITHAC_TIENSU_DIUNG
+Nội dung điều chỉnh: Chưa có mẫu ký số.",BV Lao và bệnh Phổi CT,,,Trường
+169,"Mẫu ký số: Bảng kê BHYT
+Code: NGT001_BKCPKCBBHYT_QD6556_A4
+Nội dung điều chỉnh: Chưa có chức năng ký và mẫu ký số.",BV Lao và bệnh Phổi CT,,,Trường
+170,Bổ sung mẫu phiếu xuất khác ra file excel theo file mẫu import nhập hóa đơn,BV Ung bướu CT,,,C. Nữ
+171,"Mẫu ký số: Toa thuốc nghiện
+Code: NGT013_DONTHUOCGAYNGHIEN_TT052016_A5
+Nội dung điều chỉnh: 
+1. Điểu chỉnh lại theo cấu trúc toa thuốc nghiện củao TT26
+2. Lấy thông tin người ký số",BV Ung bướu CT,,,
+172,"Mẫu ký số: Biên bản hội chẩn (Sổ biên bản hội chẩn)
+Code: NTU045_TRICHSOBIENBANHOICHAN_40BV01_QD4069_A4
+Nội dung điều chỉnh: chưa có chức năng ký số và mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+173,"Mẫu ký số: Bảng kiểm an toàn phẩu thuật
+Code: RPT_BANGKIEM_ANTOANPTTT
+Nội dung điều chỉnh: lỗi tạo phiếu và ký số ( Mã lỗi = 500)",BV Lao và bệnh Phổi CT,,,Trường
+174,"Mẫu ký số: Phiếu khám tiền mê
+Code: 
+Nội dung điều chỉnh: chưa có chức năng ký số và mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+175,"Mẫu ký số: Phiếu theo dõi người bệnh sau khi mổ (trong 24 giờ đầu)
+Code: PHIEU_THEODOI_SAUMO_ALL
+Nội dung điều chỉnh: chưa có mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+176,"Mẫu ký số: Phiếu theo dõi tại phòng hồi tỉnh
+Code:
+Nội dung điều chỉnh: chưa có chức năng ký số và mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+177,"Mẫu ký số: Phiếu đánh giá trước khi cho người bệnh ra khỏi phòng hồi tỉnh
+Code:
+Nội dung điều chỉnh: chưa có chức năng ký số và mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+178,"Mẫu ký số: Phiếu theo dõi và hồi sức người bệnh chưa mổ và sau mổ (từ giờ thứ 25 trở đi)
+Code:
+Nội dung điều chỉnh: chưa có chức năng ký số và mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+179,Điều chỉnh thông báo các lỗi về thời gian trong chức năng lưu của CĐHA,PK Hòa Hảo Long Mỹ,,,Đăng TH
+180,Bảng kê chi phí cho phép hiển thị thuốc giá 0đ,BV Ung bướu CT,,,Đăng TH
+181,Gọi số chỉ đến số lớn nhất từ máy bắt số kiosk,PK Hòa Hảo Long Mỹ,,,Đăng TH
+182,Bảng kê chi phí theo quyết định 697,BV Ung bướu CT,,,Đăng TH
+183,Bảng kê chi phí theo quyết định 697,BV Tâm Thần CT,,,Đăng TH
+184,Bảng kê chi phí theo quyết định 697,BV Lao và bệnh Phổi CT,,,Đăng TH
+185,Bảng kê chi phí theo quyết định 697,PK Hòa Hảo Long Mỹ,,,Đăng TH
+186,Bổ sung ICD 9 và cho phép cập nhật DVKT vào ICD9,BV Ung bướu CT,,,Đăng TH
+187,"Mẫu in : In bệnh lịch
+Code: BENHLICH_A4_951
+Nội dung điều chỉnh: 
+1. Tên bệnh nhân hiểm thị không đầy đủ
+2. Tên chẩn đoán hiển thị không đầy đủ
+3. Chưa hiển thị tên khoa
+Chức năng: Ngoại trú -> Khám bệnh->chọn bệnh nhân chuột phải -> IN bệnh lịch",BV Ung bướu CT,,,Trường
+188,"Mẫu ký số: GIẤY CUNG CẤP THÔNG TIN VÀ CAM KẾT CHUNG VỀ NHẬP VIỆN NỘI TRÚ
+Code: PHIEUCAMKETNHAPVIENNOITRU_40BV2_TT32
+Nội dung điều chỉnh: Bn này trẻ dưới 6 tuổi là 68 tháng chứ hong phải 68 tuổi nha, anh xem chỉnh lại chỗ này thên chữ tháng
+=> BN dưới 6 tuổi thêm chữ tháng như tờ điều trị",BV Ung bướu CT,,,Trường
+189,"Bổ sung mẫu ký số đơn thuốc, phiếu chỉ định CLS, bảng kê",PK Hòa Hảo Long Mỹ,,,Trường
+190,"Mẫu ký số: Các thang đánh giá tâm lý (KẾT QUẢ TEST TÂM LÝ)
+Code: 
+Nội dung điều chỉnh: chưa có mẫu ký số",BV Tâm Thần CT,,,Trường
+191,"Mẫu ký số: Phiếu đo lưu huyết não
+Code: 
+Nội dung điều chỉnh: chưa có mẫu ký số",BV Tâm Thần CT,,,Trường
+192,"Mẫu ký số: Phiếu chuyển tuyến về TTYT tại địa phương
+Code: RPT_PHIEUCHUYEN_VE_TTYT
+Nội dung điều chỉnh: chưa có mẫu ký số",BV Lao và bệnh Phổi CT,,,Trường
+193,"Mẫu ký số: THẺ CẢNH BÁO PHẢN ỨNG CÓ HẠI CỦA BỆNH NHÂN
+Code: 
+Nội dung điều chỉnh: chưa có mẫu ký số (mẫu mới) 
+Áp dụng cho Ngoại trú, Điều trị ngoại trú, Nội trú",BV Ung bướu CT,,,Trường
+194,"Mẫu ký số: BÁO CÁO PHẢN ỨNG CÓ HẠI CỦA THUỐC
+Code: 
+Nội dung điều chỉnh: chưa có mẫu ký số (mẫu mới)
+Note: góc trên bên phải
+1. Nơi báo cáo là tên bệnh viện (Mặc định),
+2. Mã số báo cáo của đơn vị để cho Dược tự nhập vào
+3. Mã số báo cáo(do trung tâm quốc gia quản lý) thì mình để trống á",BV Ung bướu CT,,,Trường
+195,"Yêu cầu từ Khoa khám bệnh
+Bổ sung chức năng làm giấy Tóm tắt hồ sơ bệnh án tương tư như Nội trú và điều trị ngoại trú",,,,
+196,Điều chỉnh Biên bản hóa đơn tháng CTO bổ sung gr trên mẫu in,BV Ung bướu CT,,,C. Nữ
+197,"Mẫu in: Giấy chuyển tuyến 
+Code: NGT003_GIAYCHUYENTUYEN_TT14_A4
+Nội dung điều chỉnh: Khi chọn lý do: Phù hợp với điều kiện chuyển tuyến ->Trên giấy chuyển tuyến phải đánh dấu X vào ô 1.B",BV Tâm Thần CT,,,Trường

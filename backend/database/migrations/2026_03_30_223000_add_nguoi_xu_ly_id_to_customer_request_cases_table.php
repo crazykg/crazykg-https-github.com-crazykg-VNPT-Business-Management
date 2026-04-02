@@ -32,10 +32,22 @@ return new class extends Migration
             $statusSpecificUserId = match ((string) ($case->current_status_code ?? '')) {
                 'assigned_to_receiver', 'receiver_in_progress' => DB::table('customer_request_status_instances as si')
                     ->leftJoin('customer_request_assigned_to_receiver as ar', function ($join): void {
-                        $join->on('ar.status_instance_id', '=', 'si.id')->orOn('ar.request_case_id', '=', 'si.request_case_id');
+                        if (Schema::hasColumn('customer_request_assigned_to_receiver', 'status_instance_id')) {
+                            $join->on('ar.status_instance_id', '=', 'si.id')->orOn('ar.request_case_id', '=', 'si.request_case_id');
+
+                            return;
+                        }
+
+                        $join->on('ar.request_case_id', '=', 'si.request_case_id');
                     })
                     ->leftJoin('customer_request_receiver_in_progress as rip', function ($join): void {
-                        $join->on('rip.status_instance_id', '=', 'si.id')->orOn('rip.request_case_id', '=', 'si.request_case_id');
+                        if (Schema::hasColumn('customer_request_receiver_in_progress', 'status_instance_id')) {
+                            $join->on('rip.status_instance_id', '=', 'si.id')->orOn('rip.request_case_id', '=', 'si.request_case_id');
+
+                            return;
+                        }
+
+                        $join->on('rip.request_case_id', '=', 'si.request_case_id');
                     })
                     ->where('si.request_case_id', $case->id)
                     ->where('si.is_current', 1)

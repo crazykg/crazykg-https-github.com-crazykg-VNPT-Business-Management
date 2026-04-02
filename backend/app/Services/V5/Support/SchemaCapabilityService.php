@@ -6,25 +6,44 @@ use Illuminate\Support\Facades\Schema;
 
 class SchemaCapabilityService
 {
+    /**
+     * @var array<string, bool>
+     */
+    private array $tableCache = [];
+
+    /**
+     * @var array<string, bool>
+     */
+    private array $columnCache = [];
+
     public function hasTable(string $table): bool
     {
+        if (array_key_exists($table, $this->tableCache)) {
+            return $this->tableCache[$table];
+        }
+
         try {
-            return Schema::hasTable($table);
+            return $this->tableCache[$table] = Schema::hasTable($table);
         } catch (\Throwable) {
-            return false;
+            return $this->tableCache[$table] = false;
         }
     }
 
     public function hasColumn(string $table, string $column): bool
     {
+        $cacheKey = $table.'.'.$column;
+        if (array_key_exists($cacheKey, $this->columnCache)) {
+            return $this->columnCache[$cacheKey];
+        }
+
         if (! $this->hasTable($table)) {
-            return false;
+            return $this->columnCache[$cacheKey] = false;
         }
 
         try {
-            return Schema::hasColumn($table, $column);
+            return $this->columnCache[$cacheKey] = Schema::hasColumn($table, $column);
         } catch (\Throwable) {
-            return false;
+            return $this->columnCache[$cacheKey] = false;
         }
     }
 

@@ -22,7 +22,9 @@ import {
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
+  resolveRequestStatusMeta,
   resolveStatusMeta,
+  resolveTransitionStatusMeta,
 } from './presentation';
 
 type CustomerRequestTransitionModalProps = {
@@ -161,17 +163,11 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
     return null;
   }
 
-  const currentStatusMeta = resolveStatusMeta(
-    processDetail?.yeu_cau?.trang_thai,
-    processDetail?.yeu_cau?.current_status_name_vi
-  );
+  const currentStatusMeta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
   const selectedTransition = (processDetail?.allowed_next_processes ?? []).find(
     (option) => option.process_code === transitionStatusCode
   ) ?? null;
-  const targetStatusMeta = resolveStatusMeta(
-    transitionStatusCode,
-    selectedTransition?.process_label ?? null
-  );
+  const targetStatusMeta = resolveTransitionStatusMeta(selectedTransition);
   const handlerOptions =
     projectRaciRows.length > 0 ? handlerOptionsFromRaci(projectRaciRows) : handlerOptionsFromEmployees(employees);
 
@@ -472,19 +468,6 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
               />
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Ghi chú
-              </label>
-              <textarea
-                rows={2}
-                value={modalNotes}
-                onChange={(event) => onModalNotesChange(event.target.value)}
-                disabled={isTransitioning}
-                placeholder="Ghi chú thêm cho lần chuyển trạng thái này..."
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-              />
-            </div>
           </div>
 
           <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-5 py-5 xl:border-l xl:border-t-0">
@@ -565,7 +548,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                   </p>
                 ) : (
                   modalTimeline.map((entry, index) => {
-                    const meta = resolveStatusMeta(entry.tien_trinh, entry.trang_thai_moi);
+                    const meta = resolveStatusMeta(entry.tien_trinh, entry.decision_reason_label || entry.trang_thai_moi);
 
                     return (
                       <div key={String(entry.id ?? index)} className="flex gap-2">

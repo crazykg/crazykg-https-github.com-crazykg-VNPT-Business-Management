@@ -22,7 +22,7 @@ import {
   normalizeText,
 } from '../helpers';
 import {
-  resolveStatusMeta,
+  resolveTransitionStatusMeta,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
@@ -97,7 +97,7 @@ export const useCustomerRequestTransition = ({
 
   const openTransitionModal = (options?: OpenTransitionModalOptions) => {
     const effectiveProcessMeta = options?.targetProcessMeta ?? transitionProcessMeta;
-    const statusRowData = processDetail?.status_row?.data as Record<string, unknown> | undefined;
+    const statusRowData = processDetail?.process_row?.data as Record<string, unknown> | undefined;
     const processRowData = processDetail?.process_row?.data as Record<string, unknown> | undefined;
     const currentStatusCode = normalizeText(
       processDetail?.yeu_cau?.current_status_code ?? processDetail?.yeu_cau?.trang_thai
@@ -240,7 +240,13 @@ export const useCustomerRequestTransition = ({
         attachments: modalAttachments.map((attachment) => ({ id: attachment.id })),
       });
 
-      const newStatusMeta = resolveStatusMeta(transitionStatusCode, transitionProcessMeta?.process_label);
+      const newStatusMeta = resolveTransitionStatusMeta(
+        transitionProcessMeta ?? {
+          process_code: transitionStatusCode,
+          process_label: transitionStatusCode,
+          ui_meta: null,
+        }
+      );
       onNotify(
         'success',
         'Đã chuyển trạng thái',

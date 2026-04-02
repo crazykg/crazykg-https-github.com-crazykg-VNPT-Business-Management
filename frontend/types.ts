@@ -1216,6 +1216,9 @@ export interface YeuCauProcessMeta {
   decision_context_code?: string | null;
   decision_outcome_code?: string | null;
   decision_source_status_code?: string | null;
+  handler_field?: string | null;
+  ui_meta?: Record<string, unknown> | null;
+  transition_meta?: Record<string, unknown> | null;
 }
 
 export interface YeuCauProcessGroup {
@@ -1231,6 +1234,8 @@ export interface YeuCauProcessCatalog {
 
 export interface YeuCau {
   id: string | number;
+  process?: YeuCauProcessMeta | null;
+  allowed_next_processes?: YeuCauProcessMeta[];
   don_vi_id?: string | number | null;
   ma_yc: string;
   request_code?: string;
