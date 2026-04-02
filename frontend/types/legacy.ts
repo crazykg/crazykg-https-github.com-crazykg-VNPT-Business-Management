@@ -429,6 +429,7 @@ export interface PaginatedQuery {
   sort_dir?: 'asc' | 'desc';
   simple?: boolean;
   filters?: Record<string, string | number | boolean | null | undefined>;
+  [key: string]: unknown;
 }
 
 export type ModalType =
