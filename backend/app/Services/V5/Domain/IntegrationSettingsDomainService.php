@@ -4,6 +4,7 @@ namespace App\Services\V5\Domain;
 
 use App\Services\V5\Contract\ContractRenewalService;
 use App\Services\V5\IntegrationSettings\BackblazeB2IntegrationService;
+use App\Services\V5\IntegrationSettings\EmailSmtpIntegrationService;
 use App\Services\V5\IntegrationSettings\GoogleDriveIntegrationService;
 use App\Services\V5\IntegrationSettings\IntegrationSettingsOperationsService;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ class IntegrationSettingsDomainService
 {
     public function __construct(
         private readonly BackblazeB2IntegrationService $backblaze,
+        private readonly EmailSmtpIntegrationService $emailSmtp,
         private readonly GoogleDriveIntegrationService $googleDrive,
         private readonly IntegrationSettingsOperationsService $operations,
         private readonly ContractRenewalService $renewalService,
@@ -48,6 +50,21 @@ class IntegrationSettingsDomainService
         return $this->googleDrive->testSettings($request);
     }
 
+    public function emailSmtpSettings(): JsonResponse
+    {
+        return $this->emailSmtp->settings();
+    }
+
+    public function updateEmailSmtpSettings(Request $request): JsonResponse
+    {
+        return $this->emailSmtp->updateSettings($request);
+    }
+
+    public function testEmailSmtpSettings(Request $request): JsonResponse
+    {
+        return $this->emailSmtp->testSettings($request);
+    }
+
     public function contractExpiryAlertSettings(): JsonResponse
     {
         return $this->operations->contractExpiryAlertSettings();
@@ -76,6 +93,11 @@ class IntegrationSettingsDomainService
     public function userDeptHistory(Request $request): JsonResponse
     {
         return $this->operations->userDeptHistory($request);
+    }
+
+    public function sendReminderEmail(Request $request, string $id): JsonResponse
+    {
+        return $this->operations->sendReminderEmail($request, $id);
     }
 
     public function contractRenewalSettings(): JsonResponse

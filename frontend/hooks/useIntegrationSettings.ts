@@ -4,12 +4,15 @@ import {
   fetchBackblazeB2IntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
+  fetchEmailSmtpIntegrationSettings,
   fetchGoogleDriveIntegrationSettings,
   testBackblazeB2IntegrationSettings,
+  testEmailSmtpIntegrationSettings,
   testGoogleDriveIntegrationSettings,
   updateBackblazeB2IntegrationSettings,
   updateContractExpiryAlertSettings,
   updateContractPaymentAlertSettings,
+  updateEmailSmtpIntegrationSettings,
   updateGoogleDriveIntegrationSettings,
 } from '../services/api/adminApi';
 import { queryKeys } from '../shared/queryKeys';
@@ -20,6 +23,8 @@ import type {
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
 } from '../types/admin';
@@ -33,6 +38,9 @@ interface IntegrationSettingsLoadingStates {
   isGoogleDriveSettingsLoading: boolean;
   isGoogleDriveSettingsSaving: boolean;
   isGoogleDriveSettingsTesting: boolean;
+  isEmailSmtpSettingsLoading: boolean;
+  isEmailSmtpSettingsSaving: boolean;
+  isEmailSmtpSettingsTesting: boolean;
   isContractExpiryAlertSettingsLoading: boolean;
   isContractExpiryAlertSettingsSaving: boolean;
   isContractPaymentAlertSettingsLoading: boolean;
@@ -46,6 +54,7 @@ interface UseIntegrationSettingsOptions {
 interface UseIntegrationSettingsReturn {
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   googleDriveSettings: GoogleDriveIntegrationSettings | null;
+  emailSmtpSettings: EmailSmtpIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
   loadingStates: IntegrationSettingsLoadingStates;
@@ -53,10 +62,12 @@ interface UseIntegrationSettingsReturn {
   refreshIntegrationSettings: () => Promise<void>;
   handleSaveBackblazeB2Settings: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveGoogleDriveSettings: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
+  handleSaveEmailSmtpSettings: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveContractExpiryAlertSettings: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   handleSaveContractPaymentAlertSettings: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
   handleTestBackblazeB2Integration: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{ message?: string; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>;
   handleTestGoogleDriveIntegration: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<{ message?: string; user_email?: string | null; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>;
+  handleTestEmailSmtpIntegration: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<{ message?: string; status?: 'SUCCESS' | 'FAILED'; tested_at?: string | null; persisted?: boolean }>;
 }
 
 const extractErrorMessage = (error: unknown, fallback = 'Lỗi không xác định'): string =>
@@ -90,6 +101,12 @@ export function useIntegrationSettings(
   const contractPaymentQuery = useQuery({
     queryKey: queryKeys.integrationSettings.contractPaymentAlert(),
     queryFn: fetchContractPaymentAlertSettings,
+    enabled,
+  });
+
+  const emailSmtpQuery = useQuery({
+    queryKey: queryKeys.integrationSettings.emailSmtp(),
+    queryFn: fetchEmailSmtpIntegrationSettings,
     enabled,
   });
 
@@ -134,6 +151,39 @@ export function useIntegrationSettings(
     },
     onError: (error) => {
       addToast?.('error', 'Lưu cấu hình cảnh báo thanh toán thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const saveEmailSmtpMutation = useMutation({
+    mutationFn: updateEmailSmtpIntegrationSettings,
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.integrationSettings.emailSmtp(), updated);
+      addToast?.('success', 'Thành công', 'Đã lưu cấu hình Email SMTP.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Lưu cấu hình thất bại', extractErrorMessage(error));
+    },
+  });
+
+  const testEmailSmtpMutation = useMutation({
+    mutationFn: testEmailSmtpIntegrationSettings,
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        queryKeys.integrationSettings.emailSmtp(),
+        (current: EmailSmtpIntegrationSettings | null | undefined) =>
+          current
+            ? {
+                ...current,
+                last_test_status: result.status ?? current.last_test_status,
+                last_test_message: result.message ?? current.last_test_message,
+                last_tested_at: result.tested_at ?? current.last_tested_at,
+              }
+            : current ?? null,
+      );
+      addToast?.('success', 'Kết nối Email SMTP', result.message || 'Kết nối thành công.');
+    },
+    onError: (error) => {
+      addToast?.('error', 'Kiểm tra kết nối thất bại', extractErrorMessage(error));
     },
   });
 
@@ -186,14 +236,16 @@ export function useIntegrationSettings(
     await Promise.all([
       backblazeQuery.refetch(),
       googleDriveQuery.refetch(),
+      emailSmtpQuery.refetch(),
       contractExpiryQuery.refetch(),
       contractPaymentQuery.refetch(),
     ]);
-  }, [backblazeQuery, contractExpiryQuery, contractPaymentQuery, googleDriveQuery]);
+  }, [backblazeQuery, contractExpiryQuery, contractPaymentQuery, emailSmtpQuery, googleDriveQuery]);
 
   const error =
     extractErrorMessage(backblazeQuery.error, '') ||
     extractErrorMessage(googleDriveQuery.error, '') ||
+    extractErrorMessage(emailSmtpQuery.error, '') ||
     extractErrorMessage(contractExpiryQuery.error, '') ||
     extractErrorMessage(contractPaymentQuery.error, '') ||
     null;
@@ -201,6 +253,7 @@ export function useIntegrationSettings(
   return {
     backblazeB2Settings: backblazeQuery.data ?? null,
     googleDriveSettings: googleDriveQuery.data ?? null,
+    emailSmtpSettings: emailSmtpQuery.data ?? null,
     contractExpiryAlertSettings: contractExpiryQuery.data ?? null,
     contractPaymentAlertSettings: contractPaymentQuery.data ?? null,
     loadingStates: {
@@ -210,6 +263,9 @@ export function useIntegrationSettings(
       isGoogleDriveSettingsLoading: googleDriveQuery.isLoading || googleDriveQuery.isFetching,
       isGoogleDriveSettingsSaving: saveGoogleDriveMutation.isPending,
       isGoogleDriveSettingsTesting: testGoogleDriveMutation.isPending,
+      isEmailSmtpSettingsLoading: emailSmtpQuery.isLoading || emailSmtpQuery.isFetching,
+      isEmailSmtpSettingsSaving: saveEmailSmtpMutation.isPending,
+      isEmailSmtpSettingsTesting: testEmailSmtpMutation.isPending,
       isContractExpiryAlertSettingsLoading: contractExpiryQuery.isLoading || contractExpiryQuery.isFetching,
       isContractExpiryAlertSettingsSaving: saveContractExpiryMutation.isPending,
       isContractPaymentAlertSettingsLoading: contractPaymentQuery.isLoading || contractPaymentQuery.isFetching,
@@ -223,6 +279,9 @@ export function useIntegrationSettings(
     handleSaveGoogleDriveSettings: useCallback(async (payload) => {
       await saveGoogleDriveMutation.mutateAsync(payload);
     }, [saveGoogleDriveMutation]),
+    handleSaveEmailSmtpSettings: useCallback(async (payload) => {
+      await saveEmailSmtpMutation.mutateAsync(payload);
+    }, [saveEmailSmtpMutation]),
     handleSaveContractExpiryAlertSettings: useCallback(async (payload) => {
       await saveContractExpiryMutation.mutateAsync(payload);
     }, [saveContractExpiryMutation]),
@@ -235,5 +294,8 @@ export function useIntegrationSettings(
     handleTestGoogleDriveIntegration: useCallback(async (payload) => {
       return await testGoogleDriveMutation.mutateAsync(payload);
     }, [testGoogleDriveMutation]),
+    handleTestEmailSmtpIntegration: useCallback(async (payload) => {
+      return await testEmailSmtpMutation.mutateAsync(payload);
+    }, [testEmailSmtpMutation]),
   };
 }

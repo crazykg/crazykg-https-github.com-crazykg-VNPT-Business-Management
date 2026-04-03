@@ -2120,6 +2120,22 @@ export interface Reminder {
   createdDate?: string;
 }
 
+export interface SendReminderEmailPayload {
+  recipient_email: string;
+}
+
+export interface SendReminderEmailResult {
+  status: 'SENT';
+  message?: string;
+  recipient_email: string;
+  sent_at?: string | null;
+  reminder?: {
+    id: string;
+    title: string;
+    remindDate: string;
+  };
+}
+
 export interface UserDeptHistory {
   id: string;
   userId: string;

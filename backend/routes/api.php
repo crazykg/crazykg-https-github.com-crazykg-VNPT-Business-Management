@@ -594,6 +594,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::post('/integrations/google-drive/test', [IntegrationSettingsController::class, 'testGoogleDriveSettings'])
             ->middleware('permission:authz.manage');
+        Route::get('/integrations/email-smtp', [IntegrationSettingsController::class, 'emailSmtpSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/integrations/email-smtp', [IntegrationSettingsController::class, 'updateEmailSmtpSettings'])
+            ->middleware('permission:authz.manage');
+        Route::post('/integrations/email-smtp/test', [IntegrationSettingsController::class, 'testEmailSmtpSettings'])
+            ->middleware('permission:authz.manage');
         Route::get('/utilities/contract-expiry-alert', [IntegrationSettingsController::class, 'contractExpiryAlertSettings'])
             ->middleware('permission:authz.manage');
         Route::put('/utilities/contract-expiry-alert', [IntegrationSettingsController::class, 'updateContractExpiryAlertSettings'])
@@ -610,6 +616,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::get('/reminders', [IntegrationSettingsController::class, 'reminders'])
             ->middleware('permission:reminders.read');
+        Route::post('/reminders/{id}/send-email', [IntegrationSettingsController::class, 'sendReminderEmail'])
+            ->middleware('permission:reminders.write');
         Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
             ->middleware('permission:user_dept_history.read');
         Route::get('/user_dept_history', [IntegrationSettingsController::class, 'userDeptHistory'])

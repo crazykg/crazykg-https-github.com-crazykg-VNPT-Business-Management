@@ -19,6 +19,7 @@ import {
   PaymentSchedule,
   Document,
   Reminder,
+  SendReminderEmailResult,
   SupportServiceGroup,
   SupportContactPosition,
   SupportRequestStatusOption,
@@ -182,6 +183,7 @@ export interface AppPagesProps {
   // Specific Callbacks
   handleCreateContractFromProject: (project: Project) => void;
   handleOpenProcedure: (project: Project) => void;
+  onSendReminderEmail: (reminderId: string, recipientEmail: string) => Promise<SendReminderEmailResult>;
   exportProjectsByCurrentQuery: () => Promise<Project[]>;
   exportProjectRaciByProjectIds: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
 
@@ -288,21 +290,26 @@ export interface AppPagesProps {
   // Integration Settings
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   googleDriveSettings: GoogleDriveIntegrationSettings | null;
+  emailSmtpSettings: EmailSmtpIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
   isBackblazeB2SettingsLoading: boolean;
   isGoogleDriveSettingsLoading: boolean;
+  isEmailSmtpSettingsLoading: boolean;
   isContractExpiryAlertSettingsLoading: boolean;
   isContractPaymentAlertSettingsLoading: boolean;
   isGoogleDriveSettingsSaving: boolean;
   isGoogleDriveSettingsTesting: boolean;
   isBackblazeB2SettingsSaving: boolean;
   isBackblazeB2SettingsTesting: boolean;
+  isEmailSmtpSettingsSaving: boolean;
+  isEmailSmtpSettingsTesting: boolean;
   isContractExpiryAlertSettingsSaving: boolean;
   isContractPaymentAlertSettingsSaving: boolean;
   refreshIntegrationSettings: () => Promise<void>;
   handleSaveBackblazeB2Settings: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveGoogleDriveSettings: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
+  handleSaveEmailSmtpSettings: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveContractExpiryAlertSettings: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   handleSaveContractPaymentAlertSettings: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
   handleTestBackblazeB2Integration: (
@@ -318,6 +325,14 @@ export interface AppPagesProps {
   ) => Promise<{
     message?: string;
     user_email?: string | null;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>;
+  handleTestEmailSmtpIntegration: (
+    payload: EmailSmtpIntegrationSettingsUpdatePayload
+  ) => Promise<{
+    message?: string;
     status?: 'SUCCESS' | 'FAILED';
     tested_at?: string | null;
     persisted?: boolean;
@@ -387,6 +402,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   handleFeedbacksPageQueryChange,
   handleCreateContractFromProject,
   handleOpenProcedure,
+  onSendReminderEmail,
   exportProjectsByCurrentQuery,
   exportProjectRaciByProjectIds,
   handleCreateSupportServiceGroup,
@@ -411,25 +427,31 @@ export const AppPages: React.FC<AppPagesProps> = ({
   handleUpdateAccessScopes,
   backblazeB2Settings,
   googleDriveSettings,
+  emailSmtpSettings,
   contractExpiryAlertSettings,
   contractPaymentAlertSettings,
   isBackblazeB2SettingsLoading,
   isGoogleDriveSettingsLoading,
+  isEmailSmtpSettingsLoading,
   isContractExpiryAlertSettingsLoading,
   isContractPaymentAlertSettingsLoading,
   isGoogleDriveSettingsSaving,
   isGoogleDriveSettingsTesting,
   isBackblazeB2SettingsSaving,
   isBackblazeB2SettingsTesting,
+  isEmailSmtpSettingsSaving,
+  isEmailSmtpSettingsTesting,
   isContractExpiryAlertSettingsSaving,
   isContractPaymentAlertSettingsSaving,
   refreshIntegrationSettings,
   handleSaveBackblazeB2Settings,
   handleSaveGoogleDriveSettings,
+  handleSaveEmailSmtpSettings,
   handleSaveContractExpiryAlertSettings,
   handleSaveContractPaymentAlertSettings,
   handleTestBackblazeB2Integration,
   handleTestGoogleDriveIntegration,
+  handleTestEmailSmtpIntegration,
 }) => {
   return (
     <>
@@ -570,6 +592,11 @@ export const AppPages: React.FC<AppPagesProps> = ({
           reminders={reminders}
           employees={employees}
           onOpenModal={handleOpenModal}
+          canSendReminderEmail={hasPermission(authUser, 'reminders.write')}
+          onSendReminderEmail={async (item, recipientEmail) => {
+            const result = await onSendReminderEmail(item.id, recipientEmail);
+            addToast('success', 'Gửi mail nhắc việc', result.message || 'Đã gửi email thành công.');
+          }}
         />
       )}
 
@@ -717,22 +744,27 @@ export const AppPages: React.FC<AppPagesProps> = ({
         <IntegrationSettingsPanel
           backblazeB2Settings={backblazeB2Settings}
           settings={googleDriveSettings}
+          emailSmtpSettings={emailSmtpSettings}
           contractExpiryAlertSettings={contractExpiryAlertSettings}
           contractPaymentAlertSettings={contractPaymentAlertSettings}
-          isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
+          isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isEmailSmtpSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
           isSaving={isGoogleDriveSettingsSaving}
           isTesting={isGoogleDriveSettingsTesting}
           isSavingBackblazeB2={isBackblazeB2SettingsSaving}
           isTestingBackblazeB2={isBackblazeB2SettingsTesting}
+          isSavingEmailSmtp={isEmailSmtpSettingsSaving}
+          isTestingEmailSmtp={isEmailSmtpSettingsTesting}
           isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
           isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
           onRefresh={refreshIntegrationSettings}
           onSaveBackblazeB2={handleSaveBackblazeB2Settings}
           onSave={handleSaveGoogleDriveSettings}
+          onSaveEmailSmtp={handleSaveEmailSmtpSettings}
           onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
           onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
           onTestBackblazeB2={handleTestBackblazeB2Integration}
           onTest={handleTestGoogleDriveIntegration}
+          onTestEmailSmtp={handleTestEmailSmtpIntegration}
         />
       )}
 

@@ -73,6 +73,8 @@ describe('Document and Reminder lists', () => {
         reminders={reminders}
         employees={employees}
         onOpenModal={vi.fn()}
+        canSendReminderEmail={true}
+        onSendReminderEmail={vi.fn().mockResolvedValue(undefined)}
       />
     );
 

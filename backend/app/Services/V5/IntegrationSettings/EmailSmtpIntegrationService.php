@@ -5,9 +5,10 @@ namespace App\Services\V5\IntegrationSettings;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Mail;
 
 class EmailSmtpIntegrationService
 {
@@ -188,6 +189,112 @@ class EmailSmtpIntegrationService
         ]);
     }
 
+    public function sendReminderEmail(array $reminder, string $recipientEmail): array
+    {
+        $settingsRow = $this->loadSettingsRow();
+        if ($settingsRow === null) {
+            return [
+                'success' => false,
+                'message' => 'Chưa có cấu hình Email SMTP.',
+            ];
+        }
+
+        if (! (bool) ($settingsRow['is_enabled'] ?? false)) {
+            return [
+                'success' => false,
+                'message' => 'Email SMTP đang tắt. Vui lòng bật cấu hình trước khi gửi.',
+            ];
+        }
+
+        $host = trim((string) ($settingsRow['smtp_host'] ?? ''));
+        $port = (int) ($settingsRow['smtp_port'] ?? 0);
+        $username = trim((string) ($settingsRow['smtp_username'] ?? ''));
+        $encryptedPassword = $settingsRow['smtp_password'] ?? null;
+        $encryption = (string) ($settingsRow['smtp_encryption'] ?? 'tls');
+        $fromAddress = trim((string) ($settingsRow['smtp_from_address'] ?? $username));
+        $fromName = trim((string) ($settingsRow['smtp_from_name'] ?? 'VNPT Business'));
+
+        if ($host === '' || $port <= 0 || $username === '' || empty($encryptedPassword) || $fromAddress === '') {
+            return [
+                'success' => false,
+                'message' => 'Cấu hình SMTP chưa đầy đủ. Vui lòng kiểm tra host/port/tài khoản/mật khẩu/email gửi.',
+            ];
+        }
+
+        try {
+            $password = Crypt::decryptString((string) $encryptedPassword);
+        } catch (\Throwable) {
+            return [
+                'success' => false,
+                'message' => 'Không thể giải mã mật khẩu SMTP. Vui lòng lưu lại mật khẩu mới.',
+            ];
+        }
+
+        $title = trim((string) ($reminder['reminder_title'] ?? 'Nhắc việc'));
+        $content = trim((string) ($reminder['content'] ?? ''));
+        $remindDate = trim((string) ($reminder['remind_date'] ?? ''));
+
+        $subject = '[Nhắc việc] '.$title;
+        $messageLines = [
+            'Bạn có một nhắc việc mới từ hệ thống VNPT Business.',
+            '',
+            'Tiêu đề: '.$title,
+        ];
+
+        if ($content !== '') {
+            $messageLines[] = 'Nội dung: '.$content;
+        }
+
+        if ($remindDate !== '') {
+            $messageLines[] = 'Ngày nhắc: '.$remindDate;
+        }
+
+        $messageLines[] = '';
+        $messageLines[] = 'Vui lòng đăng nhập hệ thống để theo dõi chi tiết.';
+
+        $originalMailer = config('mail.default');
+        $originalSmtp = config('mail.mailers.smtp');
+        $originalFrom = config('mail.from');
+
+        try {
+            Config::set('mail.default', 'smtp');
+            Config::set('mail.mailers.smtp', [
+                'transport' => 'smtp',
+                'host' => $host,
+                'port' => $port,
+                'username' => $username,
+                'password' => $password,
+                'encryption' => $encryption === 'none' ? null : $encryption,
+                'local_domain' => parse_url((string) config('app.url', 'http://localhost'), PHP_URL_HOST),
+            ]);
+            Config::set('mail.from', [
+                'address' => $fromAddress,
+                'name' => $fromName !== '' ? $fromName : 'VNPT Business',
+            ]);
+
+            Mail::raw(implode("\n", $messageLines), function ($mail) use ($recipientEmail, $subject, $fromAddress, $fromName): void {
+                $mail->to($recipientEmail)
+                    ->subject($subject)
+                    ->from($fromAddress, $fromName !== '' ? $fromName : 'VNPT Business');
+            });
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => 'Gửi email thất bại: '.$e->getMessage(),
+            ];
+        } finally {
+            Config::set('mail.default', $originalMailer);
+            Config::set('mail.mailers.smtp', $originalSmtp);
+            Config::set('mail.from', $originalFrom);
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Đã gửi email nhắc việc thành công.',
+            'sent_at' => now()->toIso8601String(),
+        ];
+    }
+
     /**
      * Test SMTP connection with TCP and authentication
      */
@@ -231,7 +338,7 @@ class EmailSmtpIntegrationService
 
                 $testRecipient = $settings['test_recipient_email'] ?? $settings['smtp_username'];
 
-                \Illuminate\Support\Facades\Mail::raw(
+                Mail::raw(
                     'Đây là email test từ VNPT Business.',
                     fn ($m) => $m
                         ->to($testRecipient)

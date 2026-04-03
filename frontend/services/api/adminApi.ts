@@ -6,6 +6,8 @@ import type {
   ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
   FeedbackRequest,
   FeedbackResponse,
   GoogleDriveIntegrationSettings,
@@ -334,6 +336,81 @@ export const updateContractPaymentAlertSettings = async (
   }
 
   return parseItemJson<ContractPaymentAlertSettings>(res);
+};
+
+export const fetchEmailSmtpIntegrationSettings = async (): Promise<EmailSmtpIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/email-smtp', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_EMAIL_SMTP_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<EmailSmtpIntegrationSettings>(res);
+};
+
+export const updateEmailSmtpIntegrationSettings = async (
+  payload: EmailSmtpIntegrationSettingsUpdatePayload
+): Promise<EmailSmtpIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/email-smtp', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      is_enabled: payload.is_enabled,
+      smtp_host: normalizeNullableText(payload.smtp_host),
+      smtp_port: payload.smtp_port,
+      smtp_encryption: payload.smtp_encryption,
+      smtp_username: normalizeNullableText(payload.smtp_username),
+      smtp_password: normalizeNullableText(payload.smtp_password),
+      clear_smtp_password: Boolean(payload.clear_smtp_password),
+      smtp_from_address: normalizeNullableText(payload.smtp_from_address),
+      smtp_from_name: normalizeNullableText(payload.smtp_from_name),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_EMAIL_SMTP_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<EmailSmtpIntegrationSettings>(res);
+};
+
+export const testEmailSmtpIntegrationSettings = async (
+  payload?: EmailSmtpIntegrationSettingsUpdatePayload
+): Promise<{
+  message?: string;
+  status?: 'SUCCESS' | 'FAILED';
+  tested_at?: string | null;
+  persisted?: boolean;
+}> => {
+  const res = await apiFetch('/api/v5/integrations/email-smtp/test', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: payload ? JSON.stringify({
+      is_enabled: payload.is_enabled,
+      smtp_host: normalizeNullableText(payload.smtp_host),
+      smtp_port: payload.smtp_port,
+      smtp_encryption: payload.smtp_encryption,
+      smtp_username: normalizeNullableText(payload.smtp_username),
+      smtp_password: normalizeNullableText(payload.smtp_password),
+      test_recipient_email: normalizeNullableText(payload.test_recipient_email),
+    }) : undefined,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'TEST_EMAIL_SMTP_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<{
+    message?: string;
+    status?: 'SUCCESS' | 'FAILED';
+    tested_at?: string | null;
+    persisted?: boolean;
+  }>(res);
 };
 
 export const fetchRoles = async (): Promise<Role[]> => fetchList<Role>('/api/v5/roles');
