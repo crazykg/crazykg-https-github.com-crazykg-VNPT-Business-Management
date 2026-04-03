@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { uploadDocumentAttachment } from '../../../services/v5Api';
-import type { Attachment } from '../../../types';
+import { uploadDocumentAttachment } from '../../../services/api/customerRequestApi';
+import type { Attachment } from '../../../types/customerRequest';
 import { normalizeText } from '../helpers';
 
 type UseCustomerRequestAttachmentsOptions = {

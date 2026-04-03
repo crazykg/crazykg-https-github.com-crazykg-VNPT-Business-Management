@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCau } from '../../types';
+import type { YeuCau } from '../../types/customerRequest';
 import type { CustomerRequestRoleFilter } from './presentation';
 import { CustomerRequestWorkspaceCaseCard } from './CustomerRequestWorkspaceCaseCard';
 

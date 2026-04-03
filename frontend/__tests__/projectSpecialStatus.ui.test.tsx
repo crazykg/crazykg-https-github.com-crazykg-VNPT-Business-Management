@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectFormModal } from '../components/Modals';
+import { ProjectFormModal } from '../components/modals';
 import { ProjectList } from '../components/ProjectList';
 import type { Customer, ProcedureTemplate, Project } from '../types';
 

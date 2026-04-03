@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCau } from '../../types';
+import type { YeuCau } from '../../types/customerRequest';
 import {
   LIST_PRIORITY_META,
   buildRequestContextCaption,

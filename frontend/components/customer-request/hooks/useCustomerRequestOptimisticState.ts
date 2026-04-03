@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { YeuCau, YeuCauDashboardPayload } from '../../../types';
+import type { YeuCau, YeuCauDashboardPayload } from '../../../types/customerRequest';
 import {
   applyDashboardAlertCountDelta,
   applyRequestOverride,

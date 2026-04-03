@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { YeuCau } from '../../../types';
+import type { YeuCau } from '../../../types/customerRequest';
 import {
   buildCustomerRequestQuickItem,
   CUSTOMER_REQUEST_PINNED_LIMIT,

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import type { Employee, ProjectItemMaster } from '../../types';
+import type { Employee } from '../../types/employee';
+import type { ProjectItemMaster } from '../../types/project';
 import { SearchableSelect } from '../SearchableSelect';
 import type { CustomerRequestCreateFlowDraft, CreateRequestHandlingMode } from './createFlow';
 

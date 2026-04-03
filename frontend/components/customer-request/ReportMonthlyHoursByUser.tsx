@@ -1,5 +1,5 @@
 import React from 'react';
-import type { MonthlyHoursRow } from '../../types';
+import type { MonthlyHoursRow } from '../../types/customerRequest';
 
 type Props = {
   rows: MonthlyHoursRow[];

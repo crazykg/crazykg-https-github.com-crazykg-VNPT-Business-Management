@@ -14,7 +14,7 @@ import {
   CUSTOMER_SECTOR_OPTIONS,
   HEALTHCARE_FACILITY_TYPE_OPTIONS,
 } from '../utils/customerClassification';
-import { ModalWrapper } from './Modals';
+import { ModalWrapper } from './modals';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 type NotifyFn = (type: 'success' | 'error', title: string, message: string) => void;

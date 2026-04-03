@@ -4,7 +4,7 @@ import type {
   YeuCauEstimate,
   YeuCauHoursReport,
   YeuCauWorklog,
-} from '../../types';
+} from '../../types/customerRequest';
 
 const toFiniteNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {

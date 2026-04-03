@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type * as React from 'react';
 import type { EmployeePartyProfile } from '../types';
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals/projectImportTypes';
 import { buildHeaderIndex, exportImportFailureFile, getImportCell, summarizeImportResult } from '../utils/importValidation';
 import { bulkUpsertEmployeePartyProfiles } from '../services/v5Api';
 

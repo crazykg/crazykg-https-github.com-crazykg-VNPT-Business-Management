@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { YeuCau, YeuCauEstimate, YeuCauHoursReport } from '../../types';
+import type { YeuCau, YeuCauEstimate, YeuCauHoursReport } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { formatHoursValue, formatPercentValue } from './presentation';
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCau, YeuCauDashboardPayload } from '../../types';
+import type { YeuCau, YeuCauDashboardPayload } from '../../types/customerRequest';
 import {
   formatHoursValue,
 } from './presentation';

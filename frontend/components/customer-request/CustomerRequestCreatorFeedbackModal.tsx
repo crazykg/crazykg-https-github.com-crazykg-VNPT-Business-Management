@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchWorklogActivityTypes } from '../../services/v5Api';
-import type { Attachment, WorklogActivityTypeOption } from '../../types';
+import { fetchWorklogActivityTypes } from '../../services/api/supportConfigApi';
+import type { WorklogActivityTypeOption } from '../../types/support';
+import type { Attachment } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import type { It360TaskFormRow, ReferenceTaskFormRow } from './presentation';

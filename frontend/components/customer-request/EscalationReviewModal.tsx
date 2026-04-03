@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import type { CustomerRequestEscalation } from '../../types';
-import { reviewEscalation } from '../../services/v5Api';
+import { reviewEscalation } from '../../services/api/customerRequestApi';
+import type { CustomerRequestEscalation } from '../../types/customerRequest';
 
 type Props = {
   escalation: CustomerRequestEscalation | null;

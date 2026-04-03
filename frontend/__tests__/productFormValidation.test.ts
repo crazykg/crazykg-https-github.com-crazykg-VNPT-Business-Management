@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateProductForm } from '../components/Modals';
+import { validateProductForm } from '../components/modals';
 
 describe('validateProductForm', () => {
   it('requires a service group selection', () => {

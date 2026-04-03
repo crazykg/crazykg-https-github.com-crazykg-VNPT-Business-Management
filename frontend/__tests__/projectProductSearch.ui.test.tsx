@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectFormModal } from '../components/Modals';
+import { ProjectFormModal } from '../components/modals';
 import type { Customer, ProcedureTemplate, Product, Project } from '../types';
 
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());

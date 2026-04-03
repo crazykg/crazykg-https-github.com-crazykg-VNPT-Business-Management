@@ -13,7 +13,7 @@ import type {
   ProjectItemImportBatchResult,
   ProjectRaciImportBatchGroup,
   ProjectRaciImportBatchResult,
-} from './components/Modals';
+} from './components/modals/projectImportTypes';
 import {
   AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel,
   Project, ProjectItemMaster, ProjectRaciRow, Contract, Document, Reminder, UserDeptHistory,
@@ -70,39 +70,39 @@ import { hasPermission } from './utils/authorization';
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
 const ContractModal = lazy(() => import('./components/ContractModal').then((m) => ({ default: m.ContractModal })));
-const FeedbackFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackFormModal })));
-const FeedbackViewModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackViewModal })));
-const DeleteFeedbackModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteFeedbackModal })));
-const DepartmentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DepartmentFormModal })));
-const ViewDepartmentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ViewDepartmentModal })));
-const DeleteWarningModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteWarningModal })));
-const CannotDeleteModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteModal })));
-const ImportModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ImportModal })));
-const EmployeeFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.EmployeeFormModal })));
-const DeleteEmployeeModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteEmployeeModal })));
-const BusinessFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.BusinessFormModal })));
-const DeleteBusinessModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteBusinessModal })));
-const VendorFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.VendorFormModal })));
-const DeleteVendorModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteVendorModal })));
-const ProductFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProductFormModal })));
-const DeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProductModal })));
-const CannotDeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteProductModal })));
+const FeedbackFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackFormModal })));
+const FeedbackViewModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackViewModal })));
+const DeleteFeedbackModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteFeedbackModal })));
+const DepartmentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DepartmentFormModal })));
+const ViewDepartmentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ViewDepartmentModal })));
+const DeleteWarningModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteWarningModal })));
+const CannotDeleteModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteModal })));
+const ImportModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ImportModal })));
+const EmployeeFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.EmployeeFormModal })));
+const DeleteEmployeeModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteEmployeeModal })));
+const BusinessFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.BusinessFormModal })));
+const DeleteBusinessModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteBusinessModal })));
+const VendorFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.VendorFormModal })));
+const DeleteVendorModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteVendorModal })));
+const ProductFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProductFormModal })));
+const DeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProductModal })));
+const CannotDeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteProductModal })));
 const ProductFeatureCatalogModal = lazy(() => import('./components/ProductFeatureCatalogModal').then((m) => ({ default: m.ProductFeatureCatalogModal })));
-const CannotDeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
+const CannotDeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
 const CustomerInsightPanel = lazy(() => import('./components/CustomerInsightPanel'));
-const CustomerFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CustomerFormModal })));
-const DeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCustomerModal })));
-const CusPersonnelFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CusPersonnelFormModal })));
-const DeleteCusPersonnelModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
-const ProjectFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProjectFormModal })));
-const DeleteProjectModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProjectModal })));
-const DeleteContractModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteContractModal })));
-const DocumentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DocumentFormModal })));
-const DeleteDocumentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteDocumentModal })));
-const ReminderFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ReminderFormModal })));
-const DeleteReminderModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteReminderModal })));
-const UserDeptHistoryFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
-const DeleteUserDeptHistoryModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
+const CustomerFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CustomerFormModal })));
+const DeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCustomerModal })));
+const CusPersonnelFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CusPersonnelFormModal })));
+const DeleteCusPersonnelModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
+const ProjectFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProjectFormModal })));
+const DeleteProjectModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProjectModal })));
+const DeleteContractModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteContractModal })));
+const DocumentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DocumentFormModal })));
+const DeleteDocumentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteDocumentModal })));
+const ReminderFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ReminderFormModal })));
+const DeleteReminderModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteReminderModal })));
+const UserDeptHistoryFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
+const DeleteUserDeptHistoryModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
 
 const LazyModuleFallback: React.FC = () => (
   <div className="min-h-[300px] flex items-center justify-center py-16 text-slate-500">
@@ -966,14 +966,159 @@ const App: React.FC = () => {
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages
             activeTab={activeTab} authUser={authUser} activeInternalUserSubTab={activeInternalUserSubTab} setInternalUserSubTab={setInternalUserSubTab}
+            customerRequestHubContext={{
+              customers,
+              customerPersonnel: cusPersonnel,
+              projectItems,
+              employees,
+              supportServiceGroups,
+              currentUserId: authUser?.id ?? null,
+              isAdminViewer: Boolean(
+                authUser
+                && (
+                  (authUser.roles || []).map((role) => String(role).toUpperCase()).includes('ADMIN')
+                  || (authUser.permissions || []).includes('*')
+                )
+              ),
+              canImportRequests: hasPermission(authUser, 'support_requests.import'),
+              canExportRequests: hasPermission(authUser, 'support_requests.export'),
+              canReadRequests: hasPermission(authUser, 'support_requests.read'),
+              canWriteRequests: hasPermission(authUser, 'support_requests.write'),
+              canDeleteRequests: hasPermission(authUser, 'support_requests.delete'),
+            }}
             handleOpenModal={(type, item) => {
               setModalType(type);
-              if (type === 'ADD_REMINDER') {
-                setSelectedReminder(null);
+              setImportModuleOverride(null);
+              setIsContractDetailLoading(false);
+              setIsFeedbackDetailLoading(false);
+
+              if (!type) {
                 return;
               }
-              if ((type === 'EDIT_REMINDER' || type === 'DELETE_REMINDER') && item) {
-                setSelectedReminder(item as Reminder);
+
+              if (type === 'IMPORT_DATA') {
+                setImportModuleOverride(activeModuleKey);
+                return;
+              }
+
+              if (type === 'EDIT_PROJECT' && item && typeof item === 'object' && 'id' in item) {
+                const project = item as Project;
+                void (async () => {
+                  try {
+                    const detail = await fetchProjectDetail(project.id);
+                    setSelectedProject(detail);
+                  } catch (error) {
+                    if (isRequestCanceledError(error)) {
+                      return;
+                    }
+                    const message = error instanceof Error ? error.message : 'Không thể tải chi tiết dự án.';
+                    addToast('error', 'Tải dữ liệu thất bại', message);
+                  }
+                })();
+                return;
+              }
+
+              if (type.includes('DEPARTMENT')) {
+                setSelectedDept((item as Department) ?? null);
+                return;
+              }
+
+              if (type.includes('EMPLOYEE')) {
+                setSelectedEmployee((item as Employee) ?? null);
+                return;
+              }
+
+              if (type.includes('BUSINESS')) {
+                setSelectedBusiness((item as Business) ?? null);
+                return;
+              }
+
+              if (type.includes('VENDOR')) {
+                setSelectedVendor((item as Vendor) ?? null);
+                return;
+              }
+
+              if (type.includes('PRODUCT')) {
+                setSelectedProduct((item as Product) ?? null);
+                return;
+              }
+
+              if (type.includes('CUSTOMER')) {
+                setSelectedCustomer((item as Customer) ?? null);
+                return;
+              }
+
+              if (type.includes('CUS_PERSONNEL')) {
+                setSelectedCusPersonnel((item as CustomerPersonnel) ?? null);
+                return;
+              }
+
+              if (type.includes('PROJECT')) {
+                setSelectedProject((item as Project) ?? null);
+                return;
+              }
+
+              if (type.includes('CONTRACT')) {
+                const contract = (item as Contract) ?? null;
+                setSelectedContract(contract);
+                if (type === 'EDIT_CONTRACT' && contract?.id) {
+                  setIsContractDetailLoading(true);
+                  void (async () => {
+                    try {
+                      const detail = await fetchContractDetail(contract.id);
+                      setSelectedContract(detail);
+                    } catch (error) {
+                      if (!isRequestCanceledError(error)) {
+                        const message = error instanceof Error ? error.message : 'Không thể tải chi tiết hợp đồng.';
+                        addToast('error', 'Tải dữ liệu thất bại', message);
+                      }
+                    } finally {
+                      setIsContractDetailLoading(false);
+                    }
+                  })();
+                }
+                return;
+              }
+
+              if (type.includes('DOCUMENT')) {
+                setSelectedDocument((item as Document) ?? null);
+                return;
+              }
+
+              if (type.includes('REMINDER')) {
+                setSelectedReminder((item as Reminder) ?? null);
+                return;
+              }
+
+              if (type.includes('USER_DEPT_HISTORY')) {
+                setSelectedUserDeptHistory((item as UserDeptHistory) ?? null);
+                return;
+              }
+
+              if (
+                type === 'VIEW_FEEDBACK'
+                || type === 'EDIT_FEEDBACK'
+                || type === 'ADD_FEEDBACK'
+                || type === 'DELETE_FEEDBACK'
+              ) {
+                const feedback = (item as FeedbackRequest) ?? null;
+                setSelectedFeedback(feedback);
+                if ((type === 'VIEW_FEEDBACK' || type === 'EDIT_FEEDBACK') && feedback?.id) {
+                  setIsFeedbackDetailLoading(true);
+                  void (async () => {
+                    try {
+                      const detail = await fetchFeedbackDetail(feedback.id);
+                      setSelectedFeedback(detail);
+                    } catch (error) {
+                      if (!isRequestCanceledError(error)) {
+                        const message = error instanceof Error ? error.message : 'Không thể tải chi tiết phản hồi.';
+                        addToast('error', 'Tải dữ liệu thất bại', message);
+                      }
+                    } finally {
+                      setIsFeedbackDetailLoading(false);
+                    }
+                  })();
+                }
               }
             }} addToast={addToast}
             departments={departments} employees={employees} businesses={businesses} vendors={vendors} products={products} customers={customers} cusPersonnel={cusPersonnel}

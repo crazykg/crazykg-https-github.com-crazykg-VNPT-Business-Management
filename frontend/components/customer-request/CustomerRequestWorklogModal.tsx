@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { fetchWorklogActivityTypes } from '../../services/v5Api';
-import type { WorklogActivityTypeOption, YeuCauHoursReport } from '../../types';
+import { fetchWorklogActivityTypes } from '../../services/api/supportConfigApi';
+import type { WorklogActivityTypeOption } from '../../types/support';
+import type { YeuCauHoursReport } from '../../types/customerRequest';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
 

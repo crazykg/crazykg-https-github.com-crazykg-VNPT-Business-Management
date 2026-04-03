@@ -1,4 +1,4 @@
-import type { YeuCau } from '../../types';
+import type { YeuCau } from '../../types/customerRequest';
 import {
   resolveRequestProcessCode,
   type CustomerRequestRoleFilter,

@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { EmployeeFormModal } from '../components/Modals';
+import { EmployeeFormModal } from '../components/modals';
 import type { Department, Employee } from '../types';
 
 const departments: Department[] = [

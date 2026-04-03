@@ -22,7 +22,7 @@ import {
   exportImportFailureFile,
   rollbackImportedRows,
 } from '../utils/importValidation';
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals/projectImportTypes';
 import { createEmployeesBulk, deleteEmployee } from '../services/v5Api';
 
 interface UseImportEmployeesResult {

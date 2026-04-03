@@ -6,7 +6,7 @@ import {
   CannotDeleteModal,
   CannotDeleteProductModal,
   ViewDepartmentModal,
-} from '../components/Modals';
+} from '../components/modals';
 
 describe('Read-only and warning modals', () => {
   it('renders department detail modal through Modals re-export', () => {

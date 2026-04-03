@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { CustomerRequestEscalation } from '../../types';
+import type { CustomerRequestEscalation } from '../../types/customerRequest';
 
 type Props = {
   items: CustomerRequestEscalation[];

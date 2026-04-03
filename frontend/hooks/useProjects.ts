@@ -24,7 +24,7 @@ import type {
   ProjectItemImportBatchResult,
   ProjectRaciImportBatchGroup,
   ProjectRaciImportBatchResult,
-} from '../components/Modals';
+} from '../components/modals/projectImportTypes';
 
 interface UseProjectsReturn {
   projects: Project[];

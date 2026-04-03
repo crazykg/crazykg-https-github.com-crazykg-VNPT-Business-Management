@@ -46,7 +46,7 @@ vi.mock('../utils/importParser', () => ({
   parseImportFile: vi.fn(),
 }));
 
-vi.mock('../components/Modals', () => ({
+vi.mock('../components/modals', () => ({
   ModalWrapper: ({
     children,
     title,

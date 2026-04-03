@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchWorklogActivityTypes, uploadDocumentAttachment } from '../../services/v5Api';
-import type { Attachment, WorklogActivityTypeOption, YeuCauHoursReport } from '../../types';
+import { uploadDocumentAttachment } from '../../services/api/customerRequestApi';
+import { fetchWorklogActivityTypes } from '../../services/api/supportConfigApi';
+import type { WorklogActivityTypeOption } from '../../types/support';
+import type { Attachment, YeuCauHoursReport } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';

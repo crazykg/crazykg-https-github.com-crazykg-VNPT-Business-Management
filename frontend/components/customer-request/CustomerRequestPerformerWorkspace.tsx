@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { YeuCau, YeuCauPerformerWeeklyTimesheet } from '../../types';
+import type { YeuCau, YeuCauPerformerWeeklyTimesheet } from '../../types/customerRequest';
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { formatHoursValue } from './presentation';
 import { CustomerRequestWorkspaceCaseList } from './CustomerRequestWorkspaceCaseList';

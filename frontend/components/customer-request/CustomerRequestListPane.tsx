@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import type {
-  PaginationMeta,
-  SupportServiceGroup,
-  YeuCau,
-} from '../../types';
+import type { PaginationMeta } from '../../types/common';
+import type { SupportServiceGroup } from '../../types/support';
+import type { YeuCau } from '../../types/customerRequest';
 import { PaginationControls } from '../PaginationControls';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import {

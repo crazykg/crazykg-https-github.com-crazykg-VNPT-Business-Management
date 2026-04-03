@@ -7,7 +7,7 @@ import {
   FeedbackViewModal,
   ReminderFormModal,
   UserDeptHistoryFormModal,
-} from '../components/Modals';
+} from '../components/modals';
 import type { Department, Employee, FeedbackRequest } from '../types';
 
 const employees: Employee[] = [

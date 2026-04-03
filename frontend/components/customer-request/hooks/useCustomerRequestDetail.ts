@@ -4,7 +4,7 @@ import {
   fetchYeuCauTimeline,
   fetchYeuCauWorklogs,
   isRequestCanceledError,
-} from '../../../services/v5Api';
+} from '../../../services/api/customerRequestApi';
 import type {
   Attachment,
   YeuCauProcessDetail,
@@ -12,7 +12,7 @@ import type {
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
   YeuCauWorklog,
-} from '../../../types';
+} from '../../../types/customerRequest';
 import type { DraftState } from '../helpers';
 import {
   buildDraftFromFields,

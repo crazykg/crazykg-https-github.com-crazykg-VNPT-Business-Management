@@ -7,7 +7,7 @@
 
 import type * as React from 'react';
 import type { Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel, Project } from '../types';
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals/projectImportTypes';
 import {
   normalizeImportToken,
   normalizeImportDate,

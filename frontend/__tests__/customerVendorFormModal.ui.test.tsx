@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { CustomerFormModal, VendorFormModal } from '../components/Modals';
+import { CustomerFormModal, VendorFormModal } from '../components/modals';
 
 describe('Customer/Vendor form modals revenue-style', () => {
   it('renders the vendor modal with revenue-style helper section and footer actions', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inferCustomerSector, validateCustomerForm } from '../components/Modals';
+import { inferCustomerSector, validateCustomerForm } from '../components/modals';
 import { inferHealthcareFacilityType, normalizeCustomerSectorValue } from '../utils/customerClassification';
 
 describe('validateCustomerForm', () => {

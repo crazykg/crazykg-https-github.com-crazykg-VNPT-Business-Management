@@ -2,17 +2,15 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   Attachment,
-  Customer,
-  CustomerPersonnel,
   CustomerRequestReferenceSearchItem,
-  Employee,
-  ProjectItemMaster,
-  ProjectRaciRow,
-  SupportServiceGroup,
   YeuCauProcessDetail,
   YeuCauProcessField,
   YeuCauTimelineEntry,
-} from '../../types';
+} from '../../types/customerRequest';
+import type { Customer, CustomerPersonnel } from '../../types/customer';
+import type { Employee } from '../../types/employee';
+import type { ProjectItemMaster, ProjectRaciRow } from '../../types/project';
+import type { SupportServiceGroup } from '../../types/support';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';

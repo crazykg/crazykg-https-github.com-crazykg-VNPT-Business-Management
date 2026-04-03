@@ -1,5 +1,5 @@
 import React from 'react';
-import type { CRCFullDetail, YeuCau } from '../../types';
+import type { CRCFullDetail, YeuCau } from '../../types/customerRequest';
 import { resolveRequestStatusMeta, resolveStatusMeta } from './presentation';
 
 type CustomerRequestFullDetailProps = {

@@ -3,8 +3,8 @@ import {
   fetchWorkflowDefinitions,
   fetchDefaultWorkflowDefinition,
   isRequestCanceledError,
-} from '../../../services/v5Api';
-import type { WorkflowDefinition } from '../../../types';
+} from '../../../services/api/customerRequestApi';
+import type { WorkflowDefinition } from '../../../services/api/customerRequestApi';
 
 type UseWorkflowDefinitionsOptions = {
   enabled?: boolean;

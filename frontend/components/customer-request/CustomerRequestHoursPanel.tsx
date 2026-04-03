@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCau, YeuCauHoursReport } from '../../types';
+import type { YeuCau, YeuCauHoursReport } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import {
   formatHoursValue,

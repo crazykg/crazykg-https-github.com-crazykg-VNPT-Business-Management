@@ -1,11 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
   Attachment,
-  Customer,
-  CustomerPersonnel,
-  Employee,
-  ProjectItemMaster,
-  SupportServiceGroup,
   YeuCauEstimate,
   YeuCauHoursReport,
   YeuCauProcessDetail,
@@ -13,7 +8,11 @@ import type {
   YeuCauProcessMeta,
   YeuCauTimelineEntry,
   YeuCauWorklog,
-} from '../../types';
+} from '../../types/customerRequest';
+import type { Customer, CustomerPersonnel } from '../../types/customer';
+import type { Employee } from '../../types/employee';
+import type { ProjectItemMaster } from '../../types/project';
+import type { SupportServiceGroup } from '../../types/support';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';

@@ -3,7 +3,7 @@ import {
   useCRCList,
   useCRCPerformerWeeklyTimesheet,
 } from '../../../shared/hooks/useCustomerRequests';
-import { isRequestCanceledError } from '../../../services/v5Api';
+import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import { splitPerformerWorkspaceRows } from '../performerWorkspace';
 
 type UseCustomerRequestPerformerWorkspaceOptions = {

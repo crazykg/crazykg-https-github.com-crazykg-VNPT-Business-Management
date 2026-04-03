@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { CusPersonnelFormModal } from '../components/Modals';
+import { CusPersonnelFormModal } from '../components/modals';
 import type { Customer, CustomerPersonnel, SupportContactPosition } from '../types';
 
 const customers: Customer[] = [

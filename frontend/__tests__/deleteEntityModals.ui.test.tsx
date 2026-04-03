@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { DeleteEmployeeModal, DeleteWarningModal } from '../components/Modals';
+import { DeleteEmployeeModal, DeleteWarningModal } from '../components/modals';
 
 describe('Delete entity modals', () => {
   it('renders the department delete warning through Modals re-export', () => {

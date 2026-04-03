@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCauDashboardPayload } from '../../types';
+import type { YeuCauDashboardPayload } from '../../types/customerRequest';
 import type { WorkspaceTabKey } from './CustomerRequestWorkspaceTabs';
 import { CustomerRequestAttentionCard } from './CustomerRequestAttentionCard';
 import { useCustomerRequestResponsiveLayout } from './hooks/useCustomerRequestResponsiveLayout';

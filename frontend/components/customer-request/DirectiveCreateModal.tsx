@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createDirective } from '../../services/v5Api';
+import { createDirective } from '../../services/api/customerRequestApi';
 
 type Props = {
   onSave: () => void;

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useCRCDashboard } from '../../../shared/hooks/useCustomerRequests';
-import { isRequestCanceledError } from '../../../services/v5Api';
+import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 
 type UseCustomerRequestDashboardOptions = {
   canReadRequests: boolean;

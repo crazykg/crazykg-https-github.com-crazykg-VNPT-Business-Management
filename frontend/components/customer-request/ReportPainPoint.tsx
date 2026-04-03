@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { PainPointsData } from '../../types';
+import type { PainPointsData } from '../../types/customerRequest';
 
 type Props = {
   data: PainPointsData | null;

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type * as React from 'react';
 import type { Customer } from '../types';
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals/projectImportTypes';
 import { createCustomer, deleteCustomer } from '../services/v5Api';
 import { normalizeImportNumber, normalizeImportToken, isImportInfrastructureError } from '../utils/importUtils';
 import {

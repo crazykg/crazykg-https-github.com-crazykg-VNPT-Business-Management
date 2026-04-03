@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
-import { isRequestCanceledError } from '../../../services/v5Api';
+import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import { splitCreatorWorkspaceRows } from '../creatorWorkspace';
 
 type UseCustomerRequestCreatorWorkspaceOptions = {

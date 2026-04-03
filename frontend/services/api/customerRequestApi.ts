@@ -5,6 +5,7 @@ import type {
   PaginatedResult,
   PaginationMeta,
 } from '../../types/common';
+import type { WorkflowDefinition } from '../../types';
 import type { SupportRequestReceiverResult, SupportRequestTaskStatus } from '../../types/support';
 import type {
   CRCFullDetail,
@@ -40,6 +41,7 @@ import {
   DEFAULT_PAGINATION_META,
   DownloadFileResult,
   fetchList,
+  isRequestCanceledError,
   JSON_ACCEPT_HEADER,
   JSON_HEADERS,
   normalizeNullableNumber,
@@ -49,6 +51,7 @@ import {
   parseItemJson,
   resolveDownloadFilename,
 } from './_infra';
+import { uploadDocumentAttachment } from './documentApi';
 
 type ApiListResponse<T> = {
   data?: T[];
@@ -251,6 +254,50 @@ const normalizeSupportRequestTaskStatus = (value: unknown): SupportRequestTaskSt
     .toUpperCase();
 
   return SUPPORT_REQUEST_TASK_STATUS_ALIAS_MAP[token] || 'TODO';
+};
+
+export { DEFAULT_PAGINATION_META, isRequestCanceledError, uploadDocumentAttachment };
+export type { WorkflowDefinition } from '../../types';
+
+export const fetchWorkflowDefinitions = async (
+  processType = 'customer_request',
+  includeInactive = false
+): Promise<WorkflowDefinition[]> => {
+  const params = new URLSearchParams({
+    process_type: processType,
+    ...(includeInactive ? { include_inactive: '1' } : {}),
+  });
+
+  const res = await apiFetch(`/api/v5/workflow-definitions?${params.toString()}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `workflow-definitions:${processType}:${includeInactive ? 'all' : 'active'}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_WORKFLOW_DEFINITIONS_FAILED'));
+  }
+
+  const payload = (await res.json()) as { data?: WorkflowDefinition[] };
+  return Array.isArray(payload.data) ? payload.data : [];
+};
+
+export const fetchDefaultWorkflowDefinition = async (
+  processType = 'customer_request'
+): Promise<WorkflowDefinition | null> => {
+  const res = await apiFetch(`/api/v5/workflow-definitions/default?process_type=${encodeURIComponent(processType)}`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `workflow-definitions:default:${processType}`,
+  });
+
+  if (res.status === 404) {
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_DEFAULT_WORKFLOW_DEFINITION_FAILED'));
+  }
+
+  return parseItemJson<WorkflowDefinition>(res);
 };
 
 const buildCustomerRequestRequestPayload = (payload: Partial<CustomerRequest> & Record<string, unknown>) => {

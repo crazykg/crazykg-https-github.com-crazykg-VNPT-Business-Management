@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DmsPhase } from '../../types';
+import type { DmsPhase } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 
 type DmsProgressBarProps = {

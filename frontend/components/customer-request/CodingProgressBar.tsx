@@ -1,5 +1,5 @@
 import React from 'react';
-import type { CodingPhase } from '../../types';
+import type { CodingPhase } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 
 type CodingProgressBarProps = {

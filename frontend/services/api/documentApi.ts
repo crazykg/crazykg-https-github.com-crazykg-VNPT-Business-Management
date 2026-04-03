@@ -1,3 +1,4 @@
+import type { SendReminderEmailPayload, SendReminderEmailResult } from '../../types';
 import type { Attachment, PaginatedQuery, PaginatedResult } from '../../types/common';
 import type { Document, Reminder } from '../../types/document';
 import {
@@ -22,6 +23,78 @@ export const fetchReminders = async (): Promise<Reminder[]> => fetchList<Reminde
 
 export const fetchRemindersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Reminder>> =>
   fetchPaginatedList<Reminder>('/api/v5/reminders', query);
+
+export const createReminder = async (payload: Partial<Reminder>): Promise<Reminder> => {
+  const res = await apiFetch('/api/v5/reminders', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      id: payload.id,
+      reminder_title: payload.title,
+      content: payload.content,
+      remind_date: payload.remindDate,
+      assigned_to: payload.assignedToUserId,
+      created_at: payload.createdDate,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_REMINDER_FAILED'));
+  }
+
+  return parseItemJson<Reminder>(res);
+};
+
+export const updateReminder = async (id: string, payload: Partial<Reminder>): Promise<Reminder> => {
+  const res = await apiFetch(`/api/v5/reminders/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      reminder_title: payload.title,
+      content: payload.content,
+      remind_date: payload.remindDate,
+      assigned_to: payload.assignedToUserId,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_REMINDER_FAILED'));
+  }
+
+  return parseItemJson<Reminder>(res);
+};
+
+export const deleteReminder = async (id: string): Promise<void> => {
+  const res = await apiFetch(`/api/v5/reminders/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_REMINDER_FAILED'));
+  }
+};
+
+export const sendReminderEmail = async (
+  reminderId: string,
+  payload: SendReminderEmailPayload
+): Promise<SendReminderEmailResult> => {
+  const res = await apiFetch(`/api/v5/reminders/${encodeURIComponent(reminderId)}/send-email`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ recipient_email: normalizeNullableText(payload.recipient_email) }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SEND_REMINDER_EMAIL_FAILED'));
+  }
+
+  return res.json() as Promise<SendReminderEmailResult>;
+};
 
 export const createDocument = async (payload: Partial<Document>): Promise<Document> => {
   const normalizedProductIds = Array.from(

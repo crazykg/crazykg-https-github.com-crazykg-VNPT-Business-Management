@@ -13,18 +13,16 @@ import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
-import type {
-  Attachment,
-  Customer,
-  CustomerPersonnel,
-  Employee,
-  ProjectItemMaster,
-  SupportServiceGroup,
-  YeuCauProcessField,
-} from '../../types';
+import type { Attachment, YeuCauProcessField } from '../../types/customerRequest';
+import type { Customer, CustomerPersonnel } from '../../types/customer';
+import type { Employee } from '../../types/employee';
+import type { ProjectItemMaster } from '../../types/project';
+import type { SupportServiceGroup } from '../../types/support';
 import type { CustomerRequestCreateFlowDraft } from './createFlow';
-import { getWorkflows } from '../../services/workflowApi';
-import type { WorkflowDefinition } from '../../shared/stores/workflowStore';
+import {
+  fetchWorkflowDefinitions,
+  type WorkflowDefinition,
+} from '../../services/api/customerRequestApi';
 
 type CustomerRequestCreateModalProps = {
   /* master form fields */
@@ -120,14 +118,14 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
     const loadWorkflows = async () => {
       try {
         setIsLoadingWorkflows(true);
-        const res = await getWorkflows('customer_request', false);
-        setWorkflows(res.data || []);
-        
+        const workflowRows = await fetchWorkflowDefinitions('customer_request', false);
+        setWorkflows(workflowRows || []);
+
         // Set default workflow if not selected
         if (workflowDefinitionId === undefined || workflowDefinitionId === null) {
           // Prefer default workflow, fallback to first active workflow
-          const defaultWorkflow = res.data?.find(w => w.is_default);
-          const activeWorkflow = res.data?.find(w => w.is_active);
+          const defaultWorkflow = workflowRows?.find((w) => w.is_default);
+          const activeWorkflow = workflowRows?.find((w) => w.is_active);
           const workflowToSelect = defaultWorkflow ?? activeWorkflow;
           if (workflowToSelect && onWorkflowDefinitionIdChange) {
             onWorkflowDefinitionIdChange(workflowToSelect.id);

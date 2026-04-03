@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { YeuCauDashboardPayload } from '../../types';
+import type { YeuCauDashboardPayload } from '../../types/customerRequest';
 import {
   LIST_KPI_STATUSES,
   ROLE_DASHBOARD_META,

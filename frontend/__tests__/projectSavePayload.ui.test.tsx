@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectFormModal } from '../components/Modals';
+import { ProjectFormModal } from '../components/modals';
 import type { ProcedureTemplate, Project } from '../types';
 
 const PROJECT_FORM_SUBMIT_TIMEOUT_MS = 16000;

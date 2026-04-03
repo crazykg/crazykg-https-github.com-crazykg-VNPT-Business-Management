@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import type { YeuCau } from '../../types';
+import type { YeuCau } from '../../types/customerRequest';
 
 type CustomerRequestDetailFrameProps = {
   mode: 'inline' | 'drawer' | 'modal';

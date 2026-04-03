@@ -101,11 +101,27 @@ const AccessControlList = lazy(() =>
   import('./components/AccessControlList').then((module) => ({ default: module.AccessControlList }))
 );
 
+type CustomerRequestHubContext = {
+  customers: Customer[];
+  customerPersonnel: CustomerPersonnel[];
+  projectItems: ProjectItemMaster[];
+  employees: Employee[];
+  supportServiceGroups: SupportServiceGroup[];
+  currentUserId: string | number | null;
+  isAdminViewer: boolean;
+  canImportRequests: boolean;
+  canExportRequests: boolean;
+  canReadRequests: boolean;
+  canWriteRequests: boolean;
+  canDeleteRequests: boolean;
+};
+
 export interface AppPagesProps {
   activeTab: string;
   authUser: AuthUser | null;
   activeInternalUserSubTab: InternalUserSubTab;
   setInternalUserSubTab: (tab: InternalUserSubTab) => void;
+  customerRequestHubContext: CustomerRequestHubContext;
 
   // Handlers
   handleOpenModal: (type: ModalType, item?: any) => void;
@@ -344,6 +360,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   authUser,
   activeInternalUserSubTab,
   setInternalUserSubTab,
+  customerRequestHubContext,
   handleOpenModal,
   addToast,
   departments,
@@ -602,24 +619,18 @@ export const AppPages: React.FC<AppPagesProps> = ({
 
       {activeTab === 'customer_request_management' && (
         <CustomerRequestManagementHub
-          customers={customers}
-          customerPersonnel={cusPersonnel}
-          projectItems={projectItems}
-          employees={employees}
-          supportServiceGroups={supportServiceGroups}
-          currentUserId={authUser?.id ?? null}
-          isAdminViewer={Boolean(
-            authUser
-            && (
-              (authUser.roles || []).map((role) => String(role).toUpperCase()).includes('ADMIN')
-              || (authUser.permissions || []).includes('*')
-            )
-          )}
-          canImportRequests={hasPermission(authUser, 'support_requests.import')}
-          canExportRequests={hasPermission(authUser, 'support_requests.export')}
-          canReadRequests={hasPermission(authUser, 'support_requests.read')}
-          canWriteRequests={hasPermission(authUser, 'support_requests.write')}
-          canDeleteRequests={hasPermission(authUser, 'support_requests.delete')}
+          customers={customerRequestHubContext.customers}
+          customerPersonnel={customerRequestHubContext.customerPersonnel}
+          projectItems={customerRequestHubContext.projectItems}
+          employees={customerRequestHubContext.employees}
+          supportServiceGroups={customerRequestHubContext.supportServiceGroups}
+          currentUserId={customerRequestHubContext.currentUserId}
+          isAdminViewer={customerRequestHubContext.isAdminViewer}
+          canImportRequests={customerRequestHubContext.canImportRequests}
+          canExportRequests={customerRequestHubContext.canExportRequests}
+          canReadRequests={customerRequestHubContext.canReadRequests}
+          canWriteRequests={customerRequestHubContext.canWriteRequests}
+          canDeleteRequests={customerRequestHubContext.canDeleteRequests}
           onNotify={addToast}
         />
       )}

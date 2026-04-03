@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { createEscalation } from '../../services/v5Api';
+import { createEscalation } from '../../services/api/customerRequestApi';
 
 type Props = {
   onSave: () => void;

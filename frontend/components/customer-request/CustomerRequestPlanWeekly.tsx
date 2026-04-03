@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { CustomerRequestPlan, CustomerRequestPlanItem } from '../../types';
+import type { CustomerRequestPlan, CustomerRequestPlanItem } from '../../types/customerRequest';
 
 const ACTUAL_STATUS_META: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Chờ', cls: 'bg-slate-100 text-slate-600' },

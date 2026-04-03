@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { YeuCauEstimate, YeuCauHoursReport } from '../../types';
+import type { YeuCauEstimate, YeuCauHoursReport } from '../../types/customerRequest';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
 

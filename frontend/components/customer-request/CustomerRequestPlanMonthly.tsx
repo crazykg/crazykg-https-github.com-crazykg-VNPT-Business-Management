@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { CustomerRequestPlan, CustomerRequestPlanItem } from '../../types';
+import type { CustomerRequestPlan, CustomerRequestPlanItem } from '../../types/customerRequest';
 import { resolveStaticStatusMeta } from './presentation';
 
 const ACTUAL_STATUS_META: Record<string, { label: string; cls: string }> = {

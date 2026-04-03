@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_PAGINATION_META, fetchYeuCauPage, isRequestCanceledError } from '../../../services/v5Api';
-import type { PaginationMeta, YeuCau } from '../../../types';
+import { DEFAULT_PAGINATION_META, fetchYeuCauPage, isRequestCanceledError } from '../../../services/api/customerRequestApi';
+import type { PaginationMeta } from '../../../types/common';
+import type { YeuCau } from '../../../types/customerRequest';
 
 const transformYeuCau = (yc: YeuCau): YeuCau => yc;
 

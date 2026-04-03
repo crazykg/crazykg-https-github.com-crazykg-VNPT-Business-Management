@@ -1,5 +1,5 @@
 import React from 'react';
-import type { YeuCauSearchItem } from '../../types';
+import type { YeuCauSearchItem } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { resolveStatusMeta } from './presentation';
 

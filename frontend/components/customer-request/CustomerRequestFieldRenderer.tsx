@@ -1,12 +1,9 @@
 import React, { useMemo } from 'react';
-import type {
-  Customer,
-  CustomerPersonnel,
-  Employee,
-  ProjectItemMaster,
-  SupportServiceGroup,
-  YeuCauProcessField,
-} from '../../types';
+import type { YeuCauProcessField } from '../../types/customerRequest';
+import type { Customer, CustomerPersonnel } from '../../types/customer';
+import type { Employee } from '../../types/employee';
+import type { ProjectItemMaster } from '../../types/project';
+import type { SupportServiceGroup } from '../../types/support';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import {
   combineDateWithExistingTime,

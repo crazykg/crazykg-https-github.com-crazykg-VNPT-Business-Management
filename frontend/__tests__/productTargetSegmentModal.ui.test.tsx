@@ -15,7 +15,7 @@ vi.mock('../services/api/productApi', () => ({
   syncProductTargetSegments: apiSpies.syncProductTargetSegments,
 }));
 
-vi.mock('../components/Modals', () => ({
+vi.mock('../components/modals', () => ({
   ModalWrapper: ({
     children,
     title,

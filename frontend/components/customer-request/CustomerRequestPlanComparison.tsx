@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { CustomerRequestPlanItem } from '../../types';
+import type { CustomerRequestPlanItem } from '../../types/customerRequest';
 
 type CustomerRequestPlanComparisonProps = {
   items: CustomerRequestPlanItem[];

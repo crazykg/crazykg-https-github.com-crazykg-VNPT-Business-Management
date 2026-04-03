@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useState } from 'react';
-import { fetchYeuCauSearch, isRequestCanceledError } from '../../../services/v5Api';
-import type { YeuCauSearchItem } from '../../../types';
+import { fetchYeuCauSearch, isRequestCanceledError } from '../../../services/api/customerRequestApi';
+import type { YeuCauSearchItem } from '../../../types/customerRequest';
 
 type UseCustomerRequestSearchOptions = {
   canReadRequests: boolean;

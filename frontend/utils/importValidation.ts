@@ -5,7 +5,7 @@
  * building failure reports, and handling import errors.
  */
 
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals/projectImportTypes';
 import { downloadExcelWorkbook } from './excelTemplate';
 import { normalizeImportToken } from './importUtils';
 

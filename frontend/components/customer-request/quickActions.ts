@@ -1,4 +1,4 @@
-import type { YeuCauProcessMeta } from '../../types';
+import type { YeuCauProcessMeta } from '../../types/customerRequest';
 import { normalizeText } from './helpers';
 import {
   PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,

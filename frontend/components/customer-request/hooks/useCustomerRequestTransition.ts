@@ -3,15 +3,15 @@ import {
   fetchYeuCauTimeline,
   transitionCustomerRequestCase,
   uploadDocumentAttachment,
-} from '../../../services/v5Api';
+} from '../../../services/api/customerRequestApi';
+import type { ProjectRaciRow } from '../../../types/project';
 import type {
   Attachment,
-  ProjectRaciRow,
   YeuCauProcessDetail,
   YeuCauProcessMeta,
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
-} from '../../../types';
+} from '../../../types/customerRequest';
 import {
   type DraftState,
   buildPayloadFromDraft,

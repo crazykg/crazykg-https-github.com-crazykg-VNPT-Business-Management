@@ -3,7 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Customer } from '../types';
-import type { ImportPayload } from '../components/Modals';
+import type { ImportPayload } from '../components/modals';
 import { useImportCustomers } from '../hooks/useImportCustomers';
 import { createCustomer, deleteCustomer } from '../services/v5Api';
 

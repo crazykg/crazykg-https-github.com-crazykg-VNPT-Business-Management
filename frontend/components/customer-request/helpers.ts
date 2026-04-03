@@ -1,10 +1,10 @@
 import type {
-  SupportRequestTaskStatus,
   YeuCauProcessCatalog,
   YeuCauProcessField,
   YeuCauProcessMeta,
   YeuCauRefTaskRow,
-} from '../../types';
+} from '../../types/customerRequest';
+import type { SupportRequestTaskStatus } from '../../types/support';
 import type { CustomerRequestTaskSource, It360TaskFormRow, ReferenceTaskFormRow } from './presentation';
 
 export type DraftState = Record<string, unknown>;
