@@ -146,6 +146,7 @@ export const queryKeys = {
     all: ['integration-settings'] as const,
     backblazeB2: () => ['integration-settings', 'backblaze-b2'] as const,
     googleDrive: () => ['integration-settings', 'google-drive'] as const,
+    emailSmtp: () => ['integration-settings', 'email-smtp'] as const,
     contractExpiryAlert: () => ['integration-settings', 'contract-expiry-alert'] as const,
     contractPaymentAlert: () => ['integration-settings', 'contract-payment-alert'] as const,
   },

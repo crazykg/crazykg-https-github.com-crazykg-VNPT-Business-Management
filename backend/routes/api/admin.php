@@ -53,6 +53,8 @@ Route::post('/utilities/contract-renewal-settings/recalculate', [IntegrationSett
     ->middleware('permission:authz.manage');
 Route::get('/reminders', [IntegrationSettingsController::class, 'reminders'])
     ->middleware('permission:reminders.read');
+Route::post('/reminders/{id}/send-email', [IntegrationSettingsController::class, 'sendReminderEmail'])
+    ->middleware('permission:reminders.write');
 Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
     ->middleware('permission:user_dept_history.read');
 Route::get('/user_dept_history', [IntegrationSettingsController::class, 'userDeptHistory'])

@@ -111,3 +111,19 @@ VALUES
 # Import toàn bộ 197 requests
 "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -h localhost -u root -proot vnpt_business_db --default-character-set=utf8mb4 < database/sql-patches/2026-04-02_import_danh_sach_yeu_cau/2026-04-02_02_insert_requests.sql
 ```
+
+================================================================================
+LƯU Ý QUAN TRỌNG
+================================================================================
+
+LUÔN sử dụng --default-character-set=utf8mb4 khi chạy MySQL scripts để tránh lỗi encoding UTF-8.
+
+Ví dụ đúng:
+  mysql -h localhost -u root -proot vnpt_business_db --default-character-set=utf8mb4 < script.sql
+
+Hoặc trong MySQL CLI:
+  SET NAMES utf8mb4;
+  SET CHARACTER SET utf8mb4;
+  SOURCE path/to/script.sql;
+
+================================================================================

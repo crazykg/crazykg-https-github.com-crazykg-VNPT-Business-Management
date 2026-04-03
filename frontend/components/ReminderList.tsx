@@ -7,13 +7,71 @@ interface ReminderListProps {
   reminders: Reminder[];
   employees: Employee[];
   onOpenModal: (type: ModalType, item?: Reminder) => void;
+  canSendReminderEmail: boolean;
+  onSendReminderEmail: (item: Reminder, recipientEmail: string) => Promise<void>;
 }
 
 type FilterType = 'ALL' | 'TODAY' | 'UPCOMING' | 'OVERDUE';
 
-export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], employees = [], onOpenModal }) => {
+export const ReminderList: React.FC<ReminderListProps> = ({
+  reminders = [],
+  employees = [],
+  onOpenModal,
+  canSendReminderEmail,
+  onSendReminderEmail,
+}) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedReminderForMail, setSelectedReminderForMail] = useState<Reminder | null>(null);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const isGmailAddress = (email: string) => /@gmail\.com$/i.test(email.trim());
+
+  const handleOpenSendEmail = (item: Reminder) => {
+    setSelectedReminderForMail(item);
+    setRecipientEmail('');
+    setEmailError('');
+  };
+
+  const handleCloseSendEmail = () => {
+    if (isSendingEmail) {
+      return;
+    }
+    setSelectedReminderForMail(null);
+    setRecipientEmail('');
+    setEmailError('');
+  };
+
+  const handleSubmitSendEmail = async () => {
+    if (!selectedReminderForMail) {
+      return;
+    }
+
+    const normalizedEmail = recipientEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setEmailError('Vui lòng nhập email người nhận.');
+      return;
+    }
+    if (!isGmailAddress(normalizedEmail)) {
+      setEmailError('Chỉ hỗ trợ email Gmail (@gmail.com).');
+      return;
+    }
+
+    try {
+      setIsSendingEmail(true);
+      setEmailError('');
+      await onSendReminderEmail(selectedReminderForMail, normalizedEmail);
+      setSelectedReminderForMail(null);
+      setRecipientEmail('');
+      setEmailError('');
+    } catch (error) {
+      setEmailError(error instanceof Error ? error.message : 'Gửi email thất bại.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const getEmployeeName = (id: string) => {
     const employee = (employees || []).find(e => String(e.id) === String(id));
@@ -111,6 +169,15 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
                       <span className="material-symbols-outlined" style={{ fontSize: 16 }}>notifications_active</span>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {canSendReminderEmail && (
+                        <button
+                          onClick={() => handleOpenSendEmail(item)}
+                          className="p-1.5 text-neutral hover:text-secondary hover:bg-secondary/10 rounded-lg transition-all"
+                          title="Gửi mail"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>mail</span>
+                        </button>
+                      )}
                       <button onClick={() => onOpenModal('EDIT_REMINDER', item)} className="p-1.5 text-neutral hover:text-primary hover:bg-surface-variant rounded-lg transition-all"><span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
                       <button onClick={() => onOpenModal('DELETE_REMINDER', item)} className="p-1.5 text-neutral hover:text-error hover:bg-error/10 rounded-lg transition-all"><span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
                     </div>
@@ -142,6 +209,61 @@ export const ReminderList: React.FC<ReminderListProps> = ({ reminders = [], empl
           </div>
         )}
       </div>
+
+      {selectedReminderForMail && (
+        <div className="fixed inset-0 z-[120] bg-black/35 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl bg-white border border-slate-200 shadow-xl">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-on-surface">Gửi mail nhắc việc</h3>
+              <button
+                onClick={handleCloseSendEmail}
+                disabled={isSendingEmail}
+                className="p-1 text-neutral hover:text-on-surface rounded"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <p className="text-xs text-on-surface-variant">
+                Nhắc việc: <span className="font-semibold text-on-surface">{selectedReminderForMail.title}</span>
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface mb-1">Email người nhận (Gmail)</label>
+                <input
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => {
+                    setRecipientEmail(e.target.value);
+                    if (emailError) {
+                      setEmailError('');
+                    }
+                  }}
+                  placeholder="example@gmail.com"
+                  className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-xs"
+                  disabled={isSendingEmail}
+                />
+                {emailError && <p className="mt-1 text-[11px] text-error">{emailError}</p>}
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                onClick={handleCloseSendEmail}
+                disabled={isSendingEmail}
+                className="h-8 px-3 text-xs rounded-lg border border-slate-300 text-on-surface hover:bg-slate-50"
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={handleSubmitSendEmail}
+                disabled={isSendingEmail}
+                className="h-8 px-3 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {isSendingEmail ? 'Đang gửi...' : 'Gửi mail'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

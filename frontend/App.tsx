@@ -21,6 +21,8 @@ import {
   PaymentScheduleConfirmationPayload, HRStatistics, SupportServiceGroup, SupportContactPosition,
   SupportRequestStatusOption, SupportSlaConfigOption, AuthUser, EmployeeProvisioning, Role,
   Permission, UserAccessRecord, BackblazeB2IntegrationSettings, GoogleDriveIntegrationSettings,
+  EmailSmtpIntegrationSettings, EmailSmtpIntegrationSettingsUpdatePayload,
+  SendReminderEmailResult,
   ContractExpiryAlertSettings, ContractPaymentAlertSettings, BackblazeB2IntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettingsUpdatePayload, ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettingsUpdatePayload, PaginatedQuery, PaginationMeta, WorklogActivityTypeOption,
@@ -36,9 +38,10 @@ import {
   fetchDepartments, fetchEmployees, fetchBusinesses, fetchVendors, fetchProducts, fetchCustomers,
   fetchCustomerPersonnel, fetchProjects, fetchProjectItems, fetchContracts, fetchPaymentSchedules,
   fetchDocuments, fetchReminders, fetchUserDeptHistory, fetchAuditLogs, fetchSupportServiceGroups,
+  sendReminderEmail,
   fetchSupportContactPositions, fetchSupportRequestStatuses, fetchProjectTypes, fetchWorklogActivityTypes,
   fetchSupportSlaConfigs, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
-  fetchGoogleDriveIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
+  fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
   fetchFeedbacksPage, fetchEmployeesPage, fetchCustomersPage, fetchProjectsPage,
   fetchContractsPage, fetchDocumentsPage, fetchAuditLogsPage, createFeedback, updateFeedback, deleteFeedback,
   createSupportServiceGroup, createSupportServiceGroupsBulk, updateSupportServiceGroup,
@@ -47,8 +50,9 @@ import {
   createProjectType, updateProjectType, createWorklogActivityType, updateWorklogActivityType,
   createSupportSlaConfig, updateSupportSlaConfig, updateUserAccessRoles, updateUserAccessPermissions,
   updateUserAccessDeptScopes, updateBackblazeB2IntegrationSettings, updateGoogleDriveIntegrationSettings,
+  updateEmailSmtpIntegrationSettings,
   updateContractExpiryAlertSettings, updateContractPaymentAlertSettings, testBackblazeB2IntegrationSettings,
-  testGoogleDriveIntegrationSettings, generateContractPayments, updatePaymentSchedule,
+  testGoogleDriveIntegrationSettings, testEmailSmtpIntegrationSettings, generateContractPayments, updatePaymentSchedule,
   createContract, updateContract, deleteContract,
   createDepartment, updateDepartment, deleteDepartment, createEmployeeWithProvisioning, updateEmployee,
   deleteEmployee, resetEmployeePassword, createBusiness, updateBusiness, deleteBusiness,
@@ -156,6 +160,7 @@ const App: React.FC = () => {
   const [userAccessRecords, setUserAccessRecords] = useState<UserAccessRecord[]>([]);
   const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
+  const [emailSmtpSettings, setEmailSmtpSettings] = useState<EmailSmtpIntegrationSettings | null>(null);
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
 
@@ -219,6 +224,9 @@ const App: React.FC = () => {
   const [isGoogleDriveSettingsLoading, setIsGoogleDriveSettingsLoading] = useState(false);
   const [isGoogleDriveSettingsSaving, setIsGoogleDriveSettingsSaving] = useState(false);
   const [isGoogleDriveSettingsTesting, setIsGoogleDriveSettingsTesting] = useState(false);
+  const [isEmailSmtpSettingsLoading, setIsEmailSmtpSettingsLoading] = useState(false);
+  const [isEmailSmtpSettingsSaving, setIsEmailSmtpSettingsSaving] = useState(false);
+  const [isEmailSmtpSettingsTesting, setIsEmailSmtpSettingsTesting] = useState(false);
   const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
   const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
   const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
@@ -972,6 +980,10 @@ const App: React.FC = () => {
             auditLogsPageRows={auditLogsPageRows} auditLogsPageMeta={auditLogsPageMeta} auditLogsPageLoading={auditLogsPageLoading} handleAuditLogsPageQueryChange={handleAuditLogsPageQueryChange}
             feedbacksPageRows={feedbacksPageRows} feedbacksPageMeta={feedbacksPageMeta} feedbacksPageLoading={feedbacksPageLoading} handleFeedbacksPageQueryChange={handleFeedbacksPageQueryChange}
             handleCreateContractFromProject={(project) => setModalType('ADD_CONTRACT')} handleOpenProcedure={(project) => setProcedureProject(project)}
+            onSendReminderEmail={async (reminderId, recipientEmail): Promise<SendReminderEmailResult> => {
+              const result = await sendReminderEmail(String(reminderId), { recipient_email: recipientEmail });
+              return result;
+            }}
             exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds} exportContractsByCurrentQuery={exportContractsByCurrentQuery}
             handleCreateSupportServiceGroup={async (d) => { const c = await createSupportServiceGroup(d); setSupportServiceGroups((p) => [c, ...p]); return c; }}
             handleUpdateSupportServiceGroup={async (id, d) => { const u = await updateSupportServiceGroup(id, d); setSupportServiceGroups((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
@@ -993,18 +1005,21 @@ const App: React.FC = () => {
             handleBulkUpdateAccessScopes={async () => {}}
             handleUpdateAccessPermissions={async (uid, o) => { const u = await updateUserAccessPermissions(uid, o); setUserAccessRecords((p) => p.map((i) => (Number(i.user.id) === Number(u.user.id) ? u : i))); }}
             handleUpdateAccessScopes={async (uid, s) => { const u = await updateUserAccessDeptScopes(uid, s); setUserAccessRecords((p) => p.map((i) => (Number(i.user.id) === Number(u.user.id) ? u : i))); }}
-            backblazeB2Settings={backblazeB2Settings} googleDriveSettings={googleDriveSettings} contractExpiryAlertSettings={contractExpiryAlertSettings} contractPaymentAlertSettings={contractPaymentAlertSettings}
-            isBackblazeB2SettingsLoading={isBackblazeB2SettingsLoading} isGoogleDriveSettingsLoading={isGoogleDriveSettingsLoading} isContractExpiryAlertSettingsLoading={isContractExpiryAlertSettingsLoading}
+            backblazeB2Settings={backblazeB2Settings} googleDriveSettings={googleDriveSettings} emailSmtpSettings={emailSmtpSettings} contractExpiryAlertSettings={contractExpiryAlertSettings} contractPaymentAlertSettings={contractPaymentAlertSettings}
+            isBackblazeB2SettingsLoading={isBackblazeB2SettingsLoading} isGoogleDriveSettingsLoading={isGoogleDriveSettingsLoading} isEmailSmtpSettingsLoading={isEmailSmtpSettingsLoading} isContractExpiryAlertSettingsLoading={isContractExpiryAlertSettingsLoading}
             isContractPaymentAlertSettingsLoading={isContractPaymentAlertSettingsLoading} isGoogleDriveSettingsSaving={isGoogleDriveSettingsSaving} isGoogleDriveSettingsTesting={isGoogleDriveSettingsTesting}
-            isBackblazeB2SettingsSaving={isBackblazeB2SettingsSaving} isBackblazeB2SettingsTesting={isBackblazeB2SettingsTesting} isContractExpiryAlertSettingsSaving={isContractExpiryAlertSettingsSaving}
+            isBackblazeB2SettingsSaving={isBackblazeB2SettingsSaving} isBackblazeB2SettingsTesting={isBackblazeB2SettingsTesting} isEmailSmtpSettingsSaving={isEmailSmtpSettingsSaving} isEmailSmtpSettingsTesting={isEmailSmtpSettingsTesting}
+            isContractExpiryAlertSettingsSaving={isContractExpiryAlertSettingsSaving}
             isContractPaymentAlertSettingsSaving={isContractPaymentAlertSettingsSaving}
-            refreshIntegrationSettings={async () => { const [b, g, ce, cp] = await Promise.all([fetchBackblazeB2IntegrationSettings(), fetchGoogleDriveIntegrationSettings(), fetchContractExpiryAlertSettings(), fetchContractPaymentAlertSettings()]); setBackblazeB2Settings(b); setGoogleDriveSettings(g); setContractExpiryAlertSettings(ce); setContractPaymentAlertSettings(cp); }}
+            refreshIntegrationSettings={async () => { const [b, g, e, ce, cp] = await Promise.all([fetchBackblazeB2IntegrationSettings(), fetchGoogleDriveIntegrationSettings(), fetchEmailSmtpIntegrationSettings(), fetchContractExpiryAlertSettings(), fetchContractPaymentAlertSettings()]); setBackblazeB2Settings(b); setGoogleDriveSettings(g); setEmailSmtpSettings(e); setContractExpiryAlertSettings(ce); setContractPaymentAlertSettings(cp); }}
             handleSaveBackblazeB2Settings={async (p) => { const u = await updateBackblazeB2IntegrationSettings(p); setBackblazeB2Settings(u); }}
             handleSaveGoogleDriveSettings={async (p) => { const u = await updateGoogleDriveIntegrationSettings(p); setGoogleDriveSettings(u); }}
+            handleSaveEmailSmtpSettings={async (p) => { const u = await updateEmailSmtpIntegrationSettings(p); setEmailSmtpSettings(u); }}
             handleSaveContractExpiryAlertSettings={async (p) => { const u = await updateContractExpiryAlertSettings(p); setContractExpiryAlertSettings(u); loadContractsPage(); }}
             handleSaveContractPaymentAlertSettings={async (p) => { const u = await updateContractPaymentAlertSettings(p); setContractPaymentAlertSettings(u); loadContractsPage(); }}
             handleTestBackblazeB2Integration={async (p) => { const r = await testBackblazeB2IntegrationSettings(p); addToast('success', 'Kết nối Backblaze B2', r.message || 'Kết nối thành công.'); return r; }}
             handleTestGoogleDriveIntegration={async (p) => { const r = await testGoogleDriveIntegrationSettings(p); addToast('success', 'Kết nối Google Drive', r.message || 'Kết nối thành công.'); return r; }}
+            handleTestEmailSmtpIntegration={async (p) => { const r = await testEmailSmtpIntegrationSettings(p); addToast('success', 'Kết nối Email SMTP', r.message || 'Kết nối thành công.'); return r; }}
           />
         </Suspense>
       </main>

@@ -18,6 +18,7 @@ class IntegrationSettingsOperationsService
 
     public function __construct(
         private readonly V5DomainSupportService $support,
+        private readonly EmailSmtpIntegrationService $emailSmtp,
     ) {}
 
     public function reminders(Request $request): JsonResponse
@@ -91,6 +92,69 @@ class IntegrationSettingsOperationsService
         }
 
         return response()->json(['data' => $serializeRows($query->get())]);
+    }
+
+    public function sendReminderEmail(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'recipient_email' => ['required', 'email', 'max:255'],
+        ]);
+
+        $recipientEmail = strtolower(trim((string) $validated['recipient_email']));
+        if (! str_ends_with($recipientEmail, '@gmail.com')) {
+            return response()->json([
+                'message' => 'Chỉ hỗ trợ gửi tới địa chỉ Gmail (@gmail.com).',
+            ], 422);
+        }
+
+        if (! $this->support->hasTable('reminders')) {
+            return $this->support->missingTable('reminders');
+        }
+
+        $selectColumns = $this->support->selectColumns('reminders', [
+            'id',
+            'reminder_title',
+            'content',
+            'remind_date',
+            'assigned_to',
+            'status',
+            'created_at',
+        ]);
+        if (! in_array('id', $selectColumns, true)) {
+            $selectColumns[] = 'id';
+        }
+
+        $reminder = DB::table('reminders')
+            ->select($selectColumns)
+            ->where('id', $id)
+            ->first();
+
+        if ($reminder === null) {
+            return response()->json([
+                'message' => 'Không tìm thấy nhắc việc.',
+            ], 404);
+        }
+
+        $row = (array) $reminder;
+        $mailResult = $this->emailSmtp->sendReminderEmail($row, $recipientEmail);
+
+        if (! ($mailResult['success'] ?? false)) {
+            return response()->json([
+                'message' => $mailResult['message'] ?? 'Không thể gửi email nhắc việc.',
+            ], 422);
+        }
+
+        return response()->json([
+            'status' => 'SENT',
+            'message' => $mailResult['message'] ?? 'Đã gửi email nhắc việc.',
+            'recipient_email' => $recipientEmail,
+            'sent_at' => $mailResult['sent_at'] ?? now()->toIso8601String(),
+            'reminder' => [
+                'id' => (string) ($row['id'] ?? ''),
+                'title' => (string) ($row['reminder_title'] ?? ''),
+                'remindDate' => $this->formatDateColumn($row['remind_date'] ?? null) ?? '',
+            ],
+        ]);
     }
 
     public function userDeptHistory(Request $request): JsonResponse
