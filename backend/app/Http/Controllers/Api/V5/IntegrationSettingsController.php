@@ -73,6 +73,21 @@ class IntegrationSettingsController extends V5BaseController
         return $this->service->reminders($request);
     }
 
+    public function storeReminder(Request $request): JsonResponse
+    {
+        return $this->service->storeReminder($request);
+    }
+
+    public function updateReminder(Request $request, string $id): JsonResponse
+    {
+        return $this->service->updateReminder($request, $id);
+    }
+
+    public function destroyReminder(string $id): JsonResponse
+    {
+        return $this->service->destroyReminder($id);
+    }
+
     public function userDeptHistory(Request $request): JsonResponse
     {
         return $this->service->userDeptHistory($request);

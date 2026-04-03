@@ -55,19 +55,7 @@ class IntegrationSettingsOperationsService
         }
 
         $serializeRows = fn ($items) => collect($items)
-            ->map(function (object $item): array {
-                $row = (array) $item;
-
-                return [
-                    'id' => (string) ($row['id'] ?? ''),
-                    'title' => (string) ($row['reminder_title'] ?? ''),
-                    'content' => (string) ($row['content'] ?? ''),
-                    'remindDate' => $this->formatDateColumn($row['remind_date'] ?? null) ?? '',
-                    'assignedToUserId' => (string) ($row['assigned_to'] ?? ''),
-                    'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
-                    'status' => strtoupper((string) ($row['status'] ?? 'ACTIVE')),
-                ];
-            })
+            ->map(fn (object $item): array => $this->serializeReminderRow((array) $item))
             ->values();
 
         if ($this->support->shouldPaginate($request)) {
@@ -92,6 +80,155 @@ class IntegrationSettingsOperationsService
         }
 
         return response()->json(['data' => $serializeRows($query->get())]);
+    }
+
+    public function storeReminder(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('reminders')) {
+            return $this->support->missingTable('reminders');
+        }
+
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'content' => ['nullable', 'string'],
+            'remind_date' => ['required', 'date'],
+            'assigned_to' => ['required'],
+            'status' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $assignedTo = $this->support->parseNullableInt($validated['assigned_to'] ?? null);
+        if ($assignedTo === null) {
+            return response()->json([
+                'message' => 'assigned_to không hợp lệ.',
+            ], 422);
+        }
+
+        $now = now();
+        $payload = [
+            'reminder_title' => trim((string) $validated['title']),
+            'content' => $this->support->normalizeNullableString($validated['content'] ?? null),
+            'remind_date' => (string) $validated['remind_date'],
+            'assigned_to' => $assignedTo,
+            'status' => strtoupper(trim((string) ($validated['status'] ?? 'ACTIVE'))),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        $insertPayload = $this->support->filterPayloadByTableColumns('reminders', $payload);
+        $insertId = DB::table('reminders')->insertGetId($insertPayload);
+
+        $reminder = DB::table('reminders')
+            ->select($this->support->selectColumns('reminders', [
+                'id',
+                'reminder_title',
+                'content',
+                'remind_date',
+                'assigned_to',
+                'status',
+                'created_at',
+            ]))
+            ->where('id', $insertId)
+            ->first();
+
+        return response()->json([
+            'data' => $this->serializeReminderRow((array) $reminder),
+        ], 201);
+    }
+
+    public function updateReminder(Request $request, string $id): JsonResponse
+    {
+        if (! $this->support->hasTable('reminders')) {
+            return $this->support->missingTable('reminders');
+        }
+
+        $validated = $request->validate([
+            'title' => ['sometimes', 'required', 'string', 'max:255'],
+            'content' => ['nullable', 'string'],
+            'remind_date' => ['sometimes', 'required', 'date'],
+            'assigned_to' => ['sometimes', 'required'],
+            'status' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $existing = DB::table('reminders')->where('id', $id)->first();
+        if ($existing === null) {
+            return response()->json([
+                'message' => 'Không tìm thấy nhắc việc.',
+            ], 404);
+        }
+
+        $payload = [];
+
+        if (array_key_exists('title', $validated)) {
+            $payload['reminder_title'] = trim((string) $validated['title']);
+        }
+        if (array_key_exists('content', $validated)) {
+            $payload['content'] = $this->support->normalizeNullableString($validated['content'] ?? null);
+        }
+        if (array_key_exists('remind_date', $validated)) {
+            $payload['remind_date'] = (string) $validated['remind_date'];
+        }
+        if (array_key_exists('assigned_to', $validated)) {
+            $assignedTo = $this->support->parseNullableInt($validated['assigned_to'] ?? null);
+            if ($assignedTo === null) {
+                return response()->json([
+                    'message' => 'assigned_to không hợp lệ.',
+                ], 422);
+            }
+            $payload['assigned_to'] = $assignedTo;
+        }
+        if (array_key_exists('status', $validated)) {
+            $payload['status'] = strtoupper(trim((string) ($validated['status'] ?? 'ACTIVE')));
+        }
+
+        if ($payload === []) {
+            return response()->json([
+                'data' => $this->serializeReminderRow((array) $existing),
+            ]);
+        }
+
+        $payload['updated_at'] = now();
+
+        DB::table('reminders')
+            ->where('id', $id)
+            ->update($this->support->filterPayloadByTableColumns('reminders', $payload));
+
+        $updated = DB::table('reminders')
+            ->select($this->support->selectColumns('reminders', [
+                'id',
+                'reminder_title',
+                'content',
+                'remind_date',
+                'assigned_to',
+                'status',
+                'created_at',
+            ]))
+            ->where('id', $id)
+            ->first();
+
+        return response()->json([
+            'data' => $this->serializeReminderRow((array) $updated),
+        ]);
+    }
+
+    public function destroyReminder(string $id): JsonResponse
+    {
+        if (! $this->support->hasTable('reminders')) {
+            return $this->support->missingTable('reminders');
+        }
+
+        $deleted = DB::table('reminders')
+            ->where('id', $id)
+            ->delete();
+
+        if ($deleted === 0) {
+            return response()->json([
+                'message' => 'Không tìm thấy nhắc việc.',
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Đã xóa nhắc việc.',
+        ]);
     }
 
     public function sendReminderEmail(Request $request, string $id): JsonResponse
@@ -582,6 +719,23 @@ class IntegrationSettingsOperationsService
             ->first();
 
         return $record !== null ? (array) $record : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function serializeReminderRow(array $row): array
+    {
+        return [
+            'id' => (string) ($row['id'] ?? ''),
+            'title' => (string) ($row['reminder_title'] ?? ''),
+            'content' => (string) ($row['content'] ?? ''),
+            'remindDate' => $this->formatDateColumn($row['remind_date'] ?? null) ?? '',
+            'assignedToUserId' => (string) ($row['assigned_to'] ?? ''),
+            'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
+            'status' => strtoupper((string) ($row['status'] ?? 'ACTIVE')),
+        ];
     }
 
     private function formatDateColumn(mixed $value): ?string

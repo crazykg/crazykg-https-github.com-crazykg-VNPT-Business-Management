@@ -90,6 +90,21 @@ class IntegrationSettingsDomainService
         return $this->operations->reminders($request);
     }
 
+    public function storeReminder(Request $request): JsonResponse
+    {
+        return $this->operations->storeReminder($request);
+    }
+
+    public function updateReminder(Request $request, string $id): JsonResponse
+    {
+        return $this->operations->updateReminder($request, $id);
+    }
+
+    public function destroyReminder(string $id): JsonResponse
+    {
+        return $this->operations->destroyReminder($id);
+    }
+
     public function userDeptHistory(Request $request): JsonResponse
     {
         return $this->operations->userDeptHistory($request);

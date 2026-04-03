@@ -616,6 +616,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::get('/reminders', [IntegrationSettingsController::class, 'reminders'])
             ->middleware('permission:reminders.read');
+        Route::post('/reminders', [IntegrationSettingsController::class, 'storeReminder'])
+            ->middleware('permission:reminders.write');
+        Route::put('/reminders/{id}', [IntegrationSettingsController::class, 'updateReminder'])
+            ->middleware('permission:reminders.write');
+        Route::delete('/reminders/{id}', [IntegrationSettingsController::class, 'destroyReminder'])
+            ->middleware('permission:reminders.delete');
         Route::post('/reminders/{id}/send-email', [IntegrationSettingsController::class, 'sendReminderEmail'])
             ->middleware('permission:reminders.write');
         Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
