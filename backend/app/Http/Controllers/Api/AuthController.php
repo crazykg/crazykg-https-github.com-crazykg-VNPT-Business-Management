@@ -7,6 +7,7 @@ use App\Models\InternalUser;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -209,6 +210,48 @@ class AuthController extends Controller
         return $response;
     }
 
+    public function updateAvatar(Request $request): JsonResponse
+    {
+        /** @var InternalUser|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        if (! $this->hasColumn('internal_users', 'avatar_data_url')) {
+            return response()->json([
+                'message' => 'Tính năng avatar chưa sẵn sàng. Vui lòng chạy migration mới nhất.',
+            ], 503);
+        }
+
+        $validated = $request->validate([
+            'avatar' => ['required', 'file', 'image', 'max:1024'],
+        ]);
+
+        $avatarFile = $validated['avatar'] ?? null;
+        if (! $avatarFile instanceof UploadedFile) {
+            return response()->json([
+                'message' => 'Tệp avatar không hợp lệ.',
+            ], 422);
+        }
+
+        $updates = [
+            'avatar_data_url' => $this->encodeAvatarAsDataUrl($avatarFile),
+        ];
+
+        if ($this->hasColumn('internal_users', 'avatar_updated_at')) {
+            $updates['avatar_updated_at'] = now();
+        }
+
+        $user->forceFill($updates);
+        $user->save();
+
+        return response()->json([
+            'message' => 'Cập nhật avatar thành công.',
+            'data' => $this->serializeUser($user->fresh() ?? $user),
+        ]);
+    }
+
     /**
      * Legacy endpoint giữ lại để tương thích với frontend cũ.
      * Multi-tab đã được bật nên endpoint này chỉ xác nhận no-op.
@@ -331,6 +374,12 @@ class AuthController extends Controller
             'username' => $user->username,
             'full_name' => $user->full_name,
             'email' => $user->email,
+            'avatar_data_url' => $this->hasColumn('internal_users', 'avatar_data_url')
+                ? $user->avatar_data_url
+                : null,
+            'avatar_updated_at' => $this->hasColumn('internal_users', 'avatar_updated_at')
+                ? $user->avatar_updated_at
+                : null,
             'status' => $user->status,
             'department_id' => $user->department_id,
             'position_id' => $user->position_id,
@@ -338,6 +387,19 @@ class AuthController extends Controller
             'permissions' => $this->accessService->permissionKeysForUser($userId),
             'dept_scopes' => $this->accessService->departmentScopesForUser($userId),
         ];
+    }
+
+    private function encodeAvatarAsDataUrl(UploadedFile $avatarFile): string
+    {
+        $path = $avatarFile->getRealPath();
+        $binary = $path ? @file_get_contents($path) : false;
+        if ($binary === false) {
+            $binary = $avatarFile->get();
+        }
+
+        $mimeType = trim((string) ($avatarFile->getMimeType() ?: $avatarFile->getClientMimeType() ?: 'image/png'));
+
+        return sprintf('data:%s;base64,%s', $mimeType, base64_encode((string) $binary));
     }
 
     private function hasColumn(string $table, string $column): bool

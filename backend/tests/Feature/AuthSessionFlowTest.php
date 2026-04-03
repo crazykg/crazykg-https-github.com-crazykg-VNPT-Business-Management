@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\InternalUser;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
@@ -190,6 +191,44 @@ class AuthSessionFlowTest extends TestCase
         $this->assertNull(DB::table('internal_users')->where('id', 1)->value('active_tab_token'));
     }
 
+    public function test_user_can_update_avatar_and_me_returns_the_custom_avatar(): void
+    {
+        $this->seedUser();
+
+        $loginResponse = $this->postJson('/api/v5/auth/login', [
+            'username' => 'analyst',
+            'password' => 'secret-password',
+        ])->assertOk();
+
+        $accessCookie = $this->cookieFromResponse($loginResponse, 'vnpt_business_auth_token');
+        $avatarFile = UploadedFile::fake()->image('avatar.png', 120, 120)->size(128);
+
+        $avatarResponse = $this
+            ->withToken($this->cookieValue($accessCookie))
+            ->post('/api/v5/auth/avatar', [
+                'avatar' => $avatarFile,
+            ], [
+                'Accept' => 'application/json',
+            ]);
+
+        $avatarResponse
+            ->assertOk()
+            ->assertJsonPath('data.username', 'analyst');
+
+        $avatarDataUrl = (string) $avatarResponse->json('data.avatar_data_url');
+        $this->assertStringStartsWith('data:image/png;base64,', $avatarDataUrl);
+        $this->assertSame(
+            $avatarDataUrl,
+            (string) DB::table('internal_users')->where('id', 1)->value('avatar_data_url')
+        );
+        $this->assertNotNull(DB::table('internal_users')->where('id', 1)->value('avatar_updated_at'));
+
+        $this->withToken($this->cookieValue($accessCookie))
+            ->getJson('/api/v5/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.avatar_data_url', $avatarDataUrl);
+    }
+
     public function test_logout_revokes_tokens_clears_legacy_tab_state_and_forgets_cookies(): void
     {
         $this->seedUser();
@@ -268,6 +307,8 @@ class AuthSessionFlowTest extends TestCase
             $table->string('username', 100)->unique();
             $table->string('full_name', 255)->nullable();
             $table->string('email', 255)->nullable();
+            $table->longText('avatar_data_url')->nullable();
+            $table->timestamp('avatar_updated_at')->nullable();
             $table->string('status', 32)->default('ACTIVE');
             $table->unsignedBigInteger('department_id')->nullable();
             $table->unsignedBigInteger('position_id')->nullable();

@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { updateCurrentUserAvatar } from '../services/api/legacy';
+import { useAuthStore } from '../shared/stores';
 import { AuthUser } from '../types';
 
 interface MenuItem {
@@ -25,6 +27,22 @@ interface SidebarProps {
   onPrefetchTab?: (tab: string) => void;
 }
 
+const resolveUserInitials = (user: AuthUser | null): string => {
+  const fullName = String(user?.full_name || '').trim();
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+  if (nameParts.length >= 2) {
+    return `${nameParts[0][0] ?? ''}${nameParts[nameParts.length - 1][0] ?? ''}`.toUpperCase();
+  }
+  if (nameParts.length === 1) {
+    return (nameParts[0].slice(0, 2) || '?').toUpperCase();
+  }
+
+  const fallbackSeed = String(user?.username || user?.email || '?').trim();
+  return (fallbackSeed.slice(0, 2) || '?').toUpperCase();
+};
+
+const normalizeAvatarUrl = (value: unknown): string => String(value ?? '').trim();
+
 export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarComponent({
   activeTab,
   setActiveTab,
@@ -37,6 +55,19 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'finance', 'util']);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarStatusMessage, setAvatarStatusMessage] = useState('');
+  const [avatarStatusTone, setAvatarStatusTone] = useState<'neutral' | 'error'>('neutral');
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState(() => normalizeAvatarUrl(currentUser?.avatar_data_url));
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const setAuthUser = useAuthStore((state) => state.setUser);
+  const userInitials = useMemo(() => resolveUserInitials(currentUser), [currentUser]);
+  const avatarUrl = avatarPreviewUrl;
+  const displayName = currentUser?.full_name || 'Người dùng';
+
+  useEffect(() => {
+    setAvatarPreviewUrl(normalizeAvatarUrl(currentUser?.avatar_data_url));
+  }, [currentUser?.avatar_data_url]);
 
   const menuGroups: MenuGroup[] = [
     {
@@ -137,6 +168,54 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
         ? prev.filter(id => id !== groupId) 
         : [...prev, groupId]
     );
+  };
+
+  const handleOpenAvatarPicker = () => {
+    if (isUploadingAvatar) {
+      return;
+    }
+
+    avatarInputRef.current?.click();
+  };
+
+  const handleAvatarSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setAvatarStatusTone('error');
+      setAvatarStatusMessage('Chỉ hỗ trợ tải lên tệp ảnh.');
+      return;
+    }
+
+    if (file.size > 1024 * 1024) {
+      setAvatarStatusTone('error');
+      setAvatarStatusMessage('Ảnh đại diện phải nhỏ hơn 1 MB.');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setAvatarStatusTone('neutral');
+    setAvatarStatusMessage('');
+
+    try {
+      const updatedUser = await updateCurrentUserAvatar(file);
+      const mergedUser = currentUser ? { ...currentUser, ...updatedUser } : updatedUser;
+      setAvatarPreviewUrl(normalizeAvatarUrl(updatedUser.avatar_data_url));
+      setAuthUser(mergedUser);
+      setAvatarStatusTone('neutral');
+      setAvatarStatusMessage('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật ảnh đại diện.';
+      setAvatarStatusTone('error');
+      setAvatarStatusMessage(message);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   };
 
   const canViewDashboard = visibleTabIds.has('dashboard');
@@ -265,15 +344,47 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
 
         {/* User Profile */}
         <div className="p-4 mt-auto border-t border-slate-200">
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            aria-label="Chọn ảnh đại diện"
+            onChange={handleAvatarSelection}
+          />
           <div className={`flex items-center gap-3 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
-            <div 
-              className="w-9 h-9 rounded-full bg-slate-300 bg-cover bg-center border border-white shadow-sm flex-shrink-0"
-              style={{ backgroundImage: 'url("https://picsum.photos/100/100")' }}
-            ></div>
+            <button
+              type="button"
+              onClick={handleOpenAvatarPicker}
+              disabled={isUploadingAvatar}
+              className="relative flex-shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
+              aria-label="Cập nhật ảnh đại diện"
+              title="Cập nhật ảnh đại diện"
+            >
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={`Ảnh đại diện ${displayName}`}
+                  className="w-11 h-11 rounded-full object-cover border border-white shadow-sm"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full border border-white shadow-sm bg-gradient-to-br from-primary to-deep-teal text-white flex items-center justify-center text-sm font-bold">
+                  {userInitials}
+                </div>
+              )}
+              <span className="absolute -bottom-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-white text-slate-500 shadow-sm">
+                <span className={`material-symbols-outlined text-[15px] ${isUploadingAvatar ? 'animate-spin' : ''}`}>
+                  {isUploadingAvatar ? 'progress_activity' : 'photo_camera'}
+                </span>
+              </span>
+            </button>
             {!isCollapsed && (
               <div className="flex-1 min-w-0 animate-fade-in">
-                <p className="text-sm font-bold text-slate-900 truncate">{currentUser?.full_name || 'Người dùng'}</p>
+                <p className="text-sm font-bold text-slate-900 truncate">{displayName}</p>
                 <p className="text-xs text-slate-500 truncate">{currentUser?.email || '-'}</p>
+                {avatarStatusMessage && avatarStatusTone === 'error' ? (
+                  <p className="mt-1 text-[11px] text-red-500">{avatarStatusMessage}</p>
+                ) : null}
               </div>
             )}
             <button

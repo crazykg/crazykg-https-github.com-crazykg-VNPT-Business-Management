@@ -1101,6 +1101,23 @@ export const fetchCurrentUser = async (): Promise<AuthUser> => {
   };
 };
 
+export const updateCurrentUserAvatar = async (file: File): Promise<AuthUser> => {
+  const formData = new FormData();
+  formData.append('avatar', file);
+
+  const res = await apiFetch('/api/v5/auth/avatar', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CURRENT_USER_AVATAR_FAILED'));
+  }
+
+  return parseItemJson<AuthUser>(res);
+};
+
 export const fetchAuthBootstrap = async (): Promise<AuthBootstrapResult> => {
   const res = await apiFetch('/api/v5/bootstrap', {
     headers: JSON_ACCEPT_HEADER,
