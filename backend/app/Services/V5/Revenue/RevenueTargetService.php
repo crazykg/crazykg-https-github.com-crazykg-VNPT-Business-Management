@@ -396,7 +396,6 @@ class RevenueTargetService
             $deptClause = $r['dept_id'] > 0 && $this->support->hasColumn('contracts', 'dept_id')
                 ? "AND c.dept_id = ?"
                 : "";
-<<<<<<< HEAD
             $selects[] = "SELECT ? as target_key, COALESCE(SUM(ps.actual_paid_amount), 0) as total
                 FROM payment_schedules ps
                 JOIN contracts c ON ps.contract_id = c.id
