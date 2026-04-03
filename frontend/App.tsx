@@ -38,7 +38,7 @@ import {
   fetchDepartments, fetchEmployees, fetchBusinesses, fetchVendors, fetchProducts, fetchCustomers,
   fetchCustomerPersonnel, fetchProjects, fetchProjectItems, fetchContracts, fetchPaymentSchedules,
   fetchDocuments, fetchReminders, fetchUserDeptHistory, fetchAuditLogs, fetchSupportServiceGroups,
-  sendReminderEmail,
+  createReminder, updateReminder, deleteReminder, sendReminderEmail,
   fetchSupportContactPositions, fetchSupportRequestStatuses, fetchProjectTypes, fetchWorklogActivityTypes,
   fetchSupportSlaConfigs, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
   fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
@@ -966,7 +966,16 @@ const App: React.FC = () => {
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages
             activeTab={activeTab} authUser={authUser} activeInternalUserSubTab={activeInternalUserSubTab} setInternalUserSubTab={setInternalUserSubTab}
-            handleOpenModal={(type, item) => setModalType(type)} addToast={addToast}
+            handleOpenModal={(type, item) => {
+              setModalType(type);
+              if (type === 'ADD_REMINDER') {
+                setSelectedReminder(null);
+                return;
+              }
+              if ((type === 'EDIT_REMINDER' || type === 'DELETE_REMINDER') && item) {
+                setSelectedReminder(item as Reminder);
+              }
+            }} addToast={addToast}
             departments={departments} employees={employees} businesses={businesses} vendors={vendors} products={products} customers={customers} cusPersonnel={cusPersonnel}
             projects={projects} projectItems={projectItems} contracts={contracts} paymentSchedules={paymentSchedules} reminders={reminders} userDeptHistory={userDeptHistory}
             supportServiceGroups={supportServiceGroups} supportContactPositions={supportContactPositions} supportRequestStatuses={supportRequestStatuses} projectTypes={projectTypes}
@@ -1085,9 +1094,9 @@ const App: React.FC = () => {
         {modalType === 'ADD_DOCUMENT' && <DocumentFormModal type="ADD" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); await createDocument({ ...d, scope: 'DEFAULT' }); setModalType(null); setIsSaving(false); }} />}
         {modalType === 'EDIT_DOCUMENT' && <DocumentFormModal type="EDIT" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); if (selectedDocument) { await updateDocument(selectedDocument.id, { ...d, scope: 'DEFAULT' }); } setModalType(null); setIsSaving(false); }} />}
         {modalType === 'DELETE_DOCUMENT' && selectedDocument && <DeleteDocumentModal data={selectedDocument} onClose={() => setModalType(null)} onConfirm={async () => { await deleteDocument(selectedDocument.id); setModalType(null); }} />}
-        {modalType === 'ADD_REMINDER' && <ReminderFormModal type="ADD" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setReminders([{ ...d, id: `REM${Date.now()}`, createdDate: new Date().toLocaleDateString('vi-VN') } as Reminder, ...reminders]); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'EDIT_REMINDER' && <ReminderFormModal type="EDIT" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setReminders(reminders.map(r => r.id === selectedReminder?.id ? { ...d, id: selectedReminder.id } : r)); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'DELETE_REMINDER' && selectedReminder && <DeleteReminderModal data={selectedReminder} onClose={() => setModalType(null)} onConfirm={async () => { setReminders(reminders.filter(r => r.id !== selectedReminder.id)); setModalType(null); }} />}
+        {modalType === 'ADD_REMINDER' && <ReminderFormModal type="ADD" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); try { const created = await createReminder(d); setReminders((prev) => [created, ...prev]); setModalType(null); } finally { setIsSaving(false); } }} />}
+        {modalType === 'EDIT_REMINDER' && <ReminderFormModal type="EDIT" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { if (!selectedReminder?.id) return; setIsSaving(true); try { const updated = await updateReminder(selectedReminder.id, d); setReminders((prev) => prev.map((r) => (r.id === updated.id ? updated : r))); setModalType(null); } finally { setIsSaving(false); } }} />}
+        {modalType === 'DELETE_REMINDER' && selectedReminder && <DeleteReminderModal data={selectedReminder} onClose={() => setModalType(null)} onConfirm={async () => { setIsSaving(true); try { await deleteReminder(selectedReminder.id); setReminders((prev) => prev.filter((r) => r.id !== selectedReminder.id)); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory([{ ...d, id: `TRANSFER${Date.now()}`, createdDate: new Date().toLocaleDateString('vi-VN') } as UserDeptHistory, ...userDeptHistory]); setModalType(null); setIsSaving(false); }} />}
         {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory(userDeptHistory.map(h => h.id === selectedUserDeptHistory?.id ? { ...d, id: selectedUserDeptHistory.id } : h)); setModalType(null); setIsSaving(false); }} />}
         {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { setUserDeptHistory(userDeptHistory.filter(h => h.id !== selectedUserDeptHistory.id)); setModalType(null); }} />}

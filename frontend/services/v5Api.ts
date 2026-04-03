@@ -1732,6 +1732,60 @@ export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<Paginat
 export const fetchReminders = async (): Promise<Reminder[]> => fetchList<Reminder>('/api/v5/reminders');
 export const fetchRemindersPage = async (query: PaginatedQuery): Promise<PaginatedResult<Reminder>> =>
   fetchPaginatedList<Reminder>('/api/v5/reminders', query);
+export const createReminder = async (payload: Partial<Reminder>): Promise<Reminder> => {
+  const res = await apiFetch('/api/v5/reminders', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      title: normalizeNullableText(payload.title),
+      content: normalizeNullableText(payload.content),
+      remind_date: normalizeNullableText(payload.remindDate),
+      assigned_to: normalizeNullableText(payload.assignedToUserId),
+      status: normalizeNullableText((payload as { status?: string }).status ?? 'ACTIVE'),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_REMINDER_FAILED'));
+  }
+
+  return parseItemJson<Reminder>(res);
+};
+
+export const updateReminder = async (id: string, payload: Partial<Reminder>): Promise<Reminder> => {
+  const res = await apiFetch(`/api/v5/reminders/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      title: normalizeNullableText(payload.title),
+      content: normalizeNullableText(payload.content),
+      remind_date: normalizeNullableText(payload.remindDate),
+      assigned_to: normalizeNullableText(payload.assignedToUserId),
+      status: normalizeNullableText((payload as { status?: string }).status ?? 'ACTIVE'),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_REMINDER_FAILED'));
+  }
+
+  return parseItemJson<Reminder>(res);
+};
+
+export const deleteReminder = async (id: string): Promise<void> => {
+  const res = await apiFetch(`/api/v5/reminders/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_REMINDER_FAILED'));
+  }
+};
+
 export const sendReminderEmail = async (
   reminderId: string,
   payload: SendReminderEmailPayload
