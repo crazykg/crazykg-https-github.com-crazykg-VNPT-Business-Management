@@ -488,27 +488,6 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const hasPendingEntrySave = savingEntryIds.length > 0;
   const hasPendingEntryDeletion = deletingEntryIds.length > 0;
   const hasSelectedScope = Boolean(selectedDepartmentId && selectedWeekStartDate);
-  const persistedEntryCount = useMemo(
-    () => editableEntries.filter((entry) => Boolean(entry.id)).length,
-    [editableEntries]
-  );
-  const draftEntryCount = useMemo(
-    () => editableEntries.filter((entry) => !entry.id && isEntryMeaningful(entry)).length,
-    [editableEntries]
-  );
-  const occupiedSessionCount = useMemo(() => {
-    const keys = new Set<string>();
-    editableEntries.forEach((entry) => {
-      if (entry.id || isEntryMeaningful(entry)) {
-        keys.add(`${entry.calendar_date}:${entry.session}`);
-      }
-    });
-    return keys.size;
-  }, [editableEntries]);
-  const workingDayCount = useMemo(
-    () => derivedWeekDays.filter((day) => day.is_working_day).length,
-    [derivedWeekDays]
-  );
   const canPersistWeek = canWriteSchedules
     && hasSelectedScope
     && editableEntries.some((entry) => isEntryMeaningful(entry))
@@ -1005,88 +984,38 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   return (
     <div className="space-y-4 lg:space-y-5">
       <div className="sticky top-0 z-20 -mx-1 bg-bg-light/95 px-1 pb-1 pt-2 backdrop-blur-sm">
-        <div className="overflow-hidden rounded-[32px] border border-sky-100 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_34%),linear-gradient(135deg,_#f8fbff_0%,_#ffffff_48%,_#eef6ff_100%)] shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)]">
-          <div className="grid gap-0 xl:grid-cols-[1.1fr_1fr]">
-            <div className="border-b border-white/70 p-5 lg:p-6 xl:border-b-0 xl:border-r">
-              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
-                <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 shadow-sm ring-1 ring-sky-100">
-                  <span className="material-symbols-outlined text-sm">calendar_month</span>
-                  Department Weekly Schedule
-                </span>
-                {scheduleLoading ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-700 ring-1 ring-amber-100">
-                    <span className="material-symbols-outlined text-sm">progress_activity</span>
-                    Đang đồng bộ dữ liệu
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="mt-4 max-w-2xl">
-                <h1 className="text-3xl font-black tracking-[-0.03em] text-slate-900 lg:text-[2.4rem]">
-                  Lịch làm việc đơn vị
-                </h1>
-                <p className="mt-3 text-sm leading-6 text-slate-600">
-                  Điều phối lịch theo tuần cho từng phòng ban, xem nhanh trạng thái đăng ký và chuyển sang chế độ nhập hoặc
-                  bảng thông báo chỉ với một chạm.
-                </p>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                {[
-                  {
-                    label: 'Phòng ban đang xem',
-                    value: selectedDepartment?.dept_name || 'Chưa chọn',
-                    hint: hasSelectedScope ? 'Đang dùng làm phạm vi thao tác' : 'Chọn phòng ban để bắt đầu',
-                    tone: 'from-sky-50 to-white border-sky-200 text-sky-900',
-                  },
-                  {
-                    label: 'Dòng đã lưu',
-                    value: String(persistedEntryCount).padStart(2, '0'),
-                    hint: `${occupiedSessionCount} buổi đã có nội dung`,
-                    tone: 'from-emerald-50 to-white border-emerald-200 text-emerald-900',
-                  },
-                  {
-                    label: 'Bản nháp đang mở',
-                    value: String(draftEntryCount).padStart(2, '0'),
-                    hint: draftEntryCount > 0 ? 'Có thay đổi chưa lưu hoàn tất' : 'Không có bản nháp treo',
-                    tone: 'from-amber-50 to-white border-amber-200 text-amber-900',
-                  },
-                  {
-                    label: 'Tuần công tác',
-                    value: selectedWeek ? formatDisplayDate(selectedWeek.week_start_date) : '--',
-                    hint: selectedWeek ? `${workingDayCount} ngày làm việc trong tuần` : 'Chưa chọn tuần',
-                    tone: 'from-indigo-50 to-white border-indigo-200 text-indigo-900',
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className={`rounded-[24px] border bg-gradient-to-br px-4 py-3 shadow-[0_12px_30px_-24px_rgba(15,23,42,0.4)] ${item.tone}`}
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
-                    <p className="mt-2 text-lg font-black tracking-[-0.03em]">{item.value}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{item.hint}</p>
+        <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_30%),linear-gradient(135deg,_#f8fbff_0%,_#ffffff_52%,_#eef6ff_100%)] shadow-[0_20px_48px_-34px_rgba(15,23,42,0.35)]">
+          <div className="p-4 lg:p-5">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 shadow-sm ring-1 ring-sky-100">
+                      <span className="material-symbols-outlined text-sm">calendar_month</span>
+                      Department Weekly Schedule
+                    </span>
+                    {scheduleLoading ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-700 ring-1 ring-amber-100">
+                        <span className="material-symbols-outlined text-sm">progress_activity</span>
+                        Đang đồng bộ dữ liệu
+                      </span>
+                    ) : null}
                   </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="p-5 lg:p-6">
-              <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.45)] backdrop-blur">
-                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Bộ lọc điều phối</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Chọn đúng phòng ban và tuần làm việc trước khi đăng ký hoặc phát hành bảng thông báo.
-                    </p>
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                    <span className="material-symbols-outlined text-sm">event</span>
-                    {selectedWeek
-                      ? `${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)}`
-                      : 'Chưa chọn tuần'}
-                  </div>
+                  <h1 className="mt-2 text-2xl font-black tracking-[-0.03em] text-slate-900 lg:text-[2rem]">
+                    Lịch làm việc đơn vị
+                  </h1>
                 </div>
 
+                <div className="inline-flex items-center gap-2 self-start rounded-full bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200/80">
+                  <span className="material-symbols-outlined text-sm">event</span>
+                  {selectedWeek
+                    ? `${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)}`
+                    : 'Chưa chọn tuần'}
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200/80 bg-white/90 p-3.5 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.45)] backdrop-blur">
                 <div className="grid gap-3 xl:grid-cols-[1.45fr_0.8fr_1.1fr]">
                   <SearchableSelect
                     value={selectedDepartmentId}
@@ -1127,7 +1056,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                   />
                 </div>
 
-                <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {VIEW_TAB_META.map((tab) => {
                       const isActive = activeViewTab === tab.id;
@@ -1136,7 +1065,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                           key={tab.id}
                           type="button"
                           onClick={() => setActiveViewTab(tab.id)}
-                          className={`group inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-left transition ${
+                          className={`group inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-left transition ${
                             isActive
                               ? 'border-slate-900 bg-slate-900 text-white shadow-lg shadow-slate-900/15'
                               : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
@@ -1159,7 +1088,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-600">
                       <span className="font-semibold text-slate-800">{previewWeekHeading}</span>
-                      <br />
+                      <span className="mx-1.5 text-slate-300">•</span>
                       {hasSelectedScope ? 'Sẵn sàng thao tác trên lịch tuần hiện tại.' : 'Chọn đủ bộ lọc để bắt đầu.'}
                     </div>
                     <button
@@ -1168,7 +1097,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                         void handleSave();
                       }}
                       disabled={!canPersistWeek}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                     >
                       <span className="material-symbols-outlined text-lg">
                         {isSaving ? 'progress_activity' : scheduleId ? 'save' : 'playlist_add_check_circle'}
@@ -1451,10 +1380,6 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
               <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-primary">
                 <span className="material-symbols-outlined text-sm">touch_app</span>
                 Click vào ô để đăng ký
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">
-                <span className="material-symbols-outlined text-sm">fact_check</span>
-                {persistedEntryCount} dòng đã lưu
               </span>
             </div>
           </div>

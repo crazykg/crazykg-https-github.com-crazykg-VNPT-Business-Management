@@ -108,6 +108,34 @@ describe('DepartmentWeeklyScheduleManagement', () => {
     vi.clearAllMocks();
   });
 
+  it('keeps a compact header without the legacy summary cards and helper copy', async () => {
+    render(
+      <DepartmentWeeklyScheduleManagement
+        departments={departments}
+        employees={employees}
+        currentUserId="100"
+        currentUserDepartmentId="dept-1"
+        canReadSchedules
+        canWriteSchedules
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.fetchDepartmentWeeklySchedules).toHaveBeenCalled();
+    });
+
+    expect(screen.getByRole('heading', { name: /Lịch làm việc đơn vị/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Phòng ban/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tuần/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Phòng ban đang xem/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Dòng đã lưu/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bản nháp đang mở/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tuần công tác/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Điều phối lịch theo tuần cho từng phòng ban/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Chọn đúng phòng ban và tuần làm việc/i)).not.toBeInTheDocument();
+  });
+
   it('opens the entry form immediately when clicking an empty schedule slot', async () => {
     const user = userEvent.setup();
     const currentWeek = buildCurrentWeekCalendarDays();

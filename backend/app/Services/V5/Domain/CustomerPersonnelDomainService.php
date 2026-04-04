@@ -174,6 +174,82 @@ class CustomerPersonnelDomainService
         return response()->json(['data' => $record], 201);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('customer_personnel')) {
+            return $this->support->missingTable('customer_personnel');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:1000'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/customer-personnel', 'POST', (array) $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+
+                $response = $this->store($subRequest);
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể lưu đầu mối liên hệ từ file import.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo đầu mối liên hệ.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => 'Không thể lưu đầu mối liên hệ từ file import.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
     public function update(Request $request, string $id): JsonResponse
     {
         if (! $this->support->hasTable('customer_personnel')) {
@@ -493,6 +569,27 @@ class CustomerPersonnelDomainService
     private function normalizeCustomerPersonnelStorageStatus(string $status): string
     {
         return strtoupper(trim($status)) === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    }
+
+    private function firstValidationMessage(ValidationException $exception): string
+    {
+        return collect($exception->errors())
+            ->flatten()
+            ->map(fn (mixed $message): string => (string) $message)
+            ->first() ?? 'Dữ liệu không hợp lệ.';
+    }
+
+    private function extractJsonResponseMessage(JsonResponse $response, string $fallback): string
+    {
+        $payload = $response->getData(true);
+        if (is_array($payload)) {
+            $message = $payload['message'] ?? null;
+            if (is_string($message) && trim($message) !== '') {
+                return trim($message);
+            }
+        }
+
+        return $fallback;
     }
 
     /**

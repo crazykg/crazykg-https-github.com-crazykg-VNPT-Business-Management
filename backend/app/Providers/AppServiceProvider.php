@@ -161,6 +161,16 @@ class AppServiceProvider extends ServiceProvider
                 'TOO_MANY_REQUESTS_HEAVY'
             );
         });
+
+        RateLimiter::for('api.write.customer_import', function (Request $request): Limit {
+            return $this->buildLimiter(
+                $request,
+                'api_write_customer_import',
+                (int) config('vnpt_rate_limits.api.customer_import_per_minute', 20),
+                'Bạn đã vượt giới hạn nhập khách hàng. Vui lòng thử lại sau.',
+                'TOO_MANY_REQUESTS_CUSTOMER_IMPORT'
+            );
+        });
     }
 
     private function buildWriteLimiter(Request $request): Limit

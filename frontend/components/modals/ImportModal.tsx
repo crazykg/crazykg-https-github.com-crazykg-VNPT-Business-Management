@@ -152,7 +152,7 @@ const formatImportPreviewCellValue = (moduleKey: string, header: string, value: 
   const moduleToken = normalizeImportTokenForPreview(moduleKey);
   const headerToken = normalizeImportTokenForPreview(header);
 
-  if (moduleToken === 'employees' || moduleToken === 'internaluserlist') {
+  if (['employees', 'internaluserlist', 'cuspersonnel', 'customerpersonnel'].includes(moduleToken)) {
     if (!['ngaysinh', 'dateofbirth', 'dob', 'birthday'].includes(headerToken)) {
       return rawValue;
     }

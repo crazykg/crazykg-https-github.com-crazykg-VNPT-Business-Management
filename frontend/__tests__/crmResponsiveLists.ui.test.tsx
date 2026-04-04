@@ -5,6 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Customer } from '../types';
 import { CustomerList } from '../components/CustomerList';
 
+const excelTemplateSpies = vi.hoisted(() => ({
+  downloadExcelTemplate: vi.fn(),
+}));
+
+vi.mock('../utils/excelTemplate', () => ({
+  downloadExcelTemplate: excelTemplateSpies.downloadExcelTemplate,
+}));
+
 const customers: Customer[] = [
   {
     id: '1',
@@ -43,10 +51,10 @@ describe('CRM responsive list screens', () => {
     expect(desktopTable).toHaveClass('table-fixed');
 
     const longCustomerName = 'Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM';
-    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('max-w-[248px]', 'whitespace-normal', 'break-words', 'leading-5');
 
     const longAddress = 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile';
-    expect(within(desktopTable).getByText(longAddress)).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(within(desktopTable).getByText(longAddress)).toHaveClass('max-w-[230px]', 'whitespace-normal', 'break-words', 'leading-5');
     expect(within(desktopTable).getByText('Y tế')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Chính quyền')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Tự sinh')).toBeInTheDocument();
@@ -55,6 +63,11 @@ describe('CRM responsive list screens', () => {
 
     const responsiveList = screen.getByTestId('customer-responsive-list');
     expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2', 'lg:hidden');
+    expect(screen.queryByRole('heading', { name: 'Danh sách khách hàng' })).not.toBeInTheDocument();
+
+    const groupFilterButton = screen.getByRole('button', { name: 'Nhóm khách hàng' });
+    expect(groupFilterButton.className).toContain('!h-8');
+    expect(groupFilterButton.className).toContain('!min-h-0');
 
     const sortSelect = screen.getByLabelText('Sắp xếp danh sách khách hàng');
     await user.selectOptions(sortSelect, 'customer_name:asc');
@@ -90,6 +103,28 @@ describe('CRM responsive list screens', () => {
     expect(within(breakdown).getByText('1')).toBeInTheDocument();
   });
 
+  it('filters the customer list when a healthcare breakdown card is clicked', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerList
+        customers={customers}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Khách hàng Y tế/i }));
+    await user.click(screen.getByRole('button', { name: /Bệnh viện công lập/i }));
+
+    const responsiveList = screen.getByTestId('customer-responsive-list');
+    const cards = Array.from(responsiveList.querySelectorAll('article'));
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent('Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM');
+    expect(cards[0]).not.toHaveTextContent('Zeta Trung tâm y tế');
+    expect(screen.getByText('Loại hình Y tế: Bệnh viện công lập')).toBeInTheDocument();
+  });
+
   it('filters customers by customer group using the multi-select control', async () => {
     const user = userEvent.setup();
 
@@ -100,8 +135,10 @@ describe('CRM responsive list screens', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: 'Nhóm khách hàng' }));
+    const groupFilterButton = screen.getByRole('button', { name: 'Nhóm khách hàng' });
+    await user.click(groupFilterButton);
     await user.click(screen.getByRole('button', { name: 'Chính quyền' }));
+    await user.click(screen.getByPlaceholderText('Tìm mã KH, tên khách hàng, mã số thuế...'));
 
     const responsiveList = screen.getByTestId('customer-responsive-list');
     const cards = Array.from(responsiveList.querySelectorAll('article'));
@@ -110,6 +147,8 @@ describe('CRM responsive list screens', () => {
     expect(cards[0]).toHaveTextContent('Zeta Trung tâm y tế');
     expect(cards[0]).toHaveTextContent('Chính quyền');
     expect(cards[0]).not.toHaveTextContent('Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM');
+    expect(groupFilterButton).toHaveTextContent('Chính quyền');
+    expect(screen.queryByRole('button', { name: /Chính quyền close/i })).not.toBeInTheDocument();
   });
 
   it('uses grouped customer KPI totals instead of pagination total in server mode', () => {
@@ -157,7 +196,116 @@ describe('CRM responsive list screens', () => {
 
     expect(screen.queryByText('2 kết quả')).not.toBeInTheDocument();
     expect(
-      within(screen.getByText('Tổng số khách hàng').closest('div') as HTMLElement).getByText('2'),
+      screen.getByText((content, element) =>
+        content.trim() === '2'
+        && element?.tagName.toLowerCase() === 'p'
+        && element.className.includes('text-xl')
+        && element.parentElement?.textContent?.includes('Tổng số khách hàng') === true,
+      ),
     ).toBeInTheDocument();
+  });
+
+  it('includes healthcare facility type in server queries when a breakdown card is selected', async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+
+    render(
+      <CustomerList
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={onQueryChange}
+        paginationMeta={{
+          page: 1,
+          per_page: 10,
+          total: 2,
+          total_pages: 1,
+        }}
+        aggregateKpis={{
+          totalCustomers: 2,
+          healthcareCustomers: 1,
+          governmentCustomers: 1,
+          individualCustomers: 0,
+          healthcareBreakdown: {
+            publicHospital: 1,
+            privateHospital: 0,
+            medicalCenter: 0,
+            privateClinic: 0,
+            tytPkdk: 0,
+            other: 0,
+          },
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Khách hàng Y tế/i }));
+    await user.click(screen.getByRole('button', { name: /Bệnh viện công lập/i }));
+
+    expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      filters: {
+        healthcare_facility_type: 'PUBLIC_HOSPITAL',
+      },
+    }));
+  });
+
+  it('downloads a complete customer import template with 10 sample rows', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerList
+        customers={customers}
+        onOpenModal={vi.fn()}
+        canImport
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Nhập/i }));
+    await user.click(screen.getByRole('button', { name: /Tải file mẫu/i }));
+
+    expect(excelTemplateSpies.downloadExcelTemplate).toHaveBeenCalledTimes(1);
+    expect(excelTemplateSpies.downloadExcelTemplate).toHaveBeenCalledWith(
+      'mau_nhap_khach_hang',
+      'KhachHang',
+      ['Mã khách hàng', 'Tên khách hàng', 'Nhóm khách hàng', 'Loại hình cơ sở y tế', 'Quy mô giường bệnh', 'Mã số thuế', 'Địa chỉ'],
+      expect.any(Array),
+    );
+
+    const [, , , rows] = excelTemplateSpies.downloadExcelTemplate.mock.calls[0];
+    expect(rows).toHaveLength(10);
+    expect(rows[0]).toEqual([
+      '93002',
+      'Trung tâm Y tế khu vực Vị Thủy',
+      'Y tế',
+      'Trung tâm Y tế',
+      '320',
+      '0127160495',
+      'Số 02 Nguyễn Trãi, Vị Thủy, Hậu Giang',
+    ]);
+    expect(rows).toContainEqual([
+      'CQ001',
+      'UBND Phường Vị Thanh',
+      'Chính quyền',
+      '',
+      '',
+      '1800999001',
+      'Phường I, Vị Thanh, Hậu Giang',
+    ]);
+    expect(rows).toContainEqual([
+      'CN001',
+      'Nguyễn Văn An',
+      'Cá nhân',
+      '',
+      '',
+      '',
+      'Long Mỹ, Hậu Giang',
+    ]);
+    expect(rows[9]).toEqual([
+      'KHAC01',
+      'Công ty TNHH Thiết bị Y tế Minh Phúc',
+      'Khác',
+      '',
+      '',
+      '0312345678',
+      'Ninh Kiều, Cần Thơ',
+    ]);
   });
 });

@@ -21,6 +21,8 @@ Route::get('/customer-personnel', [CustomerPersonnelController::class, 'index'])
     ->middleware('permission:customer_personnel.read');
 Route::post('/customer-personnel', [CustomerPersonnelController::class, 'store'])
     ->middleware('permission:customer_personnel.write');
+Route::post('/customer-personnel/bulk', [CustomerPersonnelController::class, 'storeBulk'])
+    ->middleware(['permission:customer_personnel.write']);
 Route::put('/customer-personnel/{id}', [CustomerPersonnelController::class, 'update'])
     ->middleware('permission:customer_personnel.write');
 Route::delete('/customer-personnel/{id}', [CustomerPersonnelController::class, 'destroy'])
@@ -29,6 +31,8 @@ Route::get('/customer_personnel', [CustomerPersonnelController::class, 'index'])
     ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
 Route::post('/customer_personnel', [CustomerPersonnelController::class, 'store'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+Route::post('/customer_personnel/bulk', [CustomerPersonnelController::class, 'storeBulk'])
+    ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/bulk,2026-04-27']);
 Route::put('/customer_personnel/{id}', [CustomerPersonnelController::class, 'update'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
 Route::delete('/customer_personnel/{id}', [CustomerPersonnelController::class, 'destroy'])
@@ -37,6 +41,8 @@ Route::get('/cus-personnel', [CustomerPersonnelController::class, 'index'])
     ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
 Route::post('/cus-personnel', [CustomerPersonnelController::class, 'store'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+Route::post('/cus-personnel/bulk', [CustomerPersonnelController::class, 'storeBulk'])
+    ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/bulk,2026-04-27']);
 Route::put('/cus-personnel/{id}', [CustomerPersonnelController::class, 'update'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
 Route::delete('/cus-personnel/{id}', [CustomerPersonnelController::class, 'destroy'])
@@ -45,6 +51,8 @@ Route::get('/cus_personnel', [CustomerPersonnelController::class, 'index'])
     ->middleware(['permission:customer_personnel.read', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
 Route::post('/cus_personnel', [CustomerPersonnelController::class, 'store'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel,2026-04-27']);
+Route::post('/cus_personnel/bulk', [CustomerPersonnelController::class, 'storeBulk'])
+    ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/bulk,2026-04-27']);
 Route::put('/cus_personnel/{id}', [CustomerPersonnelController::class, 'update'])
     ->middleware(['permission:customer_personnel.write', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
 Route::delete('/cus_personnel/{id}', [CustomerPersonnelController::class, 'destroy'])

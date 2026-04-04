@@ -69,6 +69,45 @@ class CustomerPersonnelCrudTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
+    public function test_it_bulk_creates_customer_personnel_via_api(): void
+    {
+        $response = $this->postJson('/api/v5/customer-personnel/bulk', [
+            'items' => [
+                [
+                    'customer_id' => 1,
+                    'full_name' => 'Nguyen Van C',
+                    'position_type' => 'DAU_MOI',
+                    'position_id' => 1,
+                    'phone' => '0909000002',
+                    'email' => 'c@example.com',
+                    'status' => 'ACTIVE',
+                ],
+                [
+                    'customer_id' => 1,
+                    'full_name' => 'Nguyen Van D',
+                    'position_type' => 'PHU_TRACH',
+                    'position_id' => 2,
+                    'phone' => '0909000003',
+                    'email' => 'd@example.com',
+                    'status' => 'INACTIVE',
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.created_count', 2)
+            ->assertJsonPath('data.failed_count', 0)
+            ->assertJsonCount(2, 'data.created')
+            ->assertJsonPath('data.results.0.success', true)
+            ->assertJsonPath('data.results.1.success', true);
+
+        $listResponse = $this->getJson('/api/v5/customer-personnel');
+        $listResponse
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('customer_personnel');

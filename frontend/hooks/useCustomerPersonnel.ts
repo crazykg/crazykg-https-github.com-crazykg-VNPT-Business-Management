@@ -24,17 +24,23 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizeCustomerPersonnelRows = useCallback((rows: CustomerPersonnel[]): CustomerPersonnel[] => (
+    (rows || []).map((item) => ({
+      ...item,
+      birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
+    }))
+  ), []);
+
+  const refreshCustomerPersonnel = useCallback(async () => {
+    const rows = await fetchCustomerPersonnel();
+    setCustomerPersonnel(normalizeCustomerPersonnelRows(rows || []));
+  }, [normalizeCustomerPersonnelRows]);
+
   const loadCustomerPersonnel = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const rows = await fetchCustomerPersonnel();
-      setCustomerPersonnel(
-        (rows || []).map((item) => ({
-          ...item,
-          birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
-        }))
-      );
+      await refreshCustomerPersonnel();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không thể tải danh sách nhân sự liên hệ.';
       setError(message);
@@ -42,7 +48,7 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
     } finally {
       setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, refreshCustomerPersonnel]);
 
   const handleSaveCusPersonnel = useCallback(async (
     data: Partial<CustomerPersonnel>,
@@ -70,14 +76,7 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
         addToast?.('success', 'Thành công', 'Cập nhật nhân sự liên hệ thành công!');
       }
 
-      // Refresh data
-      const rows = await fetchCustomerPersonnel();
-      setCustomerPersonnel(
-        (rows || []).map((item) => ({
-          ...item,
-          birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
-        }))
-      );
+      await refreshCustomerPersonnel();
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Lỗi không xác định';
@@ -87,7 +86,7 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
     } finally {
       setIsSaving(false);
     }
-  }, [addToast]);
+  }, [addToast, refreshCustomerPersonnel]);
 
   const handleDeleteCusPersonnel = useCallback(async (selectedCusPersonnel: CustomerPersonnel): Promise<boolean> => {
     setIsSaving(true);
@@ -97,14 +96,7 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
       setCustomerPersonnel((prev) => prev.filter((p) => p.id !== selectedCusPersonnel.id));
       addToast?.('success', 'Thành công', 'Đã xóa nhân sự liên hệ.');
       
-      // Refresh data
-      const rows = await fetchCustomerPersonnel();
-      setCustomerPersonnel(
-        (rows || []).map((item) => ({
-          ...item,
-          birthday: normalizeImportDate(String(item?.birthday || '')) || String(item?.birthday || '').trim(),
-        }))
-      );
+      await refreshCustomerPersonnel();
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Lỗi không xác định';
@@ -114,7 +106,7 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
     } finally {
       setIsSaving(false);
     }
-  }, [addToast]);
+  }, [addToast, refreshCustomerPersonnel]);
 
   return {
     customerPersonnel,

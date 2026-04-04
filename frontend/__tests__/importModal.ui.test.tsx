@@ -77,4 +77,47 @@ describe('ImportModal', () => {
       sheets: undefined,
     });
   });
+
+  it('formats cus-personnel birthday preview as dd/mm/yyyy when the file contains an Excel serial date', async () => {
+    const user = userEvent.setup();
+
+    const parsedFile = {
+      fileName: 'nhan-su-lien-he.xlsx',
+      sheets: [
+        {
+          name: 'NhanSuLienHe',
+          headers: ['Mã khách hàng', 'Họ và tên', 'Ngày sinh'],
+          rows: [['93063', 'Trần Thị Thúy An', '33846']],
+        },
+      ],
+    };
+
+    parseImportFileMock.mockResolvedValue(parsedFile);
+    pickImportSheetByModuleMock.mockReturnValue(parsedFile.sheets[0]);
+
+    const { container } = render(
+      <ImportModal
+        title="Nhập nhân sự liên hệ"
+        moduleKey="cus_personnel"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    const file = new File(['fake-binary'], 'nhan-su-lien-he.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    await user.upload(input as HTMLInputElement, file);
+
+    await waitFor(() => {
+      expect(screen.getByText('nhan-su-lien-he.xlsx')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('30/08/1992')).toBeInTheDocument();
+    expect(screen.queryByText('33846')).not.toBeInTheDocument();
+  });
 });

@@ -38,6 +38,11 @@ class CustomerController extends V5BaseController
         return $this->customerService->store($request);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        return $this->customerService->storeBulk($request);
+    }
+
     public function update(UpdateCustomerRequest $request, int $id): JsonResponse
     {
         Gate::authorize('update', Customer::query()->findOrFail($id));

@@ -92,6 +92,13 @@ class CustomerDomainService
             $this->applyCustomerSectorFilter($query, $customerSectorFilter);
         }
 
+        $healthcareFacilityFilter = collect(explode(',', (string) ($this->support->readFilterParam($request, 'healthcare_facility_type', '') ?? '')))
+            ->map(fn ($value): ?string => $this->normalizeHealthcareFacilityType($value))
+            ->filter(fn (?string $value): bool => $value !== null)
+            ->unique()
+            ->values()
+            ->all();
+
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'customers.id',
             'customer_code' => 'customers.customer_code',
@@ -108,6 +115,10 @@ class CustomerDomainService
         }
 
         $this->applyReadScope($request, $query);
+
+        if ($healthcareFacilityFilter !== []) {
+            $this->applyHealthcareFacilityTypeFilter($query, $healthcareFacilityFilter);
+        }
 
         $kpis = $this->buildCustomerKpis($query);
 
@@ -186,7 +197,7 @@ class CustomerDomainService
             }
             $rules['uuid'][] = $uniqueRule;
         }
-        $validated = $this->validatedInput($request);
+        $validated = $this->validatedInput($request, $rules);
         [$customerSector, $facilityType, $bedCapacity] = $this->normalizeHealthcareAttributes(
             $validated,
             $validated['customer_name'] ?? null
@@ -232,6 +243,82 @@ class CustomerDomainService
         return response()->json(['data' => $this->support->serializeCustomer($customer)], 201);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('customers')) {
+            return $this->support->missingTable('customers');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:1000'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/customers', 'POST', (array) $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+
+                $response = $this->store($subRequest);
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể lưu khách hàng từ file import.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo khách hàng.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => 'Không thể lưu khách hàng từ file import.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
     public function update(Request $request, int $id): JsonResponse
     {
         if (! $this->support->hasTable('customers')) {
@@ -271,7 +358,7 @@ class CustomerDomainService
             }
             $rules['uuid'][] = $uniqueRule;
         }
-        $validated = $this->validatedInput($request);
+        $validated = $this->validatedInput($request, $rules);
         $validated = $this->mergeExistingHealthcareAttributes($customer, $validated);
         [$customerSector, $facilityType, $bedCapacity] = $this->normalizeHealthcareAttributes(
             $validated,
@@ -374,6 +461,34 @@ class CustomerDomainService
         }
 
         return [$customerSector, $facilityType, $bedCapacity];
+    }
+
+    private function firstValidationMessage(ValidationException $exception): string
+    {
+        $errors = $exception->errors();
+        if ($errors !== []) {
+            $firstField = array_key_first($errors);
+            $firstMessages = is_string($firstField) ? ($errors[$firstField] ?? []) : [];
+            $firstMessage = is_array($firstMessages) ? ($firstMessages[0] ?? null) : $firstMessages;
+            if (is_string($firstMessage) && trim($firstMessage) !== '') {
+                return trim($firstMessage);
+            }
+        }
+
+        return 'Dữ liệu không hợp lệ.';
+    }
+
+    private function extractJsonResponseMessage(JsonResponse $response, string $fallback): string
+    {
+        $payload = $response->getData(true);
+        if (is_array($payload)) {
+            $message = $payload['message'] ?? null;
+            if (is_string($message) && trim($message) !== '') {
+                return trim($message);
+            }
+        }
+
+        return $fallback;
     }
 
     private function generateRandomBedCapacity(): int
@@ -644,6 +759,13 @@ class CustomerDomainService
         return $this->inferCustomerSectorFromName($customerName);
     }
 
+    private function resolveHealthcareFacilityTypeForKpi(mixed $value, ?string $customerName): string
+    {
+        return $this->normalizeHealthcareFacilityType($value, $customerName)
+            ?? $this->inferHealthcareFacilityType($customerName)
+            ?? self::HEALTHCARE_FACILITY_OTHER;
+    }
+
     /**
      * @param array<string, mixed> $validated
      * @return array<string, mixed>
@@ -842,6 +964,54 @@ class CustomerDomainService
     }
 
     /**
+     * @param array<int, string> $healthcareFacilityFilter
+     */
+    private function applyHealthcareFacilityTypeFilter(Builder $query, array $healthcareFacilityFilter): void
+    {
+        $filterQuery = clone $query;
+        $filterQuery->setEagerLoads([]);
+        $filterQuery->getQuery()->columns = null;
+        $filterQuery->getQuery()->orders = null;
+        $filterQuery->select($this->support->selectColumns('customers', [
+            'id',
+            'customer_name',
+            'company_name',
+            'customer_sector',
+            'healthcare_facility_type',
+        ]));
+
+        $matchedIds = $filterQuery->get()
+            ->filter(function ($customer) use ($healthcareFacilityFilter): bool {
+                $customerName = (string) ($customer->customer_name ?? $customer->company_name ?? '');
+                $sector = $this->resolveCustomerSectorForKpi($customer->customer_sector ?? null, $customerName);
+
+                if ($sector !== self::CUSTOMER_SECTOR_HEALTHCARE) {
+                    return false;
+                }
+
+                $facilityType = $this->resolveHealthcareFacilityTypeForKpi(
+                    $customer->healthcare_facility_type ?? null,
+                    $customerName
+                );
+
+                return in_array($facilityType, $healthcareFacilityFilter, true);
+            })
+            ->pluck('id')
+            ->filter(fn ($id): bool => $id !== null)
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        if ($matchedIds === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->whereIn('customers.id', $matchedIds);
+    }
+
+    /**
      * @return array<int, string>
      */
     private function customerSectorSearchColumns(): array
@@ -916,10 +1086,10 @@ class CustomerDomainService
             if ($sector === self::CUSTOMER_SECTOR_HEALTHCARE) {
                 $healthcareCustomers += 1;
 
-                $facilityType = $this->normalizeHealthcareFacilityType(
+                $facilityType = $this->resolveHealthcareFacilityTypeForKpi(
                     $customer->healthcare_facility_type ?? null,
                     $customerName
-                ) ?? $this->inferHealthcareFacilityType($customerName) ?? self::HEALTHCARE_FACILITY_OTHER;
+                );
 
                 $breakdownKey = match ($facilityType) {
                     self::HEALTHCARE_FACILITY_PUBLIC_HOSPITAL => 'public_hospital',

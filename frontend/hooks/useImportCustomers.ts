@@ -2,14 +2,13 @@ import { useCallback } from 'react';
 import type * as React from 'react';
 import type { Customer } from '../types';
 import type { ImportPayload } from '../components/modals/projectImportTypes';
-import { createCustomer, deleteCustomer } from '../services/v5Api';
+import { createCustomersBulk } from '../services/v5Api';
 import { normalizeImportNumber, normalizeImportToken, isImportInfrastructureError } from '../utils/importUtils';
 import {
   buildHeaderIndex,
   getImportCell,
   summarizeImportResult,
   exportImportFailureFile,
-  rollbackImportedRows,
 } from '../utils/importValidation';
 import {
   facilityTypeSupportsBedCapacity,
@@ -51,7 +50,6 @@ export function useImportCustomers(): UseImportCustomersResult {
     const createdItems: Customer[] = [];
     const failures: string[] = [];
     const seenCustomerCodes = new Set<string>();
-    let abortedByInfraIssue = false;
 
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       const row = rows[rowIndex];
@@ -138,33 +136,70 @@ export function useImportCustomers(): UseImportCustomersResult {
     const totalImportEntries = importEntries.length;
     let processed = 0;
 
-    for (const entry of importEntries) {
-      if (abortedByInfraIssue) {
-        break;
+    if (totalImportEntries > 0) {
+      const importBatchSize = 1000;
+      const chunks: Array<{ rowNumber: number; payload: Partial<Customer> }[]> = [];
+      for (let start = 0; start < importEntries.length; start += importBatchSize) {
+        chunks.push(importEntries.slice(start, start + importBatchSize));
       }
 
-      try {
-        const created = await createCustomer(entry.payload);
-        createdItems.push(created);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Lỗi không xác định';
-        if (isImportInfrastructureError(error, message)) {
-          failures.push(`Dòng ${entry.rowNumber}: ${message}`);
-          failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
-          abortedByInfraIssue = true;
-          break;
+      for (const chunk of chunks) {
+        try {
+          const bulkResult = await createCustomersBulk(chunk.map((entry) => entry.payload));
+          const rowResults = bulkResult.results || [];
+
+          if (rowResults.length === 0) {
+            chunk.forEach((entry) => {
+              failures.push(`Dòng ${entry.rowNumber}: backend không trả kết quả chi tiết.`);
+            });
+            processed += chunk.length;
+            setImportLoadingText(`Đang nhập Khách hàng: ${Math.min(processed, totalImportEntries)}/${totalImportEntries}`);
+            continue;
+          }
+
+          const handledIndices = new Set<number>();
+          rowResults.forEach((result) => {
+            const itemIndex = Number(result.index);
+            if (!Number.isFinite(itemIndex) || itemIndex < 0 || itemIndex >= chunk.length) {
+              return;
+            }
+
+            handledIndices.add(itemIndex);
+            const entry = chunk[itemIndex];
+
+            if (result.success && result.data) {
+              return;
+            }
+
+            failures.push(`Dòng ${entry.rowNumber}: ${result.message || 'Dữ liệu không hợp lệ.'}`);
+          });
+
+          createdItems.push(...(bulkResult.created || []));
+
+          for (let itemIndex = 0; itemIndex < chunk.length; itemIndex += 1) {
+            if (!handledIndices.has(itemIndex)) {
+              failures.push(`Dòng ${chunk[itemIndex].rowNumber}: backend không phản hồi trạng thái.`);
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+          if (isImportInfrastructureError(error, message)) {
+            failures.push(`Batch khách hàng: ${message}`);
+            failures.push('Đã dừng import do lỗi kết nối mạng hoặc máy chủ. Vui lòng thử lại sau khi hệ thống ổn định.');
+            break;
+          }
+
+          chunk.forEach((entry) => {
+            failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+          });
         }
 
-        failures.push(`Dòng ${entry.rowNumber}: ${message}`);
+        processed += chunk.length;
+        setImportLoadingText(`Đang nhập Khách hàng: ${Math.min(processed, totalImportEntries)}/${totalImportEntries}`);
       }
-
-      processed += 1;
-      setImportLoadingText(`Đang nhập Khách hàng: ${Math.min(processed, totalImportEntries)}/${totalImportEntries}`);
     }
 
-    if (abortedByInfraIssue) {
-      await rollbackImportedRows('Khách hàng', createdItems, deleteCustomer, addToast);
-    } else if (createdItems.length > 0) {
+    if (createdItems.length > 0) {
       setCustomers((previous) => {
         const existing = previous || [];
         const createdIds = new Set(createdItems.map((item) => String(item.id)));
@@ -173,10 +208,10 @@ export function useImportCustomers(): UseImportCustomersResult {
       await loadCustomersPage();
     }
 
-    const importedCustomerCount = abortedByInfraIssue ? 0 : createdItems.length;
+    const importedCustomerCount = createdItems.length;
     summarizeImportResult('Khách hàng', importedCustomerCount, failures, addToast);
     exportImportFailureFile(payload, 'Khách hàng', failures, addToast);
-    if (importedCustomerCount > 0 && failures.length === 0 && !abortedByInfraIssue) {
+    if (importedCustomerCount > 0 && failures.length === 0) {
       handleCloseModal();
     }
   }, []);

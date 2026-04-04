@@ -22,6 +22,7 @@ interface SearchableMultiSelectProps {
   dropdownClassName?: string;
   searchPlaceholder?: string;
   noOptionsText?: string;
+  showSelectedChips?: boolean;
 }
 
 const normalizeToken = (value: unknown): string =>
@@ -45,6 +46,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   dropdownClassName = '',
   searchPlaceholder = 'Tìm kiếm...',
   noOptionsText = 'Không tìm thấy kết quả',
+  showSelectedChips = true,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -168,7 +170,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
         </div>
       </button>
 
-      {selectedOptions.length > 0 ? (
+      {showSelectedChips && selectedOptions.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {selectedOptions.slice(0, 3).map((option) => (
             <button

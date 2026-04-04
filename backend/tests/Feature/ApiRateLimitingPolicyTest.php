@@ -15,8 +15,9 @@ class ApiRateLimitingPolicyTest extends TestCase
         config()->set('vnpt_rate_limits.api.read_per_minute', 2);
         config()->set('vnpt_rate_limits.api.dashboard_per_minute', 4);
         config()->set('vnpt_rate_limits.api.export_per_minute', 1);
-        config()->set('vnpt_rate_limits.api.write_per_minute', 2);
+        config()->set('vnpt_rate_limits.api.write_per_minute', 10);
         config()->set('vnpt_rate_limits.api.write_heavy_per_minute', 1);
+        config()->set('vnpt_rate_limits.api.customer_import_per_minute', 2);
 
         $this->registerTestRoutes();
     }
@@ -74,17 +75,31 @@ class ApiRateLimitingPolicyTest extends TestCase
             ->assertJsonPath('code', 'TOO_MANY_REQUESTS_HEAVY');
     }
 
-    public function test_real_routes_are_mapped_to_the_expected_throttle_buckets(): void
+    public function test_customer_import_routes_use_the_customer_import_bucket(): void
     {
-        $feeCollectionDashboard = $this->findRoute('api/v5/fee-collection/dashboard', 'GET');
-        $customerRequestExport = $this->findRoute('api/v5/customer-requests/export', 'GET');
-        $quotationExportWord = $this->findRoute('api/v5/products/quotation/export-word', 'POST');
+        $headers = ['HTTP_USER_AGENT' => 'rate-limit-customer-import'];
 
-        $this->assertContains('throttle:api.access', $feeCollectionDashboard->gatherMiddleware());
-        $this->assertContains('throttle:api.access', $customerRequestExport->gatherMiddleware());
-        $this->assertContains('throttle:api.read.export', $customerRequestExport->gatherMiddleware());
-        $this->assertContains('throttle:api.access', $quotationExportWord->gatherMiddleware());
-        $this->assertContains('throttle:api.write.heavy', $quotationExportWord->gatherMiddleware());
+        $this->postJson('/api/v5/testing/customer-import', [], $headers)->assertOk();
+        $this->postJson('/api/v5/testing/customer-import', [], $headers)->assertOk();
+        $this->postJson('/api/v5/testing/customer-import', [], $headers)
+            ->assertStatus(429)
+            ->assertJsonPath('code', 'TOO_MANY_REQUESTS_CUSTOMER_IMPORT');
+    }
+
+    public function test_customer_bulk_import_route_uses_the_customer_import_bucket(): void
+    {
+        $customerBulkImport = $this->findRoute('api/v5/customers/bulk', 'POST');
+
+        $this->assertContains('throttle:api.write.customer_import', $customerBulkImport->gatherMiddleware());
+    }
+
+    public function test_customer_personnel_bulk_import_routes_are_not_throttled(): void
+    {
+        $canonicalRoute = $this->findRoute('api/v5/customer-personnel/bulk', 'POST');
+        $aliasRoute = $this->findRoute('api/v5/cus-personnel/bulk', 'POST');
+
+        $this->assertNotContains('throttle:api.write.customer_import', $canonicalRoute->gatherMiddleware());
+        $this->assertNotContains('throttle:api.write.customer_import', $aliasRoute->gatherMiddleware());
     }
 
     private function registerTestRoutes(): void
@@ -100,6 +115,9 @@ class ApiRateLimitingPolicyTest extends TestCase
 
         Route::middleware(['api', 'throttle:api.access', 'throttle:api.write.heavy'])
             ->post('/api/v5/testing/import', fn () => response()->json(['ok' => true]));
+
+        Route::middleware(['api', 'throttle:api.access', 'throttle:api.write.customer_import'])
+            ->post('/api/v5/testing/customer-import', fn () => response()->json(['ok' => true]));
     }
 
     private function findRoute(string $uri, string $method): IlluminateRoute

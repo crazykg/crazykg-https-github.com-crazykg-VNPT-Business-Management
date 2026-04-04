@@ -86,6 +86,37 @@ class CustomerCrudTest extends TestCase
             ->assertJsonPath('data.customer_code', 'UBND_XA_VI_THUY');
     }
 
+    public function test_it_can_bulk_create_customers_for_import_without_hitting_row_by_row_routes(): void
+    {
+        $response = $this->postJson('/api/v5/customers/bulk', [
+            'items' => [
+                [
+                    'customer_name' => 'Trung tâm Y tế Vị Thủy',
+                    'customer_sector' => 'HEALTHCARE',
+                    'healthcare_facility_type' => 'MEDICAL_CENTER',
+                ],
+                [
+                    'customer_name' => 'UBND xã Vị Thủy',
+                    'customer_sector' => 'GOVERNMENT',
+                ],
+                [
+                    'customer_name' => '',
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.created_count', 2);
+        $response->assertJsonPath('data.failed_count', 1);
+        $response->assertJsonPath('data.results.0.success', true);
+        $response->assertJsonPath('data.results.0.data.customer_code', 'TTYT_VI_THUY');
+        $response->assertJsonPath('data.results.1.success', true);
+        $response->assertJsonPath('data.results.1.data.customer_code', 'UBND_XA_VI_THUY');
+        $response->assertJsonPath('data.results.2.success', false);
+
+        $this->assertSame(2, DB::table('customers')->count());
+    }
+
     public function test_it_keeps_existing_auto_generated_codes_until_customer_code_is_cleared(): void
     {
         DB::table('customers')->insert([
@@ -249,6 +280,72 @@ class CustomerCrudTest extends TestCase
         $response->assertJsonFragment(['customer_code' => 'KH201']);
         $response->assertJsonFragment(['customer_code' => 'KH202']);
         $response->assertJsonFragment(['customer_code' => 'KH203']);
+    }
+
+    public function test_it_filters_customers_by_healthcare_facility_type_using_the_same_breakdown_logic(): void
+    {
+        DB::table('customers')->insert([
+            [
+                'id' => 211,
+                'uuid' => 'customer-211',
+                'customer_code' => 'KH211',
+                'customer_name' => 'Bệnh viện Đa khoa Vị Thủy',
+                'company_name' => 'Bệnh viện Đa khoa Vị Thủy',
+                'customer_sector' => 'HEALTHCARE',
+                'created_by' => 99,
+                'updated_by' => 99,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 212,
+                'uuid' => 'customer-212',
+                'customer_code' => 'KH212',
+                'customer_name' => 'Trung tâm Y tế Long Mỹ',
+                'company_name' => 'Trung tâm Y tế Long Mỹ',
+                'customer_sector' => null,
+                'created_by' => 99,
+                'updated_by' => 99,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 213,
+                'uuid' => 'customer-213',
+                'customer_code' => 'KH213',
+                'customer_name' => 'Trạm Y tế Phường I',
+                'company_name' => 'Trạm Y tế Phường I',
+                'customer_sector' => 'OTHER',
+                'created_by' => 99,
+                'updated_by' => 99,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 214,
+                'uuid' => 'customer-214',
+                'customer_code' => 'KH214',
+                'customer_name' => 'Trung tâm Y tế Hành chính',
+                'company_name' => 'Trung tâm Y tế Hành chính',
+                'customer_sector' => 'GOVERNMENT',
+                'created_by' => 99,
+                'updated_by' => 99,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $this->actingAsInternalUser(99);
+
+        $response = $this->getJson('/api/v5/customers?healthcare_facility_type=MEDICAL_CENTER');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('meta.kpis.healthcare_customers', 1);
+        $response->assertJsonFragment(['customer_code' => 'KH212']);
+        $response->assertJsonMissing(['customer_code' => 'KH211']);
+        $response->assertJsonMissing(['customer_code' => 'KH213']);
+        $response->assertJsonMissing(['customer_code' => 'KH214']);
     }
 
     public function test_it_forbids_updating_customer_outside_department_scope_when_user_is_not_creator(): void

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createCustomer, fetchCustomersOptionsPage } from '../services/api/customerApi';
+import { createCustomer, createCustomersBulk, fetchCustomersOptionsPage } from '../services/api/customerApi';
 
 const fetchMock = vi.fn();
 
@@ -57,6 +57,42 @@ describe('customerApi module', () => {
       tax_code: null,
       address: 'Ha Noi',
       bed_capacity: 120,
+    });
+  });
+
+  it('sends bulk customer imports to the dedicated bulk endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: { results: [], created: [], created_count: 0, failed_count: 0 } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await createCustomersBulk([
+      {
+        customer_name: 'Trung tâm Y tế Vị Thủy',
+        customer_code: null,
+        customer_sector: 'HEALTHCARE',
+        healthcare_facility_type: 'MEDICAL_CENTER',
+        tax_code: '',
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/customers/bulk');
+
+    const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
+    expect(payload).toMatchObject({
+      items: [
+        {
+          customer_name: 'Trung tâm Y tế Vị Thủy',
+          customer_code: null,
+          customer_sector: 'HEALTHCARE',
+          healthcare_facility_type: 'MEDICAL_CENTER',
+          tax_code: null,
+        },
+      ],
     });
   });
 });

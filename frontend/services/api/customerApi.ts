@@ -4,7 +4,7 @@ import type {
   CustomerPersonnel,
   UpsellProductDetail,
 } from '../../types/customer';
-import type { PaginatedQuery, PaginatedResult } from '../../types/common';
+import type { BulkMutationResult, PaginatedQuery, PaginatedResult } from '../../types/common';
 import {
   apiFetch,
   buildOptionsPageQuery,
@@ -14,6 +14,7 @@ import {
   JSON_HEADERS,
   normalizeNullableNumber,
   normalizeNullableText,
+  parseBulkMutationJson,
   parseErrorMessage,
   parseItemJson,
 } from './_infra';
@@ -72,21 +73,23 @@ export const fetchCustomerPersonnelOptionsPage = async (
   perPage = 30
 ): Promise<PaginatedResult<CustomerPersonnel>> => fetchCustomerPersonnelPage(buildOptionsPageQuery(q, page, perPage));
 
+const buildCustomerRequestPayload = (payload: Partial<Customer>) => ({
+  uuid: payload.uuid,
+  customer_code: normalizeNullableText(payload.customer_code),
+  customer_name: normalizeNullableText(payload.customer_name),
+  tax_code: normalizeNullableText(payload.tax_code),
+  address: normalizeNullableText(payload.address),
+  customer_sector: payload.customer_sector,
+  healthcare_facility_type: payload.healthcare_facility_type,
+  bed_capacity: payload.bed_capacity,
+});
+
 export const createCustomer = async (payload: Partial<Customer>): Promise<Customer> => {
   const res = await apiFetch('/api/v5/customers', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      uuid: payload.uuid,
-      customer_code: normalizeNullableText(payload.customer_code),
-      customer_name: normalizeNullableText(payload.customer_name),
-      tax_code: normalizeNullableText(payload.tax_code),
-      address: normalizeNullableText(payload.address),
-      customer_sector: payload.customer_sector,
-      healthcare_facility_type: payload.healthcare_facility_type,
-      bed_capacity: payload.bed_capacity,
-    }),
+    body: JSON.stringify(buildCustomerRequestPayload(payload)),
   });
 
   if (!res.ok) {
@@ -96,21 +99,33 @@ export const createCustomer = async (payload: Partial<Customer>): Promise<Custom
   return parseItemJson<Customer>(res);
 };
 
+export const createCustomersBulk = async (items: Array<Partial<Customer>>): Promise<BulkMutationResult<Customer>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/customers/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => buildCustomerRequestPayload(item)),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_CUSTOMERS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<Customer>(res);
+};
+
 export const updateCustomer = async (id: string | number, payload: Partial<Customer>): Promise<Customer> => {
   const res = await apiFetch(`/api/v5/customers/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      uuid: payload.uuid,
-      customer_code: normalizeNullableText(payload.customer_code),
-      customer_name: normalizeNullableText(payload.customer_name),
-      tax_code: normalizeNullableText(payload.tax_code),
-      address: normalizeNullableText(payload.address),
-      customer_sector: payload.customer_sector,
-      healthcare_facility_type: payload.healthcare_facility_type,
-      bed_capacity: payload.bed_capacity,
-    }),
+    body: JSON.stringify(buildCustomerRequestPayload(payload)),
   });
 
   if (!res.ok) {
@@ -137,20 +152,21 @@ export const deleteCustomer = async (id: string | number): Promise<void> => {
 export const createCustomerPersonnel = async (
   payload: Partial<CustomerPersonnel>
 ): Promise<CustomerPersonnel> => {
+  const requestPayload = {
+    customer_id: normalizeNullableNumber(payload.customerId),
+    full_name: normalizeNullableText(payload.fullName),
+    date_of_birth: normalizeNullableText(payload.birthday),
+    position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+    position_id: normalizeNullableNumber(payload.positionId),
+    phone: normalizeNullableText(payload.phoneNumber),
+    email: normalizeNullableText(payload.email),
+    status: normalizeNullableText(payload.status) || 'ACTIVE',
+  };
   const res = await apiFetch('/api/v5/customer-personnel', {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      customer_id: normalizeNullableNumber(payload.customerId),
-      full_name: normalizeNullableText(payload.fullName),
-      date_of_birth: normalizeNullableText(payload.birthday),
-      position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
-      position_id: normalizeNullableNumber(payload.positionId),
-      phone: normalizeNullableText(payload.phoneNumber),
-      email: normalizeNullableText(payload.email),
-      status: normalizeNullableText(payload.status) || 'ACTIVE',
-    }),
+    body: JSON.stringify(requestPayload),
   });
 
   if (!res.ok) {
@@ -158,6 +174,38 @@ export const createCustomerPersonnel = async (
   }
 
   return parseItemJson<CustomerPersonnel>(res);
+};
+
+export const createCustomerPersonnelBulk = async (
+  items: Array<Partial<CustomerPersonnel>>
+): Promise<BulkMutationResult<CustomerPersonnel>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/customer-personnel/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((payload) => ({
+        customer_id: normalizeNullableNumber(payload.customerId),
+        full_name: normalizeNullableText(payload.fullName),
+        date_of_birth: normalizeNullableText(payload.birthday),
+        position_type: normalizeNullableText(payload.positionType) || 'DAU_MOI',
+        position_id: normalizeNullableNumber(payload.positionId),
+        phone: normalizeNullableText(payload.phoneNumber),
+        email: normalizeNullableText(payload.email),
+        status: normalizeNullableText(payload.status) || 'ACTIVE',
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_CUSTOMER_PERSONNELS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<CustomerPersonnel>(res);
 };
 
 export const updateCustomerPersonnel = async (

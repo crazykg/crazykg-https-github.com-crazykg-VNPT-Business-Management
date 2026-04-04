@@ -11,5 +11,6 @@ return [
         'export_per_minute' => (int) env('VNPT_RATE_LIMIT_API_EXPORT_PER_MINUTE', 10),
         'write_per_minute' => (int) env('VNPT_RATE_LIMIT_API_WRITE_PER_MINUTE', 30),
         'write_heavy_per_minute' => (int) env('VNPT_RATE_LIMIT_API_WRITE_HEAVY_PER_MINUTE', 10),
+        'customer_import_per_minute' => (int) env('VNPT_RATE_LIMIT_API_CUSTOMER_IMPORT_PER_MINUTE', 20),
     ],
 ];

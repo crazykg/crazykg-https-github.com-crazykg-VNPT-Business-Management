@@ -28,6 +28,11 @@ class CustomerPersonnelController extends V5BaseController
         return $this->customerPersonnelService->store($request);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        return $this->customerPersonnelService->storeBulk($request);
+    }
+
     public function update(Request $request, string $id): JsonResponse
     {
         return $this->customerPersonnelService->update($request, $id);

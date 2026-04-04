@@ -31,6 +31,14 @@ interface CustomerListProps {
 type CustomerSortDirection = 'asc' | 'desc';
 type CustomerSortKey = keyof Customer;
 type CustomerSortConfig = { key: CustomerSortKey; direction: CustomerSortDirection };
+type HealthcareBreakdownKey = keyof CustomerAggregateKpis['healthcareBreakdown'];
+type HealthcareFacilityFilterValue =
+  | 'PUBLIC_HOSPITAL'
+  | 'PRIVATE_HOSPITAL'
+  | 'MEDICAL_CENTER'
+  | 'PRIVATE_CLINIC'
+  | 'TYT_PKDK'
+  | 'OTHER';
 
 const RESPONSIVE_SORT_OPTIONS: Array<{
   value: string;
@@ -66,7 +74,7 @@ const EMPTY_HEALTHCARE_BREAKDOWN: CustomerAggregateKpis['healthcareBreakdown'] =
 };
 
 const HEALTHCARE_BREAKDOWN_LABELS: Array<{
-  key: keyof CustomerAggregateKpis['healthcareBreakdown'];
+  key: HealthcareBreakdownKey;
   label: string;
   accentClassName: string;
 }> = [
@@ -77,6 +85,15 @@ const HEALTHCARE_BREAKDOWN_LABELS: Array<{
   { key: 'tytPkdk', label: 'TYT và PKĐK', accentClassName: 'text-warning bg-amber-50 border-amber-100' },
   { key: 'other', label: 'Khác', accentClassName: 'text-neutral bg-slate-50 border-slate-200' },
 ] as const;
+
+const HEALTHCARE_BREAKDOWN_FILTER_MAP: Record<HealthcareBreakdownKey, HealthcareFacilityFilterValue> = {
+  publicHospital: 'PUBLIC_HOSPITAL',
+  privateHospital: 'PRIVATE_HOSPITAL',
+  medicalCenter: 'MEDICAL_CENTER',
+  privateClinic: 'PRIVATE_CLINIC',
+  tytPkdk: 'TYT_PKDK',
+  other: 'OTHER',
+};
 
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
@@ -99,6 +116,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
+  const [selectedHealthcareFacilityType, setSelectedHealthcareFacilityType] = useState<HealthcareFacilityFilterValue | null>(null);
 
   useEscKey(() => {
     setShowImportMenu(false);
@@ -106,7 +124,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   }, showImportMenu || showExportMenu);
 
   const showActionColumn = canEdit || canDelete;
-  const hasActiveFilters = searchTerm.trim() !== '' || selectedCustomerSectors.length > 0;
+  const hasActiveFilters = searchTerm.trim() !== '' || selectedCustomerSectors.length > 0 || selectedHealthcareFacilityType !== null;
   const customerSectorFilterOptions = useMemo(
     () => CUSTOMER_SECTOR_OPTIONS.map((option) => ({
       value: option.value,
@@ -187,9 +205,21 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     let result = (customers || []).filter((customer) => {
+      const sector = resolveCustomerSector(customer);
+
       if (selectedCustomerSectors.length > 0) {
-        const sector = resolveCustomerSector(customer);
         if (!selectedCustomerSectors.includes(sector)) {
+          return false;
+        }
+      }
+
+      if (selectedHealthcareFacilityType !== null) {
+        if (sector !== 'HEALTHCARE') {
+          return false;
+        }
+
+        const facilityType = resolveHealthcareFacilityType(customer) || 'OTHER';
+        if (facilityType !== selectedHealthcareFacilityType) {
           return false;
         }
       }
@@ -227,7 +257,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     return result;
-  }, [serverMode, customers, searchTerm, selectedCustomerSectors, sortConfig]);
+  }, [serverMode, customers, searchTerm, selectedCustomerSectors, selectedHealthcareFacilityType, sortConfig]);
 
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredCustomers.length;
   const totalPages = serverMode
@@ -245,17 +275,32 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       return;
     }
 
+    const nextFilters: Record<string, string> = {};
+    if (selectedCustomerSectors.length > 0) {
+      nextFilters.customer_sector = selectedCustomerSectors.join(',');
+    }
+    if (selectedHealthcareFacilityType !== null) {
+      nextFilters.healthcare_facility_type = selectedHealthcareFacilityType;
+    }
+
     onQueryChange({
       page: currentPage,
       per_page: rowsPerPage,
       q: searchTerm.trim(),
       sort_by: sortConfig?.key ? String(sortConfig.key) : 'customer_code',
       sort_dir: sortConfig?.direction || 'asc',
-      filters: selectedCustomerSectors.length > 0
-        ? { customer_sector: selectedCustomerSectors.join(',') }
-        : {},
+      filters: nextFilters,
     });
-  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, sortConfig, selectedCustomerSectors]);
+  }, [
+    serverMode,
+    onQueryChange,
+    currentPage,
+    rowsPerPage,
+    searchTerm,
+    sortConfig,
+    selectedCustomerSectors,
+    selectedHealthcareFacilityType,
+  ]);
 
   const currentData = serverMode
     ? (customers || [])
@@ -271,6 +316,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const resetFilters = () => {
     setSearchTerm('');
     setSelectedCustomerSectors([]);
+    setSelectedHealthcareFacilityType(null);
     setCurrentPage(1);
   };
 
@@ -287,6 +333,14 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   const handleCustomerSectorFilterChange = (values: string[]) => {
     setSelectedCustomerSectors(values);
+    setCurrentPage(1);
+  };
+
+  const handleHealthcareBreakdownFilterToggle = (breakdownKey: HealthcareBreakdownKey) => {
+    const nextFacilityType = HEALTHCARE_BREAKDOWN_FILTER_MAP[breakdownKey];
+    setSelectedHealthcareFacilityType((previous) => (
+      previous === nextFacilityType ? null : nextFacilityType
+    ));
     setCurrentPage(1);
   };
 
@@ -341,9 +395,16 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     setShowImportMenu(false);
     const headers = ['Mã khách hàng', 'Tên khách hàng', 'Nhóm khách hàng', 'Loại hình cơ sở y tế', 'Quy mô giường bệnh', 'Mã số thuế', 'Địa chỉ'];
     const sampleRows = [
-      ['', 'Bệnh viện Đa khoa Tỉnh', 'Y tế', 'Bệnh viện (Công lập)', '500', '0101234567', 'Cần Thơ'],
-      ['', 'Trạm y tế Phường 1', 'Y tế', 'TYT và PKĐK', '', '0109876543', 'Hậu Giang'],
-      ['KH003', 'UBND Phường Vị Thanh', 'Chính quyền', '', '', '1800123456', 'TP. Hồ Chí Minh'],
+      ['93002', 'Trung tâm Y tế khu vực Vị Thủy', 'Y tế', 'Trung tâm Y tế', '320', '0127160495', 'Số 02 Nguyễn Trãi, Vị Thủy, Hậu Giang'],
+      ['93003', 'Trung tâm Y tế khu vực Long Mỹ', 'Y tế', 'Trung tâm Y tế', '280', '0135802471', 'Long Mỹ, Hậu Giang'],
+      ['93100', 'Bệnh viện Đa khoa Tỉnh Hậu Giang', 'Y tế', 'Bệnh viện (Công lập)', '500', '0101234567', 'Vị Thanh, Hậu Giang'],
+      ['93107', 'Bệnh viện Tư nhân Quốc tế Phương Nam', 'Y tế', 'Bệnh viện (Tư nhân)', '220', '0107654321', 'Ninh Kiều, Cần Thơ'],
+      ['93106', 'Phòng khám Đa khoa An Bình', 'Y tế', 'TYT và PKĐK', '', '1800123456', 'Ngã Bảy, Hậu Giang'],
+      ['93122', 'Phòng khám tư nhân Tâm Đức', 'Y tế', 'Phòng khám (Tư nhân)', '', '1800765432', 'Vị Thanh, Hậu Giang'],
+      ['93123', 'Trung tâm Chăm sóc sức khỏe cộng đồng', 'Y tế', 'Khác', '', '1800111222', 'Sóc Trăng'],
+      ['CQ001', 'UBND Phường Vị Thanh', 'Chính quyền', '', '', '1800999001', 'Phường I, Vị Thanh, Hậu Giang'],
+      ['CN001', 'Nguyễn Văn An', 'Cá nhân', '', '', '', 'Long Mỹ, Hậu Giang'],
+      ['KHAC01', 'Công ty TNHH Thiết bị Y tế Minh Phúc', 'Khác', '', '', '0312345678', 'Ninh Kiều, Cần Thơ'],
     ];
     downloadExcelTemplate('mau_nhap_khach_hang', 'KhachHang', headers, sampleRows);
   };
@@ -456,6 +517,13 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const selectedSectorLabels = customerSectorFilterOptions
     .filter((option) => selectedCustomerSectors.includes(String(option.value)))
     .map((option) => option.label);
+  const selectedHealthcareFacilityLabel = selectedHealthcareFacilityType
+    ? (
+      HEALTHCARE_BREAKDOWN_LABELS.find(
+        (item) => HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key] === selectedHealthcareFacilityType,
+      )?.label || 'Khác'
+    )
+    : null;
 
   return (
     <div className="p-3 pb-6 space-y-3">
@@ -632,12 +700,22 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
             {healthcareBreakdownItems.map((item) => (
-              <div key={item.key} className={`rounded border p-2.5 ${item.accentClassName}`}>
+              <button
+                key={item.key}
+                type="button"
+                aria-pressed={selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]}
+                onClick={() => handleHealthcareBreakdownFilterToggle(item.key)}
+                className={`rounded border p-2.5 text-left transition ${
+                  selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]
+                    ? `${item.accentClassName} ring-2 ring-offset-1 ring-primary/30 shadow-sm`
+                    : `${item.accentClassName} hover:-translate-y-0.5 hover:shadow-sm`
+                }`}
+              >
                 <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
                 <p className="mt-1.5 text-xl font-black text-deep-teal">
                   {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
                 </p>
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -654,8 +732,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               onChange={handleCustomerSectorFilterChange}
               placeholder="Nhóm khách hàng"
               searchPlaceholder="Tìm nhóm khách hàng..."
+              showSelectedChips={false}
               className="w-full min-w-0"
-              triggerClassName="h-8 rounded border border-slate-200 bg-white text-xs"
+              triggerClassName="!h-8 !min-h-0 !rounded !border !border-slate-200 !bg-white !px-3 !py-0 !text-xs"
             />
 
             <div className="relative w-full min-w-0">
@@ -708,25 +787,17 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                   Nhóm: {selectedSectorLabels.join(', ')}
                 </span>
               ) : null}
+              {selectedHealthcareFacilityLabel ? (
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-600">
+                  Loại hình Y tế: {selectedHealthcareFacilityLabel}
+                </span>
+              ) : null}
               {searchTerm.trim() ? (
                 <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-600">
                   Từ khóa: "{searchTerm.trim()}"
                 </span>
               ) : null}
             </div>
-          ) : null}
-        </div>
-
-        {/* Table sub-header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-          <div>
-            <h3 className="text-xs font-bold text-slate-700">Danh sách khách hàng</h3>
-          </div>
-          {hasActiveFilters ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2.5 py-0.5 text-[11px] font-bold text-secondary">
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>tune</span>
-              Bộ lọc đang bật
-            </span>
           ) : null}
         </div>
 
