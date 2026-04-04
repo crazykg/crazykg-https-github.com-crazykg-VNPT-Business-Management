@@ -147,9 +147,17 @@ class CustomerPersonnelDomainService
             return response()->json(['message' => 'position_type hoặc position_id không tồn tại trong danh mục chức vụ.'], 422);
         }
 
+        $normalizedFullName = $this->normalizeCustomerPersonnelFullName((string) $validated['full_name']);
+        $this->assertUniqueCustomerPersonnelCombination(
+            $customerId,
+            $normalizedFullName,
+            $resolvedPosition['id'],
+            $resolvedPosition['position_code'],
+        );
+
         $payload = $this->support->filterPayloadByTableColumns('customer_personnel', [
             'customer_id' => $customerId,
-            'full_name' => trim((string) $validated['full_name']),
+            'full_name' => $normalizedFullName,
             'date_of_birth' => $this->support->normalizeNullableString($validated['date_of_birth'] ?? null),
             'position_id' => $resolvedPosition['id'],
             'position_type' => $resolvedPosition['position_code'],
@@ -298,7 +306,7 @@ class CustomerPersonnelDomainService
             $payload['customer_id'] = $customerId;
         }
         if (array_key_exists('full_name', $validated)) {
-            $payload['full_name'] = trim((string) $validated['full_name']);
+            $payload['full_name'] = $this->normalizeCustomerPersonnelFullName((string) $validated['full_name']);
         }
         if (array_key_exists('date_of_birth', $validated)) {
             $payload['date_of_birth'] = $this->support->normalizeNullableString($validated['date_of_birth']);
@@ -324,6 +332,20 @@ class CustomerPersonnelDomainService
         }
         if (array_key_exists('status', $validated)) {
             $payload['status'] = $this->normalizeCustomerPersonnelStorageStatus((string) ($validated['status'] ?? 'ACTIVE'));
+        }
+
+        $nextCustomerId = $this->support->parseNullableInt($payload['customer_id'] ?? ($current->customer_id ?? null));
+        $nextFullName = $this->normalizeCustomerPersonnelFullName((string) ($payload['full_name'] ?? ($current->full_name ?? '')));
+        $nextPositionId = $this->support->parseNullableInt($payload['position_id'] ?? ($current->position_id ?? null));
+        $nextPositionType = (string) ($payload['position_type'] ?? ($current->position_type ?? ''));
+        if ($nextCustomerId !== null && $nextFullName !== '') {
+            $this->assertUniqueCustomerPersonnelCombination(
+                $nextCustomerId,
+                $nextFullName,
+                $nextPositionId,
+                $nextPositionType,
+                $targetId
+            );
         }
 
         $payload = $this->support->filterPayloadByTableColumns('customer_personnel', $payload);
@@ -590,6 +612,71 @@ class CustomerPersonnelDomainService
         }
 
         return $fallback;
+    }
+
+    private function normalizeCustomerPersonnelFullName(?string $value): string
+    {
+        return preg_replace('/\s+/u', ' ', trim((string) ($value ?? ''))) ?? trim((string) ($value ?? ''));
+    }
+
+    private function normalizeCustomerPersonnelFullNameMatchToken(?string $value): string
+    {
+        $normalized = Str::ascii($this->normalizeCustomerPersonnelFullName($value));
+
+        return function_exists('mb_strtolower')
+            ? mb_strtolower($normalized, 'UTF-8')
+            : strtolower($normalized);
+    }
+
+    private function assertUniqueCustomerPersonnelCombination(
+        int $customerId,
+        string $fullName,
+        ?int $positionId,
+        ?string $positionType,
+        ?string $ignoreId = null
+    ): void {
+        if (
+            ! $this->support->hasTable('customer_personnel')
+            || ! $this->support->hasColumn('customer_personnel', 'customer_id')
+            || ! $this->support->hasColumn('customer_personnel', 'full_name')
+        ) {
+            return;
+        }
+
+        $normalizedFullName = $this->normalizeCustomerPersonnelFullNameMatchToken($fullName);
+        if ($normalizedFullName === '') {
+            return;
+        }
+
+        $candidatePositionCode = $this->sanitizeSupportContactPositionCode((string) ($positionType ?? ''));
+        $rows = DB::table('customer_personnel')
+            ->select($this->support->selectColumns('customer_personnel', [
+                'id',
+                'full_name',
+                'position_id',
+                'position_type',
+            ]))
+            ->where('customer_id', $customerId)
+            ->when($ignoreId !== null && trim($ignoreId) !== '', fn ($query) => $query->where('id', '<>', trim($ignoreId)))
+            ->when($this->support->hasColumn('customer_personnel', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->get();
+
+        foreach ($rows as $row) {
+            if ($this->normalizeCustomerPersonnelFullNameMatchToken((string) ($row->full_name ?? '')) !== $normalizedFullName) {
+                continue;
+            }
+
+            $rowPositionId = $this->support->parseNullableInt($row->position_id ?? null);
+            $rowPositionCode = $this->sanitizeSupportContactPositionCode((string) ($row->position_type ?? ''));
+            $samePositionId = $positionId !== null && $rowPositionId !== null && $positionId === $rowPositionId;
+            $samePositionCode = $candidatePositionCode !== '' && $rowPositionCode !== '' && $candidatePositionCode === $rowPositionCode;
+
+            if ($samePositionId || $samePositionCode) {
+                throw ValidationException::withMessages([
+                    'full_name' => ['Khách hàng này đã có đầu mối liên hệ cùng họ tên và chức vụ.'],
+                ]);
+            }
+        }
     }
 
     /**

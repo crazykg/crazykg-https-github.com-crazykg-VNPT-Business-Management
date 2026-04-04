@@ -108,6 +108,92 @@ class CustomerPersonnelCrudTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_it_rejects_duplicate_customer_personnel_for_same_customer_name_and_position(): void
+    {
+        $this->postJson('/api/v5/customer-personnel', [
+            'customer_id' => 1,
+            'full_name' => 'Nguyen Van A',
+            'position_type' => 'DAU_MOI',
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+        ])->assertCreated();
+
+        $duplicateResponse = $this->postJson('/api/v5/customer-personnel', [
+            'customer_id' => 1,
+            'full_name' => '  Nguyen   Van A  ',
+            'position_type' => 'Đầu mối',
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+        ]);
+
+        $duplicateResponse
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['full_name'])
+            ->assertJsonPath('errors.full_name.0', 'Khách hàng này đã có đầu mối liên hệ cùng họ tên và chức vụ.');
+    }
+
+    public function test_it_rejects_duplicate_customer_personnel_during_bulk_import(): void
+    {
+        $response = $this->postJson('/api/v5/customer-personnel/bulk', [
+            'items' => [
+                [
+                    'customer_id' => 1,
+                    'full_name' => 'Nguyen Van C',
+                    'position_type' => 'DAU_MOI',
+                    'position_id' => 1,
+                    'status' => 'ACTIVE',
+                ],
+                [
+                    'customer_id' => 1,
+                    'full_name' => ' Nguyen   Van   C ',
+                    'position_type' => 'Đầu mối',
+                    'position_id' => 1,
+                    'status' => 'ACTIVE',
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.created_count', 1)
+            ->assertJsonPath('data.failed_count', 1)
+            ->assertJsonPath('data.results.0.success', true)
+            ->assertJsonPath('data.results.1.success', false)
+            ->assertJsonPath('data.results.1.message', 'Khách hàng này đã có đầu mối liên hệ cùng họ tên và chức vụ.');
+
+        $this->assertSame(1, DB::table('customer_personnel')->count());
+    }
+
+    public function test_it_rejects_updates_that_would_duplicate_customer_personnel_combination(): void
+    {
+        $this->postJson('/api/v5/customer-personnel', [
+            'customer_id' => 1,
+            'full_name' => 'Nguyen Van A',
+            'position_type' => 'DAU_MOI',
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+        ])->assertCreated();
+
+        $this->postJson('/api/v5/customer-personnel', [
+            'customer_id' => 1,
+            'full_name' => 'Nguyen Van B',
+            'position_type' => 'PHU_TRACH',
+            'position_id' => 2,
+            'status' => 'ACTIVE',
+        ])->assertCreated();
+
+        $response = $this->putJson('/api/v5/customer-personnel/2', [
+            'full_name' => ' Nguyen   Van   A ',
+            'position_type' => 'DAU_MOI',
+            'position_id' => 1,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['full_name'])
+            ->assertJsonPath('errors.full_name.0', 'Khách hàng này đã có đầu mối liên hệ cùng họ tên và chức vụ.');
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('customer_personnel');
