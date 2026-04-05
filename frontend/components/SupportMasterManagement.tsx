@@ -3,6 +3,7 @@ import { useEscKey } from '../hooks/useEscKey';
 import {
   Customer,
   ProjectTypeOption,
+  ProductUnitMaster,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
@@ -14,15 +15,6 @@ import {
   WorkCalendarDay,
 } from '../types';
 import {
-  // createWorkflowFormFieldConfig,
-  // createWorkflowStatusTransition,
-  // createWorkflowStatusCatalog,
-  // fetchWorkflowFormFieldConfigs,
-  // fetchWorkflowStatusTransitions,
-  // fetchWorkflowStatusCatalogs,
-  // updateWorkflowFormFieldConfig,
-  // updateWorkflowStatusTransition,
-  // updateWorkflowStatusCatalog,
   fetchMonthlyCalendars,
   updateCalendarDay,
   generateCalendarDay,
@@ -33,6 +25,7 @@ import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 type MasterType =
   | 'group'
   | 'contact_position'
+  | 'product_unit'
   | 'status'
   | 'project_type'
   | 'worklog_activity_type'
@@ -44,10 +37,16 @@ type MasterType =
 type ActivityFilter = 'all' | 'active' | 'inactive';
 type FormMode = 'ADD' | 'EDIT';
 
+const isLegacyWorkflowMasterType = (value: MasterType): boolean =>
+  value === 'workflow_status_catalog'
+  || value === 'workflow_status_transition'
+  || value === 'workflow_form_field_config';
+
 interface SupportMasterManagementProps {
   customers: Customer[];
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
+  productUnitMasters?: ProductUnitMaster[];
   supportRequestStatuses: SupportRequestStatusOption[];
   worklogActivityTypes: WorklogActivityTypeOption[];
   supportSlaConfigs: SupportSlaConfigOption[];
@@ -64,6 +63,10 @@ interface SupportMasterManagementProps {
     payload: Partial<SupportContactPosition>,
     options?: { silent?: boolean }
   ) => Promise<SupportContactPosition>;
+  onCreateProductUnitMaster?: (
+    payload: Partial<ProductUnitMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ProductUnitMaster>;
   onCreateSupportContactPositionsBulk?: (
     items: Array<Partial<SupportContactPosition>>,
     options?: { silent?: boolean }
@@ -73,6 +76,11 @@ interface SupportMasterManagementProps {
     payload: Partial<SupportContactPosition>,
     options?: { silent?: boolean }
   ) => Promise<SupportContactPosition>;
+  onUpdateProductUnitMaster?: (
+    id: string | number,
+    payload: Partial<ProductUnitMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ProductUnitMaster>;
   onCreateSupportRequestStatus: (
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -115,11 +123,13 @@ interface SupportMasterManagementProps {
   canReadCustomers?: boolean;
   canReadServiceGroups?: boolean;
   canReadContactPositions?: boolean;
+  canReadProductUnitMasters?: boolean;
   canReadStatuses?: boolean;
   canReadWorklogActivityTypes?: boolean;
   canReadSlaConfigs?: boolean;
   canWriteServiceGroups?: boolean;
   canWriteContactPositions?: boolean;
+  canWriteProductUnitMasters?: boolean;
   canWriteStatuses?: boolean;
   canWriteWorklogActivityTypes?: boolean;
   canWriteSlaConfigs?: boolean;
@@ -141,6 +151,13 @@ interface GroupFormState {
 interface ContactPositionFormState {
   position_code: string;
   position_name: string;
+  description: string;
+  is_active: boolean;
+}
+
+interface ProductUnitFormState {
+  unit_code: string;
+  unit_name: string;
   description: string;
   is_active: boolean;
 }
@@ -285,6 +302,13 @@ const defaultContactPositionForm = (): ContactPositionFormState => ({
   is_active: true,
 });
 
+const defaultProductUnitForm = (): ProductUnitFormState => ({
+  unit_code: '',
+  unit_name: '',
+  description: '',
+  is_active: true,
+});
+
 const defaultStatusForm = (sortOrder: number): StatusFormState => ({
   status_code: '',
   status_name: '',
@@ -399,13 +423,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   customers = [],
   supportServiceGroups = [],
   supportContactPositions = [],
+  productUnitMasters = [],
   supportRequestStatuses = [],
   worklogActivityTypes = [],
   supportSlaConfigs = [],
   onCreateSupportServiceGroup,
   onUpdateSupportServiceGroup,
   onCreateSupportContactPosition,
+  onCreateProductUnitMaster,
   onUpdateSupportContactPosition,
+  onUpdateProductUnitMaster,
   onCreateSupportRequestStatus,
   onUpdateSupportRequestStatus,
   projectTypes = [],
@@ -418,11 +445,13 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   canReadCustomers = true,
   canReadServiceGroups = true,
   canReadContactPositions = true,
+  canReadProductUnitMasters = false,
   canReadStatuses = true,
   canReadWorklogActivityTypes = true,
   canReadSlaConfigs = true,
   canWriteServiceGroups = true,
   canWriteContactPositions = true,
+  canWriteProductUnitMasters = false,
   canWriteStatuses = true,
   canWriteWorklogActivityTypes = true,
   canWriteSlaConfigs = true,
@@ -456,6 +485,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [formMode, setFormMode] = useState<FormMode | null>(null);
   const [editingGroup, setEditingGroup] = useState<SupportServiceGroup | null>(null);
   const [editingContactPosition, setEditingContactPosition] = useState<SupportContactPosition | null>(null);
+  const [editingProductUnitMaster, setEditingProductUnitMaster] = useState<ProductUnitMaster | null>(null);
   const [editingStatus, setEditingStatus] = useState<SupportRequestStatusOption | null>(null);
   const [editingProjectType, setEditingProjectType] = useState<ProjectTypeOption | null>(null);
   const [editingWorklogActivityType, setEditingWorklogActivityType] = useState<WorklogActivityTypeOption | null>(null);
@@ -465,6 +495,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [editingWorkflowFormFieldConfig, setEditingWorkflowFormFieldConfig] = useState<WorkflowFormFieldConfig | null>(null);
   const [groupForm, setGroupForm] = useState<GroupFormState>(defaultGroupForm);
   const [contactPositionForm, setContactPositionForm] = useState<ContactPositionFormState>(defaultContactPositionForm);
+  const [productUnitForm, setProductUnitForm] = useState<ProductUnitFormState>(defaultProductUnitForm);
   const [statusForm, setStatusForm] = useState<StatusFormState>(() => defaultStatusForm(10));
   const [projectTypeForm, setProjectTypeForm] = useState<ProjectTypeFormState>(() =>
     defaultProjectTypeForm(10)
@@ -612,6 +643,9 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadContactPositions) {
       options.push({ value: 'contact_position', label: 'Chức vụ liên hệ' });
     }
+    if (canReadProductUnitMasters) {
+      options.push({ value: 'product_unit', label: 'Đơn vị tính sản phẩm' });
+    }
     if (canReadStatuses) {
       options.push({ value: 'status', label: 'Trạng thái hỗ trợ' });
     }
@@ -625,11 +659,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadSlaConfigs) {
       options.push({ value: 'sla_config', label: 'Cấu hình SLA hỗ trợ' });
     }
-    if (canReadStatuses) {
-      options.push({ value: 'workflow_status_catalog', label: 'Workflow trạng thái phân cấp' });
-      options.push({ value: 'workflow_status_transition', label: 'Workflow transition action' });
-      options.push({ value: 'workflow_form_field_config', label: 'Workflow schema field' });
-    }
     if (canReadWorkCalendar) {
       options.push({ value: 'work_calendar', label: 'Lịch làm việc' });
     }
@@ -638,6 +667,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   }, [
     canReadServiceGroups,
     canReadContactPositions,
+    canReadProductUnitMasters,
     canReadStatuses,
     canReadProjectTypes,
     canReadWorklogActivityTypes,
@@ -650,6 +680,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       ? canWriteServiceGroups
       : masterType === 'contact_position'
         ? canWriteContactPositions
+      : masterType === 'product_unit'
+        ? canWriteProductUnitMasters
       : masterType === 'status'
         ? canWriteStatuses
       : masterType === 'project_type'
@@ -809,6 +841,20 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     });
   }, [supportContactPositions, activityFilter, searchTerm]);
 
+  const filteredProductUnits = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (productUnitMasters || []).filter((unit) => {
+      const isActive = unit.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${unit.unit_code || ''} ${unit.unit_name || ''} ${unit.description || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [productUnitMasters, activityFilter, searchTerm]);
+
   const filteredStatuses = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
 
@@ -942,6 +988,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       ? filteredGroups.length
       : masterType === 'contact_position'
         ? filteredContactPositions.length
+        : masterType === 'product_unit'
+          ? filteredProductUnits.length
         : masterType === 'status'
           ? filteredStatuses.length
         : masterType === 'project_type'
@@ -977,6 +1025,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     const startIndex = (safePage - 1) * rowsPerPage;
     return filteredContactPositions.slice(startIndex, startIndex + rowsPerPage);
   }, [filteredContactPositions, safePage, rowsPerPage]);
+
+  const pagedProductUnits = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredProductUnits.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredProductUnits, safePage, rowsPerPage]);
 
   const pagedStatuses = useMemo(() => {
     const startIndex = (safePage - 1) * rowsPerPage;
@@ -1017,6 +1070,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setFormMode(null);
     setEditingGroup(null);
     setEditingContactPosition(null);
+    setEditingProductUnitMaster(null);
     setEditingStatus(null);
     setEditingProjectType(null);
     setEditingWorklogActivityType(null);
@@ -1026,6 +1080,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setEditingWorkflowFormFieldConfig(null);
     setGroupForm(defaultGroupForm());
     setContactPositionForm(defaultContactPositionForm());
+    setProductUnitForm(defaultProductUnitForm());
     setStatusForm(defaultStatusForm(nextStatusSortOrder));
     setProjectTypeForm(defaultProjectTypeForm(nextProjectTypeSortOrder));
     setWorklogActivityTypeForm(defaultWorklogActivityTypeForm(nextWorklogActivityTypeSortOrder));
@@ -1040,6 +1095,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   useEscKey(closeForm, formMode !== null);
 
   const openGroupAdd = () => {
+    setFormMode('ADD');
     setEditingGroup(null);
     setGroupForm(defaultGroupForm());
     setFormError('');
@@ -1060,6 +1116,25 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       position_name: String(position.position_name || ''),
       description: String(position.description || ''),
       is_active: position.is_active !== false,
+    });
+    setFormError('');
+  };
+
+  const openProductUnitAdd = () => {
+    setFormMode('ADD');
+    setEditingProductUnitMaster(null);
+    setProductUnitForm(defaultProductUnitForm());
+    setFormError('');
+  };
+
+  const openProductUnitEdit = (unit: ProductUnitMaster) => {
+    setFormMode('EDIT');
+    setEditingProductUnitMaster(unit);
+    setProductUnitForm({
+      unit_code: String(unit.unit_code || ''),
+      unit_name: String(unit.unit_name || ''),
+      description: String(unit.description || ''),
+      is_active: unit.is_active !== false,
     });
     setFormError('');
   };
@@ -1248,6 +1323,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setIsSubmitting(true);
 
     try {
+      if (isLegacyWorkflowMasterType(masterType)) {
+        setFormError('Cấu hình workflow cũ đã chuyển sang màn Quản lý Luồng công việc.');
+        setIsSubmitting(false);
+        return;
+      }
+
       if (masterType === 'group') {
         if (customerSelectDisabled) {
           setFormError(customerSelectError || 'Không thể chọn khách hàng ở thời điểm hiện tại.');
@@ -1307,6 +1388,44 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           await onCreateSupportContactPosition(payload);
         } else if (formMode === 'EDIT' && editingContactPosition) {
           await onUpdateSupportContactPosition(editingContactPosition.id, payload);
+        }
+      } else if (masterType === 'product_unit') {
+        const unitCode = normalizeMasterCodeInput(productUnitForm.unit_code);
+        if (!unitCode) {
+          setFormError('Mã đơn vị tính là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (!productUnitForm.unit_name.trim()) {
+          setFormError('Tên đơn vị tính là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const payload: Partial<ProductUnitMaster> = {
+          unit_code: unitCode,
+          unit_name: productUnitForm.unit_name.trim(),
+          description: productUnitForm.description.trim() || null,
+          is_active: productUnitForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          if (!onCreateProductUnitMaster) {
+            setFormError('Chức năng tạo đơn vị tính sản phẩm chưa được cấu hình.');
+            setIsSubmitting(false);
+            return;
+          }
+
+          await onCreateProductUnitMaster(payload);
+        } else if (formMode === 'EDIT' && editingProductUnitMaster) {
+          if (!onUpdateProductUnitMaster) {
+            setFormError('Chức năng cập nhật đơn vị tính sản phẩm chưa được cấu hình.');
+            setIsSubmitting(false);
+            return;
+          }
+
+          await onUpdateProductUnitMaster(editingProductUnitMaster.id, payload);
         }
       } else if (masterType === 'status') {
         const statusCode = normalizeStatusCodeInput(statusForm.status_code);
@@ -1439,175 +1558,6 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         } else if (formMode === 'EDIT' && editingSupportSlaConfig) {
           await onUpdateSupportSlaConfig(editingSupportSlaConfig.id, payload);
         }
-      } else if (masterType === 'workflow_status_catalog') {
-        const statusCode = normalizeMasterCodeInput(workflowStatusCatalogForm.status_code);
-        if (!statusCode) {
-          setFormError('Mã trạng thái workflow là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!workflowStatusCatalogForm.status_name.trim()) {
-          setFormError('Tên trạng thái workflow là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const level = Math.max(1, Math.min(3, Number(workflowStatusCatalogForm.level || 1)));
-        const parentId = workflowStatusCatalogForm.parent_id
-          ? Number(workflowStatusCatalogForm.parent_id)
-          : null;
-
-        const payload: Partial<WorkflowStatusCatalog> = {
-          level,
-          status_code: statusCode,
-          status_name: workflowStatusCatalogForm.status_name.trim(),
-          parent_id: parentId,
-          canonical_status: normalizeMasterCodeInput(workflowStatusCatalogForm.canonical_status) || null,
-          canonical_sub_status: normalizeMasterCodeInput(workflowStatusCatalogForm.canonical_sub_status) || null,
-          flow_step: normalizeMasterCodeInput(workflowStatusCatalogForm.flow_step) || null,
-          form_key: workflowStatusCatalogForm.form_key.trim() || null,
-          is_leaf: workflowStatusCatalogForm.is_leaf,
-          sort_order: Math.max(0, Number(workflowStatusCatalogForm.sort_order || 0)),
-          is_active: workflowStatusCatalogForm.is_active,
-        };
-
-        if (formMode === 'ADD') {
-          await createWorkflowStatusCatalog(payload);
-        } else if (formMode === 'EDIT' && editingWorkflowStatusCatalog) {
-          await updateWorkflowStatusCatalog(editingWorkflowStatusCatalog.id, payload);
-        }
-
-        await loadWorkflowConfigs();
-      } else if (masterType === 'workflow_status_transition') {
-        const fromStatusCatalogId = Number(workflowStatusTransitionForm.from_status_catalog_id || 0);
-        const toStatusCatalogId = Number(workflowStatusTransitionForm.to_status_catalog_id || 0);
-        const actionCode = normalizeMasterCodeInput(workflowStatusTransitionForm.action_code);
-        const actionName = workflowStatusTransitionForm.action_name.trim();
-
-        if (!Number.isFinite(fromStatusCatalogId) || fromStatusCatalogId <= 0) {
-          setFormError('Vui lòng chọn trạng thái nguồn.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!Number.isFinite(toStatusCatalogId) || toStatusCatalogId <= 0) {
-          setFormError('Vui lòng chọn trạng thái đích.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (fromStatusCatalogId === toStatusCatalogId) {
-          setFormError('Trạng thái nguồn và đích không được trùng nhau.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!actionCode) {
-          setFormError('action_code là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!actionName) {
-          setFormError('Tên hành động là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        let conditionJson: Record<string, unknown> | null = null;
-        if (workflowStatusTransitionForm.condition_json_text.trim() !== '') {
-          try {
-            const parsed = JSON.parse(workflowStatusTransitionForm.condition_json_text);
-            if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-              throw new Error('condition_json phải là object JSON.');
-            }
-            conditionJson = parsed as Record<string, unknown>;
-          } catch (error) {
-            setFormError(error instanceof Error ? error.message : 'condition_json không hợp lệ.');
-            setIsSubmitting(false);
-            return;
-          }
-        }
-
-        const notifyTargets = workflowStatusTransitionForm.notify_targets_text
-          .split(',')
-          .map((item) => normalizeMasterCodeInput(item))
-          .filter((item) => item !== '');
-
-        const payload: Partial<WorkflowStatusTransition> = {
-          from_status_catalog_id: fromStatusCatalogId,
-          to_status_catalog_id: toStatusCatalogId,
-          action_code: actionCode,
-          action_name: actionName,
-          required_role: normalizeMasterCodeInput(workflowStatusTransitionForm.required_role) || null,
-          condition_json: conditionJson,
-          notify_targets_json: notifyTargets.length > 0 ? notifyTargets : null,
-          sort_order: Math.max(0, Number(workflowStatusTransitionForm.sort_order || 0)),
-          is_active: workflowStatusTransitionForm.is_active,
-        };
-
-        if (formMode === 'ADD') {
-          await createWorkflowStatusTransition(payload);
-        } else if (formMode === 'EDIT' && editingWorkflowStatusTransition) {
-          await updateWorkflowStatusTransition(editingWorkflowStatusTransition.id, payload);
-        }
-
-        await loadWorkflowConfigs();
-      } else if (masterType === 'workflow_form_field_config') {
-        const statusCatalogId = Number(workflowFormFieldConfigForm.status_catalog_id || 0);
-        if (!Number.isFinite(statusCatalogId) || statusCatalogId <= 0) {
-          setFormError('Vui lòng chọn trạng thái workflow (leaf).');
-          setIsSubmitting(false);
-          return;
-        }
-        const fieldKey = normalizeMasterCodeInput(workflowFormFieldConfigForm.field_key);
-        if (!fieldKey) {
-          setFormError('field_key là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!workflowFormFieldConfigForm.field_label.trim()) {
-          setFormError('field_label là bắt buộc.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        let optionsJson: Array<{ value: string; label: string }> | null = null;
-        const optionsText = workflowFormFieldConfigForm.options_json_text.trim();
-        if (optionsText !== '') {
-          try {
-            const parsed = JSON.parse(optionsText);
-            if (!Array.isArray(parsed)) {
-              throw new Error('options_json phải là mảng.');
-            }
-            optionsJson = parsed
-              .map((item) => ({
-                value: String((item as Record<string, unknown>).value ?? '').trim(),
-                label: String((item as Record<string, unknown>).label ?? '').trim(),
-              }))
-              .filter((item) => item.value !== '' && item.label !== '');
-          } catch (error) {
-            setFormError(error instanceof Error ? error.message : 'options_json không hợp lệ.');
-            setIsSubmitting(false);
-            return;
-          }
-        }
-
-        const payload: Partial<WorkflowFormFieldConfig> = {
-          status_catalog_id: statusCatalogId,
-          field_key: fieldKey,
-          field_label: workflowFormFieldConfigForm.field_label.trim(),
-          field_type: workflowFormFieldConfigForm.field_type.trim().toLowerCase() || 'text',
-          required: workflowFormFieldConfigForm.required,
-          sort_order: Math.max(0, Number(workflowFormFieldConfigForm.sort_order || 0)),
-          excel_column: normalizeMasterCodeInput(workflowFormFieldConfigForm.excel_column) || null,
-          options_json: optionsJson,
-          is_active: workflowFormFieldConfigForm.is_active,
-        };
-
-        if (formMode === 'ADD') {
-          await createWorkflowFormFieldConfig(payload);
-        } else if (formMode === 'EDIT' && editingWorkflowFormFieldConfig) {
-          await updateWorkflowFormFieldConfig(editingWorkflowFormFieldConfig.id, payload);
-        }
-
-        await loadWorkflowConfigs();
       }
 
       closeForm();
@@ -1632,6 +1582,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           editingContactPosition?.is_code_editable ??
             Number(editingContactPosition?.used_in_customer_personnel ?? 0) === 0
         );
+
+  const productUnitNameEditable =
+    formMode === 'ADD'
+      ? true
+      : Boolean(editingProductUnitMaster?.is_name_editable ?? Number(editingProductUnitMaster?.used_in_products ?? 0) === 0);
 
   const projectTypeCodeEditable =
     formMode === 'ADD'
@@ -1660,52 +1615,58 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, trạng thái hỗ trợ, workflow trạng thái/field schema, SLA và giai đoạn cơ hội.
+            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, trạng thái hỗ trợ, SLA, lịch làm việc và giai đoạn cơ hội.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={!canWriteCurrentMaster}
-          onClick={() => {
-            if (masterType === 'group') {
-              openGroupAdd();
-              return;
-            }
-            if (masterType === 'contact_position') {
-              openContactPositionAdd();
-              return;
-            }
-            if (masterType === 'status') {
-              openStatusAdd();
-              return;
-            }
-            if (masterType === 'project_type') {
-              openProjectTypeAdd();
-              return;
-            }
-            if (masterType === 'worklog_activity_type') {
-              openWorklogActivityTypeAdd();
-              return;
-            }
-            if (masterType === 'sla_config') {
-              openSupportSlaConfigAdd();
-              return;
-            }
-            if (masterType === 'workflow_status_catalog') {
-              openWorkflowStatusCatalogAdd();
-              return;
-            }
-            if (masterType === 'workflow_status_transition') {
-              openWorkflowStatusTransitionAdd();
-              return;
-            }
-            openWorkflowFormFieldConfigAdd();
-          }}
-          className="flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <span className="material-symbols-outlined">add</span>
-          <span>Thêm mới</span>
-        </button>
+        {masterType !== 'work_calendar' && (
+          <button
+            type="button"
+            disabled={!canWriteCurrentMaster}
+            onClick={() => {
+              if (masterType === 'group') {
+                openGroupAdd();
+                return;
+              }
+              if (masterType === 'contact_position') {
+                openContactPositionAdd();
+                return;
+              }
+              if (masterType === 'product_unit') {
+                openProductUnitAdd();
+                return;
+              }
+              if (masterType === 'status') {
+                openStatusAdd();
+                return;
+              }
+              if (masterType === 'project_type') {
+                openProjectTypeAdd();
+                return;
+              }
+              if (masterType === 'worklog_activity_type') {
+                openWorklogActivityTypeAdd();
+                return;
+              }
+              if (masterType === 'sla_config') {
+                openSupportSlaConfigAdd();
+                return;
+              }
+              if (masterType === 'workflow_status_catalog') {
+                openWorkflowStatusCatalogAdd();
+                return;
+              }
+              if (masterType === 'workflow_status_transition') {
+                openWorkflowStatusTransitionAdd();
+                return;
+              }
+              openWorkflowFormFieldConfigAdd();
+            }}
+            className="flex items-center justify-center gap-2 bg-primary hover:bg-deep-teal transition-all text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-md shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span className="material-symbols-outlined">add</span>
+            <span>Thêm mới</span>
+          </button>
+        )}
       </header>
 
       <div className="bg-white/95 p-4 md:p-5 rounded-xl border border-slate-200 shadow-[0_6px_20px_rgba(15,23,42,0.04)]">
@@ -1855,6 +1816,59 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                       Không có dữ liệu chức vụ phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : masterType === 'product_unit' ? (
+            <table className="w-full min-w-[980px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">ID</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã đơn vị tính</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Tên đơn vị tính</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mô tả</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {pagedProductUnits.map((item) => {
+                  const canEditRow = canWriteProductUnitMasters && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-6 py-4 text-sm font-mono text-slate-700">{String(item.id || '--')}</td>
+                      <td className="px-6 py-4 text-sm font-mono font-semibold text-slate-800">{item.unit_code || '--'}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.unit_name || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{item.description || '--'}</td>
+                      <td className="px-6 py-4 text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openProductUnitEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {pagedProductUnits.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu đơn vị tính sản phẩm phù hợp.
                     </td>
                   </tr>
                 )}
@@ -2533,14 +2547,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
           )}
         </div>
 
-        <PaginationControls
-          currentPage={safePage}
-          totalItems={totalItems}
-          rowsPerPage={rowsPerPage}
-          onPageChange={setCurrentPage}
-          onRowsPerPageChange={setRowsPerPage}
-          rowsPerPageOptions={[10, 20, 50]}
-        />
+        {masterType !== 'work_calendar' && (
+          <PaginationControls
+            currentPage={safePage}
+            totalItems={totalItems}
+            rowsPerPage={rowsPerPage}
+            onPageChange={setCurrentPage}
+            onRowsPerPageChange={setRowsPerPage}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        )}
       </div>
 
       {formMode && (
@@ -2557,6 +2573,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                     ? formMode === 'ADD'
                       ? 'Thêm chức vụ liên hệ'
                       : 'Cập nhật chức vụ liên hệ'
+                    : masterType === 'product_unit'
+                      ? formMode === 'ADD'
+                        ? 'Thêm đơn vị tính sản phẩm'
+                        : 'Cập nhật đơn vị tính sản phẩm'
 	                  : masterType === 'status'
 	                    ? formMode === 'ADD'
 	                      ? 'Thêm trạng thái hỗ trợ'
@@ -2753,6 +2773,69 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                       checked={contactPositionForm.is_active}
                       onChange={(event) =>
                         setContactPositionForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                    />
+                    Hoạt động
+                  </label>
+                </>
+              ) : masterType === 'product_unit' ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Mã đơn vị tính <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        value={productUnitForm.unit_code}
+                        onChange={(event) =>
+                          setProductUnitForm((prev) => ({
+                            ...prev,
+                            unit_code: normalizeMasterCodeInput(event.target.value),
+                          }))
+                        }
+                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Tên đơn vị tính <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        value={productUnitForm.unit_name}
+                        disabled={!productUnitNameEditable}
+                        onChange={(event) =>
+                          setProductUnitForm((prev) => ({
+                            ...prev,
+                            unit_name: event.target.value,
+                          }))
+                        }
+                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-500"
+                      />
+                    </div>
+                  </div>
+                  {!productUnitNameEditable && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Đã phát sinh sản phẩm, không cho đổi tên đơn vị tính.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+                    <textarea
+                      value={productUnitForm.description}
+                      onChange={(event) =>
+                        setProductUnitForm((prev) => ({ ...prev, description: event.target.value }))
+                      }
+                      rows={3}
+                      className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-y"
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={productUnitForm.is_active}
+                      onChange={(event) =>
+                        setProductUnitForm((prev) => ({ ...prev, is_active: event.target.checked }))
                       }
                       className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
                     />

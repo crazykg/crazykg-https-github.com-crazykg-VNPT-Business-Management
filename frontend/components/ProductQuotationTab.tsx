@@ -1421,6 +1421,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         productName: String(product.product_name || '').trim(),
         unit: String(product.unit || '').trim(),
         unitPrice: String(Number(product.standard_price || 0)),
+        vatRate: '10',
         note: nextNote,
       };
     });
@@ -1593,146 +1594,203 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       ? String(selectedCustomerId)
       : recipientName;
 
+  // ── UI-only state: row collapse + duplicate ──
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(() => new Set());
+  const toggleRowCollapse = (rowId: string) => {
+    setCollapsedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) { next.delete(rowId); } else { next.add(rowId); }
+      return next;
+    });
+  };
+  const duplicateRow = (rowId: string) => {
+    const source = rows.find((r) => r.id === rowId);
+    if (!source) return;
+    const newRow = { ...source, id: createRowId() };
+    setRows((current) => {
+      const idx = current.findIndex((r) => r.id === rowId);
+      const next = [...current];
+      next.splice(idx + 1, 0, newRow);
+      return next;
+    });
+  };
+
   return (
     <>
       <div className="pb-4 pt-0">
         {/* ── Top toolbar ── */}
-        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
-          <div className="w-full md:max-w-[320px]">
-            <SearchableSelect
-              className="w-full"
-              value={quotationSelectorValue}
-              options={quotationSelectOptions}
-              onChange={(value) => {
-                void handleOpenQuotation(value);
-              }}
-              placeholder={isLoadingQuotationList ? 'Đang tải báo giá...' : 'Mở báo giá cũ'}
-              searchPlaceholder="Tìm báo giá cũ..."
-              noOptionsText="Chưa có báo giá nào"
-              searching={isLoadingQuotationList}
-              disabled={isLoadingQuotationDetail}
-              optionEstimateSize={84}
-              dropdownClassName="max-w-[620px]"
-              portalMinWidth={460}
-              portalMaxWidth={620}
-              usePortal
-              triggerClassName="h-8 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
-              renderOptionContent={(option, state) => {
-                const quotation = quotationList.find((item) => String(item.id) === String(option.value));
+        <div className="mb-3 space-y-2">
+          {/* Row 1: Select báo giá — full width */}
+          <SearchableSelect
+            className="w-full"
+            value={quotationSelectorValue}
+            options={quotationSelectOptions}
+            onChange={(value) => {
+              void handleOpenQuotation(value);
+            }}
+            placeholder={isLoadingQuotationList ? 'Đang tải báo giá...' : 'Mở báo giá cũ'}
+            searchPlaceholder="Tìm báo giá cũ..."
+            noOptionsText="Chưa có báo giá nào"
+            searching={isLoadingQuotationList}
+            disabled={isLoadingQuotationDetail}
+            optionEstimateSize={84}
+            dropdownClassName="max-w-[620px]"
+            portalMinWidth={460}
+            portalMaxWidth={620}
+            usePortal
+            triggerClassName="h-9 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
+            renderOptionContent={(option, state) => {
+              const quotation = quotationList.find((item) => String(item.id) === String(option.value));
 
-                return (
-                  <div className="grid min-h-[72px] grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-1">
-                    <div className="min-w-0 flex-1 text-left">
-                      <p className="line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-900">
-                        {option.label}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Cập nhật: {formatDateTime(quotation?.updated_at || quotation?.created_at)}
-                      </p>
-                    </div>
-                    <div className="min-w-[116px] shrink-0 text-right">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                        Tổng tiền
-                      </p>
-                      <p className={`mt-1 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
-                        {formatMoney(Number(quotation?.total_amount || 0))} đ
-                      </p>
-                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                        v{Number(quotation?.latest_version_no || 0)}
-                      </p>
-                    </div>
+              return (
+                <div className="grid min-h-[72px] grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-1">
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="line-clamp-2 break-words text-sm font-semibold leading-5 text-slate-900">
+                      {option.label}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Cập nhật: {formatDateTime(quotation?.updated_at || quotation?.created_at)}
+                    </p>
                   </div>
-                );
-              }}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => { void handleStartNewQuotation(); }}
-            disabled={isPersistingDraft || isLoadingQuotationDetail}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add_circle</span>
-            Thêm báo giá mới
-          </button>
-          <div className="relative md:shrink-0">
+                  <div className="min-w-[116px] shrink-0 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      Tổng tiền
+                    </p>
+                    <p className={`mt-1 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
+                      {formatMoney(Number(quotation?.total_amount || 0))} đ
+                    </p>
+                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      v{Number(quotation?.latest_version_no || 0)}
+                    </p>
+                  </div>
+                </div>
+              );
+            }}
+          />
+          {/* Row 2: action buttons — inline, equal height */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowExportMenu((current) => !current)}
-              disabled={isExporting || isLoadingQuotationDetail}
-              aria-haspopup="menu"
-              aria-expanded={showExportMenu}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-primary text-white hover:bg-deep-teal shadow-sm"
+              onClick={() => { void handleStartNewQuotation(); }}
+              disabled={isPersistingDraft || isLoadingQuotationDetail}
+              className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
-              {isExporting ? 'Đang chuẩn bị...' : 'Xuất báo giá'}
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add_circle</span>
+              Thêm mới
             </button>
-            {showExportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                <div className="absolute right-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                  <button
-                    type="button"
-                    aria-label="Xem báo giá"
-                    onClick={() => { void handlePreviewQuotation(); }}
-                    disabled={isPreparingPreview}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>visibility</span>
-                    Xem báo giá
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="In báo giá"
-                    onClick={() => { handleRequestPrintQuotation(); }}
-                    disabled={isDownloadingWord}
-                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>description</span>
-                    In báo giá
-                  </button>
-                </div>
-              </>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowExportMenu((current) => !current)}
+                disabled={isExporting || isLoadingQuotationDetail}
+                aria-haspopup="menu"
+                aria-expanded={showExportMenu}
+                className="inline-flex h-9 items-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                {isExporting ? 'Đang chuẩn bị...' : 'Xuất báo giá'}
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+              </button>
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                  <div className="absolute right-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <button
+                      type="button"
+                      aria-label="Xem báo giá"
+                      onClick={() => { void handlePreviewQuotation(); }}
+                      disabled={isPreparingPreview}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>visibility</span>
+                      Xem báo giá
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="In báo giá"
+                      onClick={() => { handleRequestPrintQuotation(); }}
+                      disabled={isDownloadingWord}
+                      className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>description</span>
+                      In báo giá
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+        {/* ── Kính gửi ── */}
+        <div className={`rounded-lg border bg-white shadow-sm px-3 py-2 transition-all ${
+          canSelectRecipient
+            ? 'border-slate-200'
+            : 'border-dashed border-slate-200 bg-slate-50'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            {/* Step badge */}
+            <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-black transition-colors ${
+              canSelectRecipient
+                ? selectedRecipientValue
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-primary text-white'
+                : 'bg-slate-200 text-slate-400'
+            }`}>
+              {selectedRecipientValue ? '✓' : '1'}
+            </span>
+            <span className={`shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
+              canSelectRecipient ? 'text-slate-600' : 'text-slate-300'
+            }`}>Kính gửi</span>
+            {canSelectRecipient ? (
+              <SearchableSelect
+                className="min-w-0 flex-1"
+                value={selectedRecipientValue}
+                options={recipientOptions}
+                onChange={handleRecipientChange}
+                placeholder="Chọn khách hàng..."
+                searchPlaceholder="Tìm khách hàng..."
+                noOptionsText="Không tìm thấy khách hàng"
+                disabled={false}
+                triggerClassName="h-8 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
+              />
+            ) : (
+              <span className="text-xs text-slate-400 italic">Bấm "Thêm mới" để bắt đầu</span>
             )}
           </div>
         </div>
 
-        <div className="space-y-3">
-        {/* ── Kính gửi ── */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-            <span className="shrink-0 whitespace-nowrap text-xs font-black uppercase tracking-[0.16em] text-slate-700">Kính gửi</span>
-            <SearchableSelect
-              className="min-w-0 flex-1"
-              value={selectedRecipientValue}
-              options={recipientOptions}
-              onChange={handleRecipientChange}
-              placeholder={canSelectRecipient ? 'Chọn khách hàng' : 'Bấm "Thêm báo giá mới" để bắt đầu'}
-              searchPlaceholder="Tìm khách hàng..."
-              noOptionsText="Không tìm thấy khách hàng"
-              disabled={!canSelectRecipient}
-              triggerClassName="h-8 rounded border-slate-200 bg-white px-3 text-xs text-slate-900"
-            />
-          </div>
-        </div>
-
         {/* ── Bảng hạng mục ── */}
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-1.5">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <h4 className="text-xs font-bold text-slate-700">Bảng hạng mục báo giá</h4>
+        <div className={`overflow-hidden rounded-lg border bg-white shadow-sm transition-all ${
+          canEditLineItems ? 'border-slate-200' : 'border-dashed border-slate-200'
+        }`}>
+          <div className={`border-b border-slate-100 px-3 py-1.5 transition-colors ${
+            canEditLineItems ? 'bg-slate-50/70' : 'bg-slate-50'
+          }`}>
+            <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={addRow}
                 disabled={!canEditLineItems || isLoadingQuotationDetail}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add</span>
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 14 }}>add</span>
                 Thêm dòng
               </button>
             </div>
           </div>
+          {/* Locked overlay khi chưa chọn khách hàng */}
+          {!canEditLineItems && (
+            <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>lock</span>
+              <span className="text-xs font-semibold">Chọn khách hàng ở bước 1 để thêm hạng mục</span>
+            </div>
+          )}
+          {canEditLineItems && (
+          <>
+          {/* ── Desktop: table (lg+) ── */}
+          <div className="hidden lg:block">
           <div className="max-h-[580px] overflow-auto">
             <table className="w-full min-w-[1240px] table-fixed border-collapse text-left">
               <colgroup>
@@ -1741,7 +1799,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                 <col style={{ width: 100 }} />
                 <col style={{ width: 84 }} />
                 <col style={{ width: 132 }} />
-                <col style={{ width: 84 }} />
+                <col style={{ width: 108 }} />
                 <col style={{ width: 154 }} />
                 <col style={{ width: 286 }} />
                 <col style={{ width: 64 }} />
@@ -1764,10 +1822,48 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                   const unitPriceValue = parsePositiveNumber(row.unitPrice);
                   const lineTotal = quantityValue * unitPriceValue;
                   const isDuplicateCombination = duplicateRowIds.has(row.id);
+                  const isCollapsed = collapsedRows.has(row.id);
+                  const hasData = row.productName.trim() !== '';
+
+                  if (isCollapsed && hasData) {
+                    return (
+                      <tr key={row.id} className="cursor-pointer bg-slate-50/60 hover:bg-slate-50 align-middle" onClick={() => toggleRowCollapse(row.id)}>
+                        <td className="px-2 py-1.5 text-center text-xs font-semibold text-slate-500">{index + 1}</td>
+                        <td colSpan={5} className="px-2 py-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>chevron_right</span>
+                            <span className="truncate text-xs font-semibold text-slate-700">{row.productName}</span>
+                            <span className="shrink-0 text-xs text-slate-400">
+                              {quantityValue} × {formatMoney(unitPriceValue)} đ
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-1.5 text-right">
+                          <span className="whitespace-nowrap text-xs font-bold text-slate-900">{formatMoney(lineTotal)} đ</span>
+                        </td>
+                        <td colSpan={2} className="px-2 py-1.5 text-right">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">đã nhập</span>
+                        </td>
+                      </tr>
+                    );
+                  }
 
                   return (
                     <tr key={row.id} className="align-top">
-                      <td className="px-2 py-1.5 text-center text-xs font-semibold text-slate-500">{index + 1}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleRowCollapse(row.id)}
+                          disabled={!hasData}
+                          className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:pointer-events-none"
+                          title={isCollapsed ? 'Mở rộng' : 'Thu gọn'}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
+                            {isCollapsed ? 'chevron_right' : 'expand_more'}
+                          </span>
+                        </button>
+                        <div className="text-xs font-semibold text-slate-500 leading-none mt-0.5">{index + 1}</div>
+                      </td>
                       <td className="px-2 py-1.5">
                         <SearchableSelect
                           value={row.productId}
@@ -1876,26 +1972,52 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <div className="relative">
-                          <input
-                            ref={setRowFieldRef(row.id, 'vatRate')}
-                            type="text"
-                            inputMode="decimal"
-                            aria-label={`Thuế VAT dòng ${index + 1}`}
-                            value={row.vatRate}
-                            onChange={(event) =>
-                              updateRow(row.id, (current) => ({
-                                ...current,
-                                vatRate: sanitizeVatRateInput(event.target.value),
-                              }))
-                            }
-                            onKeyDown={(event) => handleRowFieldEnter(event, index, 'vatRate')}
-                            disabled={!canEditLineItems || isLoadingQuotationDetail}
-                            className="h-[30px] w-full rounded border border-slate-300 bg-white px-2 py-1 pr-6 text-center text-xs font-semibold leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
-                          />
-                          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs font-semibold text-slate-400">
-                            %
-                          </span>
+                        <div className="space-y-1">
+                          {/* Input tự do */}
+                          <div className="relative">
+                            <input
+                              ref={setRowFieldRef(row.id, 'vatRate')}
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`Thuế VAT dòng ${index + 1}`}
+                              value={row.vatRate}
+                              onChange={(event) =>
+                                updateRow(row.id, (current) => ({
+                                  ...current,
+                                  vatRate: sanitizeVatRateInput(event.target.value),
+                                }))
+                              }
+                              onKeyDown={(event) => handleRowFieldEnter(event, index, 'vatRate')}
+                              disabled={!canEditLineItems || isLoadingQuotationDetail}
+                              className="h-[26px] w-full rounded border border-slate-300 bg-white px-2 pr-5 text-center text-xs font-semibold text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
+                              placeholder="0"
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-[10px] font-semibold text-slate-400">%</span>
+                          </div>
+                          {/* Preset chips */}
+                          <div className="flex items-center gap-0.5" role="group">
+                            {(['0', '8', '10'] as const).map((chip) => {
+                              const isActive = row.vatRate === chip;
+                              return (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() =>
+                                    updateRow(row.id, (current) => ({ ...current, vatRate: chip }))
+                                  }
+                                  disabled={!canEditLineItems || isLoadingQuotationDetail}
+                                  title={chip === '8' ? 'Phần cứng 8%' : chip === '10' ? 'Phần mềm 10%' : '0%'}
+                                  className={`h-[20px] flex-1 rounded border text-[10px] font-bold transition-all focus:outline-none ${
+                                    isActive
+                                      ? 'border-primary bg-primary text-white'
+                                      : 'border-slate-200 bg-white text-slate-500 hover:border-primary/50 hover:bg-primary/5 hover:text-primary'
+                                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                                >
+                                  {chip}%
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </td>
                       <td className="px-2 py-1.5">
@@ -1918,15 +2040,26 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <button
-                          type="button"
-                          onClick={() => removeRow(row.id)}
-                          disabled={!canEditLineItems || isLoadingQuotationDetail}
-                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
-                          title="Xóa dòng"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
-                        </button>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => duplicateRow(row.id)}
+                            disabled={!canEditLineItems || isLoadingQuotationDetail || !hasData}
+                            className="rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
+                            title="Nhân đôi dòng này"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeRow(row.id)}
+                            disabled={!canEditLineItems || isLoadingQuotationDetail}
+                            className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
+                            title="Xóa dòng"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1934,9 +2067,260 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               </tbody>
             </table>
           </div>
+          </div>{/* end hidden lg:block desktop table */}
+
+          {/* ── Mobile/Tablet: card stack (< lg) ── */}
+          <div className="block lg:hidden divide-y divide-slate-100">
+            {rows.map((row, index) => {
+              const quantityValue = parseQuantityInput(row.quantity);
+              const unitPriceValue = parsePositiveNumber(row.unitPrice);
+              const lineTotal = quantityValue * unitPriceValue;
+              const isDuplicateCombination = duplicateRowIds.has(row.id);
+              const isCollapsed = collapsedRows.has(row.id);
+              const hasData = row.productName.trim() !== '';
+
+              if (isCollapsed && hasData) {
+                return (
+                  <div
+                    key={row.id}
+                    className="flex cursor-pointer items-start gap-2 px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100"
+                    onClick={() => toggleRowCollapse(row.id)}
+                  >
+                    <span className="material-symbols-outlined mt-0.5 shrink-0 text-slate-400" style={{ fontSize: 16 }}>chevron_right</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-800">{row.productName}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {quantityValue} × {formatMoney(unitPriceValue)} đ
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold text-slate-900">{formatMoney(lineTotal)} đ</p>
+                      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">đã nhập</p>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={row.id} className="px-3 py-3 space-y-3">
+                  {/* Card header */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleRowCollapse(row.id)}
+                        disabled={!hasData}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:pointer-events-none"
+                        title={isCollapsed ? 'Mở rộng' : 'Thu gọn'}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>expand_more</span>
+                      </button>
+                      <span className="text-xs font-bold text-slate-500">#{index + 1}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => duplicateRow(row.id)}
+                        disabled={!canEditLineItems || isLoadingQuotationDetail || !hasData}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
+                        title="Nhân đôi dòng"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 17 }}>content_copy</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(row.id)}
+                        disabled={!canEditLineItems || isLoadingQuotationDetail}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
+                        title="Xóa dòng"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 17 }}>delete</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sản phẩm */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Hạng mục</p>
+                    <SearchableSelect
+                      value={row.productId}
+                      options={productOptions}
+                      onChange={(value) => handleProductChange(row.id, value)}
+                      placeholder="Chọn sản phẩm từ danh mục"
+                      disabled={!canEditLineItems || isLoadingQuotationDetail}
+                      optionEstimateSize={92}
+                      dropdownClassName="min-w-[320px] max-w-[96vw]"
+                      portalMinWidth={320}
+                      portalMaxWidth={640}
+                      usePortal
+                      label=""
+                      triggerClassName={`h-11 rounded px-3 text-sm leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+                      renderOptionContent={(option, state) => {
+                        const product = productById.get(String(option.value));
+                        const packageName = String(product?.package_name || '').trim();
+                        const unitPrice = Number(product?.standard_price || 0);
+                        return (
+                          <div className="flex min-h-[60px] items-center justify-between gap-3 py-1">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
+                              {packageName ? <p className="mt-0.5 truncate text-xs text-slate-500">{packageName}</p> : null}
+                            </div>
+                            <p className={`shrink-0 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
+                              {formatMoney(unitPrice)} đ
+                            </p>
+                          </div>
+                        );
+                      }}
+                    />
+                    {isDuplicateCombination ? (
+                      <p className="mt-1 text-[10px] font-semibold text-error">{DUPLICATE_QUOTATION_ITEM_INLINE_MESSAGE}</p>
+                    ) : null}
+                  </div>
+
+                  {/* ĐVT + Số lượng */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Đơn vị tính</p>
+                      <input
+                        type="text"
+                        aria-label={`Đơn vị tính dòng ${index + 1}`}
+                        value={row.unit}
+                        onChange={(event) =>
+                          updateRow(row.id, (current) => ({ ...current, unit: event.target.value }))
+                        }
+                        disabled={!canEditLineItems || isLoadingQuotationDetail}
+                        className="h-11 w-full rounded border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Số lượng</p>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label={`Số lượng dòng ${index + 1}`}
+                        value={row.quantity}
+                        onChange={(event) =>
+                          updateRow(row.id, (current) => ({
+                            ...current,
+                            quantity: sanitizeQuantityInput(event.target.value),
+                          }))
+                        }
+                        disabled={!canEditLineItems || isLoadingQuotationDetail}
+                        className="h-11 w-full rounded border border-slate-300 bg-white px-3 text-right text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
+                      />
+                    </div>
+                  </div>
+
+                  {/* VAT chips + input */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Thuế VAT</p>
+                    {/* Preset chips */}
+                    <div className="flex items-center gap-1.5" role="group" aria-label={`Thuế VAT dòng ${index + 1}`}>
+                      {(['0', '8', '10'] as const).map((chip) => {
+                        const isActive = row.vatRate === chip;
+                        return (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => updateRow(row.id, (current) => ({ ...current, vatRate: chip }))}
+                            disabled={!canEditLineItems || isLoadingQuotationDetail}
+                            title={chip === '8' ? 'Phần cứng 8%' : chip === '10' ? 'Phần mềm 10%' : '0%'}
+                            className={`h-11 flex-1 rounded border text-sm font-bold transition-all focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                              isActive
+                                ? 'border-primary bg-primary text-white shadow-sm'
+                                : 'border-slate-300 bg-white text-slate-600 hover:border-primary/60 hover:bg-primary/5'
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                          >
+                            {chip === '8' ? '8% 🔩' : chip === '10' ? '10% 💿' : '0%'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Input tự do */}
+                    <div className="relative mt-1.5">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label={`Nhập VAT tùy chỉnh dòng ${index + 1}`}
+                        value={row.vatRate}
+                        onChange={(event) =>
+                          updateRow(row.id, (current) => ({
+                            ...current,
+                            vatRate: sanitizeVatRateInput(event.target.value),
+                          }))
+                        }
+                        disabled={!canEditLineItems || isLoadingQuotationDetail}
+                        placeholder="Nhập % tùy chỉnh"
+                        className="h-10 w-full rounded border border-slate-200 bg-slate-50 px-3 pr-8 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-primary focus:bg-white focus:ring-1 focus:ring-primary/30"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-bold text-slate-400">%</span>
+                    </div>
+                  </div>
+
+                  {/* Đơn giá */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Đơn giá (chưa VAT)</p>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      aria-label={`Đơn giá dòng ${index + 1}`}
+                      value={formatMoneyInputValue(row.unitPrice)}
+                      onChange={(event) =>
+                        updateRow(row.id, (current) => ({
+                          ...current,
+                          unitPrice: normalizeMoneyInput(event.target.value),
+                        }))
+                      }
+                      disabled={!canEditLineItems || isLoadingQuotationDetail}
+                      className={`h-11 w-full rounded border bg-white px-3 text-right text-sm font-semibold text-slate-900 outline-none transition-all focus:ring-1 ${isDuplicateCombination ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100' : 'border-slate-300 focus:border-primary focus:ring-primary/30'}`}
+                    />
+                  </div>
+
+                  {/* Thành tiền */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Thành tiền</p>
+                    <div className="flex h-11 items-center justify-between rounded border border-slate-200 bg-slate-50 px-3">
+                      <span className="text-sm font-black text-slate-900">{formatMoney(lineTotal)} đ</span>
+                      <span className="material-symbols-outlined text-emerald-500" style={{ fontSize: 16 }}>check_circle</span>
+                    </div>
+                  </div>
+
+                  {/* Ghi chú */}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ghi chú</p>
+                    <textarea
+                      aria-label={`Ghi chú dòng ${index + 1}`}
+                      value={row.note}
+                      onChange={(event) =>
+                        updateRow(row.id, (current) => ({ ...current, note: event.target.value }))
+                      }
+                      rows={2}
+                      disabled={!canEditLineItems || isLoadingQuotationDetail}
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Add row button — mobile */}
+            <div className="px-3 py-2">
+              <button
+                type="button"
+                onClick={addRow}
+                disabled={!canEditLineItems || isLoadingQuotationDetail}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white py-2 text-xs font-semibold text-slate-500 transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>add</span>
+                Thêm dòng mới
+              </button>
+            </div>
+          </div>
+          </>
+          )}{/* end canEditLineItems */}
+
           <div
             data-testid="quote-table-summary"
-            className="border-t border-slate-200 bg-slate-50/70 px-3 py-2"
           >
             <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
               <div
@@ -2594,6 +2978,25 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
               >
                 {isDownloadingWord ? 'Đang in...' : 'Xác nhận in'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── (B) Sticky summary bar ── */}
+      {normalizedRows.length > 0 && (
+        <div className="sticky bottom-0 z-20 border-t border-primary/20 bg-white/95 px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-xs font-semibold text-slate-500">
+              {normalizedRows.length} hạng mục
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-500">
+                Trước VAT: <span className="font-semibold text-slate-700">{formatMoney(subtotal)} đ</span>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span className="text-sm font-black text-deep-teal">
+                Tổng: {formatMoney(total)} đ
+              </span>
             </div>
           </div>
         </div>

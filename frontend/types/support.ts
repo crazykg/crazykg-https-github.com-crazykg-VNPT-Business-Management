@@ -64,6 +64,20 @@ export interface SupportContactPosition {
   updated_by_name?: string | null;
 }
 
+export interface ProductUnitMaster {
+  id: string | number;
+  unit_code: string;
+  unit_name: string;
+  description?: string | null;
+  is_active: boolean;
+  used_in_products?: number;
+  is_name_editable?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
 export interface SupportRequestStatusOption {
   id: string | number | null;
   status_code: string;

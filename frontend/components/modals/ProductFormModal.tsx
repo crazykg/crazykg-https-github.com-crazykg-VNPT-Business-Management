@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../../services/v5Api';
-import type { Business, Product, Vendor } from '../../types';
+import type { Business, Product, ProductUnitMaster, Vendor } from '../../types';
 import { normalizeProductUnitForSave } from '../../utils/productUnit';
 import {
   DEFAULT_PRODUCT_SERVICE_GROUP,
@@ -12,9 +12,13 @@ import { AttachmentManager } from '../AttachmentManager';
 import { FormSelect, SearchableSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
-const PRODUCT_UNIT_SUGGESTIONS = ['License', 'Tháng', 'Gói', 'Bộ', 'Cái', 'Thiết bị', 'User', 'Module', 'Giường bệnh', 'Ca chụp', 'Bệnh án'];
 const VIETNAMESE_DIGIT_WORDS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
 const VIETNAMESE_LARGE_UNITS = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
+const PRODUCT_FORM_LABEL_CLASS_NAME = 'text-sm font-semibold text-slate-700';
+const PRODUCT_FORM_TEXT_INPUT_CLASS_NAME = 'h-[46px] rounded-lg px-4 text-[15px] leading-6';
+const PRODUCT_FORM_HELPER_TEXT_CLASS_NAME = 'text-[13px] leading-5 text-slate-500';
+const PRODUCT_FORM_ERROR_TEXT_CLASS_NAME = 'mt-0.5 text-xs text-red-500';
+const PRODUCT_FORM_TEXTAREA_CLASS_NAME = 'min-h-[156px] rounded-xl px-4 py-3 text-[15px] leading-6';
 
 export type ProductFormField =
   | 'service_group'
@@ -279,6 +283,7 @@ export interface ProductFormModalProps {
   data?: Product | null;
   businesses: Business[];
   vendors: Vendor[];
+  productUnitMasters?: ProductUnitMaster[];
   onClose: () => void;
   onSave: (data: Partial<Product>) => Promise<void>;
 }
@@ -288,6 +293,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   data,
   businesses,
   vendors,
+  productUnitMasters = [],
   onClose,
   onSave,
 }) => {
@@ -350,7 +356,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const unitOptions = useMemo(() => {
     const options = [
       { value: '', label: 'Chọn đơn vị tính' },
-      ...PRODUCT_UNIT_SUGGESTIONS.map((unit) => ({ value: unit, label: unit })),
+      ...(productUnitMasters || [])
+        .filter((item) => item.is_active !== false)
+        .map((item) => ({
+          value: String(item.unit_name || '').trim(),
+          label: String(item.unit_name || '').trim(),
+        }))
+        .filter((item) => item.value !== ''),
     ];
     const currentUnit = normalizeProductUnitForSave(formData.unit);
 
@@ -359,10 +371,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }
 
     return options;
-  }, [formData.unit]);
+  }, [formData.unit, productUnitMasters]);
 
   const standardPriceDraft = formatVietnameseCurrencyInput(formData.standard_price);
   const standardPriceInWords = standardPriceDraft ? formatVietnameseAmountInWords(standardPriceDraft) : '';
+  const isStandardPriceLocked = type === 'EDIT' && data?.standard_price_locked === true;
+  const standardPriceHelperText = isStandardPriceLocked
+    ? (String(data?.standard_price_lock_message || '').trim() || 'Đơn giá đã được sử dụng ở dữ liệu khác nên không thể cập nhật.')
+    : (standardPriceInWords || 'Giá trị sẽ tự định dạng theo chuẩn tiền tệ Việt Nam.');
 
   const clearFieldError = (field: ProductFormField) => {
     setErrors((previous) => {
@@ -525,6 +541,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 placeholder="SP001"
                 required
                 error={errors.product_code}
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                inputClassName={PRODUCT_FORM_TEXT_INPUT_CLASS_NAME}
+                errorClassName={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}
               />
             </div>
             <div data-product-field="product_name">
@@ -538,6 +557,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 placeholder="Tên sản phẩm"
                 required
                 error={errors.product_name}
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                inputClassName={PRODUCT_FORM_TEXT_INPUT_CLASS_NAME}
+                errorClassName={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}
               />
             </div>
             <div data-product-field="package_name" className="md:col-span-2">
@@ -550,6 +572,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 }}
                 placeholder="Ví dụ: Gói VNPT HIS 1"
                 error={errors.package_name}
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                inputClassName={PRODUCT_FORM_TEXT_INPUT_CLASS_NAME}
+                errorClassName={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}
               />
             </div>
           </div>
@@ -599,7 +624,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               />
             </div>
             <div data-product-field="standard_price" className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold text-slate-700">Giá tiêu chuẩn (VNĐ)</label>
+              <label className={PRODUCT_FORM_LABEL_CLASS_NAME}>
+                Giá tiêu chuẩn (VNĐ)
+                {isStandardPriceLocked ? (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
+                    Đã khóa
+                  </span>
+                ) : null}
+              </label>
               <input
                 type="text"
                 value={standardPriceDraft}
@@ -610,13 +643,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   });
                   clearFieldError('standard_price');
                 }}
+                disabled={isSubmitting || isUploadingAttachments || isStandardPriceLocked}
                 placeholder="0"
-                className={`h-11 w-full rounded-lg border bg-white px-4 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.standard_price ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+                className={`w-full border ${isStandardPriceLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${PRODUCT_FORM_TEXT_INPUT_CLASS_NAME} outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:focus:border-slate-300 disabled:focus:ring-0 ${errors.standard_price ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
               />
-              <p className="text-xs text-slate-500">
-                {standardPriceInWords || 'Giá trị sẽ tự định dạng theo chuẩn tiền tệ Việt Nam.'}
+              <p className={PRODUCT_FORM_HELPER_TEXT_CLASS_NAME}>
+                {standardPriceHelperText}
               </p>
-              {errors.standard_price ? <p className="text-xs text-red-500">{errors.standard_price}</p> : null}
+              {errors.standard_price ? <p className={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}>{errors.standard_price}</p> : null}
             </div>
           </div>
         </div>
@@ -627,7 +661,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
           <div className="space-y-5">
             <div data-product-field="description" className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold text-slate-700">Mô tả</label>
+              <label className={PRODUCT_FORM_LABEL_CLASS_NAME}>Mô tả</label>
               <textarea
                 value={String(formData.description || '')}
                 onChange={(event) => {
@@ -636,9 +670,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 }}
                 placeholder="Mô tả sản phẩm/dịch vụ"
                 rows={3}
-                className={`w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+                className={`w-full border bg-white ${PRODUCT_FORM_TEXTAREA_CLASS_NAME} text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
               />
-              {errors.description ? <p className="text-xs text-red-500 mt-0.5">{errors.description}</p> : null}
+              {errors.description ? <p className={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}>{errors.description}</p> : null}
             </div>
 
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4">

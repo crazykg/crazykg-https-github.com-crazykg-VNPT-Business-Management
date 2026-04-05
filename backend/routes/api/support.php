@@ -26,6 +26,19 @@ Route::post('/support_service_groups/bulk', [SupportConfigController::class, 'st
 Route::put('/support_service_groups/{id}', [SupportConfigController::class, 'updateServiceGroup'])
     ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
 
+Route::get('/product-unit-masters', [SupportConfigController::class, 'productUnitMasters'])
+    ->middleware('permission:products.read|support_requests.read');
+Route::post('/product-unit-masters', [SupportConfigController::class, 'storeProductUnitMaster'])
+    ->middleware('permission:products.write|support_requests.write');
+Route::put('/product-unit-masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
+    ->middleware('permission:products.write|support_requests.write');
+Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
+    ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
+Route::post('/product_unit_masters', [SupportConfigController::class, 'storeProductUnitMaster'])
+    ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
+Route::put('/product_unit_masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
+    ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters/{id},2026-04-27']);
+
 Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
     ->middleware('permission:support_contact_positions.read');
 Route::get('/support_contact_positions', [SupportContactPositionController::class, 'index'])

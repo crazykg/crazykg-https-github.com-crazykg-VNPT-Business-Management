@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\Domain;
 
+use App\Services\V5\SupportConfig\ProductUnitMasterService;
 use App\Services\V5\SupportConfig\SupportSlaConfigService;
 use App\Services\V5\SupportConfig\SupportRequestStatusService;
 use App\Services\V5\SupportConfig\SupportServiceGroupService;
@@ -13,6 +14,7 @@ class SupportConfigDomainService
 {
     public function __construct(
         private readonly SupportServiceGroupService $serviceGroups,
+        private readonly ProductUnitMasterService $productUnitMasters,
         private readonly SupportRequestStatusService $requestStatuses,
         private readonly WorklogActivityTypeService $worklogActivityTypes,
         private readonly SupportSlaConfigService $slaConfigs,
@@ -46,6 +48,21 @@ class SupportConfigDomainService
     public function requestStatuses(Request $request): JsonResponse
     {
         return $this->requestStatuses->requestStatuses($request);
+    }
+
+    public function productUnitMasters(Request $request): JsonResponse
+    {
+        return $this->productUnitMasters->productUnitMasters($request);
+    }
+
+    public function storeProductUnitMaster(Request $request): JsonResponse
+    {
+        return $this->productUnitMasters->storeProductUnitMaster($request);
+    }
+
+    public function updateProductUnitMaster(Request $request, int $id): JsonResponse
+    {
+        return $this->productUnitMasters->updateProductUnitMaster($request, $id);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

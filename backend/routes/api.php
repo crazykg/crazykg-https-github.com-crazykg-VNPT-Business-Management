@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\DocumentController;
 use App\Http\Controllers\Api\V5\EmployeeController;
+use App\Http\Controllers\Api\V5\EmployeePartyProfileController;
 use App\Http\Controllers\Api\V5\IntegrationSettingsController;
 use App\Http\Controllers\Api\V5\ProjectController;
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
@@ -74,6 +75,7 @@ Route::prefix('v5')->group(function (): void {
 
     Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::post('/auth/avatar', [AuthController::class, 'updateAvatar']);
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         // ★ Tab claim — không cần EnsureActiveTab (tab đang khởi tạo session của mình)
@@ -275,12 +277,20 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:employees.write');
         Route::post('/internal-users/bulk', [EmployeeController::class, 'storeBulk'])
             ->middleware(['permission:employees.write', 'throttle:api.write.heavy']);
+        Route::get('/internal-users/{id}/party-profile', [EmployeePartyProfileController::class, 'showForEmployee'])
+            ->middleware('permission:employee_party.read');
+        Route::put('/internal-users/{id}/party-profile', [EmployeePartyProfileController::class, 'upsertForEmployee'])
+            ->middleware('permission:employee_party.write');
         Route::post('/internal-users/{id}/reset-password', [EmployeeController::class, 'resetPassword'])
             ->middleware('permission:employees.write');
         Route::put('/internal-users/{id}', [EmployeeController::class, 'update'])
             ->middleware('permission:employees.write');
         Route::delete('/internal-users/{id}', [EmployeeController::class, 'destroy'])
             ->middleware('permission:employees.delete');
+        Route::get('/employee-party-profiles', [EmployeePartyProfileController::class, 'index'])
+            ->middleware('permission:employee_party.read');
+        Route::post('/employee-party-profiles/bulk-upsert', [EmployeePartyProfileController::class, 'bulkUpsert'])
+            ->middleware(['permission:employee_party.import', 'throttle:api.write.heavy']);
 
         // Backward-compatible aliases for legacy frontend integrations.
         Route::get('/employees', [EmployeeController::class, 'index'])
@@ -299,6 +309,8 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/customers', [CustomerController::class, 'index'])
             ->middleware('permission:customers.read');
         Route::get('/customers/{id}/insight', [CustomerController::class, 'insight'])
+            ->middleware('permission:customers.read');
+        Route::get('/customers/{id}/insight/product-detail/{productId}', [CustomerController::class, 'insightProductDetail'])
             ->middleware('permission:customers.read');
         Route::post('/customers', [CustomerController::class, 'store'])
             ->middleware('permission:customers.write');
@@ -330,7 +342,13 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.read');
         Route::get('/products/{id}/feature-catalog', [ProductController::class, 'featureCatalog'])
             ->middleware('permission:products.read');
+        Route::get('/products/{id}/feature-catalog/list', [ProductController::class, 'featureCatalogList'])
+            ->middleware('permission:products.read');
+        Route::get('/products/{id}/target-segments', [ProductController::class, 'targetSegments'])
+            ->middleware('permission:products.read');
         Route::get('/products/quotations', [ProductController::class, 'quotations'])
+            ->middleware('permission:products.read');
+        Route::get('/products/quotation-default-settings', [ProductController::class, 'quotationDefaultSettings'])
             ->middleware('permission:products.read');
         Route::get('/products/quotations/{id}', [ProductController::class, 'showQuotation'])
             ->middleware('permission:products.read');
@@ -348,6 +366,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.read');
         Route::post('/products/quotations', [ProductController::class, 'storeQuotation'])
             ->middleware('permission:products.write');
+        Route::put('/products/quotation-default-settings', [ProductController::class, 'updateQuotationDefaultSettings'])
+            ->middleware('permission:products.write');
         Route::put('/products/quotations/{id}', [ProductController::class, 'updateQuotation'])
             ->middleware('permission:products.write');
         Route::post('/products/quotations/{id}/print-word', [ProductController::class, 'printStoredQuotationWord'])
@@ -355,6 +375,8 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/products', [ProductController::class, 'store'])
             ->middleware('permission:products.write');
         Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])
+            ->middleware('permission:products.write');
+        Route::put('/products/{id}/target-segments-sync', [ProductController::class, 'syncTargetSegments'])
             ->middleware('permission:products.write');
         Route::put('/products/{id}', [ProductController::class, 'update'])
             ->middleware('permission:products.write');
@@ -503,6 +525,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:contracts.read');
         Route::get('/contracts/revenue-analytics', [ContractController::class, 'revenueAnalytics'])
             ->middleware('permission:contracts.read');
+        Route::get('/contracts/signer-options', [ContractController::class, 'signerOptions'])
+            ->middleware('permission:contracts.write');
         Route::get('/contracts/{id}', [ContractController::class, 'show'])
             ->middleware('permission:contracts.read');
         Route::post('/contracts', [ContractController::class, 'store'])
@@ -664,6 +688,19 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/bulk,2026-04-27', 'throttle:api.write.heavy']);
         Route::put('/support_service_groups/{id}', [SupportConfigController::class, 'updateServiceGroup'])
             ->middleware(['permission:support_service_groups.write', 'deprecated.route:/api/v5/support-service-groups/{id},2026-04-27']);
+
+        Route::get('/product-unit-masters', [SupportConfigController::class, 'productUnitMasters'])
+            ->middleware('permission:products.read|support_requests.read');
+        Route::post('/product-unit-masters', [SupportConfigController::class, 'storeProductUnitMaster'])
+            ->middleware('permission:products.write|support_requests.write');
+        Route::put('/product-unit-masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
+            ->middleware('permission:products.write|support_requests.write');
+        Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
+            ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
+        Route::post('/product_unit_masters', [SupportConfigController::class, 'storeProductUnitMaster'])
+            ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
+        Route::put('/product_unit_masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
+            ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters/{id},2026-04-27']);
 
         Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
             ->middleware('permission:support_contact_positions.read');

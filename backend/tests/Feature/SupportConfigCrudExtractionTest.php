@@ -172,6 +172,58 @@ class SupportConfigCrudExtractionTest extends TestCase
             ->assertJsonPath('data.is_active', false);
     }
 
+    public function test_product_unit_masters_can_create_list_and_update_via_api(): void
+    {
+        $this->setUpProductUnitMasterSchema();
+
+        $createResponse = $this->postJson('/api/v5/product-unit-masters', [
+            'unit_code' => 'don vi goi',
+            'unit_name' => 'Gói',
+            'description' => 'Đơn vị gói cước',
+            'is_active' => true,
+        ])->assertCreated();
+
+        $unitId = (int) $createResponse->json('data.id');
+        $this->assertGreaterThan(0, $unitId);
+
+        DB::table('products')->insert([
+            'id' => 1,
+            'unit' => 'Gói',
+        ]);
+
+        $listResponse = $this->getJson('/api/v5/product-unit-masters?include_inactive=1')
+            ->assertOk();
+
+        /** @var Collection<int, array<string, mixed>> $rows */
+        $rows = collect($listResponse->json('data'));
+        $row = $rows->firstWhere('id', $unitId);
+        $this->assertIsArray($row);
+        $this->assertSame('DON_VI_GOI', $row['unit_code']);
+        $this->assertSame('Gói', $row['unit_name']);
+        $this->assertSame(1, $row['used_in_products']);
+        $this->assertFalse($row['is_name_editable']);
+
+        $this->putJson("/api/v5/product-unit-masters/{$unitId}", [
+            'unit_code' => 'goi_dich_vu',
+            'unit_name' => 'Gói',
+            'description' => null,
+            'is_active' => false,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.unit_code', 'GOI_DICH_VU')
+            ->assertJsonPath('data.unit_name', 'Gói')
+            ->assertJsonPath('data.is_active', false);
+
+        $this->putJson("/api/v5/product-unit-masters/{$unitId}", [
+            'unit_code' => 'goi_dich_vu',
+            'unit_name' => 'Gói dịch vụ',
+            'description' => null,
+            'is_active' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Khong the doi ten don vi tinh da phat sinh san pham.');
+    }
+
     private function setUpSupportServiceGroupSchema(): void
     {
         Schema::dropIfExists('customer_requests');
@@ -285,6 +337,34 @@ class SupportConfigCrudExtractionTest extends TestCase
         Schema::create('request_worklogs', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->unsignedBigInteger('activity_type_id')->nullable();
+        });
+    }
+
+    private function setUpProductUnitMasterSchema(): void
+    {
+        Schema::dropIfExists('products');
+        Schema::dropIfExists('product_unit_masters');
+        Schema::dropIfExists('internal_users');
+
+        Schema::create('internal_users', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+        });
+
+        Schema::create('product_unit_masters', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('unit_code')->nullable();
+            $table->string('unit_name')->nullable();
+            $table->string('description')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('created_at')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamp('updated_at')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+        });
+
+        Schema::create('products', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('unit')->nullable();
         });
     }
 }

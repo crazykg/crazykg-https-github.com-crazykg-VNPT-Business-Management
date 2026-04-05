@@ -1,6 +1,11 @@
 export type Status = 'Active' | 'Inactive';
 export type DeptScopeType = 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
 
+export type { EmployeePartyProfile, EmployeePartyProfileQuality } from './types/employee';
+export type { ProductFeatureCatalogListPage } from './types/product';
+export type { RevenueSuggestionResponse } from './types/revenue';
+export type { UpsellProductDetail } from './types/customer';
+
 export interface UserDeptScope {
   dept_id: number;
   scope_type: DeptScopeType;
@@ -85,6 +90,18 @@ export interface PaginationMeta {
     gap_count?: number;
     continuity_rate?: number | null;    // 0-100, null = no addenda yet
     // Customer KPIs
+    total_customers?: number;
+    healthcare_customers?: number;
+    government_customers?: number;
+    individual_customers?: number;
+    healthcare_breakdown?: {
+      public_hospital?: number;
+      private_hospital?: number;
+      medical_center?: number;
+      private_clinic?: number;
+      tyt_pkdk?: number;
+      other?: number;
+    };
     new_this_month?: number;
     customers_with_active_contracts?: number;
     total_active_contract_value?: number;
@@ -92,6 +109,8 @@ export interface PaginationMeta {
     customers_with_open_opportunities?: number;
     open_opp_value?: number;
     customers_with_open_crc?: number;
+    total_party_members?: number;
+    missing_party_card_number_count?: number;
   };
 }
 
@@ -138,7 +157,9 @@ export interface PaginatedQuery {
   q?: string;
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
+  simple?: boolean;
   filters?: Record<string, string | number | boolean | null | undefined>;
+  [key: string]: unknown;
 }
 
 export interface Role {
@@ -326,6 +347,9 @@ export interface Product {
   description?: string | null;
   attachments?: Attachment[];
   is_active?: boolean;
+  standard_price_locked?: boolean;
+  standard_price_lock_message?: string | null;
+  standard_price_lock_references?: Array<{ table: string; label: string; count: number }>;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
@@ -384,13 +408,23 @@ export interface ProductFeatureCatalog {
 export interface Customer {
   id: string | number;
   uuid: string;
-  customer_code: string;
+  customer_code: string | null;
+  customer_code_auto_generated?: boolean | null;
   customer_name: string;
   company_name?: string | null;
   tax_code: string;
   address: string;
   customer_sector?: 'HEALTHCARE' | 'GOVERNMENT' | 'INDIVIDUAL' | 'OTHER' | null;
-  healthcare_facility_type?: 'HOSPITAL_TTYT' | 'TYT_CLINIC' | 'OTHER' | null;
+  healthcare_facility_type?:
+    | 'PUBLIC_HOSPITAL'
+    | 'PRIVATE_HOSPITAL'
+    | 'MEDICAL_CENTER'
+    | 'PRIVATE_CLINIC'
+    | 'TYT_PKDK'
+    | 'HOSPITAL_TTYT'
+    | 'TYT_CLINIC'
+    | 'OTHER'
+    | null;
   bed_capacity?: number | null;
   created_at?: string;
   created_by?: string | number | null;
@@ -518,6 +552,11 @@ export interface HRPositionBreakdown {
   count: number;
 }
 
+export interface HRJobTitleBreakdown {
+  job_title_name: string;
+  count: number;
+}
+
 export interface HRDepartmentTypeBreakdown {
   department_id: string | number | null;
   dept_code: string;
@@ -545,6 +584,7 @@ export interface HRStatistics {
   genderBreakdown: HRGenderBreakdown[];
   personnelTypeBreakdown: HRPersonnelTypeBreakdown[];
   positionBreakdown: HRPositionBreakdown[];
+  jobTitleBreakdown: HRJobTitleBreakdown[];
   departmentTypeBreakdown: HRDepartmentTypeBreakdown[];
 }
 
@@ -623,6 +663,20 @@ export interface SupportContactPosition {
   is_active: boolean;
   used_in_customer_personnel?: number;
   is_code_editable?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface ProductUnitMaster {
+  id: string | number;
+  unit_code: string;
+  unit_name: string;
+  description?: string | null;
+  is_active: boolean;
+  used_in_products?: number;
+  is_name_editable?: boolean;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
@@ -1879,12 +1933,28 @@ export interface ContractAggregateKpis {
   actualCollectedValue: number;
 }
 
+export interface CustomerHealthcareBreakdownKpis {
+  publicHospital: number;
+  privateHospital: number;
+  medicalCenter: number;
+  privateClinic: number;
+  tytPkdk: number;
+  other: number;
+}
+
 export interface CustomerAggregateKpis {
-  newThisMonth: number;
-  customersWithActiveContracts: number;
-  totalActiveContractValue: number;
-  customersWithoutContracts: number;
-  customersWithOpenCrc: number;
+  totalCustomers: number;
+  healthcareCustomers: number;
+  governmentCustomers: number;
+  individualCustomers: number;
+  healthcareBreakdown: CustomerHealthcareBreakdownKpis;
+  newThisMonth?: number;
+  customersWithActiveContracts?: number;
+  totalActiveContractValue?: number;
+  customersWithoutContracts?: number;
+  customersWithOpenOpportunities?: number;
+  openOppValue?: number;
+  customersWithOpenCrc?: number;
 }
 
 export interface DashboardStats {
@@ -1925,8 +1995,15 @@ export interface Contract {
   contract_code: string;
   contract_number?: string;
   contract_name: string;
-  customer_id: string | number;
-  project_id: string | number;
+  customer_id: string | number | null;
+  project_id: string | number | null;
+  signer_user_id?: string | number | null;
+  signer_user_code?: string | null;
+  signer_full_name?: string | null;
+  dept_id?: string | number | null;
+  dept_code?: string | null;
+  dept_name?: string | null;
+  project_type_code?: InvestmentMode | string | null;
   value: number;
   total_value?: number;
   payment_cycle?: PaymentCycle;
@@ -2197,6 +2274,8 @@ export type ModalType =
   | 'ADD_EMPLOYEE'
   | 'EDIT_EMPLOYEE'
   | 'DELETE_EMPLOYEE'
+  | 'ADD_PARTY_PROFILE'
+  | 'EDIT_PARTY_PROFILE'
   | 'ADD_BUSINESS'
   | 'EDIT_BUSINESS'
   | 'DELETE_BUSINESS'
@@ -2208,6 +2287,7 @@ export type ModalType =
   | 'DELETE_PRODUCT'
   | 'CANNOT_DELETE_PRODUCT'
   | 'PRODUCT_FEATURE_CATALOG'
+  | 'PRODUCT_TARGET_SEGMENT'
   | 'ADD_CUSTOMER'
   | 'EDIT_CUSTOMER'
   | 'DELETE_CUSTOMER'

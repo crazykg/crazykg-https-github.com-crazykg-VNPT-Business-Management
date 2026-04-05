@@ -22,6 +22,7 @@ import {
   SendReminderEmailResult,
   SupportServiceGroup,
   SupportContactPosition,
+  ProductUnitMaster,
   SupportRequestStatusOption,
   ProjectTypeOption,
   WorklogActivityTypeOption,
@@ -145,6 +146,7 @@ export interface AppPagesProps {
   // Support Master Datasets
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
+  productUnitMasters?: ProductUnitMaster[];
   supportRequestStatuses: SupportRequestStatusOption[];
   projectTypes: ProjectTypeOption[];
   worklogActivityTypes: WorklogActivityTypeOption[];
@@ -181,6 +183,11 @@ export interface AppPagesProps {
   projectsPageLoading: boolean;
   handleProjectsPageQueryChange: (query: PaginatedQuery) => void;
 
+  contractsPageRows: Contract[];
+  contractsPageMeta?: PaginationMeta;
+  contractsPageLoading: boolean;
+  handleContractsPageQueryChange: (query: PaginatedQuery) => void;
+
   documentsPageRows: Document[];
   documentsPageMeta?: PaginationMeta;
   documentsPageLoading: boolean;
@@ -202,6 +209,7 @@ export interface AppPagesProps {
   onSendReminderEmail: (reminderId: string, recipientEmail: string) => Promise<SendReminderEmailResult>;
   exportProjectsByCurrentQuery: () => Promise<Project[]>;
   exportProjectRaciByProjectIds: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
+  exportContractsByCurrentQuery: () => Promise<Contract[]>;
 
   // Support Master Handlers
   handleCreateSupportServiceGroup: (
@@ -217,6 +225,10 @@ export interface AppPagesProps {
     payload: Partial<SupportContactPosition>,
     options?: { silent?: boolean }
   ) => Promise<SupportContactPosition>;
+  handleCreateProductUnitMaster?: (
+    payload: Partial<ProductUnitMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ProductUnitMaster>;
   handleCreateSupportContactPositionsBulk: (
     items: Array<Partial<SupportContactPosition>>,
     options?: { silent?: boolean }
@@ -226,6 +238,11 @@ export interface AppPagesProps {
     payload: Partial<SupportContactPosition>,
     options?: { silent?: boolean }
   ) => Promise<SupportContactPosition>;
+  handleUpdateProductUnitMaster?: (
+    id: string | number,
+    payload: Partial<ProductUnitMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ProductUnitMaster>;
   handleCreateSupportRequestStatus: (
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -378,6 +395,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   userDeptHistory,
   supportServiceGroups,
   supportContactPositions,
+  productUnitMasters = [],
   supportRequestStatuses,
   projectTypes,
   worklogActivityTypes,
@@ -405,6 +423,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
   projectsPageMeta,
   projectsPageLoading,
   handleProjectsPageQueryChange,
+  contractsPageRows,
+  contractsPageMeta,
+  contractsPageLoading,
+  handleContractsPageQueryChange,
   documentsPageRows,
   documentsPageMeta,
   documentsPageLoading,
@@ -422,11 +444,14 @@ export const AppPages: React.FC<AppPagesProps> = ({
   onSendReminderEmail,
   exportProjectsByCurrentQuery,
   exportProjectRaciByProjectIds,
+  exportContractsByCurrentQuery,
   handleCreateSupportServiceGroup,
   handleUpdateSupportServiceGroup,
   handleCreateSupportContactPosition,
+  handleCreateProductUnitMaster,
   handleCreateSupportContactPositionsBulk,
   handleUpdateSupportContactPosition,
+  handleUpdateProductUnitMaster,
   handleCreateSupportRequestStatus,
   handleUpdateSupportRequestStatusDefinition,
   handleCreateProjectType,
@@ -582,6 +607,12 @@ export const AppPages: React.FC<AppPagesProps> = ({
 
       {activeTab === 'contracts' && (
         <ContractList
+          contracts={contracts}
+          contractsPageRows={contractsPageRows}
+          paginationMeta={contractsPageMeta}
+          isLoading={contractsPageLoading}
+          onQueryChange={handleContractsPageQueryChange}
+          onExportContracts={exportContractsByCurrentQuery}
           projects={projects}
           customers={customers}
           onOpenModal={handleOpenModal}
@@ -663,6 +694,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           customers={customers}
           supportServiceGroups={supportServiceGroups}
           supportContactPositions={supportContactPositions}
+          productUnitMasters={productUnitMasters}
           supportRequestStatuses={supportRequestStatuses}
           projectTypes={projectTypes}
           worklogActivityTypes={worklogActivityTypes}
@@ -670,8 +702,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onCreateSupportServiceGroup={handleCreateSupportServiceGroup}
           onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
           onCreateSupportContactPosition={handleCreateSupportContactPosition}
+          onCreateProductUnitMaster={handleCreateProductUnitMaster}
           onCreateSupportContactPositionsBulk={handleCreateSupportContactPositionsBulk}
           onUpdateSupportContactPosition={handleUpdateSupportContactPosition}
+          onUpdateProductUnitMaster={handleUpdateProductUnitMaster}
           onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
           onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
           onCreateProjectType={handleCreateProjectType}
@@ -683,11 +717,13 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canReadCustomers={hasPermission(authUser, 'customers.read')}
           canReadServiceGroups={hasPermission(authUser, 'support_service_groups.read')}
           canReadContactPositions={hasPermission(authUser, 'support_contact_positions.read')}
+          canReadProductUnitMasters={hasPermission(authUser, 'support_requests.read') || hasPermission(authUser, 'products.read')}
           canReadStatuses={hasPermission(authUser, 'support_requests.read')}
           canReadWorklogActivityTypes={hasPermission(authUser, 'support_requests.read')}
           canReadSlaConfigs={hasPermission(authUser, 'support_requests.read')}
           canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
           canWriteContactPositions={hasPermission(authUser, 'support_contact_positions.write')}
+          canWriteProductUnitMasters={hasPermission(authUser, 'support_requests.write') || hasPermission(authUser, 'products.write')}
           canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
           canWriteWorklogActivityTypes={hasPermission(authUser, 'support_requests.write')}
           canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}

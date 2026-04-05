@@ -48,6 +48,21 @@ class SupportConfigController extends V5BaseController
         return $this->service->requestStatuses($request);
     }
 
+    public function productUnitMasters(Request $request): JsonResponse
+    {
+        return $this->service->productUnitMasters($request);
+    }
+
+    public function storeProductUnitMaster(Request $request): JsonResponse
+    {
+        return $this->service->storeProductUnitMaster($request);
+    }
+
+    public function updateProductUnitMaster(Request $request, int $id): JsonResponse
+    {
+        return $this->service->updateProductUnitMaster($request, $id);
+    }
+
     public function storeRequestStatus(Request $request): JsonResponse
     {
         return $this->service->storeRequestStatus($request);

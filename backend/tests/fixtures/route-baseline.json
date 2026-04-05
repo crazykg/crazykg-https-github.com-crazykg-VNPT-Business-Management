@@ -13,6 +13,10 @@
   },
   {
     "method": "POST",
+    "uri": "api/v5/auth/avatar"
+  },
+  {
+    "method": "POST",
     "uri": "api/v5/auth/change-password"
   },
   {
@@ -96,6 +100,10 @@
     "uri": "api/v5/cus-personnel"
   },
   {
+    "method": "POST",
+    "uri": "api/v5/cus-personnel/bulk"
+  },
+  {
     "method": "DELETE",
     "uri": "api/v5/cus-personnel/{id}"
   },
@@ -112,6 +120,10 @@
     "uri": "api/v5/cus_personnel"
   },
   {
+    "method": "POST",
+    "uri": "api/v5/cus_personnel/bulk"
+  },
+  {
     "method": "DELETE",
     "uri": "api/v5/cus_personnel/{id}"
   },
@@ -126,6 +138,10 @@
   {
     "method": "POST",
     "uri": "api/v5/customer-personnel"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customer-personnel/bulk"
   },
   {
     "method": "DELETE",
@@ -384,6 +400,10 @@
     "uri": "api/v5/customer_personnel"
   },
   {
+    "method": "POST",
+    "uri": "api/v5/customer_personnel/bulk"
+  },
+  {
     "method": "DELETE",
     "uri": "api/v5/customer_personnel/{id}"
   },
@@ -450,6 +470,10 @@
   {
     "method": "POST",
     "uri": "api/v5/customers"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/customers/bulk"
   },
   {
     "method": "DELETE",
@@ -641,6 +665,18 @@
   },
   {
     "method": "GET",
+    "uri": "api/v5/integrations/email-smtp"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/integrations/email-smtp"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/integrations/email-smtp/test"
+  },
+  {
+    "method": "GET",
     "uri": "api/v5/integrations/google-drive"
   },
   {
@@ -770,6 +806,30 @@
   {
     "method": "GET",
     "uri": "api/v5/permissions"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/product-unit-masters"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/product-unit-masters"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/product-unit-masters/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/product_unit_masters"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/product_unit_masters"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/product_unit_masters/{id}"
   },
   {
     "method": "GET",
@@ -1072,6 +1132,22 @@
     "uri": "api/v5/reminders"
   },
   {
+    "method": "POST",
+    "uri": "api/v5/reminders"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/reminders/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/reminders/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/reminders/{id}/send-email"
+  },
+  {
     "method": "GET",
     "uri": "api/v5/revenue/by-collection"
   },
@@ -1322,6 +1398,90 @@
   {
     "method": "PUT",
     "uri": "api/v5/vendors/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/active"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/code/{code}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/default"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/statistics"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/workflow-definitions/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/workflow-definitions/{id}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions/{id}/activate"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions/{id}/deactivate"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions/bulk"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions/check"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions/from/{fromStatusCode}"
+  },
+  {
+    "method": "POST",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions/import"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-definitions/{workflowId}/transitions/statistics"
+  },
+  {
+    "method": "DELETE",
+    "uri": "api/v5/workflow-transitions/{id}"
+  },
+  {
+    "method": "GET",
+    "uri": "api/v5/workflow-transitions/{id}"
+  },
+  {
+    "method": "PUT",
+    "uri": "api/v5/workflow-transitions/{id}"
   },
   {
     "method": "GET",

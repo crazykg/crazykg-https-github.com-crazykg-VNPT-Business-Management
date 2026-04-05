@@ -38,12 +38,12 @@ class RouteParitySnapshotTest extends TestCase
             ->filter(fn ($route) => str_starts_with($route->uri(), 'api/v5/'))
             ->count();
 
-        // Baseline: 337 routes (verified 2026-04-02 via php artisan route:list --json)
+        // Baseline: 377 routes (verified 2026-04-05 via php artisan route:list --json)
         // Update this number ONLY when intentionally adding new routes, never decrease it.
         $this->assertGreaterThanOrEqual(
-            337,
+            377,
             $routes,
-            "Route count decreased from 337 to {$routes}! A route may have been removed unintentionally."
+            "Route count decreased from 377 to {$routes}! A route may have been removed unintentionally."
         );
     }
 

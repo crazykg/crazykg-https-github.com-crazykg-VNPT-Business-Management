@@ -1,6 +1,7 @@
 import type { BulkMutationResult } from '../../types/common';
 import type { DepartmentWeekOption, DepartmentWeeklySchedule, WorkCalendarDay } from '../../types/scheduling';
 import type {
+  ProductUnitMaster,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
@@ -45,6 +46,11 @@ export const fetchAvailableSupportServiceGroups = async (params: {
 export const fetchSupportContactPositions = async (includeInactive = false): Promise<SupportContactPosition[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<SupportContactPosition>(`/api/v5/support-contact-positions${query}`);
+};
+
+export const fetchProductUnitMasters = async (includeInactive = false): Promise<ProductUnitMaster[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<ProductUnitMaster>(`/api/v5/product-unit-masters${query}`);
 };
 
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
@@ -168,6 +174,29 @@ export const createSupportContactPosition = async (
   return parseItemJson<SupportContactPosition>(res);
 };
 
+export const createProductUnitMaster = async (
+  payload: Partial<ProductUnitMaster>
+): Promise<ProductUnitMaster> => {
+  const res = await apiFetch('/api/v5/product-unit-masters', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      unit_code: normalizeNullableText(payload.unit_code),
+      unit_name: normalizeNullableText(payload.unit_name),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active ?? true,
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCT_UNIT_MASTER_FAILED'));
+  }
+
+  return parseItemJson<ProductUnitMaster>(res);
+};
+
 export const updateSupportContactPosition = async (
   id: string | number,
   payload: Partial<SupportContactPosition>
@@ -190,6 +219,30 @@ export const updateSupportContactPosition = async (
   }
 
   return parseItemJson<SupportContactPosition>(res);
+};
+
+export const updateProductUnitMaster = async (
+  id: string | number,
+  payload: Partial<ProductUnitMaster>
+): Promise<ProductUnitMaster> => {
+  const res = await apiFetch(`/api/v5/product-unit-masters/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      unit_code: normalizeNullableText(payload.unit_code),
+      unit_name: normalizeNullableText(payload.unit_name),
+      description: normalizeNullableText(payload.description),
+      is_active: payload.is_active,
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_UNIT_MASTER_FAILED'));
+  }
+
+  return parseItemJson<ProductUnitMaster>(res);
 };
 
 export const createSupportContactPositionsBulk = async (

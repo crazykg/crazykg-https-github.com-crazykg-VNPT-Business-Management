@@ -41,13 +41,11 @@ vi.mock('../services/api/supportConfigApi', async () => {
 
 import { SupportMasterManagement } from '../components/SupportMasterManagement';
 import type {
+  ProductUnitMaster,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
   SupportSlaConfigOption,
-  WorkflowFormFieldConfig,
-  WorkflowStatusCatalog,
-  WorkflowStatusTransition,
   WorklogActivityTypeOption,
 } from '../types/support';
 import type { ProjectTypeOption } from '../types/project';
@@ -149,6 +147,18 @@ const projectTypes: ProjectTypeOption[] = [
   },
 ];
 
+const productUnitMasters: ProductUnitMaster[] = [
+  {
+    id: 'product-unit-1',
+    unit_code: 'GOI',
+    unit_name: 'Gói',
+    description: 'Đơn vị gói cước',
+    is_active: true,
+    used_in_products: 2,
+    is_name_editable: false,
+  },
+];
+
 const workCalendarDays: WorkCalendarDay[] = [
   {
     date: '2026-01-01',
@@ -165,78 +175,58 @@ const workCalendarDays: WorkCalendarDay[] = [
   },
 ];
 
-const workflowStatusCatalogs: WorkflowStatusCatalog[] = [
-  {
-    id: 'wf-1',
-    level: 1,
-    status_code: 'NEW',
-    status_name: 'Tiep nhan',
-    parent_id: null,
-    parent_name: null,
-    canonical_status: 'NEW',
-    canonical_sub_status: null,
-    flow_step: 'INTAKE',
-    form_key: 'crc_form',
-    is_leaf: false,
-    sort_order: 10,
-    is_active: true,
-  },
-  {
-    id: 'wf-2',
-    level: 2,
-    status_code: 'WAIT_VENDOR',
-    status_name: 'Cho vendor',
-    parent_id: 'wf-1',
-    parent_name: 'Tiep nhan',
-    canonical_status: 'IN_PROGRESS',
-    canonical_sub_status: 'WAIT_VENDOR',
-    flow_step: 'HANDLE',
-    form_key: 'crc_form',
-    is_leaf: true,
-    sort_order: 20,
-    is_active: true,
-  },
-];
-
-const workflowStatusTransitions: WorkflowStatusTransition[] = [
-  {
-    id: 'transition-1',
-    from_status_catalog_id: 'wf-1',
-    from_status_name: 'Tiep nhan',
-    to_status_catalog_id: 'wf-2',
-    to_status_name: 'Cho vendor',
-    action_code: 'ASSIGN_VENDOR',
-    action_name: 'Giao vendor',
-    required_role: 'PM',
-    condition_json: { requires_assignment: true },
-    notify_targets_json: ['PM', 'CREATOR'],
-    sort_order: 30,
-    is_active: true,
-  },
-];
-
-const workflowFormFieldConfigs: WorkflowFormFieldConfig[] = [
-  {
-    id: 'field-1',
-    status_catalog_id: 'wf-2',
-    status_name: 'Cho vendor',
-    field_key: 'FOLLOW_UP_NOTE',
-    field_label: 'Noi dung bo sung',
-    field_type: 'textarea',
-    required: true,
-    sort_order: 40,
-    excel_column: 'AB',
-    options_json: [
-      { value: 'CALL_BACK', label: 'Goi lai' },
-      { value: 'WAIT_INFO', label: 'Cho thong tin' },
-    ],
-    is_active: true,
-  },
-];
-
 const noopAsync = vi.fn(async () => {
   throw new Error('Not implemented in test');
 });
+
+const renderSupportMasterManagement = (
+  overrides: Partial<React.ComponentProps<typeof SupportMasterManagement>> = {}
+) =>
+  render(
+    <SupportMasterManagement
+      customers={[]}
+      supportServiceGroups={[]}
+      supportContactPositions={[]}
+      productUnitMasters={[]}
+      supportRequestStatuses={[]}
+      projectTypes={[]}
+      worklogActivityTypes={[]}
+      supportSlaConfigs={[]}
+      onCreateSupportServiceGroup={noopAsync}
+      onUpdateSupportServiceGroup={noopAsync}
+      onCreateSupportContactPosition={noopAsync}
+      onCreateProductUnitMaster={noopAsync}
+      onCreateSupportContactPositionsBulk={noopAsync}
+      onUpdateSupportContactPosition={noopAsync}
+      onUpdateProductUnitMaster={noopAsync}
+      onCreateSupportRequestStatus={noopAsync}
+      onUpdateSupportRequestStatus={noopAsync}
+      onCreateProjectType={noopAsync}
+      onUpdateProjectType={noopAsync}
+      onCreateWorklogActivityType={noopAsync}
+      onUpdateWorklogActivityType={noopAsync}
+      onCreateSupportSlaConfig={noopAsync}
+      onUpdateSupportSlaConfig={noopAsync}
+      canReadCustomers={false}
+      canReadServiceGroups={false}
+      canReadContactPositions={false}
+      canReadProductUnitMasters={false}
+      canReadStatuses={false}
+      canReadWorklogActivityTypes={false}
+      canReadSlaConfigs={false}
+      canReadProjectTypes={false}
+      canReadWorkCalendar={false}
+      canWriteServiceGroups={false}
+      canWriteContactPositions={false}
+      canWriteProductUnitMasters={false}
+      canWriteStatuses={false}
+      canWriteWorklogActivityTypes={false}
+      canWriteSlaConfigs={false}
+      canWriteProjectTypes={false}
+      canWriteWorkCalendar={false}
+      {...overrides}
+    />
+  );
 
 describe('SupportMasterManagement', () => {
   beforeEach(() => {
@@ -536,286 +526,51 @@ describe('SupportMasterManagement', () => {
     expect(screen.getByText('2 / 1')).toBeInTheDocument();
   });
 
-  it('shows workflow status catalog columns and values on the workflow_status_catalog tab', async () => {
-    const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
-
-    render(
-      <SupportMasterManagement
-        customers={[]}
-        supportServiceGroups={[]}
-        supportContactPositions={[]}
-        supportRequestStatuses={[]}
-        projectTypes={[]}
-        worklogActivityTypes={[]}
-        supportSlaConfigs={[]}
-        onCreateSupportServiceGroup={noopAsync}
-        onUpdateSupportServiceGroup={noopAsync}
-        onCreateSupportContactPosition={noopAsync}
-        onCreateSupportContactPositionsBulk={noopAsync}
-        onUpdateSupportContactPosition={noopAsync}
-        onCreateSupportRequestStatus={noopAsync}
-        onUpdateSupportRequestStatus={noopAsync}
-        onCreateProjectType={noopAsync}
-        onUpdateProjectType={noopAsync}
-        onCreateWorklogActivityType={noopAsync}
-        onUpdateWorklogActivityType={noopAsync}
-        onCreateSupportSlaConfig={noopAsync}
-        onUpdateSupportSlaConfig={noopAsync}
-        canReadCustomers={false}
-        canReadServiceGroups={false}
-        canReadContactPositions={false}
-        canReadStatuses
-        canReadWorklogActivityTypes={false}
-        canReadSlaConfigs={false}
-        canReadProjectTypes={false}
-        canReadWorkCalendar={false}
-        canWriteServiceGroups={false}
-        canWriteContactPositions={false}
-        canWriteStatuses
-        canWriteWorklogActivityTypes={false}
-        canWriteSlaConfigs={false}
-        canWriteProjectTypes={false}
-        canWriteWorkCalendar={false}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow trạng thái phân cấp' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Canonical status')).toBeInTheDocument();
+  it('shows product unit master columns and values on the product unit tab', async () => {
+    renderSupportMasterManagement({
+      productUnitMasters,
+      canReadProductUnitMasters: true,
+      canWriteProductUnitMasters: true,
     });
 
-    expect(screen.getByText('Flow/Form')).toBeInTheDocument();
-    expect(screen.getAllByText('WAIT_VENDOR').length).toBeGreaterThan(0);
-    expect(screen.getByText('Cho vendor')).toBeInTheDocument();
-    expect(screen.getByText('IN_PROGRESS')).toBeInTheDocument();
-    expect(screen.getByText('HANDLE')).toBeInTheDocument();
-    expect(screen.getAllByText('crc_form').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByText('Đơn vị tính sản phẩm')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Mã đơn vị tính')).toBeInTheDocument();
+    expect(screen.getByText('Tên đơn vị tính')).toBeInTheDocument();
+    expect(screen.getByText('GOI')).toBeInTheDocument();
+    expect(screen.getByText('Gói')).toBeInTheDocument();
+    expect(screen.getByText('Đơn vị gói cước')).toBeInTheDocument();
   });
 
-  it('opens edit mode for a workflow status catalog row and hydrates the workflow fields', async () => {
+  it('opens edit mode for a product unit master and keeps the name locked when it is already in use', async () => {
     const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
 
-    render(
-      <SupportMasterManagement
-        customers={[]}
-        supportServiceGroups={[]}
-        supportContactPositions={[]}
-        supportRequestStatuses={[]}
-        projectTypes={[]}
-        worklogActivityTypes={[]}
-        supportSlaConfigs={[]}
-        onCreateSupportServiceGroup={noopAsync}
-        onUpdateSupportServiceGroup={noopAsync}
-        onCreateSupportContactPosition={noopAsync}
-        onCreateSupportContactPositionsBulk={noopAsync}
-        onUpdateSupportContactPosition={noopAsync}
-        onCreateSupportRequestStatus={noopAsync}
-        onUpdateSupportRequestStatus={noopAsync}
-        onCreateProjectType={noopAsync}
-        onUpdateProjectType={noopAsync}
-        onCreateWorklogActivityType={noopAsync}
-        onUpdateWorklogActivityType={noopAsync}
-        onCreateSupportSlaConfig={noopAsync}
-        onUpdateSupportSlaConfig={noopAsync}
-        canReadCustomers={false}
-        canReadServiceGroups={false}
-        canReadContactPositions={false}
-        canReadStatuses
-        canReadWorklogActivityTypes={false}
-        canReadSlaConfigs={false}
-        canReadProjectTypes={false}
-        canReadWorkCalendar={false}
-        canWriteServiceGroups={false}
-        canWriteContactPositions={false}
-        canWriteStatuses
-        canWriteWorklogActivityTypes={false}
-        canWriteSlaConfigs={false}
-        canWriteProjectTypes={false}
-        canWriteWorkCalendar={false}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow trạng thái phân cấp' }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText('WAIT_VENDOR').length).toBeGreaterThan(0);
-    });
-
-    await user.click(screen.getAllByTitle('Cập nhật')[1]);
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Cập nhật trạng thái workflow phân cấp' })).toBeInTheDocument();
-    });
-
-    const statusCodeLabel = screen.getAllByText(/Mã trạng thái/).find((element) => element.tagName === 'LABEL');
-    const statusCodeField = statusCodeLabel?.closest('div');
-    const statusCodeInput = statusCodeField?.querySelector('input');
-
-    const statusNameLabel = screen.getAllByText(/Tên trạng thái/).find((element) => element.tagName === 'LABEL');
-    const statusNameField = statusNameLabel?.closest('div');
-    const statusNameInput = statusNameField?.querySelector('input');
-
-    expect(statusCodeInput).not.toBeNull();
-    expect(statusCodeInput).toHaveValue('WAIT_VENDOR');
-    expect(statusNameInput).not.toBeNull();
-    expect(statusNameInput).toHaveValue('Cho vendor');
-    expect(screen.getByDisplayValue('IN_PROGRESS')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue('WAIT_VENDOR').length).toBeGreaterThan(0);
-    expect(screen.getByDisplayValue('HANDLE')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('crc_form')).toBeInTheDocument();
-  });
-
-  it('shows workflow transition columns and values on the workflow_status_transition tab', async () => {
-    const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
-    workflowApiMocks.fetchWorkflowStatusTransitions.mockResolvedValue(workflowStatusTransitions);
-
-    render(
-      <SupportMasterManagement
-        customers={[]}
-        supportServiceGroups={[]}
-        supportContactPositions={[]}
-        supportRequestStatuses={[]}
-        projectTypes={[]}
-        worklogActivityTypes={[]}
-        supportSlaConfigs={[]}
-        onCreateSupportServiceGroup={noopAsync}
-        onUpdateSupportServiceGroup={noopAsync}
-        onCreateSupportContactPosition={noopAsync}
-        onCreateSupportContactPositionsBulk={noopAsync}
-        onUpdateSupportContactPosition={noopAsync}
-        onCreateSupportRequestStatus={noopAsync}
-        onUpdateSupportRequestStatus={noopAsync}
-        onCreateProjectType={noopAsync}
-        onUpdateProjectType={noopAsync}
-        onCreateWorklogActivityType={noopAsync}
-        onUpdateWorklogActivityType={noopAsync}
-        onCreateSupportSlaConfig={noopAsync}
-        onUpdateSupportSlaConfig={noopAsync}
-        canReadCustomers={false}
-        canReadServiceGroups={false}
-        canReadContactPositions={false}
-        canReadStatuses
-        canReadWorklogActivityTypes={false}
-        canReadSlaConfigs={false}
-        canReadProjectTypes={false}
-        canReadWorkCalendar={false}
-        canWriteServiceGroups={false}
-        canWriteContactPositions={false}
-        canWriteStatuses
-        canWriteWorklogActivityTypes={false}
-        canWriteSlaConfigs={false}
-        canWriteProjectTypes={false}
-        canWriteWorkCalendar={false}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow transition action' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Notify targets')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('ASSIGN_VENDOR')).toBeInTheDocument();
-    expect(screen.getByText('Giao vendor')).toBeInTheDocument();
-    expect(screen.getByText('Tiep nhan')).toBeInTheDocument();
-    expect(screen.getByText('Cho vendor')).toBeInTheDocument();
-    expect(screen.getByText('PM, CREATOR')).toBeInTheDocument();
-    expect(screen.getByText('PM')).toBeInTheDocument();
-  });
-
-  it('opens edit mode for a workflow transition row and hydrates transition fields', async () => {
-    const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
-    workflowApiMocks.fetchWorkflowStatusTransitions.mockResolvedValue(workflowStatusTransitions);
-
-    render(
-      <SupportMasterManagement
-        customers={[]}
-        supportServiceGroups={[]}
-        supportContactPositions={[]}
-        supportRequestStatuses={[]}
-        projectTypes={[]}
-        worklogActivityTypes={[]}
-        supportSlaConfigs={[]}
-        onCreateSupportServiceGroup={noopAsync}
-        onUpdateSupportServiceGroup={noopAsync}
-        onCreateSupportContactPosition={noopAsync}
-        onCreateSupportContactPositionsBulk={noopAsync}
-        onUpdateSupportContactPosition={noopAsync}
-        onCreateSupportRequestStatus={noopAsync}
-        onUpdateSupportRequestStatus={noopAsync}
-        onCreateProjectType={noopAsync}
-        onUpdateProjectType={noopAsync}
-        onCreateWorklogActivityType={noopAsync}
-        onUpdateWorklogActivityType={noopAsync}
-        onCreateSupportSlaConfig={noopAsync}
-        onUpdateSupportSlaConfig={noopAsync}
-        canReadCustomers={false}
-        canReadServiceGroups={false}
-        canReadContactPositions={false}
-        canReadStatuses
-        canReadWorklogActivityTypes={false}
-        canReadSlaConfigs={false}
-        canReadProjectTypes={false}
-        canReadWorkCalendar={false}
-        canWriteServiceGroups={false}
-        canWriteContactPositions={false}
-        canWriteStatuses
-        canWriteWorklogActivityTypes={false}
-        canWriteSlaConfigs={false}
-        canWriteProjectTypes={false}
-        canWriteWorkCalendar={false}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow transition action' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('ASSIGN_VENDOR')).toBeInTheDocument();
+    renderSupportMasterManagement({
+      productUnitMasters,
+      canReadProductUnitMasters: true,
+      canWriteProductUnitMasters: true,
     });
 
     await user.click(screen.getByTitle('Cập nhật'));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Cập nhật transition workflow' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Cập nhật đơn vị tính sản phẩm' })).toBeInTheDocument();
     });
 
-    const actionCodeLabel = screen.getAllByText(/Action code/).find((element) => element.tagName === 'LABEL');
-    const actionCodeField = actionCodeLabel?.closest('div');
-    const actionCodeInput = actionCodeField?.querySelector('input');
+    const nameLabel = screen.getAllByText(/Tên đơn vị tính/).find((element) => element.tagName === 'LABEL');
+    const nameField = nameLabel?.closest('div');
+    const nameInput = nameField?.querySelector('input');
 
-    const actionNameLabel = screen.getAllByText(/Tên hành động/).find((element) => element.tagName === 'LABEL');
-    const actionNameField = actionNameLabel?.closest('div');
-    const actionNameInput = actionNameField?.querySelector('input');
-
-    const conditionLabel = screen.getAllByText(/Condition JSON/).find((element) => element.tagName === 'LABEL');
-    const conditionField = conditionLabel?.closest('div');
-    const conditionTextarea = conditionField?.querySelector('textarea');
-
-    expect(actionCodeInput).not.toBeNull();
-    expect(actionCodeInput).toHaveValue('ASSIGN_VENDOR');
-    expect(actionNameInput).not.toBeNull();
-    expect(actionNameInput).toHaveValue('Giao vendor');
-    expect(screen.getByText('Tiep nhan (NEW)')).toBeInTheDocument();
-    expect(screen.getByText('Cho vendor (WAIT_VENDOR)')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('PM, CREATOR')).toBeInTheDocument();
-    expect(screen.getAllByText(/^PM$/).length).toBeGreaterThan(0);
-    expect(conditionTextarea).not.toBeNull();
-    expect(conditionTextarea).toHaveValue('{\n  "requires_assignment": true\n}');
+    expect(nameInput).not.toBeNull();
+    expect(nameInput).toHaveValue('Gói');
+    expect(nameInput).toBeDisabled();
+    expect(screen.getByText('Đã phát sinh sản phẩm, không cho đổi tên đơn vị tính.')).toBeInTheDocument();
   });
 
-  it('shows workflow field config columns and values on the workflow_form_field_config tab', async () => {
+  it('hides legacy workflow master options and avoids calling removed workflow endpoints', async () => {
     const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
-    workflowApiMocks.fetchWorkflowFormFieldConfigs.mockResolvedValue(workflowFormFieldConfigs);
 
     render(
       <SupportMasterManagement
@@ -858,85 +613,14 @@ describe('SupportMasterManagement', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow schema field' }));
 
-    await waitFor(() => {
-      expect(screen.getByText('Field key')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Field type')).toBeInTheDocument();
-    expect(screen.getByText('FOLLOW_UP_NOTE')).toBeInTheDocument();
-    expect(screen.getByText('Noi dung bo sung')).toBeInTheDocument();
-    expect(screen.getAllByText('textarea').length).toBeGreaterThan(0);
-    expect(screen.getByText('AB')).toBeInTheDocument();
-  });
-
-  it('opens edit mode for a workflow field config row and hydrates workflow field settings', async () => {
-    const user = userEvent.setup();
-    workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue(workflowStatusCatalogs);
-    workflowApiMocks.fetchWorkflowFormFieldConfigs.mockResolvedValue(workflowFormFieldConfigs);
-
-    render(
-      <SupportMasterManagement
-        customers={[]}
-        supportServiceGroups={[]}
-        supportContactPositions={[]}
-        supportRequestStatuses={[]}
-        projectTypes={[]}
-        worklogActivityTypes={[]}
-        supportSlaConfigs={[]}
-        onCreateSupportServiceGroup={noopAsync}
-        onUpdateSupportServiceGroup={noopAsync}
-        onCreateSupportContactPosition={noopAsync}
-        onCreateSupportContactPositionsBulk={noopAsync}
-        onUpdateSupportContactPosition={noopAsync}
-        onCreateSupportRequestStatus={noopAsync}
-        onUpdateSupportRequestStatus={noopAsync}
-        onCreateProjectType={noopAsync}
-        onUpdateProjectType={noopAsync}
-        onCreateWorklogActivityType={noopAsync}
-        onUpdateWorklogActivityType={noopAsync}
-        onCreateSupportSlaConfig={noopAsync}
-        onUpdateSupportSlaConfig={noopAsync}
-        canReadCustomers={false}
-        canReadServiceGroups={false}
-        canReadContactPositions={false}
-        canReadStatuses
-        canReadWorklogActivityTypes={false}
-        canReadSlaConfigs={false}
-        canReadProjectTypes={false}
-        canReadWorkCalendar={false}
-        canWriteServiceGroups={false}
-        canWriteContactPositions={false}
-        canWriteStatuses
-        canWriteWorklogActivityTypes={false}
-        canWriteSlaConfigs={false}
-        canWriteProjectTypes={false}
-        canWriteWorkCalendar={false}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
-    await user.click(screen.getByRole('button', { name: 'Workflow schema field' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('FOLLOW_UP_NOTE')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByTitle('Cập nhật'));
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Cập nhật schema field workflow' })).toBeInTheDocument();
-    });
-
-    expect(screen.getByDisplayValue('FOLLOW_UP_NOTE')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('Noi dung bo sung')).toBeInTheDocument();
-    expect(screen.getByText('Cho vendor (WAIT_VENDOR)')).toBeInTheDocument();
-    expect(screen.getAllByText('textarea').length).toBeGreaterThan(0);
-    expect(screen.getByPlaceholderText('Ví dụ: [{"value":"SUCCESS","label":"SUCCESS"}]')).toHaveValue(
-      '[\n  {\n    "value": "CALL_BACK",\n    "label": "Goi lai"\n  },\n  {\n    "value": "WAIT_INFO",\n    "label": "Cho thong tin"\n  }\n]'
-    );
-    expect(screen.getByLabelText('Bắt buộc nhập')).toBeChecked();
+    expect(screen.getByRole('button', { name: /Trạng thái hỗ trợ/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Workflow trạng thái phân cấp' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Workflow transition action' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Workflow schema field' })).not.toBeInTheDocument();
+    expect(workflowApiMocks.fetchWorkflowStatusCatalogs).not.toHaveBeenCalled();
+    expect(workflowApiMocks.fetchWorkflowStatusTransitions).not.toHaveBeenCalled();
+    expect(workflowApiMocks.fetchWorkflowFormFieldConfigs).not.toHaveBeenCalled();
   });
 
   it('opens edit mode for a status and keeps the code locked when the status is already in use', async () => {
@@ -1111,7 +795,7 @@ describe('SupportMasterManagement', () => {
     expect(screen.getByText('Để trống hệ thống tự sinh theo Tên nhóm.')).toBeInTheDocument();
   });
 
-  it('shows the Danh muc chuc vu option with STT and audit information for contact positions', async () => {
+  it('shows the Chức vụ liên hệ option with usage information for contact positions', async () => {
     render(
       <SupportMasterManagement
         customers={[]}
@@ -1153,13 +837,12 @@ describe('SupportMasterManagement', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Danh mục chức vụ')).toBeInTheDocument();
+      expect(screen.getByText('Chức vụ liên hệ')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('STT')).toBeInTheDocument();
-    expect(screen.getByText('Audit')).toBeInTheDocument();
-    expect(screen.getByText('Tester One')).toBeInTheDocument();
-    expect(screen.getByText('Tester Two')).toBeInTheDocument();
+    expect(screen.getByText('Đang dùng')).toBeInTheDocument();
+    expect(screen.getByText('DAU_MOI')).toBeInTheDocument();
+    expect(screen.getByText('Đầu mối')).toBeInTheDocument();
   });
 
   it('removes underscore characters from the position code input', async () => {
@@ -1207,7 +890,7 @@ describe('SupportMasterManagement', () => {
 
     await user.click(screen.getByRole('button', { name: /Thêm mới/i }));
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Thêm danh mục chức vụ' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Thêm chức vụ liên hệ' })).toBeInTheDocument();
     });
 
     const codeLabel = screen.getAllByText(/Mã chức vụ/).find((element) => element.tagName === 'LABEL');
@@ -1218,7 +901,6 @@ describe('SupportMasterManagement', () => {
     await user.type(codeInput as HTMLInputElement, 'TRUONG_TRAM');
 
     expect(codeInput).toHaveValue('TRUONGTRAM');
-    expect(screen.getByText('Chỉ cho phép chữ và số, không dùng dấu `_`.')).toBeInTheDocument();
   });
 
   it('opens edit mode for a contact position and keeps the code locked when the position is already in use', async () => {
@@ -1267,7 +949,7 @@ describe('SupportMasterManagement', () => {
     await user.click(screen.getByTitle('Cập nhật'));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Cập nhật danh mục chức vụ' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Cập nhật chức vụ liên hệ' })).toBeInTheDocument();
     });
 
     const codeLabel = screen.getAllByText(/Mã chức vụ/).find((element) => element.tagName === 'LABEL');
