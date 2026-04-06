@@ -490,11 +490,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     return (
-      <div className={`flex ${className} gap-1`}>
+      <div className={`flex ${className} gap-0.5`}>
         {canEdit ? (
           <button
             onClick={() => onOpenModal('EDIT_CUSTOMER', item)}
-            className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
             title="Chỉnh sửa"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
@@ -503,7 +503,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         {canDelete ? (
           <button
             onClick={() => onOpenModal('DELETE_CUSTOMER', item)}
-            className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
             title="Xóa"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
@@ -516,7 +516,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const renderDetailButton = (item: Customer, iconOnly = false) => (
     <button
       onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
-      className={`rounded text-slate-400 transition-colors hover:bg-secondary/10 hover:text-secondary ${iconOnly ? 'p-1' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold'}`}
+      className={`rounded text-slate-400 transition-colors hover:bg-secondary/10 hover:text-secondary ${iconOnly ? 'p-0.5' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold'}`}
       title="Xem chi tiết khách hàng 360"
     >
       <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_search</span>
@@ -659,7 +659,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
         {/* Tổng số */}
         <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -742,7 +745,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
             <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
           </div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+          >
             {healthcareBreakdownItems.map((item) => (
               <button
                 key={item.key}
@@ -769,7 +775,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         {/* Filter bar */}
         <div className="border-b border-slate-200 bg-white p-3">
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[240px,minmax(280px,1fr),180px,auto] xl:items-center">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-[220px,minmax(260px,1fr),180px,auto] 2xl:items-center">
             <SearchableMultiSelect
               values={selectedCustomerSectors}
               options={customerSectorFilterOptions}
@@ -792,7 +798,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               />
             </div>
 
-            <div className="relative lg:hidden w-full">
+            <div className="relative 2xl:hidden w-full">
               <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
               <select
                 id="customer-list-sort"
@@ -850,7 +856,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         ) : currentData.length > 0 ? (
           <>
             {/* Responsive cards (mobile) */}
-            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:hidden">
+            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 2xl:hidden">
               {currentData.map((item) => (
                 <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="flex items-start gap-2">
@@ -895,20 +901,20 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             </div>
 
             {/* Desktop table */}
-            <div className="hidden overflow-x-auto lg:block">
+            <div className="hidden overflow-x-auto 2xl:block">
               <table
                 data-testid="customer-desktop-table"
-                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1200px]' : 'min-w-[1100px]'}`}
+                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1160px]' : 'min-w-[1080px]'}`}
               >
                 <thead className="border-y border-slate-200 bg-slate-50/90">
                   <tr>
                     {[
-                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[160px] min-w-[160px]' },
-                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[280px] min-w-[280px]' },
-                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[200px] min-w-[200px]' },
-                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[160px] min-w-[160px]' },
-                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[260px] min-w-[260px]' },
-                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[130px] min-w-[130px]' },
+                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[240px] min-w-[240px]' },
+                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[180px] min-w-[180px]' },
+                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[220px] min-w-[220px]' },
+                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[104px] min-w-[104px]' },
                     ].map((col) => (
                       <th
                         key={col.key}
@@ -922,11 +928,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                       </th>
                     ))}
                     {showActionColumn ? (
-                      <th className="sticky right-[60px] w-[90px] min-w-[90px] bg-slate-50/95 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                      <th className="sticky right-[48px] w-[72px] min-w-[72px] bg-slate-50/95 px-2.5 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                         Thao tác
                       </th>
                     ) : null}
-                    <th className="sticky right-0 w-[60px] min-w-[60px] bg-slate-50/95 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                    <th className="sticky right-0 w-[48px] min-w-[48px] bg-slate-50/95 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                       360
                     </th>
                   </tr>
@@ -938,22 +944,22 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                         {renderCustomerCode(item)}
                       </td>
                       <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
-                        <div className="max-w-[248px] whitespace-normal break-words leading-5">{item.customer_name}</div>
+                        <div className="max-w-[212px] whitespace-normal break-words leading-5">{item.customer_name}</div>
                       </td>
                       <td className="px-3 py-2 align-middle text-xs text-slate-600">
                         {renderCustomerGroup(item)}
                       </td>
                       <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
                       <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
-                        <div className="max-w-[230px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
+                        <div className="max-w-[190px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
                       </td>
                       <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
                       {showActionColumn ? (
-                        <td className="sticky right-[60px] bg-white px-3 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                        <td className="sticky right-[48px] bg-white px-2.5 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                           {renderActionButtons(item)}
                         </td>
                       ) : null}
-                      <td className="sticky right-0 bg-white px-3 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                      <td className="sticky right-0 bg-white px-2.5 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
                         {renderDetailButton(item, true)}
                       </td>
                     </tr>

@@ -322,14 +322,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         {/* Summary badge: showing N/total contracts */}
-        <div className="ml-auto text-[11px] text-slate-400">
+        <div className="w-full text-[11px] text-slate-400 sm:ml-auto sm:w-auto">
           {contracts.length} / {allContracts.length} hợp đồng
           {projects.length !== allProjects.length && <span className="ml-2">{projects.length} / {allProjects.length} dự án</span>}
         </div>
       </div>
 
       {/* ── Hàng 1: 4 KPI thẻ tóm tắt ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
 
         {/* KPI 1 – Doanh thu thực tế + tỉ lệ hoàn thành */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -417,7 +420,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* ── Hàng 2: Biểu đồ doanh thu + Tỷ lệ thu tiền ── */}
-      <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
+      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
 
         {/* Biểu đồ cột Thực tế vs KH */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

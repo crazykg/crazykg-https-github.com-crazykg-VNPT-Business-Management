@@ -560,7 +560,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 mb-3">
+      <div
+        className="mb-3 grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}
+      >
         {statusKpis.map((item) => (
           <div key={item.status} className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
             <div className="flex items-center justify-between mb-2">
@@ -599,16 +602,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
         <div className="bg-white rounded-b-lg border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse min-w-[1200px]">
+            <table className="w-full table-fixed text-left border-collapse min-w-[1024px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'Mã DA', key: 'project_code', widthClassName: 'w-[110px]' },
-                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[360px]' },
-                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[300px]' },
-                    { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[120px]' },
-                    { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[120px]' },
-                    { label: 'Trạng thái', key: 'status', widthClassName: 'w-[260px]' },
+                    { label: 'Mã DA', key: 'project_code', widthClassName: 'w-[96px]' },
+                    { label: 'Tên dự án', key: 'project_name', widthClassName: 'w-[240px]' },
+                    { label: 'Khách hàng', key: 'customer_id', widthClassName: 'w-[200px]' },
+                    { label: 'Ngày BĐ', key: 'start_date', widthClassName: 'w-[104px]' },
+                    { label: 'Ngày KT', key: 'expected_end_date', widthClassName: 'w-[104px]' },
+                    { label: 'Trạng thái', key: 'status', widthClassName: 'w-[168px]' },
                   ].map((col) => (
                     <th
                       key={col.key}
@@ -621,7 +624,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="sticky right-0 w-[130px] min-w-[130px] whitespace-nowrap bg-slate-50 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="sticky right-0 w-[96px] min-w-[96px] whitespace-nowrap bg-slate-50 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Thao tác
                   </th>
                 </tr>
@@ -653,12 +656,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             </span>
                           </div>
                         </td>
-                        <td className="sticky right-0 z-[1] w-[130px] min-w-[130px] bg-white px-3 py-2.5 text-center shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
-                          <div className="flex items-center justify-center gap-1">
+                        <td className="sticky right-0 z-[1] w-[96px] min-w-[96px] bg-white px-2.5 py-2.5 text-center shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
+                          <div className="flex items-center justify-center gap-0.5">
                             {onCreateContract && (
                               <button
                                 onClick={() => onCreateContract(item)}
-                                className="p-1 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100"
+                                className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
                                 title="Tạo hợp đồng"
                               >
                                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>
@@ -668,16 +671,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               <button
                                 onClick={() => onOpenProcedure(item)}
                                 data-testid={`project-open-procedure-${item.id}`}
-                                className="p-1 text-slate-400 hover:text-deep-teal transition-colors rounded hover:bg-slate-100"
+                                className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-deep-teal"
                                 title="Thủ tục dự án"
                               >
                                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>checklist</span>
                               </button>
                             )}
-                            <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="p-1 text-slate-400 hover:text-primary transition-colors rounded hover:bg-slate-100" title="Chỉnh sửa">
+                            <button onClick={() => onOpenModal('EDIT_PROJECT', item)} className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary" title="Chỉnh sửa">
                               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
                             </button>
-                            <button onClick={() => onOpenModal('DELETE_PROJECT', item)} className="p-1 text-slate-400 hover:text-error transition-colors rounded hover:bg-slate-100" title="Xóa">
+                            <button onClick={() => onOpenModal('DELETE_PROJECT', item)} className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-error" title="Xóa">
                               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                             </button>
                           </div>

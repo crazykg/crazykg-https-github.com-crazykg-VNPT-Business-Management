@@ -1608,7 +1608,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
   return (
     <div
-      className="p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
+      className="min-w-0 p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
       style={{ backgroundColor: 'rgb(242 239 231 / var(--tw-bg-opacity, 1))' }}
     >
       <header className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6 md:mb-8">
@@ -1670,7 +1670,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       </header>
 
       <div className="bg-white/95 p-4 md:p-5 rounded-xl border border-slate-200 shadow-[0_6px_20px_rgba(15,23,42,0.04)]">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           <SearchableSelect
             value={masterType}
             onChange={(value) => setMasterType(value as MasterType)}
@@ -1704,10 +1704,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         </div>
       </div>
 
-      <div className="mt-4 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="mt-4 min-w-0 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto custom-scrollbar">
           {masterType === 'group' ? (
-            <table className="w-full min-w-[1320px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã nhóm</th>
@@ -1769,7 +1769,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'contact_position' ? (
-            <table className="w-full min-w-[920px]">
+            <table className="w-full min-w-[760px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã chức vụ</th>
@@ -1822,7 +1822,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'product_unit' ? (
-            <table className="w-full min-w-[980px]">
+            <table className="w-full min-w-[820px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">ID</th>
@@ -1875,7 +1875,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'status' ? (
-            <table className="w-full min-w-[1240px]">
+            <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã</th>
@@ -1940,8 +1940,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
-	          ) : masterType === 'project_type' ? (
-            <table className="w-full min-w-[1040px]">
+          ) : masterType === 'project_type' ? (
+            <table className="w-full min-w-[880px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã</th>
@@ -1997,7 +1997,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'worklog_activity_type' ? (
-            <table className="w-full min-w-[1240px]">
+            <table className="w-full min-w-[1024px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã</th>
@@ -2054,7 +2054,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'sla_config' ? (
-            <table className="w-full min-w-[1320px]">
+            <table className="w-full min-w-[1120px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
@@ -2117,7 +2117,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'workflow_status_catalog' ? (
-            <table className="w-full min-w-[1480px]">
+            <table className="w-full min-w-[1200px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Cấp</th>
@@ -2190,7 +2190,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : masterType === 'workflow_status_transition' ? (
-            <table className="w-full min-w-[1480px]">
+            <table className="w-full min-w-[1160px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái nguồn</th>
@@ -2261,7 +2261,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               </tbody>
             </table>
           ) : (
-            <table className="w-full min-w-[1380px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái workflow</th>
@@ -2430,7 +2430,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
               {!calLoading && !calError && calDays.length > 0 && (
                 <div className="overflow-x-auto custom-scrollbar">
-                  <table className="w-full min-w-[820px] border-separate border-spacing-0">
+                  <table className="w-full min-w-[720px] border-separate border-spacing-0">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
                         {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((d) => (

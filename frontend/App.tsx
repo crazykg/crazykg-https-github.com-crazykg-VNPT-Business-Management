@@ -1424,7 +1424,7 @@ const App: React.FC = () => {
         </div>
       </div>
       <Sidebar activeTab={activeTab} setActiveTab={handleNavigateTab} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} currentUser={authUser} visibleTabIds={visibleTabIds} onLogout={handleLogout} onPrefetchTab={prefetchTabModules} />
-      <main className="flex-1 overflow-y-auto bg-bg-light w-full">
+      <main className="min-w-0 flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages
             activeTab={activeTab} authUser={authUser} activeInternalUserSubTab={activeInternalUserSubTab} setInternalUserSubTab={setInternalUserSubTab}

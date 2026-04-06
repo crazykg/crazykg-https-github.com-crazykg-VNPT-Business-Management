@@ -234,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
       <aside 
         className={`fixed top-0 bottom-0 left-0 z-50 bg-white border-r border-slate-200 flex flex-col transition-all duration-300 lg:translate-x-0 lg:static ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isCollapsed ? 'w-20' : 'w-72'}`}
+        } ${isCollapsed ? 'w-20' : 'w-64 xl:w-72'}`}
       >
         {/* Header */}
         <div className={`p-6 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>

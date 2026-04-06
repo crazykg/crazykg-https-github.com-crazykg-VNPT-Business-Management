@@ -491,7 +491,10 @@ export const ContractList: React.FC<ContractListProps> = ({
   };
 
   const renderLoadingKpis = () => (
-    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+    <div
+      className="mb-4 grid gap-3"
+      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+    >
       {Array.from({ length: 7 }).map((_, index) => (
         <div key={`contract-kpi-skel-${index}`} className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
           <div className="h-3 w-20 rounded bg-slate-200 animate-pulse" />
@@ -709,7 +712,10 @@ export const ContractList: React.FC<ContractListProps> = ({
             <span className="hidden text-[10px] text-slate-400 sm:inline">· lọc theo ngày ký</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+          <div
+            className="grid gap-3"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+          >
             {/* Tổng HĐ */}
             <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <p className="truncate text-[11px] font-semibold text-neutral">Tổng hợp đồng</p>
@@ -814,7 +820,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         {viewMode === 'CONTRACTS' ? (
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
-              <table className={`w-full border-collapse text-left ${showActionColumn ? 'min-w-[1060px]' : 'min-w-[960px]'}`}>
+              <table className={`w-full border-collapse text-left ${showActionColumn ? 'min-w-[980px]' : 'min-w-[900px]'}`}>
                 <thead className="border-y border-slate-200 bg-slate-50">
                   <tr>
                     {[
@@ -840,7 +846,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                       </th>
                     ))}
                     {showActionColumn && (
-                      <th className="sticky right-0 bg-slate-50 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="sticky right-0 w-[72px] min-w-[72px] bg-slate-50 px-2.5 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Thao tác
                       </th>
                     )}
@@ -883,13 +889,13 @@ export const ContractList: React.FC<ContractListProps> = ({
                           </span>
                         </td>
                         {showActionColumn && (
-                          <td className="sticky right-0 bg-white px-3 py-2 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
-                            <div className="flex justify-end gap-1">
+                          <td className="sticky right-0 w-[72px] min-w-[72px] bg-white px-2.5 py-2 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
+                            <div className="flex justify-end gap-0.5">
                               {canEdit && (
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('EDIT_CONTRACT', item)}
-                                  className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
+                                  className="rounded p-0.5 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
                                   title="Chỉnh sửa"
                                 >
                                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
@@ -899,7 +905,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('DELETE_CONTRACT', item)}
-                                  className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
+                                  className="rounded p-0.5 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
                                   title="Xóa"
                                 >
                                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
