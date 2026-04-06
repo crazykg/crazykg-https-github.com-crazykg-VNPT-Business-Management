@@ -22,6 +22,8 @@ interface InternalUserModuleTabsProps {
   partyLoading?: boolean;
   onPartyQueryChange?: (query: PaginatedQuery & { filters?: { department_id?: string; missing_info?: string } }) => void;
   canViewPartyTab?: boolean;
+  canImportList?: boolean;
+  canImportParty?: boolean;
   activeSubTab: InternalUserSubTab;
   onSubTabChange: (tab: InternalUserSubTab) => void;
 }
@@ -31,26 +33,23 @@ const TABS: Array<{ id: InternalUserSubTab; label: string; iconName: string; cap
     id: 'dashboard',
     label: 'Dashboard nhân sự',
     iconName: 'dashboard',
-    caption: 'Theo dõi nhanh biến động nhân sự, cơ cấu phòng ban và các chỉ số vận hành.',
   },
   {
     id: 'list',
     label: 'Danh sách nhân sự',
     iconName: 'group',
-    caption: 'Quản lý hồ sơ nhân sự, tra cứu trạng thái và thao tác nhập xuất dữ liệu tập trung.',
   },
   {
     id: 'party',
     label: 'Đảng viên',
     iconName: 'shield',
-    caption: 'Theo dõi hồ sơ đảng viên, mức độ đầy đủ thông tin và tiến độ cập nhật.',
   },
 ];
 
 const moduleShellClass = 'overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl';
-const moduleSignalCardClass = 'rounded-lg border border-slate-200 bg-slate-50/60 p-3 shadow-sm';
+const moduleSignalCardClass = 'rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2 shadow-sm';
 const tabButtonBaseClass =
-  'group inline-flex w-full items-start gap-2.5 rounded-lg border px-3 py-3 text-left transition-colors';
+  'group inline-flex w-full items-center gap-2 rounded-lg border px-2.5 py-2.5 text-left transition-colors';
 
 export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
   employees,
@@ -67,12 +66,22 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
   partyLoading,
   onPartyQueryChange,
   canViewPartyTab = true,
+  canImportList = false,
+  canImportParty = false,
   activeSubTab,
   onSubTabChange,
 }) => {
+  const moduleTopRef = React.useRef<HTMLDivElement | null>(null);
+  const isPartyTabActive = activeSubTab === 'party';
   const visibleTabs = canViewPartyTab ? TABS : TABS.filter((tab) => tab.id !== 'party');
   const stats = useMemo(() => hrStatistics ?? buildHrStatistics(employees, departments), [hrStatistics, employees, departments]);
   const activeTabMeta = visibleTabs.find((tab) => tab.id === activeSubTab) || visibleTabs[0];
+  const handleTabSelect = React.useCallback((tab: InternalUserSubTab) => {
+    onSubTabChange(tab);
+    window.requestAnimationFrame(() => {
+      moduleTopRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }, [onSubTabChange]);
   const moduleSignals = [
     {
       label: 'Nhân sự',
@@ -92,52 +101,51 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
   ];
 
   return (
-    <div>
-      <div className="p-3 pb-6">
+    <div ref={moduleTopRef}>
+      <div className="p-2.5 pb-3">
         <div className={moduleShellClass}>
-          <div className="border-b border-slate-100 px-3 py-3 md:px-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="border-b border-slate-100 px-3 py-2 md:px-4">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
-                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-secondary/15">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
                     {activeTabMeta.iconName}
                   </span>
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Module nhân sự nội bộ</p>
                   <h2 className="text-sm font-bold leading-tight text-deep-teal">{activeTabMeta.label}</h2>
                   {activeTabMeta.caption ? (
-                    <p className="text-[11px] leading-tight text-slate-400">{activeTabMeta.caption}</p>
+                    <p className="text-[10px] leading-4 text-slate-400">{activeTabMeta.caption}</p>
                   ) : null}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:min-w-[420px]">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 xl:min-w-[360px]">
                 {moduleSignals.map((item) => (
                   <div
                     key={item.label}
                     className={moduleSignalCardClass}
                   >
-                    <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded bg-white shadow-sm ring-1 ring-slate-200">
+                    <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-neutral">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-white shadow-sm ring-1 ring-slate-200">
                         {item.icon}
                       </span>
                       {item.label}
                     </div>
-                    <p className="mt-2 text-xl font-black leading-none text-deep-teal">{item.value}</p>
+                    <p className="mt-1 text-base font-black leading-none text-deep-teal">{item.value}</p>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 bg-slate-50/50 px-3 py-3 md:grid-cols-3 md:px-4">
+          <div className="grid grid-cols-1 gap-1.5 bg-slate-50/50 px-3 py-2 md:grid-cols-3 md:px-4">
             {visibleTabs.map((tab) => {
               const isActive = activeSubTab === tab.id;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => onSubTabChange(tab.id)}
+                  onClick={() => handleTabSelect(tab.id)}
                   className={`${tabButtonBaseClass} ${
                     isActive
                       ? 'border-primary bg-primary-container-soft text-deep-teal shadow-sm'
@@ -145,23 +153,23 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
                   }`}
                 >
                   <span
-                    className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded ${
+                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded ${
                       isActive ? 'bg-primary text-white' : 'bg-primary/10'
                     }`}
                   >
                     <span
                       className={`material-symbols-outlined ${isActive ? 'text-white' : 'text-primary'}`}
-                      style={{ fontSize: 16 }}
+                      style={{ fontSize: 15 }}
                     >
                       {tab.iconName}
                     </span>
                   </span>
                   <span className="min-w-0">
-                    <span className={`block text-sm font-bold ${isActive ? 'text-deep-teal' : 'text-deep-teal'}`}>
+                    <span className={`block text-[15px] font-bold leading-5 ${isActive ? 'text-deep-teal' : 'text-deep-teal'}`}>
                       {tab.label}
                     </span>
                     {tab.caption ? (
-                      <span className={`mt-0.5 block text-[11px] leading-tight ${isActive ? 'text-neutral' : 'text-slate-400'}`}>
+                      <span className={`mt-0.5 block text-[10px] leading-4 ${isActive ? 'text-neutral' : 'text-slate-400'}`}>
                         {tab.caption}
                       </span>
                     ) : null}
@@ -182,6 +190,7 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
           departments={departments}
           onOpenModal={onOpenModal}
           onNotify={onNotify}
+          canImport={canImportParty}
           paginationMeta={partyMeta}
           isLoading={partyLoading}
           onQueryChange={onPartyQueryChange}
@@ -193,6 +202,7 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
           hrStatistics={hrStatistics}
           onOpenModal={onOpenModal}
           onNotify={onNotify}
+          canImport={canImportList}
           paginationMeta={listMeta}
           isLoading={listLoading}
           onQueryChange={onListQueryChange}

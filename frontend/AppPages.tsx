@@ -45,10 +45,12 @@ import {
   ModalType,
   BackblazeB2IntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettingsUpdatePayload,
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettingsUpdatePayload,
   BulkMutationResult,
 } from './types';
-import { hasPermission } from './utils/authorization';
+import { canImportModule, hasPermission } from './utils/authorization';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
@@ -498,7 +500,14 @@ export const AppPages: React.FC<AppPagesProps> = ({
   return (
     <>
       {activeTab === 'dashboard' && (
-        <Dashboard stats={dashboardStats} />
+        <Dashboard
+          contracts={contracts}
+          paymentSchedules={paymentSchedules}
+          projects={projects}
+          customers={customers}
+          departments={departments}
+          employees={employees}
+        />
       )}
 
       {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list' || activeTab === 'internal_user_party_members') && (
@@ -517,13 +526,15 @@ export const AppPages: React.FC<AppPagesProps> = ({
           partyLoading={partyProfilesPageLoading}
           onPartyQueryChange={handlePartyProfilesPageQueryChange}
           canViewPartyTab={hasPermission(authUser, 'employee_party.read')}
+          canImportList={canImportModule(authUser, 'internal_user_list')}
+          canImportParty={canImportModule(authUser, 'internal_user_party_members')}
           activeSubTab={activeInternalUserSubTab}
           onSubTabChange={setInternalUserSubTab}
         />
       )}
 
       {activeTab === 'departments' && (
-        <DepartmentList departments={departments} employees={employees} onOpenModal={handleOpenModal} />
+        <DepartmentList departments={departments} employees={employees} onOpenModal={handleOpenModal} canImport={canImportModule(authUser, 'departments')} />
       )}
 
       {activeTab === 'user_dept_history' && (
@@ -536,11 +547,11 @@ export const AppPages: React.FC<AppPagesProps> = ({
       )}
 
       {activeTab === 'businesses' && (
-        <BusinessList businesses={businesses} products={products} onOpenModal={handleOpenModal} />
+        <BusinessList businesses={businesses} products={products} onOpenModal={handleOpenModal} canImport={canImportModule(authUser, 'businesses')} />
       )}
 
       {activeTab === 'vendors' && (
-        <VendorList vendors={vendors} onOpenModal={handleOpenModal} />
+        <VendorList vendors={vendors} onOpenModal={handleOpenModal} canImport={canImportModule(authUser, 'vendors')} />
       )}
 
       {activeTab === 'products' && (
@@ -553,7 +564,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onOpenModal={handleOpenModal}
           canEdit={hasPermission(authUser, 'products.write')}
           canDelete={hasPermission(authUser, 'products.delete')}
-          canImport={hasPermission(authUser, 'products.import')}
+          canImport={canImportModule(authUser, 'products')}
           canUploadDocument={hasPermission(authUser, 'documents.write')}
           onNotify={addToast}
         />
@@ -569,7 +580,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onQueryChange={handleCustomersPageQueryChange}
           canEdit={hasPermission(authUser, 'customers.write')}
           canDelete={hasPermission(authUser, 'customers.delete')}
-          canImport={hasPermission(authUser, 'customers.import')}
+          canImport={canImportModule(authUser, 'clients')}
           aggregateKpis={customerAggregateKpis}
         />
       )}
@@ -583,7 +594,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onOpenModal={handleOpenModal}
           canEdit={hasPermission(authUser, 'customer_personnel.write')}
           canDelete={hasPermission(authUser, 'customer_personnel.delete')}
-          canImport={hasPermission(authUser, 'customer_personnel.write')}
+          canImport={canImportModule(authUser, 'cus_personnel')}
         />
       )}
 
@@ -599,6 +610,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onExportProjects={exportProjectsByCurrentQuery}
           onExportProjectRaci={exportProjectRaciByProjectIds}
           projectItems={projectItems}
+          canImport={canImportModule(authUser, 'projects')}
           paginationMeta={projectsPageMeta}
           isLoading={projectsPageLoading}
           onQueryChange={handleProjectsPageQueryChange}

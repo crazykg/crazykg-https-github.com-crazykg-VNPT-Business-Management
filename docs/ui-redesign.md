@@ -401,11 +401,33 @@ cd frontend && npm run lint
 
 Fix all TypeScript errors before reporting. If a design token class such as `text-neutral` or `bg-error` appears to fail, check `frontend/tailwind.config.js`.
 
+## Step 3b - Responsive Design Self-Check (REQUIRED before reporting)
+
+**This step is mandatory.** After rewriting the JSX, verify every layout breakpoint in the output matches the responsive grid rules in §13.
+
+Self-check checklist (tick each before proceeding):
+
+```text
+[ ] Page wrapper: p-3 pb-6 (no md:/lg: override on wrapper)
+[ ] KPI grid: grid-cols-2 xl:grid-cols-4 (tablet = 2 col, desktop = 4 col)
+[ ] Filter row: stacked on mobile, side-by-side on xl (grid-cols-1 xl:grid-cols-[...])
+[ ] Table: overflow-x-auto + min-w-[Npx] for horizontal scroll on mobile
+[ ] Action buttons in table: always visible (sticky right-0 bg-white) on all sizes
+[ ] Modal: max-w-sm (mobile), max-w-2xl/4xl (desktop) — ModalWrapper width prop set correctly
+[ ] Modal body grid: grid-cols-1 lg:grid-cols-2 for two-column form layouts
+[ ] Header row: flex-wrap or flex-col on small, flex-row on lg+
+[ ] CTA button: full-width on mobile optional, auto width on sm+
+[ ] No hardcoded px widths that break at 375px (iPhone SE viewport)
+```
+
+If any item fails, fix it before moving to Step 4.
+
 ## Step 4 - Report
 
 Return a concise report with:
 - files changed
 - changes grouped by component, using before -> after wording
+- responsive test result (pass/fail per breakpoint)
 - lint result
 
 # Design System
@@ -421,21 +443,64 @@ Stack:
 
 System-native only — no custom font downloads, no CDN, no npm font packages.
 
+### 0a. Font family priority (device-native first)
+
 | Priority | CSS value | Thiết bị / OS |
 |----------|-----------|----------------|
 | 1 | `sans-serif` | Browser default (highest) |
 | 2 | `system-ui` | Modern browsers — font hệ thống thiết bị |
-| 3 | `-apple-system` | macOS / iOS / iPadOS → SF Pro |
-| 4 | `BlinkMacSystemFont` | Chrome on macOS → SF Pro |
+| 3 | `-apple-system` | macOS / iOS / iPadOS → **SF Pro** |
+| 4 | `BlinkMacSystemFont` | Chrome on macOS → **SF Pro** |
 | 5 | `"Segoe UI"` | Windows 10/11 |
-| 6 | `Roboto` | Android / Chrome OS |
+| 6 | `Roboto` | **Android / Chrome OS** |
 | 7 | `"Helvetica Neue"` | macOS legacy |
 | 8 | `Arial` | Universal fallback |
+
+> **Kết quả thực tế:**
+> - iPhone / iPad → **SF Pro Text** (Apple system font, tối ưu Retina)
+> - Android → **Roboto** (Google system font)
+> - Windows → **Segoe UI**
+> - macOS → **SF Pro**
+> - Linux → `system-ui` fallback
 
 Rules:
 - Never add `font-family` inline in components — the CSS variable `--dashboard-font` in `index.css` covers the whole app
 - Never import external font files (CDN or npm) unless approved
 - `@fontsource-variable/material-symbols-outlined` is the only allowed font import (icons only)
+- `-webkit-text-size-adjust: 100%` **phải có** trong `:root` để ngăn iOS tự scale chữ khi xoay ngang
+
+### 0b. Responsive base font-size (mobile-first)
+
+Base `font-size` được set trên `:root` theo breakpoint — tất cả giá trị `rem` trong Tailwind tự scale theo:
+
+| Breakpoint | `font-size` trên `:root` | Target device | Lý do |
+|-----------|--------------------------|---------------|-------|
+| Default (mobile) | `14px` | Điện thoại ≤ 767px | Màn nhỏ, mật độ pixel cao — chữ 14px đủ đọc |
+| `md:` 768px+ | `14px` | Máy tính bảng | Giữ 14px — tablet đọc tốt ở mật độ cao |
+| `lg:` 1024px+ | `15px` | Laptop | Màn lớn hơn — tăng nhẹ để dễ đọc |
+| `xl:` 1280px+ | `16px` | Desktop | Standard desktop reading size |
+
+**Quy tắc bổ sung:**
+- Không dùng `font-size` inline trực tiếp trên `body` hay `html` — chỉ set trên `:root` qua `index.css`
+- Không hardcode `px` trên text component — dùng Tailwind class (`text-xs`, `text-sm`, `text-[11px]`, v.v.)
+- Với icon `material-symbols-outlined`: luôn dùng `style={{ fontSize: N }}` (không dùng Tailwind `text-*` vì icon font scale khác body font)
+- Thêm `-webkit-font-smoothing: antialiased` và `-moz-osx-font-smoothing: grayscale` trên `body` để chữ sắc nét trên Retina (iPhone, iPad, MacBook)
+
+### 0c. Font-size scale theo thiết bị (reference)
+
+Khi dùng Tailwind class, chữ thực tế render tương ứng:
+
+| Tailwind class | Mobile (14px base) | Tablet (14px base) | Laptop (15px base) | Desktop (16px base) |
+|---------------|--------------------|--------------------|--------------------|--------------------|
+| `text-[10px]` | 10px | 10px | 10px | 10px *(hardcoded)* |
+| `text-[11px]` | 11px | 11px | 11px | 11px *(hardcoded)* |
+| `text-xs` (0.75rem) | 10.5px | 10.5px | 11.25px | 12px |
+| `text-sm` (0.875rem) | 12.25px | 12.25px | 13.13px | 14px |
+| `text-base` (1rem) | 14px | 14px | 15px | 16px |
+| `text-lg` (1.125rem) | 15.75px | 15.75px | 16.88px | 18px |
+| `text-xl` (1.25rem) | 17.5px | 17.5px | 18.75px | 20px |
+
+> **Lưu ý:** `text-[10px]`, `text-[11px]` là giá trị tuyệt đối (px) — không scale theo base font. Dùng cho caption/badge nhỏ trên mọi thiết bị.
 
 ## 1. Color tokens
 
@@ -905,3 +970,98 @@ Legend dots:
 | `bg-bg-light` (#F2EFE7) | `bg-surface` (#F9F9FF) or `bg-surface-low` (#F2F3FA) |
 | `text-slate-900` body text | `text-on-surface` (#191C21) |
 | `border border-slate-200` section separator | remove border — use background shift (No-Line Rule) |
+
+## 13. Responsive Design (REQUIRED — must pass before task is complete)
+
+Every redesigned component **must be verified** against all four breakpoints before the task is considered complete.
+
+### Breakpoint reference
+
+| Breakpoint | Tailwind prefix | Target device | Min width |
+|-----------|----------------|---------------|-----------|
+| Mobile | *(default, no prefix)* | Điện thoại (iPhone SE → iPhone 15 Pro Max) | 375 px |
+| Tablet | `sm:` / `md:` | Máy tính bảng (iPad Mini → iPad Pro 12.9") | 640 px / 768 px |
+| Laptop | `lg:` | Laptop (13"–15", 1280 px) | 1024 px |
+| Desktop | `xl:` | Desktop (1440 px+) | 1280 px |
+
+### Responsive rules per element
+
+#### Page wrapper
+```jsx
+<div className="p-3 pb-6">   {/* uniform — no responsive override */}
+```
+
+#### Page header
+```jsx
+{/* Mobile: stacked (title left, button below or right) */}
+{/* Desktop: single flex row */}
+<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+```
+- On mobile (< sm): title + subtitle stack, CTA button either wraps below or stays right as icon-only
+- On sm+: single row — icon box + title left, CTA right
+
+#### KPI grid
+```jsx
+{/* Mobile: 2 columns; Tablet+: 4 columns */}
+<div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+```
+- **Never** `grid-cols-1` for KPI cards (wastes vertical space on phone)
+- **Never** `grid-cols-4` without `xl:` prefix (breaks on tablet)
+
+#### Filter / search bar
+```jsx
+{/* Mobile: stacked; Desktop: side-by-side */}
+<div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
+```
+- On mobile: search input full-width (stacked)
+- On xl+: search + status select side by side
+
+#### Data table
+```jsx
+{/* Always scrollable on mobile */}
+<div className="overflow-x-auto">
+  <table className="w-full min-w-[700px]">  {/* min-w prevents column crush */}
+```
+- Action buttons column: `sticky right-0 bg-white` — always visible without horizontal scroll
+- `min-w` value depends on column count: `min-w-[700px]` (5–6 cols), `min-w-[900px]` (7–8 cols)
+
+#### Modals
+```jsx
+{/* ModalWrapper width prop */}
+width="max-w-sm"      /* single-field / delete confirm */
+width="max-w-xl"      /* standard form (single column) */
+width="max-w-4xl"     /* two-column form */
+```
+- ModalWrapper internally adds `w-full mx-4` on mobile — no additional wrapper needed
+- Two-column form body: `grid grid-cols-1 lg:grid-cols-2 gap-4` (stacks to 1 col on mobile/tablet)
+- Modal footer buttons: always `flex-row gap-2` (do NOT stack on mobile)
+
+#### Buttons
+- CTA (page-level): `w-full sm:w-auto` — full width on mobile, auto on sm+
+- Action buttons (table row): always fixed size `h-7 w-7` — never change on breakpoint
+
+### Responsive self-check command (run in browser DevTools)
+
+After writing code, mentally simulate or use browser DevTools to verify at these exact widths:
+
+| Width | Device | What to check |
+|-------|--------|--------------|
+| 375 px | iPhone SE | KPI 2-col, filter stacked, table scrolls horizontally, modal not clipped |
+| 768 px | iPad Mini | KPI 2-col, filter stacked, table visible without scroll |
+| 1024 px | Laptop | KPI 4-col (if xl) or 2-col (if only xl:), filter row side-by-side |
+| 1440 px | Desktop | Full layout, no overflow |
+
+### Responsive violations quick reference
+
+| Violation | Fix |
+|-----------|-----|
+| `grid-cols-4` without `xl:` | `grid-cols-2 xl:grid-cols-4` |
+| `grid-cols-1` on KPI cards | `grid-cols-2 xl:grid-cols-4` |
+| No `overflow-x-auto` on table | Wrap `<div className="overflow-x-auto">` |
+| No `min-w-[Npx]` on table | Add `min-w-[700px]` or appropriate value |
+| `flex-row` header always | `flex-col sm:flex-row` |
+| `hidden` on important element on mobile | Use `sm:block` pattern, not `hidden` |
+| Fixed px width on filter input | Use `w-full` or `minmax(0,1fr)` |
+| `max-w-4xl` modal without `w-full mx-4` | ModalWrapper handles this — ensure `width` prop is set |
+| Modal body `grid-cols-2` always | `grid-cols-1 lg:grid-cols-2` |
+| `px-8` / `p-6` on mobile wrapper | Must be `p-3 pb-6` |

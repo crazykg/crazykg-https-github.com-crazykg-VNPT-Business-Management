@@ -78,14 +78,14 @@ export function useAppNavigation(
   }, []);
 
   const getTabIdFromPath = useCallback((pathname: string): TabId | null => {
-    const path = pathname.replace(/^\//, '') || 'dashboard';
-    if (path === '') return 'dashboard';
+    const normalizedPath = pathname.replace(/^\/+|\/+$/g, '');
+    if (normalizedPath === '') return 'dashboard';
 
     // Handle special cases
-    if (PATH_TAB_MAP[path]) return PATH_TAB_MAP[path] as TabId;
+    if (PATH_TAB_MAP[normalizedPath]) return PATH_TAB_MAP[normalizedPath] as TabId;
 
-    // Convert kebab-case back to snake_case
-    const tabId = path.replace(/-/g, '_');
+    const [rootSegment] = normalizedPath.split('/');
+    const tabId = (rootSegment || normalizedPath).replace(/-/g, '_');
     return AVAILABLE_TABS.includes(tabId as TabId) ? (tabId as TabId) : 'dashboard';
   }, []);
 

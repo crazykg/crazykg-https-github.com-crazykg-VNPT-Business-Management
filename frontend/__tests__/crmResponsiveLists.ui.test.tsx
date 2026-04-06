@@ -1,16 +1,29 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Customer } from '../types';
 import { CustomerList } from '../components/CustomerList';
 
-const excelTemplateSpies = vi.hoisted(() => ({
+const exportSpies = vi.hoisted(() => ({
   downloadExcelTemplate: vi.fn(),
+  exportExcel: vi.fn(),
+  exportCsv: vi.fn(),
+  exportPdfTable: vi.fn(() => true),
+  exportCustomersByCurrentQuery: vi.fn(),
+  isoDateStamp: vi.fn(() => '20260405'),
 }));
 
 vi.mock('../utils/excelTemplate', () => ({
-  downloadExcelTemplate: excelTemplateSpies.downloadExcelTemplate,
+  downloadExcelTemplate: exportSpies.downloadExcelTemplate,
+}));
+
+vi.mock('../utils/exportUtils', () => ({
+  exportExcel: exportSpies.exportExcel,
+  exportCsv: exportSpies.exportCsv,
+  exportPdfTable: exportSpies.exportPdfTable,
+  exportCustomersByCurrentQuery: exportSpies.exportCustomersByCurrentQuery,
+  isoDateStamp: exportSpies.isoDateStamp,
 }));
 
 const customers: Customer[] = [
@@ -37,6 +50,12 @@ const customers: Customer[] = [
 ];
 
 describe('CRM responsive list screens', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    exportSpies.exportPdfTable.mockReturnValue(true);
+    exportSpies.isoDateStamp.mockReturnValue('20260405');
+  });
+
   it('keeps long customer names and addresses wrapped in the customer desktop table and supports small-screen sorting', async () => {
     const user = userEvent.setup();
 
@@ -56,6 +75,7 @@ describe('CRM responsive list screens', () => {
     const longAddress = 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile';
     expect(within(desktopTable).getByText(longAddress)).toHaveClass('max-w-[230px]', 'whitespace-normal', 'break-words', 'leading-5');
     expect(within(desktopTable).getByText('Y tế')).toBeInTheDocument();
+    expect(within(desktopTable).getByText('Bệnh viện (Công lập)')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Chính quyền')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Tự sinh')).toBeInTheDocument();
     expect(within(desktopTable).getByText('KH001').closest('td')).toHaveClass('align-middle');
@@ -76,6 +96,7 @@ describe('CRM responsive list screens', () => {
     const cards = Array.from(responsiveList.querySelectorAll('article'));
     expect(cards[0]).toHaveTextContent('Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM');
     expect(cards[0]).toHaveTextContent('Y tế');
+    expect(cards[0]).toHaveTextContent('Bệnh viện (Công lập)');
     expect(cards[0]).toHaveTextContent('Tự sinh');
     expect(cards[1]).toHaveTextContent('Zeta Trung tâm y tế');
     expect(cards[1]).toHaveTextContent('Chính quyền');
@@ -261,15 +282,15 @@ describe('CRM responsive list screens', () => {
     await user.click(screen.getByRole('button', { name: /Nhập/i }));
     await user.click(screen.getByRole('button', { name: /Tải file mẫu/i }));
 
-    expect(excelTemplateSpies.downloadExcelTemplate).toHaveBeenCalledTimes(1);
-    expect(excelTemplateSpies.downloadExcelTemplate).toHaveBeenCalledWith(
+    expect(exportSpies.downloadExcelTemplate).toHaveBeenCalledTimes(1);
+    expect(exportSpies.downloadExcelTemplate).toHaveBeenCalledWith(
       'mau_nhap_khach_hang',
       'KhachHang',
       ['Mã khách hàng', 'Tên khách hàng', 'Nhóm khách hàng', 'Loại hình cơ sở y tế', 'Quy mô giường bệnh', 'Mã số thuế', 'Địa chỉ'],
       expect.any(Array),
     );
 
-    const [, , , rows] = excelTemplateSpies.downloadExcelTemplate.mock.calls[0];
+    const [, , , rows] = exportSpies.downloadExcelTemplate.mock.calls[0];
     expect(rows).toHaveLength(10);
     expect(rows[0]).toEqual([
       '93002',
@@ -307,5 +328,58 @@ describe('CRM responsive list screens', () => {
       '0312345678',
       'Ninh Kiều, Cần Thơ',
     ]);
+  });
+
+  it('exports all customers from the current server-side query instead of only the visible page', async () => {
+    const user = userEvent.setup();
+
+    exportSpies.exportCustomersByCurrentQuery.mockResolvedValue([
+      customers[0],
+      {
+        ...customers[1],
+        customer_sector: 'HEALTHCARE',
+        healthcare_facility_type: 'MEDICAL_CENTER',
+      },
+    ]);
+
+    render(
+      <CustomerList
+        customers={[customers[0]]}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+        paginationMeta={{
+          page: 1,
+          per_page: 1,
+          total: 2,
+          total_pages: 2,
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Xuất/i }));
+    await user.click(screen.getByRole('button', { name: /Excel/i }));
+
+    await waitFor(() => {
+      expect(exportSpies.exportCustomersByCurrentQuery).toHaveBeenCalledTimes(1);
+    });
+
+    expect(exportSpies.exportCustomersByCurrentQuery).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      per_page: 10,
+      q: '',
+      sort_by: 'customer_code',
+      sort_dir: 'asc',
+      filters: {},
+    }));
+    expect(exportSpies.exportExcel).toHaveBeenCalledTimes(1);
+    expect(exportSpies.exportExcel).toHaveBeenCalledWith(
+      'ds_khach_hang_20260405',
+      'KhachHang',
+      ['Mã KH', 'Tên Khách Hàng', 'Nhóm khách hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'],
+      expect.arrayContaining([
+        expect.arrayContaining(['KH001', customers[0].customer_name]),
+        expect.arrayContaining(['KH002', customers[1].customer_name]),
+      ]),
+    );
   });
 });

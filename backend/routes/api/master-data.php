@@ -103,6 +103,8 @@ Route::put('/products/quotations/{id}', [ProductController::class, 'updateQuotat
     ->middleware('permission:products.write');
 Route::post('/products/quotations/{id}/print-word', [ProductController::class, 'printStoredQuotationWord'])
     ->middleware(['permission:products.write', 'throttle:api.write.heavy']);
+Route::post('/products/bulk', [ProductController::class, 'storeBulk'])
+    ->middleware('permission:products.write');
 Route::post('/products', [ProductController::class, 'store'])
     ->middleware('permission:products.write');
 Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])

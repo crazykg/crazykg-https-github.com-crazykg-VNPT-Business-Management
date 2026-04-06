@@ -5,12 +5,13 @@ import {
   Gender,
   HRDepartmentTypeBreakdown,
   HRGenderBreakdown,
+  HRJobTitleBreakdown,
   HRPersonnelTypeBreakdown,
   HRPositionBreakdown,
   HRStatistics,
   HRStatusBreakdown,
 } from '../types';
-import { getEmployeeCode, resolvePositionName } from './employeeDisplay';
+import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from './employeeDisplay';
 
 const roundOneDecimal = (value: number): number => Math.round(value * 10) / 10;
 
@@ -97,7 +98,7 @@ const resolveDepartmentBreakdownItem = (
 
 const STATUS_LABELS: Record<HRStatusBreakdown['status'], string> = {
   ACTIVE: 'Hoạt động',
-  INACTIVE: 'Không hoạt động',
+  INACTIVE: 'Nghỉ việc',
   BANNED: 'Bị khóa',
   SUSPENDED: 'Luân chuyển',
   UNKNOWN: 'Chưa xác định',
@@ -160,6 +161,7 @@ export const buildHrStatistics = (
   };
 
   const positionCounter = new Map<string, HRPositionBreakdown>();
+  const jobTitleCounter = new Map<string, HRJobTitleBreakdown>();
   const departmentCounter = new Map<string, HRDepartmentTypeBreakdown>();
 
   (filteredEmployees).forEach((employee) => {
@@ -200,6 +202,19 @@ export const buildHrStatistics = (
       positionCounter.set(positionKey, {
         position_code: positionCode,
         position_name: positionName || 'Chưa cập nhật',
+        count: 1,
+      });
+    }
+
+    const jobTitleName = resolveJobTitleVi(employee) || 'Chưa cập nhật';
+    const jobTitleKey = jobTitleName.toLocaleLowerCase('vi');
+    const currentJobTitle = jobTitleCounter.get(jobTitleKey);
+
+    if (currentJobTitle) {
+      currentJobTitle.count += 1;
+    } else {
+      jobTitleCounter.set(jobTitleKey, {
+        job_title_name: jobTitleName,
         count: 1,
       });
     }
@@ -273,6 +288,11 @@ export const buildHrStatistics = (
     return a.position_name.localeCompare(b.position_name, 'vi');
   });
 
+  const jobTitleBreakdown = Array.from(jobTitleCounter.values()).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.job_title_name.localeCompare(b.job_title_name, 'vi');
+  });
+
   const departmentTypeBreakdown = Array.from(departmentCounter.values()).sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;
     return `${a.dept_code} ${a.dept_name}`.localeCompare(`${b.dept_code} ${b.dept_name}`, 'vi');
@@ -296,6 +316,7 @@ export const buildHrStatistics = (
     genderBreakdown,
     personnelTypeBreakdown,
     positionBreakdown,
+    jobTitleBreakdown,
     departmentTypeBreakdown,
   };
 };

@@ -47,6 +47,10 @@ describe('Project special statuses UI', () => {
       />
     );
 
+    const statusLabel = screen.getByText('Trạng thái');
+    expect(statusLabel).toHaveClass('block', 'text-sm', 'font-semibold', 'text-slate-700', 'mb-2');
+    expect(statusLabel).not.toHaveClass('uppercase', 'text-xs');
+
     const getStatusTrigger = () =>
       within(screen.getByText('Trạng thái').closest('.col-span-1') as HTMLElement).getByRole('button');
 

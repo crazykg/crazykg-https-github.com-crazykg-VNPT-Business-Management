@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ProductDomainService
 {
@@ -26,6 +27,13 @@ class ProductDomainService
         ['table' => 'document_product_links', 'column' => 'product_id', 'label' => 'liên kết tài liệu'],
         ['table' => 'customer_request_cases', 'column' => 'product_id', 'label' => 'yêu cầu khách hàng'],
         ['table' => 'customer_requests', 'column' => 'product_id', 'label' => 'phiếu yêu cầu khách hàng'],
+        ['table' => 'invoice_items', 'column' => 'product_id', 'label' => 'dòng hóa đơn'],
+    ];
+    private const PRODUCT_STANDARD_PRICE_LOCK_REFERENCE_SOURCES = [
+        ['table' => 'product_quotation_items', 'column' => 'product_id', 'label' => 'dòng báo giá sản phẩm'],
+        ['table' => 'product_quotation_version_items', 'column' => 'product_id', 'label' => 'phiên bản báo giá sản phẩm'],
+        ['table' => 'project_items', 'column' => 'product_id', 'label' => 'hạng mục dự án'],
+        ['table' => 'contract_items', 'column' => 'product_id', 'label' => 'hạng mục hợp đồng'],
         ['table' => 'invoice_items', 'column' => 'product_id', 'label' => 'dòng hóa đơn'],
     ];
     private const PRODUCT_FEATURE_GROUP_TABLE = 'product_feature_groups';
@@ -102,10 +110,19 @@ class ProductDomainService
                         ->values()
                         ->all()
                 );
+                $standardPriceLockMap = $this->loadProductStandardPriceLockMetaMap(
+                    $rawRows
+                        ->pluck('id')
+                        ->map(fn (mixed $value): int => (int) $value)
+                        ->filter(fn (int $value): bool => $value > 0)
+                        ->values()
+                        ->all()
+                );
                 $rows = $rawRows
                     ->map(fn (array $item): array => $this->serializeProductRecord(
                         $item,
-                        $attachmentMap[(string) ($item['id'] ?? '')] ?? []
+                        $attachmentMap[(string) ($item['id'] ?? '')] ?? [],
+                        $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
                     ))
                     ->values();
 
@@ -127,10 +144,19 @@ class ProductDomainService
                     ->values()
                     ->all()
             );
+            $standardPriceLockMap = $this->loadProductStandardPriceLockMetaMap(
+                $rawRows
+                    ->pluck('id')
+                    ->map(fn (mixed $value): int => (int) $value)
+                    ->filter(fn (int $value): bool => $value > 0)
+                    ->values()
+                    ->all()
+            );
             $rows = $rawRows
                 ->map(fn (array $item): array => $this->serializeProductRecord(
                     $item,
-                    $attachmentMap[(string) ($item['id'] ?? '')] ?? []
+                    $attachmentMap[(string) ($item['id'] ?? '')] ?? [],
+                    $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
                 ))
                 ->values();
 
@@ -187,6 +213,21 @@ class ProductDomainService
                 ->all();
         }));
 
+        $standardPriceLockMap = $this->loadProductStandardPriceLockMetaMap(
+            $rows
+                ->pluck('id')
+                ->map(fn (mixed $value): int => (int) $value)
+                ->filter(fn (int $value): bool => $value > 0)
+                ->values()
+                ->all()
+        );
+        $rows = $rows
+            ->map(fn (array $item): array => $this->mergeProductStandardPriceLockMeta(
+                $item,
+                $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
+            ))
+            ->values();
+
         return response()->json(['data' => $rows]);
     }
 
@@ -218,7 +259,7 @@ class ProductDomainService
             $rules['product_code'][] = $uniqueRule;
         }
 
-        $validated = $this->validatedInput($request);
+        $validated = $this->validatedInput($request, $rules);
 
         $domainId = $this->support->parseNullableInt($validated['domain_id'] ?? null);
         if ($domainId === null || ! $this->tableRowExists('business_domains', $domainId)) {
@@ -276,6 +317,82 @@ class ProductDomainService
         return response()->json(['data' => $record], 201);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('products')) {
+            return $this->support->missingTable('products');
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:1000'],
+            'items.*' => ['required', 'array'],
+        ]);
+
+        $results = [];
+        $created = [];
+
+        foreach ($validated['items'] as $index => $itemPayload) {
+            try {
+                $subRequest = Request::create('/api/v5/products', 'POST', (array) $itemPayload);
+                $subRequest->setUserResolver(fn () => $request->user());
+
+                $response = $this->store($subRequest);
+                if ($response->getStatusCode() >= 400) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => $this->extractJsonResponseMessage($response, 'Không thể lưu sản phẩm từ file import.'),
+                    ];
+                    continue;
+                }
+
+                $payload = $response->getData(true);
+                $record = is_array($payload['data'] ?? null) ? $payload['data'] : null;
+                if ($record === null) {
+                    $results[] = [
+                        'index' => (int) $index,
+                        'success' => false,
+                        'message' => 'Không thể đọc phản hồi khi tạo sản phẩm.',
+                    ];
+                    continue;
+                }
+
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => true,
+                    'data' => $record,
+                ];
+                $created[] = $record;
+            } catch (ValidationException $exception) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => $this->firstValidationMessage($exception),
+                ];
+            } catch (\Throwable) {
+                $results[] = [
+                    'index' => (int) $index,
+                    'success' => false,
+                    'message' => 'Không thể lưu sản phẩm từ file import.',
+                ];
+            }
+        }
+
+        $failedCount = count(array_filter(
+            $results,
+            fn (array $item): bool => ($item['success'] ?? false) !== true
+        ));
+
+        return response()->json([
+            'data' => [
+                'results' => array_values($results),
+                'created' => array_values($created),
+                'created_count' => count($created),
+                'failed_count' => $failedCount,
+            ],
+        ], $failedCount === 0 ? 201 : 200);
+    }
+
     public function update(Request $request, int $id): JsonResponse
     {
         if (! $this->support->hasTable('products')) {
@@ -313,7 +430,7 @@ class ProductDomainService
             $rules['product_code'][] = $uniqueRule;
         }
 
-        $validated = $this->validatedInput($request);
+        $validated = $this->validatedInput($request, $rules);
         $attachmentsProvided = array_key_exists('attachments', $validated);
         $attachments = $attachmentsProvided && is_array($validated['attachments'] ?? null)
             ? $validated['attachments']
@@ -347,7 +464,24 @@ class ProductDomainService
             $payload['vendor_id'] = $vendorId;
         }
         if (array_key_exists('standard_price', $validated)) {
-            $payload['standard_price'] = max(0, (float) $validated['standard_price']);
+            $incomingStandardPrice = max(0, (float) $validated['standard_price']);
+            $currentStandardPrice = max(0, (float) ($current->standard_price ?? 0));
+            $isPriceChanged = abs($incomingStandardPrice - $currentStandardPrice) > 0.00001;
+
+            if ($isPriceChanged) {
+                $standardPriceLockMeta = $this->buildProductStandardPriceLockMeta($id);
+                if (($standardPriceLockMeta['locked'] ?? false) === true) {
+                    return response()->json([
+                        'message' => (string) ($standardPriceLockMeta['message'] ?? 'Đơn giá đã được sử dụng ở dữ liệu khác nên không thể cập nhật.'),
+                        'data' => [
+                            'references' => $standardPriceLockMeta['references'] ?? [],
+                            'standard_price_locked' => true,
+                        ],
+                    ], 422);
+                }
+            }
+
+            $payload['standard_price'] = $incomingStandardPrice;
         }
         if (array_key_exists('unit', $validated)) {
             $payload['unit'] = $this->support->normalizeNullableString($validated['unit']);
@@ -606,9 +740,12 @@ class ProductDomainService
         ];
     }
 
-    private function serializeProductRecord(array $record, array $attachments = []): array
+    /**
+     * @param array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}|null $standardPriceLockMeta
+     */
+    private function serializeProductRecord(array $record, array $attachments = [], ?array $standardPriceLockMeta = null): array
     {
-        return [
+        return $this->mergeProductStandardPriceLockMeta([
             'id' => $record['id'] ?? null,
             'service_group' => $this->resolveServiceGroup($record['service_group'] ?? null),
             'product_code' => (string) ($record['product_code'] ?? ''),
@@ -625,7 +762,7 @@ class ProductDomainService
             'updated_at' => $record['updated_at'] ?? null,
             'updated_by' => $record['updated_by'] ?? null,
             'attachments' => array_values($attachments),
-        ];
+        ], $standardPriceLockMeta);
     }
 
     private function loadProductById(int $id): ?array
@@ -661,11 +798,118 @@ class ProductDomainService
         }
 
         $attachmentMap = $this->loadProductAttachmentMap([$id]);
+        $standardPriceLockMap = $this->loadProductStandardPriceLockMetaMap([$id]);
 
         return $this->serializeProductRecord(
             (array) $record,
-            $attachmentMap[(string) $id] ?? []
+            $attachmentMap[(string) $id] ?? [],
+            $standardPriceLockMap[(string) $id] ?? null
         );
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @param array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}|null $standardPriceLockMeta
+     * @return array<string, mixed>
+     */
+    private function mergeProductStandardPriceLockMeta(array $record, ?array $standardPriceLockMeta = null): array
+    {
+        $lockMeta = $standardPriceLockMeta ?? $this->defaultProductStandardPriceLockMeta();
+
+        $record['standard_price_locked'] = (bool) ($lockMeta['locked'] ?? false);
+        $record['standard_price_lock_message'] = isset($lockMeta['message']) && is_string($lockMeta['message'])
+            ? $lockMeta['message']
+            : null;
+        $record['standard_price_lock_references'] = array_values($lockMeta['references'] ?? []);
+
+        return $record;
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     * @return array<string, array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}>
+     */
+    private function loadProductStandardPriceLockMetaMap(array $productIds): array
+    {
+        $normalizedIds = collect($productIds)
+            ->map(fn (mixed $value): int => (int) $value)
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedIds === []) {
+            return [];
+        }
+
+        $referenceMap = [];
+        foreach ($normalizedIds as $productId) {
+            $referenceMap[(string) $productId] = [];
+        }
+
+        foreach (self::PRODUCT_STANDARD_PRICE_LOCK_REFERENCE_SOURCES as $source) {
+            $table = (string) ($source['table'] ?? '');
+            $column = (string) ($source['column'] ?? 'product_id');
+            $label = (string) ($source['label'] ?? $table);
+
+            if ($table === '' || ! $this->support->hasTable($table) || ! $this->support->hasColumn($table, $column)) {
+                continue;
+            }
+
+            $query = DB::table($table)
+                ->selectRaw($column.' as product_id, COUNT(*) as aggregate_count')
+                ->whereIn($column, $normalizedIds)
+                ->groupBy($column);
+
+            if ($this->support->hasColumn($table, 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            foreach ($query->get() as $row) {
+                $productId = (string) ($row->product_id ?? '');
+                $count = (int) ($row->aggregate_count ?? 0);
+                if ($productId === '' || $count <= 0) {
+                    continue;
+                }
+
+                $referenceMap[$productId][] = [
+                    'table' => $table,
+                    'label' => $label,
+                    'count' => $count,
+                ];
+            }
+        }
+
+        $metaMap = [];
+        foreach ($referenceMap as $productId => $references) {
+            $metaMap[$productId] = [
+                'locked' => $references !== [],
+                'message' => $references !== [] ? $this->buildProductStandardPriceLockedMessage($references) : null,
+                'references' => array_values($references),
+            ];
+        }
+
+        return $metaMap;
+    }
+
+    /**
+     * @return array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}
+     */
+    private function buildProductStandardPriceLockMeta(int $productId): array
+    {
+        return $this->loadProductStandardPriceLockMetaMap([$productId])[(string) $productId] ?? $this->defaultProductStandardPriceLockMeta();
+    }
+
+    /**
+     * @return array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}
+     */
+    private function defaultProductStandardPriceLockMeta(): array
+    {
+        return [
+            'locked' => false,
+            'message' => null,
+            'references' => [],
+        ];
     }
 
     /**
@@ -980,6 +1224,28 @@ class ProductDomainService
             : 'Sản phẩm đang phát sinh ở dữ liệu khác. Vui lòng xóa bản ghi tham chiếu trước khi xóa sản phẩm.';
     }
 
+    /**
+     * @param array<int, array{table:string,label:string,count:int}> $references
+     */
+    private function buildProductStandardPriceLockedMessage(array $references): string
+    {
+        $parts = collect($references)
+            ->map(function (array $reference): string {
+                $count = max(1, (int) ($reference['count'] ?? 0));
+                $label = trim((string) ($reference['label'] ?? 'bản ghi sử dụng giá'));
+
+                return $count.' '.$label;
+            })
+            ->values()
+            ->all();
+
+        $detail = implode(', ', $parts);
+
+        return $detail !== ''
+            ? 'Đơn giá đã được sử dụng ở dữ liệu khác ('.$detail.') nên không thể cập nhật.'
+            : 'Đơn giá đã được sử dụng ở dữ liệu khác nên không thể cập nhật.';
+    }
+
     private function resolveServiceGroup(mixed $value): string
     {
         $normalized = strtoupper(trim((string) $value));
@@ -998,5 +1264,31 @@ class ProductDomainService
         }
 
         return false;
+    }
+
+    private function firstValidationMessage(ValidationException $exception): string
+    {
+        $errors = $exception->errors();
+        foreach ($errors as $messages) {
+            if (! is_array($messages)) {
+                continue;
+            }
+
+            foreach ($messages as $message) {
+                if (is_string($message) && trim($message) !== '') {
+                    return $message;
+                }
+            }
+        }
+
+        return 'Dữ liệu sản phẩm không hợp lệ.';
+    }
+
+    private function extractJsonResponseMessage(JsonResponse $response, string $fallback): string
+    {
+        $payload = $response->getData(true);
+        $message = $payload['message'] ?? null;
+
+        return is_string($message) && trim($message) !== '' ? $message : $fallback;
     }
 }

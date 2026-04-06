@@ -1381,123 +1381,71 @@ const fetchPaginatedList = async <T>(
 };
 
 export const fetchWorkflowStatusCatalogs = async (includeInactive = false): Promise<WorkflowStatusCatalog[]> => {
-  const query = includeInactive ? '?include_inactive=1' : '';
-  return fetchList<WorkflowStatusCatalog>(`/api/v5/workflow-status-catalogs${query}`);
+  void includeInactive;
+  return [];
 };
 export const fetchWorkflowStatusTransitions = async (
   fromStatusCatalogId?: string | number | null,
   includeInactive = false
 ): Promise<WorkflowStatusTransition[]> => {
-  const params = new URLSearchParams();
-  if (includeInactive) {
-    params.set('include_inactive', '1');
-  }
-  if (fromStatusCatalogId !== undefined && fromStatusCatalogId !== null && `${fromStatusCatalogId}`.trim() !== '') {
-    params.set('from_status_catalog_id', String(fromStatusCatalogId));
-  }
-  const suffix = params.toString();
-  return fetchList<WorkflowStatusTransition>(`/api/v5/workflow-status-transitions${suffix ? `?${suffix}` : ''}`);
+  void fromStatusCatalogId;
+  void includeInactive;
+  return [];
 };
 export const fetchWorkflowFormFieldConfigs = async (
   statusCatalogId?: string | number | null,
   includeInactive = false
 ): Promise<WorkflowFormFieldConfig[]> => {
-  const params = new URLSearchParams();
-  if (includeInactive) {
-    params.set('include_inactive', '1');
-  }
-  if (statusCatalogId !== undefined && statusCatalogId !== null && `${statusCatalogId}`.trim() !== '') {
-    params.set('status_catalog_id', String(statusCatalogId));
-  }
-  const suffix = params.toString();
-  return fetchList<WorkflowFormFieldConfig>(`/api/v5/workflow-form-field-configs${suffix ? `?${suffix}` : ''}`);
+  void statusCatalogId;
+  void includeInactive;
+  return [];
 };
+
+const raiseLegacyWorkflowConfigError = (): never => {
+  throw new Error('Cấu hình workflow cũ đã chuyển sang màn Quản lý Luồng công việc.');
+};
+
 export const createWorkflowStatusCatalog = async (
   payload: Partial<WorkflowStatusCatalog>
 ): Promise<WorkflowStatusCatalog> => {
-  const res = await apiFetch('/api/v5/workflow-status-catalogs', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_STATUS_CATALOG_FAILED'));
-  }
-  return parseItemJson<WorkflowStatusCatalog>(res);
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const updateWorkflowStatusCatalog = async (
   id: string | number,
   payload: Partial<WorkflowStatusCatalog>
 ): Promise<WorkflowStatusCatalog> => {
-  const res = await apiFetch(`/api/v5/workflow-status-catalogs/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_STATUS_CATALOG_FAILED'));
-  }
-  return parseItemJson<WorkflowStatusCatalog>(res);
+  void id;
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const createWorkflowStatusTransition = async (
   payload: Partial<WorkflowStatusTransition>
 ): Promise<WorkflowStatusTransition> => {
-  const res = await apiFetch('/api/v5/workflow-status-transitions', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_STATUS_TRANSITION_FAILED'));
-  }
-  return parseItemJson<WorkflowStatusTransition>(res);
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const updateWorkflowStatusTransition = async (
   id: string | number,
   payload: Partial<WorkflowStatusTransition>
 ): Promise<WorkflowStatusTransition> => {
-  const res = await apiFetch(`/api/v5/workflow-status-transitions/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_STATUS_TRANSITION_FAILED'));
-  }
-  return parseItemJson<WorkflowStatusTransition>(res);
+  void id;
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const createWorkflowFormFieldConfig = async (
   payload: Partial<WorkflowFormFieldConfig>
 ): Promise<WorkflowFormFieldConfig> => {
-  const res = await apiFetch('/api/v5/workflow-form-field-configs', {
-    method: 'POST',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'CREATE_WORKFLOW_FORM_FIELD_CONFIG_FAILED'));
-  }
-  return parseItemJson<WorkflowFormFieldConfig>(res);
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const updateWorkflowFormFieldConfig = async (
   id: string | number,
   payload: Partial<WorkflowFormFieldConfig>
 ): Promise<WorkflowFormFieldConfig> => {
-  const res = await apiFetch(`/api/v5/workflow-form-field-configs/${id}`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'UPDATE_WORKFLOW_FORM_FIELD_CONFIG_FAILED'));
-  }
-  return parseItemJson<WorkflowFormFieldConfig>(res);
+  void id;
+  void payload;
+  return raiseLegacyWorkflowConfigError();
 };
 export const fetchV5MasterData = async () => {
   const requests = await Promise.allSettled([

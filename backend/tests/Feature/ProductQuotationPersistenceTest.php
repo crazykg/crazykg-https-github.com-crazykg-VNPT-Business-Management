@@ -262,6 +262,26 @@ class ProductQuotationPersistenceTest extends TestCase
         $this->assertNotContains('BỆNH VIỆN KHÁC', $customerRecipients);
     }
 
+    public function test_it_filters_zero_amount_product_quotations_out_of_history_index_when_history_only_flag_is_enabled(): void
+    {
+        $this->postJson('/api/v5/products/quotations', array_merge($this->quotationPayload(), [
+            'recipient_name' => 'BỆNH VIỆN CÓ GIÁ',
+        ]))->assertCreated();
+
+        $this->postJson('/api/v5/products/quotations', [
+            'recipient_name' => 'BỆNH VIỆN 0 ĐỒNG',
+            'items' => [],
+        ])->assertCreated();
+
+        $response = $this->getJson('/api/v5/products/quotations?filters[history_only]=1');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $recipients = array_column($response->json('data'), 'recipient_name');
+        $this->assertContains('BỆNH VIỆN CÓ GIÁ', $recipients);
+        $this->assertNotContains('BỆNH VIỆN 0 ĐỒNG', $recipients);
+    }
+
     public function test_it_returns_product_quotation_default_settings_with_system_defaults_when_no_row_exists(): void
     {
         $this->actingAs(new GenericUser(['id' => 15]));

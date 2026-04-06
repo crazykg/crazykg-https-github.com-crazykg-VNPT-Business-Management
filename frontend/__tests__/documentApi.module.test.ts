@@ -27,6 +27,7 @@ describe('documentApi module', () => {
     await createDocument({
       id: 'DOC001',
       name: 'Tai lieu',
+      commissionPolicyText: 'Hoa hồng 8% cho đối tác triển khai',
       status: 'ACTIVE',
       productIds: ['11', '11', '12'],
       attachments: [],
@@ -36,6 +37,7 @@ describe('documentApi module', () => {
     const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
 
     expect(payload.productIds).toEqual([11, 12]);
+    expect(payload.commissionPolicyText).toBe('Hoa hồng 8% cho đối tác triển khai');
     expect(payload.scope).toBe('DEFAULT');
   });
 

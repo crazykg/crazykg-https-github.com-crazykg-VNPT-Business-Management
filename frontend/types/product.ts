@@ -16,6 +16,9 @@ export interface Product {
   description?: string | null;
   attachments?: Attachment[];
   is_active?: boolean;
+  standard_price_locked?: boolean;
+  standard_price_lock_message?: string | null;
+  standard_price_lock_references?: Array<{ table: string; label: string; count: number }>;
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;

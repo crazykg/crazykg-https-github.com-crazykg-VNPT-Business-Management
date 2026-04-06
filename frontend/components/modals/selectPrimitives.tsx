@@ -502,6 +502,8 @@ export interface SearchableMultiSelectProps {
   error?: string;
   required?: boolean;
   disabled?: boolean;
+  usePortal?: boolean;
+  portalZIndex?: number;
 }
 
 export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
@@ -514,16 +516,89 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   error,
   required,
   disabled,
+  usePortal = false,
+  portalZIndex = 220,
 }) => {
+  const dropdownComfortHeight = 220;
+  const dropdownIdealHeight = 320;
+  const dropdownViewportPadding = 12;
+  const dropdownHeaderHeight = 56;
+  const dropdownMinOptionsHeight = 96;
   const [isOpen, setIsOpen] = useState(false);
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [searchTerm, setSearchTerm] = useState('');
+  const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
+  const [optionsMaxHeight, setOptionsMaxHeight] = useState(240);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const canUsePortal = usePortal && typeof document !== 'undefined';
+
+  const resolveDropdownPlacement = useCallback(() => {
+    if (!wrapperRef.current) {
+      return null;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - dropdownViewportPadding);
+    const spaceAbove = Math.max(0, rect.top - dropdownViewportPadding);
+    const shouldOpenUp =
+      (spaceBelow < dropdownComfortHeight && spaceAbove > spaceBelow)
+      || (spaceBelow < dropdownHeaderHeight + dropdownMinOptionsHeight && spaceAbove > spaceBelow);
+    const nextDirection: 'up' | 'down' = shouldOpenUp ? 'up' : 'down';
+    const availableSpace = nextDirection === 'up' ? spaceAbove : spaceBelow;
+    const nextOptionsMaxHeight = Math.max(
+      dropdownMinOptionsHeight,
+      Math.min(dropdownIdealHeight - dropdownHeaderHeight, availableSpace - dropdownHeaderHeight)
+    );
+
+    return {
+      rect,
+      direction: nextDirection,
+      optionsHeight: nextOptionsMaxHeight,
+    };
+  }, [dropdownComfortHeight, dropdownHeaderHeight, dropdownIdealHeight, dropdownMinOptionsHeight, dropdownViewportPadding]);
+
+  const syncPortalPlacement = useCallback(() => {
+    if (!canUsePortal || !isOpen) {
+      return;
+    }
+
+    const placement = resolveDropdownPlacement();
+    if (!placement) {
+      return;
+    }
+
+    const { rect, direction, optionsHeight } = placement;
+    setOpenDirection(direction);
+    setOptionsMaxHeight(optionsHeight);
+
+    const width = Math.max(rect.width, 320);
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+
+    const nextStyle: React.CSSProperties = {
+      position: 'fixed',
+      left,
+      width,
+      zIndex: portalZIndex,
+    };
+
+    if (direction === 'up') {
+      nextStyle.bottom = window.innerHeight - rect.top + 6;
+    } else {
+      nextStyle.top = rect.bottom + 6;
+    }
+
+    setPortalStyle(nextStyle);
+  }, [canUsePortal, isOpen, portalZIndex, resolveDropdownPlacement]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedTrigger = wrapperRef.current?.contains(target);
+      const clickedDropdown = dropdownRef.current?.contains(target);
+      if (!clickedTrigger && !clickedDropdown) {
         setIsOpen(false);
       }
     }
@@ -536,24 +611,42 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
       return;
     }
 
-    const rect = wrapperRef.current.getBoundingClientRect();
-    const estimatedDropdownHeight = 320;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-
-    if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
-      setOpenDirection('up');
+    if (canUsePortal) {
+      syncPortalPlacement();
       return;
     }
 
-    setOpenDirection('down');
-  }, [isOpen, options.length]);
+    const placement = resolveDropdownPlacement();
+    if (!placement) {
+      return;
+    }
+
+    setOpenDirection(placement.direction);
+    setOptionsMaxHeight(placement.optionsHeight);
+  }, [canUsePortal, isOpen, options.length, resolveDropdownPlacement, syncPortalPlacement]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !canUsePortal) {
+      return;
+    }
+
+    syncPortalPlacement();
+    const handleWindowUpdate = () => syncPortalPlacement();
+
+    window.addEventListener('scroll', handleWindowUpdate, true);
+    window.addEventListener('resize', handleWindowUpdate);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowUpdate, true);
+      window.removeEventListener('resize', handleWindowUpdate);
+    };
+  }, [canUsePortal, isOpen, options.length, searchTerm, syncPortalPlacement]);
 
   const selectedSet = useMemo(() => new Set((values || []).map((item) => String(item))), [values]);
   const selectedOptions = useMemo(
@@ -583,6 +676,60 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
       ? selectedOptions[0].label
       : `Đã chọn ${selectedOptions.length} sản phẩm`
     : placeholder || 'Chọn sản phẩm';
+
+  const dropdownContent = (
+    <div
+      ref={dropdownRef}
+      style={canUsePortal ? portalStyle : undefined}
+      className={`${
+        canUsePortal
+          ? 'rounded-lg bg-white border border-slate-200 shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5'
+          : `absolute left-0 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
+              openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+            }`
+      }`}
+    >
+      <div className="p-2 border-b border-slate-100 bg-slate-50">
+        <div className="relative">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+          <input
+            ref={inputRef}
+            type="text"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
+            placeholder={searchPlaceholder}
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      </div>
+      <div className="overflow-y-auto p-1 custom-scrollbar" style={{ maxHeight: optionsMaxHeight }}>
+        {filteredOptions.length > 0 ? (
+          filteredOptions.map((opt) => {
+            const checked = selectedSet.has(opt.value);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={`w-full px-3 py-2.5 text-sm rounded-md transition-colors flex items-center justify-between ${
+                  checked ? 'bg-primary/10 text-primary font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                }`}
+                onClick={() => toggleOption(opt.value)}
+              >
+                <span className="text-left">{opt.label}</span>
+                <span className="material-symbols-outlined text-sm">{checked ? 'check_box' : 'check_box_outline_blank'}</span>
+              </button>
+            );
+          })
+        ) : (
+          <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
+            <span className="material-symbols-outlined text-2xl">search_off</span>
+            <span>Không tìm thấy kết quả</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[90]' : 'z-10'}`} ref={wrapperRef}>
@@ -628,53 +775,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
         </div>
       ) : null}
 
-      {isOpen ? (
-        <div
-          className={`absolute left-0 w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden flex flex-col animate-fade-in ring-1 ring-slate-900/5 ${
-            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
-          }`}
-        >
-          <div className="p-2 border-b border-slate-100 bg-slate-50">
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-              <input
-                ref={inputRef}
-                type="text"
-                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
-                placeholder={searchPlaceholder}
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                onClick={(event) => event.stopPropagation()}
-              />
-            </div>
-          </div>
-          <div className="overflow-y-auto max-h-60 p-1 custom-scrollbar">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((opt) => {
-                const checked = selectedSet.has(opt.value);
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={`w-full px-3 py-2.5 text-sm rounded-md transition-colors flex items-center justify-between ${
-                      checked ? 'bg-primary/10 text-primary font-semibold' : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                    onClick={() => toggleOption(opt.value)}
-                  >
-                    <span className="text-left">{opt.label}</span>
-                    <span className="material-symbols-outlined text-sm">{checked ? 'check_box' : 'check_box_outline_blank'}</span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-4 py-8 text-sm text-slate-400 text-center flex flex-col items-center gap-2">
-                <span className="material-symbols-outlined text-2xl">search_off</span>
-                <span>Không tìm thấy kết quả</span>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
+      {isOpen ? (canUsePortal ? createPortal(dropdownContent, document.body) : dropdownContent) : null}
       {error ? <p className="mt-0.5 flex items-center gap-1 animate-fade-in text-xs text-red-500"><span className="material-symbols-outlined text-[14px]">error</span>{error}</p> : null}
     </div>
   );

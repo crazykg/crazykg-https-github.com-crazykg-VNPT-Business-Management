@@ -16,7 +16,7 @@ const employees: Employee[] = [
     employee_code: 'VNPT000001',
     full_name: 'Nguyen Van A',
     username: 'nva',
-    department_id: '10',
+    department_id: '30',
   } as Employee,
   {
     id: '2',
@@ -28,8 +28,11 @@ const employees: Employee[] = [
 ];
 
 const departments: Department[] = [
-  { id: '10', dept_code: 'PKD', dept_name: 'Phong Kinh doanh', parent_id: null, dept_path: 'PKD', is_active: true },
-  { id: '20', dept_code: 'PKT', dept_name: 'Phong Ke toan', parent_id: null, dept_path: 'PKT', is_active: true },
+  { id: '10', dept_code: 'VTCT', dept_name: 'Vien thong Can Tho', parent_id: null, dept_path: '10', is_active: true },
+  { id: '20', dept_code: 'TTKD', dept_name: 'Trung tam Kinh doanh', parent_id: '10', dept_path: '10/20', is_active: true },
+  { id: '30', dept_code: 'PKD', dept_name: 'Phong Kinh doanh', parent_id: '20', dept_path: '10/20/30', is_active: true },
+  { id: '40', dept_code: 'PGP', dept_name: 'Phong Giai phap', parent_id: '20', dept_path: '10/20/40', is_active: true },
+  { id: '50', dept_code: 'PKT', dept_name: 'Phong Ke toan', parent_id: '10', dept_path: '10/50', is_active: true },
 ];
 
 const feedbackData: FeedbackRequest = {
@@ -89,13 +92,17 @@ describe('Workflow support modals', () => {
     const employeeTrigger = employeeField?.querySelector('[role="button"]');
     expect(employeeTrigger).not.toBeNull();
     await user.click(employeeTrigger as HTMLElement);
-    expect(screen.getByRole('button', { name: /VNPT000001 - Nguyen Van A/i })).toBeInTheDocument();
+    const employeeOption = screen.getByRole('button', { name: /VNPT000001 - Nguyen Van A/i });
+    expect(employeeOption).toBeInTheDocument();
+    await user.click(employeeOption);
 
-    const destinationField = screen.getByText('Đến phòng ban', { selector: 'label' }).closest('div');
+    const destinationField = screen.getByText('Đến đơn vị', { selector: 'label' }).closest('div');
     const destinationTrigger = destinationField?.querySelector('[role="button"]');
     expect(destinationTrigger).not.toBeNull();
+    expect(screen.getByDisplayValue('Trung tam Kinh doanh')).toBeInTheDocument();
     await user.click(destinationTrigger as HTMLElement);
-    expect(screen.getByRole('button', { name: /PKD - Phong Kinh doanh/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Trung tam Kinh doanh$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /PKT - Phong Ke toan/i })).toBeInTheDocument();
   });
 
   it('renders feedback form and view modals through Modals re-export', () => {

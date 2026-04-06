@@ -166,6 +166,14 @@ const buildDraftResponse = (overrides: Partial<ProductQuotationDraft> = {}): Pro
   ...overrides,
 });
 
+const buildHistoryDraftResponse = (overrides: Partial<ProductQuotationDraft> = {}): ProductQuotationDraft =>
+  buildDraftResponse({
+    subtotal: 180000000,
+    vat_amount: 18000000,
+    total_amount: 198000000,
+    ...overrides,
+  });
+
 const buildVersionResponse = (overrides: Partial<ProductQuotationVersionRecord> = {}): ProductQuotationVersionRecord => ({
   id: 701,
   quotation_id: 501,
@@ -279,7 +287,7 @@ const seedSavedQuotation = (
   listOverrides: Partial<ProductQuotationDraft> = {},
   detailOverrides: Partial<ProductQuotationDraft> = {}
 ) => {
-  const savedDraft = buildDraftResponse({
+  const savedDraft = buildHistoryDraftResponse({
     id: 501,
     recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
     ...listOverrides,
@@ -290,7 +298,7 @@ const seedSavedQuotation = (
     meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
   });
   quotationApiSpies.fetchProductQuotation.mockResolvedValue(
-    buildDraftResponse({
+    buildHistoryDraftResponse({
       id: savedDraft.id,
       recipient_name: savedDraft.recipient_name,
       ...detailOverrides,
@@ -299,22 +307,29 @@ const seedSavedQuotation = (
 };
 
 const searchAndSelectCustomer = async (user: ReturnType<typeof userEvent.setup>, searchText: string, optionName: string) => {
-  const lockedRecipientTrigger = screen.queryByRole('button', { name: /Bấm "Thêm báo giá mới" để bắt đầu/i });
-  if (lockedRecipientTrigger) {
+  if (!screen.queryByRole('button', { name: /Chọn khách hàng/i })) {
     await user.click(getNewQuotationButton());
   }
-  await user.click(screen.getByRole('button', { name: /Chọn khách hàng/i }));
+  await user.click(await screen.findByRole('button', { name: /Chọn khách hàng/i }));
   await user.type(await screen.findByLabelText('Tìm khách hàng...'), searchText);
   await user.click(await screen.findByRole('button', { name: optionName }));
 };
 
 const getNewQuotationButton = () => {
-  const button = screen
-    .getAllByRole('button', { name: /Thêm báo giá mới/i })
-    .find((element) => element.getAttribute('aria-label') !== 'Bấm "Thêm báo giá mới" để bắt đầu');
+  const button = screen.getAllByRole('button', { name: /Thêm mới/i })[0];
 
   if (!(button instanceof HTMLButtonElement)) {
-    throw new Error('Không tìm thấy nút "Thêm báo giá mới"');
+    throw new Error('Không tìm thấy nút "Thêm mới"');
+  }
+
+  return button;
+};
+
+const getExportQuotationButton = () => {
+  const button = screen.getByRole('button', { name: /Xuất báo giá/i });
+
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error('Không tìm thấy nút "Xuất báo giá"');
   }
 
   return button;
@@ -338,6 +353,7 @@ const expectRecentQuotationListQuery = (query: unknown) => {
       sort_dir: 'desc',
       filters: expect.objectContaining({
         updated_from: expect.any(String),
+        history_only: true,
       }),
     })
   );
@@ -435,6 +451,9 @@ describe('ProductQuotationTab UI', () => {
     expectRecentQuotationListQuery(quotationApiSpies.fetchProductQuotationsPage.mock.calls[0]?.[0]);
     expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
     expect(quotationApiSpies.createProductQuotation).not.toHaveBeenCalled();
+    expect(screen.getByText('Lịch sử báo giá', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByTestId('quotation-toolbar-row')).toHaveClass('lg:flex-row', 'lg:items-center');
+    expect(screen.getByTestId('quotation-action-row')).toHaveClass('lg:ml-auto');
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
     expect(screen.getByText('Form trắng')).toBeInTheDocument();
     expect(screen.getByText(/Chưa chọn báo giá nào. Hãy bấm "Thêm báo giá mới" hoặc mở báo giá cũ./i)).toBeInTheDocument();
@@ -445,8 +464,7 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
-    const recipientTrigger = screen.getByRole('button', { name: /Bấm "Thêm báo giá mới" để bắt đầu/i });
-    expect(recipientTrigger).toBeDisabled();
+    expect(screen.getByText(/Bấm "Thêm mới" để bắt đầu/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Thêm dòng/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toBeDisabled();
 
@@ -460,6 +478,47 @@ describe('ProductQuotationTab UI', () => {
 
     expect(screen.getByRole('button', { name: /Thêm dòng/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i })).toBeEnabled();
+  });
+
+  it('renders the Kính gửi dropdown outside the toolbar container to avoid clipping', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+    await user.click(getNewQuotationButton());
+
+    const recipientTrigger = screen.getByRole('button', { name: /Chọn khách hàng/i });
+    const toolbarCard = recipientTrigger.closest('.mb-3');
+
+    expect(toolbarCard).not.toBeNull();
+
+    await user.click(recipientTrigger);
+
+    const searchInput = await screen.findByLabelText('Tìm khách hàng...');
+    expect(searchInput).toBeInTheDocument();
+    expect(toolbarCard).not.toContainElement(searchInput);
+  });
+
+  it('removes VAT preset chips and keeps manual VAT entry only', async () => {
+    const user = userEvent.setup();
+
+    await renderProductQuotationTab();
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+
+    expect(screen.queryByRole('button', { name: '0%' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '8%' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '10%' })).not.toBeInTheDocument();
+    const desktopVatInput = screen.getByLabelText('Thuế VAT dòng 1');
+    expect(desktopVatInput).toBeInTheDocument();
+    expect(desktopVatInput.parentElement).toHaveClass('mx-auto', 'max-w-[78px]');
+    expect(screen.getByLabelText('Nhập VAT tùy chỉnh dòng 1')).toBeInTheDocument();
+  });
+
+  it('keeps the create and export buttons compact in the toolbar', async () => {
+    await renderProductQuotationTab();
+
+    expect(getNewQuotationButton()).toHaveClass('shrink-0', 'whitespace-nowrap');
+    expect(getNewQuotationButton()).not.toHaveClass('flex-1');
+    expect(getExportQuotationButton()).toHaveClass('shrink-0', 'whitespace-nowrap');
   });
 
   it('loads recent quotations when recipient is empty and reloads old quotations for the selected customer', async () => {
@@ -479,7 +538,7 @@ describe('ProductQuotationTab UI', () => {
       per_page: 200,
       sort_by: 'updated_at',
       sort_dir: 'desc',
-      filters: { customer_id: 10 },
+      filters: { customer_id: 10, history_only: true },
     });
   });
 
@@ -487,13 +546,13 @@ describe('ProductQuotationTab UI', () => {
     const user = userEvent.setup();
     quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
       data: [
-        buildDraftResponse({
+        buildHistoryDraftResponse({
           id: 91,
           recipient_name: 'Bệnh viện Phổi Hậu Giang',
           updated_at: '2026-03-26T09:00:00+07:00',
           total_amount: 300000000,
         }),
-        buildDraftResponse({
+        buildHistoryDraftResponse({
           id: 77,
           recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
           updated_at: '2026-03-25T10:00:00+07:00',
@@ -591,7 +650,7 @@ describe('ProductQuotationTab UI', () => {
         meta: { page: 1, per_page: 200, total: 0, total_pages: 1 },
       })
       .mockResolvedValueOnce({
-        data: [buildDraftResponse({ id: 501, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
+        data: [buildHistoryDraftResponse({ id: 501, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' })],
         meta: { page: 1, per_page: 200, total: 1, total_pages: 1 },
       });
     quotationApiSpies.createProductQuotation.mockResolvedValueOnce(
@@ -609,7 +668,7 @@ describe('ProductQuotationTab UI', () => {
     await renderProductQuotationTab();
 
     await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
-    await user.click(screen.getByRole('button', { name: /Chọn sản phẩm từ danh mục/i }));
+    await user.click(screen.getAllByRole('button', { name: /Chọn sản phẩm từ danh mục/i })[0]);
     await user.click(screen.getByRole('button', { name: /VNPT HIS Cloud/i }));
     await user.click(screen.getByRole('button', { name: /Xuất báo giá/i }));
     await user.click(screen.getByRole('button', { name: /^Xem báo giá$/i }));
@@ -619,6 +678,34 @@ describe('ProductQuotationTab UI', () => {
       expect(quotationApiSpies.fetchProductQuotationsPage).toHaveBeenCalledTimes(3);
     });
     expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Bệnh viện Đa khoa Cần Thơ');
+  });
+
+  it('hides zero-value quotations from history even if the API returns them', async () => {
+    const user = userEvent.setup();
+
+    quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
+      data: [
+        buildDraftResponse({
+          id: 91,
+          recipient_name: 'Bệnh viện 0 đồng',
+          subtotal: 0,
+          vat_amount: 0,
+          total_amount: 0,
+        }),
+        buildHistoryDraftResponse({
+          id: 92,
+          recipient_name: 'Bệnh viện có báo giá',
+        }),
+      ],
+      meta: { page: 1, per_page: 200, total: 2, total_pages: 1 },
+    });
+
+    await renderProductQuotationTab();
+
+    await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
+
+    expect(await screen.findByRole('button', { name: /Bệnh viện có báo giá/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Bệnh viện 0 đồng/i })).not.toBeInTheDocument();
   });
 
   it('moves focus across quotation row fields with Enter and returns to the next row product field after note', async () => {

@@ -59,12 +59,15 @@ interface ProductTableColumn {
 }
 
 type ProductModuleView = 'catalog' | 'quote';
+type ProductStatusFilter = 'ACTIVE' | 'INACTIVE';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
-const PRODUCT_TABLE_MIN_WIDTH = 2372;
+const PRODUCT_TABLE_MIN_WIDTH = 1872;
+const PRODUCT_TABLE_LAYOUT_BREAKPOINT = 1440;
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
+  status: 'products_status',
   domain: 'products_domain_id',
   serviceGroup: 'products_service_group',
   sortKey: 'products_sort_key',
@@ -74,6 +77,8 @@ const PRODUCT_QUERY_KEYS = {
 } as const;
 
 const toLookupKey = (value: unknown): string => String(value ?? '').trim();
+const normalizeProductStatusFilter = (value: string | null): ProductStatusFilter =>
+  value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
 const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
   'product_code',
@@ -122,6 +127,16 @@ const getBusinessDisplayName = (business: Business): string => {
   }
   const domainCode = String(business?.domain_code ?? '').trim();
   return domainCode || '-';
+};
+
+const getProductPackageSearchLabel = (product: Product): string => {
+  const packageName = String(product?.package_name ?? '').trim();
+  if (packageName) {
+    return packageName;
+  }
+
+  const productName = String(product?.product_name ?? '').trim();
+  return productName || '—';
 };
 
 const PRODUCT_TEMPLATE_HEADERS = [
@@ -186,81 +201,81 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     key: 'package_name',
     label: 'Gói cước',
     sortable: true,
-    colStyle: { width: 200, minWidth: 200 },
-    headerClassName: 'w-[200px] min-w-[200px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 168, minWidth: 168 },
+    headerClassName: 'w-[168px] min-w-[168px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[168px] min-w-[168px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'description',
     label: 'Mô tả gói cước',
     sortable: true,
-    colStyle: { width: 260, minWidth: 260 },
-    headerClassName: 'w-[260px] min-w-[260px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[260px] min-w-[260px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 320, minWidth: 320 },
+    headerClassName: 'w-[320px] min-w-[320px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[320px] min-w-[320px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'standard_price',
     label: 'Đơn giá',
     sortable: true,
-    colStyle: { width: 200, minWidth: 200 },
-    headerClassName: 'w-[200px] min-w-[200px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[200px] min-w-[200px] whitespace-nowrap px-3 py-2 align-middle text-xs font-bold text-slate-900',
+    colStyle: { width: 152, minWidth: 152 },
+    headerClassName: 'w-[152px] min-w-[152px] whitespace-nowrap pl-3 pr-5 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[152px] min-w-[152px] whitespace-nowrap pl-3 pr-5 py-2 text-right align-middle text-xs font-bold text-slate-900',
   },
   {
     key: 'service_group',
     label: 'Nhóm dịch vụ',
     sortable: true,
-    colStyle: { width: 160, minWidth: 160 },
-    headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-3 py-2 align-middle text-xs',
+    colStyle: { width: 128, minWidth: 128 },
+    headerClassName: 'w-[128px] min-w-[128px] whitespace-nowrap pl-5 pr-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[128px] min-w-[128px] whitespace-nowrap pl-5 pr-3 py-2 align-middle text-xs',
   },
   {
     key: 'product_name',
     label: 'Tên sản phẩm',
     sortable: true,
-    colStyle: { width: 280, minWidth: 280 },
-    headerClassName: 'w-[280px] min-w-[280px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[280px] min-w-[280px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs font-semibold leading-5 text-slate-900',
+    colStyle: { width: 240, minWidth: 240 },
+    headerClassName: 'w-[240px] min-w-[240px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[240px] min-w-[240px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs font-semibold leading-5 text-slate-900',
   },
   {
     key: 'domain_id',
     label: 'Lĩnh vực KD',
+    sortable: true,
+    colStyle: { width: 180, minWidth: 180 },
+    headerClassName: 'w-[180px] min-w-[180px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[180px] min-w-[180px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+  },
+  {
+    key: 'vendor_id',
+    label: 'Nhà cung cấp',
     sortable: true,
     colStyle: { width: 200, minWidth: 200 },
     headerClassName: 'w-[200px] min-w-[200px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
     cellClassName: 'w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
   },
   {
-    key: 'vendor_id',
-    label: 'Nhà cung cấp',
-    sortable: true,
-    colStyle: { width: 240, minWidth: 240 },
-    headerClassName: 'w-[240px] min-w-[240px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[240px] min-w-[240px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
-  },
-  {
     key: 'unit',
     label: 'Đơn vị tính',
     sortable: true,
-    colStyle: { width: 140, minWidth: 140 },
-    headerClassName: 'w-[140px] min-w-[140px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[140px] min-w-[140px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 120, minWidth: 120 },
+    headerClassName: 'w-[120px] min-w-[120px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[120px] min-w-[120px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'is_active',
     label: 'Trạng thái',
     sortable: true,
-    colStyle: { width: 160, minWidth: 160 },
-    headerClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[160px] min-w-[160px] whitespace-nowrap px-3 py-2 align-middle text-xs',
+    colStyle: { width: 140, minWidth: 140 },
+    headerClassName: 'w-[140px] min-w-[140px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[140px] min-w-[140px] whitespace-nowrap px-3 py-2 align-middle text-xs',
   },
   {
     key: 'actions',
     label: 'Thao tác',
     sortable: false,
-    colStyle: { width: 110, minWidth: 110 },
-    headerClassName: 'w-[110px] min-w-[110px] whitespace-nowrap px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[110px] min-w-[110px] whitespace-nowrap px-3 py-2 align-middle text-right',
+    colStyle: { width: 96, minWidth: 96 },
+    headerClassName: 'w-[96px] min-w-[96px] whitespace-nowrap px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[96px] min-w-[96px] whitespace-nowrap px-3 py-2 align-middle text-right',
   },
 ];
 
@@ -283,6 +298,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (typeof window === 'undefined') {
       return {
         searchTerm: '',
+        statusFilter: 'ACTIVE' as ProductStatusFilter,
         domainFilterId: '',
         serviceGroupFilterId: '',
         currentPage: DEFAULT_PAGE,
@@ -299,6 +315,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     return {
       searchTerm: params.get(PRODUCT_QUERY_KEYS.search) ?? '',
+      statusFilter: normalizeProductStatusFilter(params.get(PRODUCT_QUERY_KEYS.status)),
       domainFilterId: params.get(PRODUCT_QUERY_KEYS.domain) ?? '',
       serviceGroupFilterId: isProductServiceGroupCode(serviceGroupFromQuery) ? serviceGroupFromQuery : '',
       currentPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.page), DEFAULT_PAGE),
@@ -309,6 +326,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
   const [searchTerm, setSearchTerm] = useState(initialQueryState.searchTerm);
   const [searchInput, setSearchInput] = useState(initialQueryState.searchTerm);
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>(initialQueryState.statusFilter);
   const [domainFilterId, setDomainFilterId] = useState(initialQueryState.domainFilterId);
   const [serviceGroupFilterId, setServiceGroupFilterId] = useState(initialQueryState.serviceGroupFilterId);
   const [currentPage, setCurrentPage] = useState(initialQueryState.currentPage);
@@ -316,17 +334,56 @@ export const ProductList: React.FC<ProductListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>(
     initialQueryState.sortConfig
   );
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? PRODUCT_TABLE_LAYOUT_BREAKPOINT : window.innerWidth
+  );
   const activeView = useMemo(() => getProductModuleViewFromPathname(location.pathname), [location.pathname]);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showCompactKpiPanel, setShowCompactKpiPanel] = useState(false);
+  const [expandedCompactCardIds, setExpandedCompactCardIds] = useState<string[]>([]);
+  // Swipe-to-action: track which card is swiped open
+  const [swipedCardId, setSwipedCardId] = useState<string | null>(null);
+  const swipeTouchStartX = React.useRef<number>(0);
+  const swipeTouchStartY = React.useRef<number>(0);
+  // Scroll-to-top: show button after scrolling 300px
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEscKey(() => {
     setShowImportMenu(false);
     setShowExportMenu(false);
-  }, showImportMenu || showExportMenu);
+    setShowCompactKpiPanel(false);
+    setSwipedCardId(null);
+  }, showImportMenu || showExportMenu || showCompactKpiPanel || swipedCardId !== null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  // Scroll-to-top listener
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const showActionColumn = true;
-  const hasActiveFilters = searchTerm.trim() !== '' || domainFilterId !== '' || serviceGroupFilterId !== '';
+  const isDesktopCatalogLayout = viewportWidth >= PRODUCT_TABLE_LAYOUT_BREAKPOINT;
+  const isCompactKpiLayout = viewportWidth < 1024;
+  const isPhoneWidth = viewportWidth < 640;
+  const hasActiveFilters = searchTerm.trim() !== '' || statusFilter !== 'ACTIVE' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
   const businessById = useMemo(
     () =>
@@ -389,11 +446,12 @@ export const ProductList: React.FC<ProductListProps> = ({
     return options?.suffix === false ? formatted : `${formatted} đ`;
   };
 
+  const formatVndFull = (value: unknown): string => formatVnd(value).replace(/ đ$/, ' đồng');
+
   const visibleTableColumns = useMemo(
     () => BASE_PRODUCT_TABLE_COLUMNS.filter((column) => showActionColumn || column.key !== 'actions'),
     [showActionColumn]
   );
-  const tableColSpan = visibleTableColumns.length;
 
   const getColumnConfig = (key: ProductTableColumnKey): ProductTableColumn =>
     BASE_PRODUCT_TABLE_COLUMNS.find((column) => column.key === key) || BASE_PRODUCT_TABLE_COLUMNS[0];
@@ -402,7 +460,29 @@ export const ProductList: React.FC<ProductListProps> = ({
     () => (products || []).filter((product) => product.is_active !== false).length,
     [products]
   );
-  const inactiveCount = products.length - activeCount;
+  const summaryCards = useMemo(
+    () => [
+      {
+        id: 'total',
+        label: 'Tổng số',
+        value: products.length,
+        helper: 'sản phẩm',
+        iconName: 'inventory_2',
+        iconToneClassName: 'bg-secondary/15',
+        iconTextClassName: 'text-secondary',
+      },
+      {
+        id: 'active',
+        label: 'Hoạt động',
+        value: activeCount,
+        helper: 'đang áp dụng',
+        iconName: 'check_circle',
+        iconToneClassName: 'bg-secondary/15',
+        iconTextClassName: 'text-success',
+      },
+    ],
+    [activeCount, products.length]
+  );
 
   const serviceGroupStats = useMemo(
     () =>
@@ -416,6 +496,18 @@ export const ProductList: React.FC<ProductListProps> = ({
       })),
     [products]
   );
+
+  useEffect(() => {
+    if (!isCompactKpiLayout && showCompactKpiPanel) {
+      setShowCompactKpiPanel(false);
+    }
+  }, [isCompactKpiLayout, showCompactKpiPanel]);
+
+  useEffect(() => {
+    if (isDesktopCatalogLayout) {
+      setExpandedCompactCardIds([]);
+    }
+  }, [isDesktopCatalogLayout]);
 
   const serviceGroupFilterOptions = useMemo(
     () => [
@@ -436,25 +528,37 @@ export const ProductList: React.FC<ProductListProps> = ({
     [businesses]
   );
 
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: 'ACTIVE', label: 'Hoạt động', searchText: 'hoat dong active' },
+      { value: 'INACTIVE', label: 'Ngưng hoạt động', searchText: 'ngung hoat dong inactive' },
+    ],
+    []
+  );
+
   const filteredProducts = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     let result = (products || []).filter((product) => {
+      const packageSearchLabel = getProductPackageSearchLabel(product).toLowerCase();
       const matchesSearch =
         normalizedSearch === '' ||
-        String(product.product_name || '').toLowerCase().includes(normalizedSearch) ||
-        String(product.package_name || '').toLowerCase().includes(normalizedSearch) ||
+        packageSearchLabel.includes(normalizedSearch) ||
         String(product.product_code || '').toLowerCase().includes(normalizedSearch);
+      const matchesStatus =
+        statusFilter === 'ACTIVE'
+          ? product.is_active !== false
+          : product.is_active === false;
       const matchesDomain = domainFilterId === '' || toLookupKey(product.domain_id) === domainFilterId;
       const matchesServiceGroup =
         serviceGroupFilterId === ''
         || normalizeProductServiceGroup(product.service_group) === serviceGroupFilterId;
-      return matchesSearch && matchesDomain && matchesServiceGroup;
+      return matchesSearch && matchesStatus && matchesDomain && matchesServiceGroup;
     });
 
     if (sortConfig !== null) {
       result = [...result].sort((a, b) => {
         const normalizeSortableValue = (
-          value: string | number | boolean | Attachment[] | null | undefined
+          value: string | number | boolean | Attachment[] | { table: string; label: string; count: number }[] | null | undefined
         ): string | number | boolean | null | undefined => (
           Array.isArray(value) ? value.length : value
         );
@@ -466,8 +570,8 @@ export const ProductList: React.FC<ProductListProps> = ({
           aValue = getProductServiceGroupLabel(a.service_group);
           bValue = getProductServiceGroupLabel(b.service_group);
         } else if (sortConfig.key === 'package_name') {
-          aValue = String(a.package_name || '');
-          bValue = String(b.package_name || '');
+          aValue = getProductPackageSearchLabel(a);
+          bValue = getProductPackageSearchLabel(b);
         } else if (sortConfig.key === 'description') {
           aValue = String(a.description || '');
           bValue = String(b.description || '');
@@ -501,7 +605,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     }
 
     return result;
-  }, [products, searchTerm, domainFilterId, serviceGroupFilterId, sortConfig, businessById, vendorById]);
+  }, [products, searchTerm, statusFilter, domainFilterId, serviceGroupFilterId, sortConfig, businessById, vendorById]);
 
   const totalItems = filteredProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
@@ -544,6 +648,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     params.delete('products_view');
     syncQueryValue(PRODUCT_QUERY_KEYS.search, searchTerm.trim());
+    syncQueryValue(PRODUCT_QUERY_KEYS.status, statusFilter, 'ACTIVE');
     syncQueryValue(PRODUCT_QUERY_KEYS.domain, domainFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.serviceGroup, serviceGroupFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.page, String(currentPage), String(DEFAULT_PAGE));
@@ -563,7 +668,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         { replace: true }
       );
     }
-  }, [searchTerm, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig, location.pathname, location.search, location.hash, navigate]);
+  }, [searchTerm, statusFilter, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig, location.pathname, location.search, location.hash, navigate]);
 
   const currentData = filteredProducts.slice(
     (effectiveCurrentPage - 1) * rowsPerPage,
@@ -589,14 +694,14 @@ export const ProductList: React.FC<ProductListProps> = ({
     if (sortConfig?.key === key) {
       return (
         <span
-          className="material-symbols-outlined text-sm transition-transform duration-200"
-          style={{ transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          className="material-symbols-outlined transition-transform duration-200"
+          style={{ fontSize: 14, transform: sortConfig.direction === 'desc' ? 'rotate(180deg)' : 'rotate(0deg)' }}
         >
           arrow_upward
         </span>
       );
     }
-    return <span className="material-symbols-outlined text-sm text-slate-300">unfold_more</span>;
+    return <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 14 }}>unfold_more</span>;
   };
 
   const handleDownloadTemplate = () => {
@@ -724,6 +829,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   const resetFilters = () => {
     setSearchInput('');
     setSearchTerm('');
+    setStatusFilter('ACTIVE');
     setDomainFilterId('');
     setServiceGroupFilterId('');
     setCurrentPage(DEFAULT_PAGE);
@@ -734,27 +840,164 @@ export const ProductList: React.FC<ProductListProps> = ({
     setCurrentPage(DEFAULT_PAGE);
   };
 
+  const getCompactCardId = (item: Product) => String(item.id || item.product_code);
+
+  const toggleCompactCardDetails = (cardId: string) => {
+    setExpandedCompactCardIds((previous) =>
+      previous.includes(cardId) ? previous.filter((id) => id !== cardId) : [...previous, cardId]
+    );
+  };
+
   const isEmptyData = products.length === 0;
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
+
+  // ── Skeleton card (loading state) ──
+  const renderSkeletonCards = () => (
+    <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="animate-pulse rounded-lg border border-slate-200 bg-white p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="h-3 w-16 rounded bg-slate-200" />
+            <div className="h-4 w-14 rounded-full bg-slate-200" />
+          </div>
+          <div className="h-4 w-3/4 rounded bg-slate-200 mb-3" />
+          <div className="rounded-lg bg-slate-100 p-3 space-y-2">
+            <div className="flex justify-between">
+              <div className="h-3 w-1/3 rounded bg-slate-200" />
+              <div className="h-3 w-1/4 rounded bg-slate-200" />
+            </div>
+            <div className="h-3 w-2/3 rounded bg-slate-200" />
+            <div className="h-3 w-1/2 rounded bg-slate-200" />
+          </div>
+          <div className="mt-2.5 h-8 w-full rounded bg-slate-100" />
+          <div className="mt-2.5 flex gap-2 border-t border-slate-100 pt-2.5">
+            <div className="h-8 flex-1 rounded bg-slate-100" />
+            <div className="h-8 flex-1 rounded bg-slate-100" />
+            <div className="h-8 w-8 rounded bg-slate-100" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // ── Swipe-to-action touch handlers ──
+  const handleSwipeTouchStart = (e: React.TouchEvent, cardId: string) => {
+    swipeTouchStartX.current = e.touches[0].clientX;
+    swipeTouchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleSwipeTouchEnd = (e: React.TouchEvent, cardId: string) => {
+    const deltaX = swipeTouchStartX.current - e.changedTouches[0].clientX;
+    const deltaY = Math.abs(swipeTouchStartY.current - e.changedTouches[0].clientY);
+    // Chỉ trigger swipe ngang — bỏ qua nếu scroll dọc chiếm ưu thế
+    if (deltaY > 30) return;
+    if (deltaX > 52) {
+      // Swipe trái → mở action
+      setSwipedCardId(cardId);
+    } else if (deltaX < -32) {
+      // Swipe phải → đóng
+      if (swipedCardId === cardId) setSwipedCardId(null);
+    }
+  };
+
+  const renderProductActionButtons = (item: Product) => (
+    <>
+      <button
+        onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-secondary/30 hover:bg-slate-100 hover:text-secondary"
+        title="Danh mục chức năng"
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>fact_check</span>
+      </button>
+      {canEdit && (
+        <button
+          onClick={() => onOpenModal('PRODUCT_TARGET_SEGMENT', item)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-tertiary/30 hover:bg-slate-100 hover:text-tertiary"
+          title="Cấu hình đề xuất bán hàng"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>target</span>
+        </button>
+      )}
+      {canEdit && (
+        <button
+          onClick={() => onOpenModal('EDIT_PRODUCT', item)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/30 hover:bg-slate-100 hover:text-primary"
+          title="Chỉnh sửa"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+        </button>
+      )}
+      {canDelete && (
+        <button
+          onClick={() => onOpenModal('DELETE_PRODUCT', item)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-error/20 hover:bg-red-50 hover:text-error"
+          title="Xóa"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+        </button>
+      )}
+    </>
+  );
+
+  const catalogEmptyState = (
+    <div className="px-4 py-10">
+      <div className="flex flex-col items-center justify-center text-center">
+        <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>
+          {isEmptyData ? 'inventory_2' : 'search_off'}
+        </span>
+        <p className="mt-2 text-xs font-semibold text-slate-700">
+          {isEmptyData ? 'Chưa có sản phẩm nào.' : 'Không tìm thấy sản phẩm phù hợp.'}
+        </p>
+        <p className="mt-1 max-w-md text-[11px] text-slate-500">
+          {isEmptyData
+            ? 'Danh mục sản phẩm hiện chưa có dữ liệu. Bạn có thể tạo mới để bắt đầu quản lý.'
+            : 'Thử đổi từ khóa hoặc xóa bộ lọc để xem lại toàn bộ danh sách.'}
+        </p>
+        {isEmptyData && canEdit && (
+          <button
+            onClick={() => onOpenModal('ADD_PRODUCT')}
+            className="mt-2 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+            Thêm sản phẩm
+          </button>
+        )}
+        {isEmptyFiltered && (
+          <button
+            onClick={resetFilters}
+            className="mt-2 inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
+            Xóa bộ lọc
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="p-3 pb-6">
 
       {/* ── Page header with tabs ── */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>inventory_2</span>
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-deep-teal leading-tight">Sản phẩm / Dịch vụ</h2>
-            <p className="text-[11px] text-slate-400 leading-tight">Danh mục sản phẩm và báo giá</p>
+      <div data-testid="products-toolbar" className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        {/* Title row — CTA nằm cùng hàng trên mobile/tablet */}
+        <div className="flex items-center justify-between gap-2 xl:justify-start">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>inventory_2</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-deep-teal leading-tight">Sản phẩm / Dịch vụ</h2>
+              {!isCompactKpiLayout && (
+                <p className="text-[11px] text-slate-400 leading-tight">Danh mục sản phẩm và báo giá</p>
+              )}
+            </div>
           </div>
         </div>
         {/* Tab switcher + toolbar */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 xl:w-auto xl:items-end">
           {/* View tabs */}
-          <div className="flex items-center rounded border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+          <div className="grid w-full grid-cols-2 items-center gap-0.5 rounded border border-slate-200 bg-slate-50 p-0.5 sm:inline-flex sm:w-auto">
             {[
               { key: 'catalog' as ProductModuleView, label: 'Danh mục', icon: 'inventory_2' },
               { key: 'quote' as ProductModuleView, label: 'Báo giá', icon: 'description' },
@@ -776,7 +1019,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                       { replace: true }
                     );
                   }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded transition-colors ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded transition-colors ${
                     isActive ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
@@ -787,89 +1030,96 @@ export const ProductList: React.FC<ProductListProps> = ({
             })}
           </div>
 
-          {activeView === 'catalog' && (
-            <>
-              {canImport && (
+          {activeView === 'catalog' && !isCompactKpiLayout && (
+            <div className="flex w-full items-center justify-between gap-2 xl:w-auto xl:justify-end">
+              {/* Secondary actions — gọn 2-col trên mobile */}
+              <div
+                data-testid="products-primary-actions"
+                className="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-wrap md:items-center md:gap-2"
+              >
+                {canImport && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowImportMenu(!showImportMenu)}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
+                    >
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                      Nhập
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+                    </button>
+                    {showImportMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                        <div className="absolute left-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                          <button
+                            onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                          >
+                            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
+                            Nhập dữ liệu
+                          </button>
+                          <button
+                            onClick={handleDownloadTemplate}
+                            className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                          >
+                            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+                            Tải file mẫu
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div className="relative">
                   <button
-                    onClick={() => setShowImportMenu(!showImportMenu)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
                   >
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
-                    Nhập
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+                    Xuất
                     <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
                   </button>
-                  {showImportMenu && (
+                  {showExportMenu && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                      <div className="absolute left-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                        <button
-                          onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
-                          className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
-                        >
-                          <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
-                          Nhập dữ liệu
+                      <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                      <div className="absolute right-0 top-full z-20 mt-1.5 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                        <button onClick={() => handleExport('excel')} className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                          <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
                         </button>
-                        <button
-                          onClick={handleDownloadTemplate}
-                          className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
-                        >
-                          <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
-                          Tải file mẫu
+                        <button onClick={() => handleExport('csv')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                          <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
+                        </button>
+                        <button onClick={() => handleExport('pdf')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
+                          <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
                         </button>
                       </div>
                     </>
                   )}
                 </div>
-              )}
 
-              <div className="relative">
-                <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                >
-                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
-                  Xuất
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
-                </button>
-                {showExportMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                    <div className="absolute right-0 top-full z-20 mt-1.5 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                      <button onClick={() => handleExport('excel')} className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
-                        <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>table_view</span> Excel
-                      </button>
-                      <button onClick={() => handleExport('csv')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
-                        <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>csv</span> CSV
-                      </button>
-                      <button onClick={() => handleExport('pdf')} className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary">
-                        <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>picture_as_pdf</span> PDF
-                      </button>
-                    </div>
-                  </>
+                {!isCompactKpiLayout && canUploadDocument && (
+                  <button
+                    onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
+                  >
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
+                    Upload tài liệu
+                  </button>
                 )}
+
               </div>
 
-              {canUploadDocument && (
-                <button
-                  onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                >
-                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
-                  Upload tài liệu
-                </button>
-              )}
-
-              {canEdit && (
+              {!isCompactKpiLayout && canEdit && (
                 <button
                   onClick={() => onOpenModal('ADD_PRODUCT')}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 bg-primary text-white hover:bg-deep-teal shadow-sm"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50 md:w-auto"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                   Thêm sản phẩm
                 </button>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -884,175 +1134,195 @@ export const ProductList: React.FC<ProductListProps> = ({
       ) : (
         <>
       {/* ── KPI strip ── */}
-      <div className="mb-3 grid grid-cols-3 gap-3 xl:grid-cols-6">
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-neutral">Tổng số</span>
-            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>inventory_2</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{products.length}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">sản phẩm</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-neutral">Hoạt động</span>
-            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
-              <span className="material-symbols-outlined text-success" style={{ fontSize: 15 }}>check_circle</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{activeCount}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">đang áp dụng</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-neutral">Ngưng hoạt động</span>
-            <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center">
-              <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>cancel</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{inactiveCount}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">tạm dừng</p>
-        </div>
-        {serviceGroupStats.map((item) => {
-          const isSelected = serviceGroupFilterId === item.code;
-          return (
-            <button
-              key={item.code}
-              type="button"
-              onClick={() => handleServiceGroupKpiClick(item.code)}
-              aria-pressed={isSelected}
-              aria-label={`Lọc theo ${item.label}`}
-              className={`rounded-lg border p-3 text-left shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-primary/20 ${
-                isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-slate-200 bg-white hover:border-primary/30'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-xs font-semibold ${isSelected ? 'text-primary' : 'text-neutral'}`}>{item.label}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${item.badgeClassName}`}>
-                  {item.code.replace('GROUP_', '')}
-                </span>
+      {!isCompactKpiLayout && (
+        <div data-testid="products-kpi-grid" className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+          {summaryCards.map((item) => (
+            <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral">{item.label}</span>
+                <div className={`flex h-7 w-7 items-center justify-center rounded ${item.iconToneClassName}`}>
+                  <span className={`material-symbols-outlined ${item.iconTextClassName}`} style={{ fontSize: 15 }}>
+                    {item.iconName}
+                  </span>
+                </div>
               </div>
-              <p className={`text-xl font-black leading-tight ${isSelected ? 'text-primary' : 'text-deep-teal'}`}>
-                {item.count}
-              </p>
-            </button>
-          );
-        })}
-      </div>
+              <p className="text-xl font-black leading-tight text-deep-teal">{item.value}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">{item.helper}</p>
+            </div>
+          ))}
+          {serviceGroupStats.map((item) => {
+            const isSelected = serviceGroupFilterId === item.code;
+            return (
+              <button
+                key={item.code}
+                type="button"
+                onClick={() => handleServiceGroupKpiClick(item.code)}
+                aria-pressed={isSelected}
+                aria-label={`Lọc theo ${item.label}`}
+                className={`rounded-lg border p-3 text-left shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+                  isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-slate-200 bg-white hover:border-primary/30'
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <span className={`text-xs font-semibold ${isSelected ? 'text-primary' : 'text-neutral'}`}>{item.label}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${item.badgeClassName}`}>
+                    {item.code.replace('GROUP_', '')}
+                  </span>
+                </div>
+                <p className={`text-xl font-black leading-tight ${isSelected ? 'text-primary' : 'text-deep-teal'}`}>
+                  {item.count}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Filter toolbar + Table ── */}
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2">
-          <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
-            <div className="flex-1 min-w-[180px]">
+        <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/90 px-3 py-2 backdrop-blur-sm xl:static xl:bg-slate-50/70 xl:backdrop-blur-none">
+          <div data-testid="products-filter-toolbar" className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.2fr)_minmax(0,1fr)]">
+            <div className="min-w-0 md:col-span-2 xl:col-span-1">
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
                   type="text"
                   value={searchInput}
                   onChange={(event) => { setSearchInput(event.target.value); }}
-                  placeholder="Tìm mã hoặc tên sản phẩm..."
+                  placeholder="Tìm mã sản phẩm hoặc tên gói cước..."
                   className="h-8 w-full rounded border border-slate-300 bg-white pl-7 pr-3 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
                 />
               </div>
             </div>
 
-            <div className="w-[220px]">
-              <SearchableSelect
-                label=""
-                value={serviceGroupFilterId}
-                options={serviceGroupFilterOptions}
-                onChange={(value) => { setServiceGroupFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
-                placeholder="Tất cả nhóm dịch vụ"
-                compact
-              />
-            </div>
+            <div className="md:col-span-2 xl:col-span-1">
+            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 xl:grid-cols-[200px_220px_220px_auto]">
+                <div className="w-full">
+                  <SearchableSelect
+                    label=""
+                    value={statusFilter}
+                    options={statusFilterOptions}
+                    onChange={(value) => {
+                      setStatusFilter(normalizeProductStatusFilter(value));
+                      setCurrentPage(DEFAULT_PAGE);
+                    }}
+                    placeholder="Hoạt động"
+                    compact
+                  />
+                </div>
 
-            <div className="w-[220px]">
-              <SearchableSelect
-                label=""
-                value={domainFilterId}
-                options={domainFilterOptions}
-                onChange={(value) => { setDomainFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
-                placeholder="Tất cả lĩnh vực KD"
-                compact
-              />
-            </div>
+                <div className="w-full">
+                  <SearchableSelect
+                    label=""
+                    value={serviceGroupFilterId}
+                    options={serviceGroupFilterOptions}
+                    onChange={(value) => { setServiceGroupFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
+                    placeholder="Tất cả nhóm dịch vụ"
+                    compact
+                  />
+                </div>
 
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
-                Xóa bộ lọc
-              </button>
-            )}
+                <div className="w-full">
+                  <SearchableSelect
+                    label=""
+                    value={domainFilterId}
+                    options={domainFilterOptions}
+                    onChange={(value) => { setDomainFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
+                    placeholder="Tất cả lĩnh vực KD"
+                    compact
+                  />
+                </div>
+
+                {hasActiveFilters && (
+                  <button
+                    onClick={resetFilters}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 xl:w-auto xl:justify-self-start"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
+                    Xóa lọc
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {hasActiveFilters && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">Đang lọc</span>
               {searchTerm.trim() !== '' && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
                   Từ khóa: {searchTerm.trim()}
+                  <button type="button" onClick={() => { setSearchInput(''); setSearchTerm(''); }} aria-label="Xóa từ khóa" className="ml-0.5 rounded-full hover:text-error">
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+                  </button>
+                </span>
+              )}
+              {statusFilter !== 'ACTIVE' && (
+                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                  Trạng thái: Ngưng hoạt động
                 </span>
               )}
               {serviceGroupFilterId !== '' && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
                   Nhóm: {getProductServiceGroupLabel(serviceGroupFilterId)}
+                  <button type="button" onClick={() => { setServiceGroupFilterId(''); setCurrentPage(DEFAULT_PAGE); }} aria-label="Xóa lọc nhóm" className="ml-0.5 rounded-full hover:text-error">
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+                  </button>
                 </span>
               )}
               {domainFilterId !== '' && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
+                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-600 ring-1 ring-slate-200">
                   Lĩnh vực: {getDomainName(domainFilterId)}
+                  <button type="button" onClick={() => { setDomainFilterId(''); setCurrentPage(DEFAULT_PAGE); }} aria-label="Xóa lọc lĩnh vực" className="ml-0.5 rounded-full hover:text-error">
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+                  </button>
                 </span>
               )}
             </div>
           )}
         </div>
 
-        <div className="overflow-x-auto">
-          <table
-            className="w-full table-fixed border-collapse text-left"
-            style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
-          >
-            <colgroup>
-              {visibleTableColumns.map((column) => (
-                <col key={column.key} style={column.colStyle} />
-              ))}
-            </colgroup>
-            <thead className="bg-slate-50">
-              <tr className="border-b border-slate-200">
+        {filteredProducts.length === 0 ? (
+          catalogEmptyState
+        ) : isDesktopCatalogLayout ? (
+          <div className="overflow-x-auto">
+            <table
+              className="w-full table-fixed border-collapse text-left"
+              style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
+            >
+              <colgroup>
                 {visibleTableColumns.map((column) => (
-                  <th
-                    key={column.key}
-                    className={`${column.headerClassName} ${
-                      column.sortable ? 'cursor-pointer transition-colors hover:bg-slate-100' : ''
-                    } ${column.key === 'actions' ? 'sticky right-0 bg-slate-50' : ''}`}
-                    onClick={() => {
-                      if (column.sortable) {
-                        handleSort(column.key as keyof Product);
-                      }
-                    }}
-                  >
-                    {column.sortable ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-deep-teal">{column.label}</span>
-                        {renderSortIcon(column.key as keyof Product)}
-                      </div>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
+                  <col key={column.key} style={column.colStyle} />
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredProducts.length > 0 ? (
-                currentData.map((item, index) => {
+              </colgroup>
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  {visibleTableColumns.map((column) => (
+                    <th
+                      key={column.key}
+                      className={`${column.headerClassName} ${
+                        column.sortable ? 'cursor-pointer transition-colors hover:bg-slate-100' : ''
+                      } ${column.key === 'actions' ? 'sticky right-0 bg-slate-50' : ''}`}
+                      onClick={() => {
+                        if (column.sortable) {
+                          handleSort(column.key as keyof Product);
+                        }
+                      }}
+                    >
+                      {column.sortable ? (
+                        <div className={`flex items-center gap-1 ${column.key === 'standard_price' ? 'justify-end' : ''}`}>
+                          <span className="text-deep-teal">{column.label}</span>
+                          {renderSortIcon(column.key as keyof Product)}
+                        </div>
+                      ) : (
+                        column.label
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {currentData.map((item, index) => {
                   const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
                   const isActive = item.is_active !== false;
                   const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
@@ -1062,7 +1332,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                       <td className={getColumnConfig('stt').cellClassName}>{stt}</td>
                       <td className={getColumnConfig('product_code').cellClassName}>{item.product_code}</td>
                       <td className={getColumnConfig('package_name').cellClassName}>
-                        {String(item.package_name || '').trim() || '—'}
+                        {getProductPackageSearchLabel(item)}
                       </td>
                       <td className={getColumnConfig('description').cellClassName}>
                         {String(item.description || '').trim() || '—'}
@@ -1091,78 +1361,198 @@ export const ProductList: React.FC<ProductListProps> = ({
                       {showActionColumn && (
                         <td className={`${getColumnConfig('actions').cellClassName} sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.06)]`}>
                           <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
-                              className="p-1 text-slate-400 transition-colors hover:text-secondary rounded hover:bg-slate-100"
-                              title="Danh mục chức năng"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>fact_check</span>
-                            </button>
-                            {canEdit && (
-                              <button
-                                onClick={() => onOpenModal('PRODUCT_TARGET_SEGMENT', item)}
-                                className="p-1 text-slate-400 transition-colors hover:text-tertiary rounded hover:bg-slate-100"
-                                title="Cấu hình đề xuất bán hàng"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>target</span>
-                              </button>
-                            )}
-                            {canEdit && (
-                              <button onClick={() => onOpenModal('EDIT_PRODUCT', item)} className="p-1 text-slate-400 transition-colors hover:text-primary rounded hover:bg-slate-100" title="Chỉnh sửa">
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button onClick={() => onOpenModal('DELETE_PRODUCT', item)} className="p-1 text-slate-400 transition-colors hover:text-error rounded hover:bg-red-50" title="Xóa">
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
-                              </button>
-                            )}
+                            {renderProductActionButtons(item)}
                           </div>
                         </td>
                       )}
                     </tr>
                   );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={tableColSpan} className="px-4 py-10">
-                    <div className="flex flex-col items-center justify-center text-center">
-                      <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>
-                        {isEmptyData ? 'inventory_2' : 'search_off'}
-                      </span>
-                      <p className="mt-2 text-xs font-semibold text-slate-700">
-                        {isEmptyData ? 'Chưa có sản phẩm nào.' : 'Không tìm thấy sản phẩm phù hợp.'}
-                      </p>
-                      <p className="mt-1 max-w-md text-[11px] text-slate-500">
-                        {isEmptyData
-                          ? 'Danh mục sản phẩm hiện chưa có dữ liệu. Bạn có thể tạo mới để bắt đầu quản lý.'
-                          : 'Thử đổi từ khóa hoặc xóa bộ lọc để xem lại toàn bộ danh sách.'}
-                      </p>
-                      {isEmptyData && canEdit && (
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          // isLoading prop không có trực tiếp ở đây, dùng products.length === 0 && !isEmptyData làm proxy
+          // → skeleton render khi chuyển filter và currentData tạm trống
+          currentData.length === 0 && !isEmptyFiltered && !isEmptyData ? (
+            renderSkeletonCards()
+          ) : (
+          <div data-testid="product-catalog-card-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
+            {currentData.map((item) => {
+              const isActive = item.is_active !== false;
+              const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+              const productDescription = String(item.description || '').trim() || '—';
+              const packageName = getProductPackageSearchLabel(item);
+              const cardId = getCompactCardId(item);
+              const isDetailsExpanded = expandedCompactCardIds.includes(cardId);
+              const isSwipeOpen = swipedCardId === cardId;
+              const domainName = getDomainName(item.domain_id);
+              const vendorName = getVendorName(item.vendor_id);
+              const unitLabel = formatProductUnitForDisplay(item.unit);
+
+              return (
+                <article
+                  key={String(item.id || item.product_code)}
+                  data-testid="product-catalog-card"
+                  className="relative overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                  onTouchStart={(e) => isPhoneWidth && handleSwipeTouchStart(e, cardId)}
+                  onTouchEnd={(e) => isPhoneWidth && handleSwipeTouchEnd(e, cardId)}
+                >
+                  {/* Swipe-to-action backdrop (phone only) */}
+                  {isSwipeOpen && isPhoneWidth && (
+                    <div
+                      className="absolute inset-0 z-10"
+                      onClick={() => setSwipedCardId(null)}
+                    />
+                  )}
+
+                  {/* Swipe action strip — revealed when swiped left on phone */}
+                  {isPhoneWidth && (canEdit || canDelete) && (
+                    <div
+                      aria-hidden={!isSwipeOpen}
+                      className={`absolute right-0 top-0 z-20 flex h-full flex-col items-center justify-center gap-2 bg-white px-3 shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.08)] transition-transform duration-200 ${
+                        isSwipeOpen ? 'translate-x-0' : 'translate-x-full'
+                      }`}
+                    >
+                      {canEdit && (
                         <button
-                          onClick={() => onOpenModal('ADD_PRODUCT')}
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
+                          type="button"
+                          onClick={() => { setSwipedCardId(null); onOpenModal('EDIT_PRODUCT', item); }}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
+                          aria-label="Chỉnh sửa"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                          Thêm sản phẩm
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
                         </button>
                       )}
-                      {isEmptyFiltered && (
+                      {canDelete && (
                         <button
-                          onClick={resetFilters}
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          type="button"
+                          onClick={() => { setSwipedCardId(null); onOpenModal('DELETE_PRODUCT', item); }}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-red-100 bg-red-50/60 text-error transition-colors hover:bg-red-50 hover:border-error/30"
+                          aria-label="Xóa"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
-                          Xóa bộ lọc
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                         </button>
                       )}
                     </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  )}
+
+                  {/* Card nội dung chính */}
+                  <div className={`p-3 transition-transform duration-200 ${isSwipeOpen && isPhoneWidth ? '-translate-x-16' : ''}`}>
+                    {/* Header — mã + badge, gói cước + status dot */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate text-xs font-medium leading-5 text-on-surface-variant">
+                            <span className="text-[10px] font-semibold text-neutral">Mã:</span>{' '}
+                            <span className="text-[13px] font-semibold text-deep-teal">{item.product_code}</span>
+                          </p>
+                          <span className={`inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${serviceGroupMeta.badgeClassName}`}>
+                            {getProductServiceGroupShortLabel(item.service_group)}
+                          </span>
+                        </div>
+                        <div className="mt-1">
+                          <p className="text-xs leading-5 text-on-surface-variant line-clamp-2">
+                            <span className="text-[10px] font-semibold text-neutral">Gói cước:</span>{' '}
+                            <span className="text-[13px] font-semibold text-primary">{packageName}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Thông tin chính */}
+                    <div className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                      <h3 className="mb-2 min-w-0 break-words text-[13px] font-bold leading-5 text-on-surface">
+                        {item.product_name}
+                      </h3>
+                      {isPhoneWidth ? (
+                        <div className="space-y-1 text-[11px] leading-5 text-on-surface-variant">
+                          <p className="min-w-0">
+                            <span className="font-semibold">ĐVT:</span>{' '}
+                            <span className="font-medium text-on-surface">{unitLabel}</span>
+                          </p>
+                          <p className="min-w-0">
+                            <span className="font-semibold">Đơn giá:</span>{' '}
+                            <span className="font-semibold text-deep-teal">{formatVndFull(item.standard_price)}</span>
+                          </p>
+                          <p className="min-w-0 break-words">
+                            <span className="font-semibold">Lĩnh vực KD:</span>{' '}
+                            <span className="font-medium text-on-surface">{domainName}</span>
+                          </p>
+                          <p className="min-w-0 break-words">
+                            <span className="font-semibold">Mô tả gói cước:</span>{' '}
+                            <span className="font-medium text-on-surface">{productDescription}</span>
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 text-[11px] leading-5 text-on-surface-variant">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="min-w-0">
+                              <span className="font-semibold">ĐVT:</span>{' '}
+                              <span className="font-medium text-on-surface">{unitLabel}</span>
+                            </p>
+                            <p className="min-w-0 shrink-0 text-right">
+                              <span className="font-semibold">Đơn giá:</span>{' '}
+                              <span className="font-semibold text-deep-teal">{formatVndFull(item.standard_price)}</span>
+                            </p>
+                          </div>
+                          <p className="min-w-0 break-words">
+                            <span className="font-semibold">Lĩnh vực KD:</span>{' '}
+                            <span className="font-medium text-on-surface">{domainName}</span>
+                          </p>
+                          <p className="min-w-0 break-words">
+                            <span className="font-semibold">Mô tả gói cước:</span>{' '}
+                            <span className="font-medium text-on-surface">{productDescription}</span>
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Toggle chi tiết */}
+                    <button
+                      type="button"
+                      data-testid={`product-catalog-card-toggle-${cardId}`}
+                      onClick={() => toggleCompactCardDetails(cardId)}
+                      aria-expanded={isDetailsExpanded}
+                      className="mt-2.5 inline-flex h-8 w-full items-center justify-between rounded border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                    >
+                      <span>{isDetailsExpanded ? 'Thu gọn chi tiết' : 'Xem chi tiết'}</span>
+                      <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 15 }}>
+                        {isDetailsExpanded ? 'expand_less' : 'expand_more'}
+                      </span>
+                    </button>
+
+                    {/* Chi tiết mở rộng */}
+                    {isDetailsExpanded && (
+                      <div
+                        data-testid={`product-catalog-card-details-${cardId}`}
+                        className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/70 p-3"
+                      >
+                        <p className="break-words text-xs leading-5 text-on-surface-variant">
+                          <span className="font-semibold text-neutral">Nhà cung cấp:</span>{' '}
+                          <span className="font-medium text-on-surface">{vendorName}</span>
+                        </p>
+                        <button
+                          type="button"
+                          data-testid={`product-catalog-card-feature-link-${cardId}`}
+                          onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
+                          className="mt-2 flex w-full items-center justify-between gap-3 border-t border-slate-200 pt-2 text-left text-xs text-on-surface-variant transition-colors hover:text-primary"
+                        >
+                          <span className="min-w-0 break-words">
+                            <span className="font-semibold text-neutral">Chức năng:</span>{' '}
+                            <span className="font-medium text-on-surface">Xem danh mục chức năng</span>
+                          </span>
+                          <span className="material-symbols-outlined shrink-0 text-slate-400" style={{ fontSize: 15 }}>chevron_right</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          )
+        )}
 
         <PaginationControls
           currentPage={effectiveCurrentPage}
@@ -1177,6 +1567,18 @@ export const ProductList: React.FC<ProductListProps> = ({
         />
       </div>
         </>
+      )}
+
+      {/* ── Scroll-to-top (mobile/tablet only, hiện sau 300px) ── */}
+      {showScrollTop && isCompactKpiLayout && (
+        <button
+          type="button"
+          aria-label="Cuộn lên đầu trang"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-5 right-4 z-50 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white shadow-lg transition-all hover:bg-slate-50 xl:hidden"
+        >
+          <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 18 }}>arrow_upward</span>
+        </button>
       )}
     </div>
   );

@@ -63,8 +63,20 @@ Route::post('/reminders/{id}/send-email', [IntegrationSettingsController::class,
     ->middleware('permission:reminders.write');
 Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
     ->middleware('permission:user_dept_history.read');
+Route::post('/user-dept-history', [IntegrationSettingsController::class, 'storeUserDeptHistory'])
+    ->middleware('permission:user_dept_history.write');
+Route::put('/user-dept-history/{id}', [IntegrationSettingsController::class, 'updateUserDeptHistory'])
+    ->middleware('permission:user_dept_history.write');
+Route::delete('/user-dept-history/{id}', [IntegrationSettingsController::class, 'destroyUserDeptHistory'])
+    ->middleware('permission:user_dept_history.delete');
 Route::get('/user_dept_history', [IntegrationSettingsController::class, 'userDeptHistory'])
     ->middleware(['permission:user_dept_history.read', 'deprecated.route:/api/v5/user-dept-history,2026-04-27']);
+Route::post('/user_dept_history', [IntegrationSettingsController::class, 'storeUserDeptHistory'])
+    ->middleware(['permission:user_dept_history.write', 'deprecated.route:/api/v5/user-dept-history,2026-04-27']);
+Route::put('/user_dept_history/{id}', [IntegrationSettingsController::class, 'updateUserDeptHistory'])
+    ->middleware(['permission:user_dept_history.write', 'deprecated.route:/api/v5/user-dept-history,2026-04-27']);
+Route::delete('/user_dept_history/{id}', [IntegrationSettingsController::class, 'destroyUserDeptHistory'])
+    ->middleware(['permission:user_dept_history.delete', 'deprecated.route:/api/v5/user-dept-history,2026-04-27']);
 
 Route::get('/audit-logs', [AuditLogController::class, 'index'])
     ->middleware('permission:audit_logs.read');

@@ -8,6 +8,8 @@ import { useImportCustomers } from './hooks/useImportCustomers';
 import { useImportCustomerPersonnel } from './hooks/useImportCustomerPersonnel';
 import { useImportDepartments } from './hooks/useImportDepartments';
 import { useImportEmployees } from './hooks/useImportEmployees';
+import { useImportEmployeePartyProfiles } from './hooks/useImportEmployeePartyProfiles';
+import { useImportProducts } from './hooks/useImportProducts';
 import { useCustomerPersonnel } from './hooks/useCustomerPersonnel';
 import { useToastQueue } from './hooks/useToastQueue';
 import { useTabSession } from './hooks/useTabSession';
@@ -21,7 +23,7 @@ import type {
 } from './components/modals/projectImportTypes';
 import {
   AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel,
-  Project, ProjectItemMaster, ProjectRaciRow, Contract, Document, Reminder, UserDeptHistory,
+  Project, ProjectItem, ProjectItemMaster, ProjectRACI, ProjectRaciRow, Contract, Document, Reminder, UserDeptHistory,
   ModalType, DashboardStats, ContractAggregateKpis, CustomerAggregateKpis, PaymentSchedule,
   PaymentScheduleConfirmationPayload, HRStatistics, SupportServiceGroup, SupportContactPosition,
   ProductUnitMaster, SupportRequestStatusOption, SupportSlaConfigOption, AuthUser, EmployeeProvisioning, Role,
@@ -42,9 +44,10 @@ import { calculateDashboardStats, calculateContractKpis, calculateCustomerKpis }
 import {
   DEFAULT_PAGINATION_META, fetchAuthBootstrap, fetchCurrentUser, login, logout, changePasswordFirstLogin,
   fetchDepartments, fetchEmployees, fetchBusinesses, fetchVendors, fetchProducts, fetchCustomers,
-  fetchProjects, fetchProjectItems, fetchContracts, fetchPaymentSchedules,
+  fetchProjects, fetchProjectItems, fetchContracts, fetchContractDetail, fetchPaymentSchedules,
   fetchDocuments, fetchReminders, fetchUserDeptHistory, fetchAuditLogs, fetchSupportServiceGroups,
   createReminder, updateReminder, deleteReminder, sendReminderEmail,
+  createUserDeptHistory, updateUserDeptHistory, deleteUserDeptHistory,
   fetchSupportContactPositions, fetchProductUnitMasters, fetchSupportRequestStatuses, fetchProjectTypes, fetchWorklogActivityTypes,
   fetchSupportSlaConfigs, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
   fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
@@ -72,47 +75,47 @@ import { fetchFeedbackDetail } from './services/api/adminApi';
 import type { GenerateContractPaymentsPayload } from './services/v5Api';
 import { normalizeImportToken, normalizeImportDate, isProductDeleteDependencyError, isCustomerDeleteDependencyError } from './utils/importUtils';
 import { normalizeQuerySignature } from './utils/queryUtils';
-import { hasPermission } from './utils/authorization';
+import { canOpenModal, hasPermission, isImportSupportedModule } from './utils/authorization';
 import { fetchEmployeePartyProfilesPage, upsertEmployeePartyProfile } from './services/api/employeeApi';
 
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
 const ContractModal = lazy(() => import('./components/ContractModal').then((m) => ({ default: m.ContractModal })));
 const EmployeePartyProfileModal = lazy(() => import('./components/EmployeePartyProfileModal').then((m) => ({ default: m.EmployeePartyProfileModal })));
-const FeedbackFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackFormModal })));
-const FeedbackViewModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackViewModal })));
-const DeleteFeedbackModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteFeedbackModal })));
-const DepartmentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DepartmentFormModal })));
-const ViewDepartmentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ViewDepartmentModal })));
-const DeleteWarningModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteWarningModal })));
-const CannotDeleteModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteModal })));
-const ImportModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ImportModal })));
-const EmployeeFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.EmployeeFormModal })));
-const DeleteEmployeeModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteEmployeeModal })));
-const BusinessFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.BusinessFormModal })));
-const DeleteBusinessModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteBusinessModal })));
-const VendorFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.VendorFormModal })));
-const DeleteVendorModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteVendorModal })));
-const ProductFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProductFormModal })));
-const DeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProductModal })));
-const CannotDeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteProductModal })));
+const FeedbackFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackFormModal })));
+const FeedbackViewModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackViewModal })));
+const DeleteFeedbackModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteFeedbackModal })));
+const DepartmentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DepartmentFormModal })));
+const ViewDepartmentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ViewDepartmentModal })));
+const DeleteWarningModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteWarningModal })));
+const CannotDeleteModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteModal })));
+const ImportModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ImportModal })));
+const EmployeeFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.EmployeeFormModal })));
+const DeleteEmployeeModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteEmployeeModal })));
+const BusinessFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.BusinessFormModal })));
+const DeleteBusinessModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteBusinessModal })));
+const VendorFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.VendorFormModal })));
+const DeleteVendorModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteVendorModal })));
+const ProductFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProductFormModal })));
+const DeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProductModal })));
+const CannotDeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteProductModal })));
 const ProductFeatureCatalogModal = lazy(() => import('./components/ProductFeatureCatalogModal').then((m) => ({ default: m.ProductFeatureCatalogModal })));
 const ProductTargetSegmentModal = lazy(() => import('./components/ProductTargetSegmentModal').then((m) => ({ default: m.ProductTargetSegmentModal })));
-const CannotDeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
+const CannotDeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
 const CustomerInsightPanel = lazy(() => import('./components/CustomerInsightPanel'));
-const CustomerFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CustomerFormModal })));
-const DeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCustomerModal })));
-const CusPersonnelFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CusPersonnelFormModal })));
-const DeleteCusPersonnelModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
-const ProjectFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProjectFormModal })));
-const DeleteProjectModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProjectModal })));
-const DeleteContractModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteContractModal })));
-const DocumentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DocumentFormModal })));
-const DeleteDocumentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteDocumentModal })));
-const ReminderFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ReminderFormModal })));
-const DeleteReminderModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteReminderModal })));
-const UserDeptHistoryFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
-const DeleteUserDeptHistoryModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
+const CustomerFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CustomerFormModal })));
+const DeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCustomerModal })));
+const CusPersonnelFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CusPersonnelFormModal })));
+const DeleteCusPersonnelModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
+const ProjectFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProjectFormModal })));
+const DeleteProjectModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProjectModal })));
+const DeleteContractModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteContractModal })));
+const DocumentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DocumentFormModal })));
+const DeleteDocumentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteDocumentModal })));
+const ReminderFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ReminderFormModal })));
+const DeleteReminderModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteReminderModal })));
+const UserDeptHistoryFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
+const DeleteUserDeptHistoryModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
 
 const LazyModuleFallback: React.FC = () => (
   <div className="min-h-[300px] flex items-center justify-center py-16 text-slate-500">
@@ -266,6 +269,8 @@ const App: React.FC = () => {
   const { handleImportDepartments } = useImportDepartments();
   const { handleImportEmployees } = useImportEmployees();
   const { handleImportCustomers } = useImportCustomers();
+  const { handleImportEmployeePartyProfiles } = useImportEmployeePartyProfiles();
+  const { handleImportProducts } = useImportProducts();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -348,7 +353,7 @@ const App: React.FC = () => {
   // Fallback tab if no permission
   React.useEffect(() => {
     if (!authUser) return;
-    if (visibleTabIds.has(activeTab)) return;
+    if (visibleTabIds.has(activeTab as typeof AVAILABLE_TABS[number])) return;
     const fallbackTab = AVAILABLE_TABS.find((tabId) => visibleTabIds.has(tabId)) || 'dashboard';
     if (fallbackTab !== activeTab) handleNavigateTab(fallbackTab);
   }, [authUser, activeTab, visibleTabIds, handleNavigateTab]);
@@ -760,6 +765,14 @@ const App: React.FC = () => {
     await fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {});
   }, []);
 
+  const refreshUserDeptHistoryData = React.useCallback(async () => {
+    await Promise.all([
+      fetchUserDeptHistory().then((rows) => setUserDeptHistory(rows || [])).catch(() => {}),
+      fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
+      fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
+    ]);
+  }, []);
+
   const refreshVendorsData = React.useCallback(async () => {
     await fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {});
   }, []);
@@ -802,6 +815,28 @@ const App: React.FC = () => {
     await loadFeedbacksPage();
   }, [loadFeedbacksPage]);
 
+  const resetModalSelections = React.useCallback(() => {
+    setSelectedDept(null);
+    setSelectedEmployee(null);
+    setSelectedPartyProfile(null);
+    setSelectedBusiness(null);
+    setSelectedVendor(null);
+    setSelectedProduct(null);
+    setProductDeleteDependencyMessage(null);
+    setSelectedCustomer(null);
+    setSelectedCusPersonnel(null);
+    setSelectedProject(null);
+    setProjectModalInitialTab('info');
+    setSelectedContract(null);
+    setContractAddPrefill(null);
+    setSelectedDocument(null);
+    setSelectedReminder(null);
+    setSelectedUserDeptHistory(null);
+    setSelectedFeedback(null);
+    setEmployeeProvisioning(null);
+    setProcedureProject(null);
+  }, []);
+
   const upsertCustomerCache = React.useCallback((customer: Customer) => {
     setCustomers((previous) => {
       const existing = previous || [];
@@ -833,6 +868,10 @@ const App: React.FC = () => {
 
   const removeCustomersPageRow = React.useCallback((customerId: Customer['id']) => {
     setCustomersPageRows((previous) => (previous || []).filter((item) => String(item.id) !== String(customerId)));
+  }, []);
+
+  const removeProductCache = React.useCallback((productId: Product['id']) => {
+    setProducts((previous) => (previous || []).filter((item) => String(item.id) !== String(productId)));
   }, []);
 
   const handleSaveCustomer = React.useCallback(async (payload: Partial<Customer>, customerId?: Customer['id']) => {
@@ -873,6 +912,30 @@ const App: React.FC = () => {
     }
   }, [refreshCustomersData, removeCustomerCache, removeCustomersPageRow]);
 
+  const handleDeleteProduct = React.useCallback(async (product: Product) => {
+    setIsSaving(true);
+    setProductDeleteDependencyMessage(null);
+    try {
+      await deleteProduct(product.id);
+      removeProductCache(product.id);
+      await refreshProductsData();
+      setSelectedProduct(null);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Đã xóa sản phẩm.');
+    } catch (error) {
+      if (isProductDeleteDependencyError(error)) {
+        setProductDeleteDependencyMessage(error instanceof Error ? error.message : null);
+        setModalType('CANNOT_DELETE_PRODUCT');
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : 'Không thể xóa sản phẩm.';
+      addToast('error', 'Xóa thất bại', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, refreshProductsData, removeProductCache]);
+
   const handleSavePartyProfile = React.useCallback(async (payload: Partial<EmployeePartyProfile>) => {
     setIsSaving(true);
     try {
@@ -893,6 +956,44 @@ const App: React.FC = () => {
       setIsSaving(false);
     }
   }, [addToast, refreshPartyProfilesData, selectedPartyProfile]);
+
+  const handleSaveDocument = React.useCallback(async (
+    payload: Partial<Document>,
+    modal: 'ADD_DOCUMENT' | 'EDIT_DOCUMENT' | 'UPLOAD_PRODUCT_DOCUMENT',
+  ) => {
+    await runSavingTask(async () => {
+      try {
+        if (modal === 'ADD_DOCUMENT') {
+          await createDocument({ ...payload, scope: 'DEFAULT' });
+          await refreshDocumentsData();
+          setModalType(null);
+          addToast('success', 'Thành công', 'Thêm mới hồ sơ tài liệu thành công!');
+          return;
+        }
+
+        if (modal === 'UPLOAD_PRODUCT_DOCUMENT') {
+          await createDocument({ ...payload, scope: 'PRODUCT_PRICING' });
+          await refreshDocumentsData();
+          setSelectedProduct(null);
+          setModalType(null);
+          addToast('success', 'Thành công', 'Đã lưu tài liệu minh chứng giá sản phẩm.');
+          return;
+        }
+
+        if (!selectedDocument) {
+          return;
+        }
+
+        await updateDocument(selectedDocument.id, { ...payload, scope: 'DEFAULT' });
+        await refreshDocumentsData();
+        setModalType(null);
+        addToast('success', 'Thành công', 'Cập nhật hồ sơ tài liệu thành công!');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+        addToast('error', 'Lưu thất bại', `Không thể lưu hồ sơ tài liệu vào cơ sở dữ liệu. ${message}`);
+      }
+    });
+  }, [addToast, refreshDocumentsData, runSavingTask, selectedDocument]);
 
   const handleImportData = React.useCallback(async (payload: ImportPayload) => {
     switch (importModalModuleKey) {
@@ -919,6 +1020,17 @@ const App: React.FC = () => {
           closeImportModal,
         );
         return;
+      case 'internal_user_party_members':
+        await handleImportEmployeePartyProfiles(
+          payload,
+          addToast,
+          setImportLoadingText,
+          setIsSaving,
+          setPartyProfilesPageRows,
+          loadPartyProfilesPage,
+          closeImportModal,
+        );
+        return;
       case 'clients':
         setIsSaving(true);
         try {
@@ -928,6 +1040,24 @@ const App: React.FC = () => {
             addToast,
             setImportLoadingText,
             refreshCustomersData,
+            closeImportModal,
+          );
+        } finally {
+          setIsSaving(false);
+          setImportLoadingText('');
+        }
+        return;
+      case 'products':
+        setIsSaving(true);
+        try {
+          await handleImportProducts(
+            payload,
+            products,
+            businesses,
+            vendors,
+            addToast,
+            setImportLoadingText,
+            refreshProductsData,
             closeImportModal,
           );
         } finally {
@@ -962,13 +1092,20 @@ const App: React.FC = () => {
     addToast,
     closeImportModal,
     handleImportEmployees,
+    handleImportEmployeePartyProfiles,
     refreshEmployeesData,
     handleImportCustomers,
+    handleImportProducts,
     handleImportCustomerPersonnel,
+    products,
+    businesses,
+    vendors,
     customers,
     supportContactPositions,
     loadCustomerPersonnel,
+    loadPartyProfilesPage,
     refreshCustomersData,
+    refreshProductsData,
   ]);
 
   // Load data by activeTab - MUST be after load*Page functions
@@ -989,6 +1126,8 @@ const App: React.FC = () => {
             fetchPaymentSchedules().then((rows) => setPaymentSchedules(rows || [])).catch(() => {}),
             fetchProjects().then((rows) => setProjects(rows || [])).catch(() => {}),
             fetchCustomers().then((rows) => setCustomers(rows || [])).catch(() => {}),
+            fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
+            fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
           ]);
           break;
         case 'internal_user_dashboard':
@@ -1013,11 +1152,7 @@ const App: React.FC = () => {
           ]);
           break;
         case 'user_dept_history':
-          await Promise.all([
-            fetchUserDeptHistory().then((rows) => setUserDeptHistory(rows || [])).catch(() => {}),
-            fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
-            fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
-          ]);
+          await refreshUserDeptHistoryData();
           break;
         case 'businesses':
           await Promise.all([
@@ -1202,7 +1337,7 @@ const App: React.FC = () => {
 
   // Dashboard calculations
   const EMPTY_CONTRACT_AGGREGATE_KPIS: ContractAggregateKpis = { draftCount: 0, renewedCount: 0, signedTotalValue: 0, collectionRate: 0, newSignedCount: 0, newSignedValue: 0, totalPipelineValue: 0, overduePaymentAmount: 0, actualCollectedValue: 0 };
-  const EMPTY_CUSTOMER_AGGREGATE_KPIS: CustomerAggregateKpis = { newThisMonth: 0, customersWithActiveContracts: 0, totalActiveContractValue: 0, customersWithoutContracts: 0, customersWithOpenCrc: 0 };
+  const EMPTY_CUSTOMER_AGGREGATE_KPIS: CustomerAggregateKpis = { totalCustomers: 0, healthcareCustomers: 0, governmentCustomers: 0, individualCustomers: 0, healthcareBreakdown: { publicHospital: 0, privateHospital: 0, medicalCenter: 0, privateClinic: 0, tytPkdk: 0, other: 0 } };
   const EMPTY_DASHBOARD_STATS: DashboardStats = { totalRevenue: 0, actualRevenue: 0, forecastRevenueMonth: 0, forecastRevenueQuarter: 0, monthlyRevenueComparison: [], projectStatusCounts: [], contractStatusCounts: [], collectionRate: 0, overduePaymentCount: 0, overduePaymentAmount: 0, expiringContracts: [] };
 
   const contractAggregateKpis = useMemo<ContractAggregateKpis>(() => {
@@ -1217,7 +1352,7 @@ const App: React.FC = () => {
 
   const dashboardStats = useMemo<DashboardStats>(() => {
     if (activeTab !== 'dashboard') return EMPTY_DASHBOARD_STATS;
-    return calculateDashboardStats(contracts, customers, paymentSchedules, projects);
+    return calculateDashboardStats(contracts, paymentSchedules, projects, customers);
   }, [activeTab, contracts, customers, paymentSchedules, projects]);
 
   const hrStatistics: HRStatistics = useMemo(() => buildHrStatistics(employees, departments), [employees, departments]);
@@ -1314,14 +1449,27 @@ const App: React.FC = () => {
               canDeleteRequests: hasPermission(authUser, 'support_requests.delete'),
             }}
             handleOpenModal={(type, item) => {
-              setModalType(type);
+              resetModalSelections();
               setImportModuleOverride(null);
               setIsContractDetailLoading(false);
               setIsFeedbackDetailLoading(false);
 
               if (!type) {
+                setModalType(type);
                 return;
               }
+
+              if (!canOpenModal(authUser, type, activeModuleKey)) {
+                setModalType(null);
+                if (type === 'IMPORT_DATA' && !isImportSupportedModule(activeModuleKey)) {
+                  addToast('error', 'Nhập dữ liệu', 'Module này chưa được cấu hình luồng import.');
+                } else {
+                  addToast('error', 'Không có quyền', 'Bạn không có quyền thực hiện thao tác này.');
+                }
+                return;
+              }
+
+              setModalType(type);
 
               if (type === 'IMPORT_DATA') {
                 setImportModuleOverride(activeModuleKey);
@@ -1357,6 +1505,23 @@ const App: React.FC = () => {
 
               if (type === 'ADD_PARTY_PROFILE' || type === 'EDIT_PARTY_PROFILE') {
                 setSelectedPartyProfile((item as EmployeePartyProfile) ?? null);
+                return;
+              }
+
+              if (type === 'ADD_USER_DEPT_HISTORY' && item && typeof item === 'object' && 'username' in item) {
+                const employee = item as Employee;
+                setSelectedEmployee(employee);
+                setSelectedUserDeptHistory({
+                  id: '',
+                  userId: String(employee.id ?? ''),
+                  fromDeptId: String(employee.department_id ?? ''),
+                  toDeptId: '',
+                  transferDate: new Date().toISOString().split('T')[0],
+                  decisionNumber: '',
+                  reason: '',
+                  employeeCode: String(employee.user_code ?? employee.employee_code ?? ''),
+                  employeeName: String(employee.full_name ?? employee.username ?? ''),
+                });
                 return;
               }
 
@@ -1480,7 +1645,7 @@ const App: React.FC = () => {
             handleUpdateSupportContactPosition={async (id, d) => { const u = await updateSupportContactPosition(id, d); setSupportContactPositions((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleUpdateProductUnitMaster={async (id, d) => { const u = await updateProductUnitMaster(id, d); setProductUnitMasters((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateSupportRequestStatus={async (d) => { const c = await createSupportRequestStatus(d); setSupportRequestStatuses((p) => [c, ...p]); return c; }}
-            handleUpdateSupportRequestStatus={async (id, d) => { const u = await updateSupportRequestStatusDefinition(id, d); setSupportRequestStatuses((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
+            handleUpdateSupportRequestStatusDefinition={async (id, d) => { const u = await updateSupportRequestStatusDefinition(id, d); setSupportRequestStatuses((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateProjectType={async (d) => { const c = await createProjectType(d); setProjectTypes((p) => [c, ...p]); return c; }}
             handleUpdateProjectType={async (id, d) => { const u = await updateProjectType(id, d); setProjectTypes((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateWorklogActivityType={async (d) => { const c = await createWorklogActivityType(d); setWorklogActivityTypes((p) => [c, ...p]); return c; }}
@@ -1554,7 +1719,7 @@ const App: React.FC = () => {
         {modalType === 'DELETE_FEEDBACK' && selectedFeedback && <DeleteFeedbackModal data={selectedFeedback} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteFeedback(selectedFeedback.id); await refreshFeedbacksData(); setModalType(null); }); }} />}
         {modalType === 'ADD_PRODUCT' && <ProductFormModal type="ADD" data={selectedProduct} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProduct({ ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP), unit: normalizeProductUnitForSave(d.unit) }); await refreshProductsData(); setModalType(null); }); }} />}
         {modalType === 'EDIT_PRODUCT' && <ProductFormModal type="EDIT" data={selectedProduct} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProduct) { await updateProduct(selectedProduct.id, { ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP), unit: normalizeProductUnitForSave(d.unit) }); await refreshProductsData(); setModalType(null); } }); }} />}
-        {modalType === 'DELETE_PRODUCT' && selectedProduct && <DeleteProductModal data={selectedProduct} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { try { await deleteProduct(selectedProduct.id); await refreshProductsData(); setModalType(null); } catch (error) { if (isProductDeleteDependencyError(error)) { setProductDeleteDependencyMessage(error instanceof Error ? error.message : null); setModalType('CANNOT_DELETE_PRODUCT'); return; } throw error; } }); }} />}
+        {modalType === 'DELETE_PRODUCT' && selectedProduct && <DeleteProductModal data={selectedProduct} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteProduct(selectedProduct); }} />}
         {modalType === 'CANNOT_DELETE_PRODUCT' && selectedProduct && <CannotDeleteProductModal data={selectedProduct} reason={productDeleteDependencyMessage} onClose={() => setModalType(null)} />}
         {modalType === 'PRODUCT_FEATURE_CATALOG' && selectedProduct && <ProductFeatureCatalogModal product={selectedProduct} canManage={hasPermission(authUser, 'products.write')} onClose={() => setModalType(null)} onNotify={addToast} />}
         {modalType === 'PRODUCT_TARGET_SEGMENT' && selectedProduct && <ProductTargetSegmentModal product={selectedProduct} canManage={hasPermission(authUser, 'products.write')} onClose={() => setModalType(null)} onNotify={addToast} />}
@@ -1566,22 +1731,44 @@ const App: React.FC = () => {
         {modalType === 'ADD_CUS_PERSONNEL' && <CusPersonnelFormModal type="ADD" data={selectedCusPersonnel} customers={customers} supportContactPositions={supportContactPositions} isCustomersLoading={false} isSupportContactPositionsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { const success = await handleSaveCusPersonnel(d, 'ADD_CUS_PERSONNEL', null); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
         {modalType === 'EDIT_CUS_PERSONNEL' && <CusPersonnelFormModal type="EDIT" data={selectedCusPersonnel} customers={customers} supportContactPositions={supportContactPositions} isCustomersLoading={false} isSupportContactPositionsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { const success = await handleSaveCusPersonnel(d, 'EDIT_CUS_PERSONNEL', selectedCusPersonnel); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
         {modalType === 'DELETE_CUS_PERSONNEL' && selectedCusPersonnel && <DeleteCusPersonnelModal data={selectedCusPersonnel} onClose={() => setModalType(null)} onConfirm={async () => { const success = await handleDeleteCusPersonnel(selectedCusPersonnel); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
-        {modalType === 'ADD_PROJECT' && <ProjectFormModal type="ADD" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProject({ ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.raciRole })) : undefined }); await refreshProjectsData(); setModalType(null); }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
-        {modalType === 'EDIT_PROJECT' && <ProjectFormModal type="EDIT" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProject) { await updateProject(selectedProject.id, { ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.raciRole })) : undefined }); await refreshProjectsData(); addToast('success', 'Thành công', 'Cập nhật dự án thành công.'); setModalType(null); } }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
+        {modalType === 'ADD_PROJECT' && <ProjectFormModal type="ADD" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProject({ ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setModalType(null); }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
+        {modalType === 'EDIT_PROJECT' && <ProjectFormModal type="EDIT" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProject) { const updated = await updateProject(selectedProject.id, { ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setSelectedProject(updated); addToast('success', 'Thành công', 'Cập nhật dự án thành công.'); } }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
         {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteProject(selectedProject.id); await refreshProjectsData(); setModalType(null); }); }} />}
         {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={false} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createContract(d); await refreshContractsData(); setModalType(null); }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
         {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={isContractDetailLoading} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedContract) { await updateContract(selectedContract.id, d); await refreshContractsData(); setModalType(null); } }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
         {modalType === 'DELETE_CONTRACT' && selectedContract && <DeleteContractModal data={selectedContract} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteContract(selectedContract.id); await refreshContractsData(); setModalType(null); }); }} />}
         {procedureProject && <ProjectProcedureModal project={procedureProject} isOpen={true} onClose={() => setProcedureProject(null)} onNotify={addToast} projectTypes={projectTypes} authUser={authUser} />}
-        {modalType === 'ADD_DOCUMENT' && <DocumentFormModal type="ADD" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createDocument({ ...d, scope: 'DEFAULT' }); await refreshDocumentsData(); setModalType(null); }); }} />}
-        {modalType === 'EDIT_DOCUMENT' && <DocumentFormModal type="EDIT" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedDocument) { await updateDocument(selectedDocument.id, { ...d, scope: 'DEFAULT' }); await refreshDocumentsData(); setModalType(null); } }); }} />}
+        {modalType === 'ADD_DOCUMENT' && <DocumentFormModal type="ADD" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isSaving={isSaving} onClose={() => setModalType(null)} onSave={async (d) => { await handleSaveDocument(d, 'ADD_DOCUMENT'); }} />}
+        {modalType === 'EDIT_DOCUMENT' && <DocumentFormModal type="EDIT" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isSaving={isSaving} onClose={() => setModalType(null)} onSave={async (d) => { await handleSaveDocument(d, 'EDIT_DOCUMENT'); }} />}
+        {modalType === 'UPLOAD_PRODUCT_DOCUMENT' && (
+          <DocumentFormModal
+            type="ADD"
+            data={null}
+            customers={customers}
+            projects={projects}
+            products={products}
+            preselectedProduct={selectedProduct}
+            mode="product_upload"
+            isCustomersLoading={false}
+            isProjectsLoading={false}
+            isProductsLoading={false}
+            isSaving={isSaving}
+            onClose={() => {
+              setSelectedProduct(null);
+              setModalType(null);
+            }}
+            onSave={async (d) => {
+              await handleSaveDocument(d, 'UPLOAD_PRODUCT_DOCUMENT');
+            }}
+          />
+        )}
         {modalType === 'DELETE_DOCUMENT' && selectedDocument && <DeleteDocumentModal data={selectedDocument} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteDocument(selectedDocument.id); await refreshDocumentsData(); setModalType(null); }); }} />}
         {modalType === 'ADD_REMINDER' && <ReminderFormModal type="ADD" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); try { const created = await createReminder(d); setReminders((prev) => [created, ...prev]); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'EDIT_REMINDER' && <ReminderFormModal type="EDIT" data={selectedReminder} employees={employees} onClose={() => setModalType(null)} onSave={async (d) => { if (!selectedReminder?.id) return; setIsSaving(true); try { const updated = await updateReminder(selectedReminder.id, d); setReminders((prev) => prev.map((r) => (r.id === updated.id ? updated : r))); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'DELETE_REMINDER' && selectedReminder && <DeleteReminderModal data={selectedReminder} onClose={() => setModalType(null)} onConfirm={async () => { setIsSaving(true); try { await deleteReminder(selectedReminder.id); setReminders((prev) => prev.filter((r) => r.id !== selectedReminder.id)); setModalType(null); } finally { setIsSaving(false); } }} />}
-        {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory([{ ...d, id: `TRANSFER${Date.now()}`, createdDate: new Date().toLocaleDateString('vi-VN') } as UserDeptHistory, ...userDeptHistory]); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { setIsSaving(true); setUserDeptHistory(userDeptHistory.map(h => h.id === selectedUserDeptHistory?.id ? { ...d, id: selectedUserDeptHistory.id } : h)); setModalType(null); setIsSaving(false); }} />}
-        {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { setUserDeptHistory(userDeptHistory.filter(h => h.id !== selectedUserDeptHistory.id)); setModalType(null); }} />}
+        {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createUserDeptHistory(d); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
+        {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (!selectedUserDeptHistory?.id) return; await updateUserDeptHistory(selectedUserDeptHistory.id, d); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
+        {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteUserDeptHistory(selectedUserDeptHistory.id); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
       </Suspense>
     </div>
   );

@@ -91,6 +91,36 @@ describe('EmployeeList remote filters', () => {
     });
   });
 
+  it('renders a compact employee list header without legacy summary copy', async () => {
+    const onQueryChange = vi.fn();
+
+    render(
+      <EmployeeList
+        employees={[]}
+        departments={departments}
+        onOpenModal={vi.fn()}
+        paginationMeta={paginationMeta}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalled());
+
+    expect(screen.getByRole('heading', { name: /Quản lý danh sách nhân sự/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Nhập/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Xuất/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Thêm nhân sự/i })).toBeInTheDocument();
+    expect(screen.queryByText(/People Directory/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Trang 1\/2$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tập trung quản trị hồ sơ nhân sự, trạng thái vận hành tài khoản và các thao tác nhập xuất dữ liệu/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tìm nhanh theo mã, tài khoản, email, phòng ban và trạng thái vận hành/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tổng số hồ sơ khớp với truy vấn hiện tại/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Đếm trên tập dữ liệu đang tải của trang hiện tại/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Số hồ sơ có trạng thái VPN khả dụng trên dữ liệu đang hiển thị/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Số đơn vị xuất hiện trong tập dữ liệu đang hiển thị/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hiển thị\s+0\s*\/\s*14/i)).not.toBeInTheDocument();
+  });
+
   it('maps the department filter to department_id and returns to page 1', async () => {
     const user = userEvent.setup();
     const onQueryChange = vi.fn();

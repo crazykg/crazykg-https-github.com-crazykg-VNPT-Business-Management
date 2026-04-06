@@ -532,13 +532,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   );
 
   const baseTriggerClass = compact
-    ? 'w-full h-9 px-3 rounded-md border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative'
-    : 'w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-left text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed relative';
+    ? 'relative flex w-full items-center h-8 px-3 rounded border border-slate-300 bg-white text-left text-xs text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed'
+    : 'relative flex w-full items-center h-10 px-3 rounded border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed';
 
   const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${selectedOption?.triggerButtonClassName || ''} ${triggerClassName}`.trim();
   const disabledOverlayClassName = compact
-    ? 'absolute inset-0 z-10 cursor-not-allowed rounded-md bg-transparent'
-    : 'absolute inset-0 z-10 cursor-not-allowed rounded-lg bg-transparent';
+    ? 'absolute inset-0 z-10 cursor-not-allowed rounded bg-transparent'
+    : 'absolute inset-0 z-10 cursor-not-allowed rounded bg-transparent';
 
   const resolveOptionClassName = (option: SearchableSelectOption, isSelected: boolean, isHighlighted: boolean): string => {
     const baseClassName = option.disabled
@@ -549,7 +549,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       ? 'bg-slate-100 text-slate-900'
       : 'text-slate-700 hover:bg-slate-50';
 
-    return `block w-full rounded-md px-3 py-2.5 text-sm transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
+    return `block w-full rounded px-3 py-2 text-xs leading-5 transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
   };
 
   const renderOptionBody = useCallback(
@@ -561,7 +561,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       return (
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 flex-1 text-left">{option.label}</span>
-          {isSelected ? <span className="material-symbols-outlined shrink-0 text-sm">check</span> : null}
+          {isSelected ? <span className="material-symbols-outlined shrink-0" style={{ fontSize: 14 }}>check</span> : null}
         </div>
       );
     },
@@ -585,8 +585,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     if (filteredOptions.length === 0) {
       return (
         <div ref={optionsScrollRef} className={scrollClassName}>
-          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
-            <span className="material-symbols-outlined text-2xl">search_off</span>
+          <div className="flex flex-col items-center gap-2 px-4 py-6 text-center text-xs text-slate-400">
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>search_off</span>
             <span>{noOptionsText}</span>
           </div>
         </div>
@@ -676,7 +676,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       {label ? (
         <label
           id={labelId}
-          className={`${denseLabel ? 'mb-1' : 'mb-1.5'} block text-sm font-semibold text-slate-700`}
+          className={`${denseLabel ? 'mb-0.5' : 'mb-1'} block text-xs font-semibold text-neutral`}
         >
           {label} {required && <span className="text-red-500">*</span>}
         </label>
@@ -743,11 +743,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         >
           <span
             title={selectedOption?.label || placeholder}
-            className={`block truncate pr-8 text-left ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
+            className={`block w-full truncate pr-8 text-left leading-6 ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
           >
             {selectedOption?.label || placeholder}
           </span>
-          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
+          <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" style={{ fontSize: 16 }}>expand_more</span>
         </button>
 
         {disabled && onDisabledInteract ? (
@@ -773,7 +773,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
               <input
                 ref={inputRef}
                 type="text"
@@ -785,11 +785,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 aria-label={searchInputAriaLabel}
-                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-8 w-full rounded border border-slate-300 bg-white py-0 pl-8 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 onClick={(event) => event.stopPropagation()}
               />
               {searching ? (
-                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400 text-lg">
+                <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-slate-400" style={{ fontSize: 15 }}>
                   progress_activity
                 </span>
               ) : null}
@@ -807,7 +807,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
               <input
                 ref={inputRef}
                 type="text"
@@ -819,11 +819,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 aria-label={searchInputAriaLabel}
-                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-8 w-full rounded border border-slate-300 bg-white py-0 pl-8 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 onClick={(event) => event.stopPropagation()}
               />
               {searching ? (
-                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400 text-lg">
+                <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-slate-400" style={{ fontSize: 15 }}>
                   progress_activity
                 </span>
               ) : null}

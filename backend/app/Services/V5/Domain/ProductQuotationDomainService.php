@@ -155,6 +155,11 @@ class ProductQuotationDomainService
             }
         }
 
+        $historyOnly = filter_var((string) ($this->support->readFilterParam($request, 'history_only', $request->query('history_only', '')) ?? ''), FILTER_VALIDATE_BOOL);
+        if ($historyOnly) {
+            $query->where('total_amount', '>', 0);
+        }
+
         $customerIdInput = $this->support->readFilterParam($request, 'customer_id');
         $customerId = $this->support->parseNullableInt($customerIdInput);
         if ($customerId !== null) {
@@ -388,6 +393,12 @@ class ProductQuotationDomainService
             ->where('quotation_id', $id)
             ->orderByDesc('version_no');
 
+        $hardCap = now()->subDays(90)->startOfDay();
+        $createdFrom = trim((string) ($this->support->readFilterParam($request, 'created_from', '') ?? ''));
+        $parsedFrom = $createdFrom !== '' ? \Carbon\Carbon::parse($createdFrom) : null;
+        $effectiveFrom = ($parsedFrom !== null && $parsedFrom->gt($hardCap)) ? $parsedFrom : $hardCap;
+        $query->where('created_at', '>=', $effectiveFrom);
+
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
@@ -471,6 +482,12 @@ class ProductQuotationDomainService
         if ($eventType !== '') {
             $query->where('event_type', $eventType);
         }
+
+        $hardCap = now()->subDays(90)->startOfDay();
+        $createdFrom = trim((string) ($this->support->readFilterParam($request, 'created_from', '') ?? ''));
+        $parsedFrom = $createdFrom !== '' ? \Carbon\Carbon::parse($createdFrom) : null;
+        $effectiveFrom = ($parsedFrom !== null && $parsedFrom->gt($hardCap)) ? $parsedFrom : $hardCap;
+        $query->where('created_at', '>=', $effectiveFrom);
 
         if ($this->support->shouldPaginate($request)) {
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);

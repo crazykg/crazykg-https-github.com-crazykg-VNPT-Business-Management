@@ -5,11 +5,6 @@ import type {
   WorkflowStatusCatalog,
   WorkflowStatusTransition,
 } from '../../../types/support';
-import {
-  fetchWorkflowFormFieldConfigs,
-  fetchWorkflowStatusCatalogs,
-  fetchWorkflowStatusTransitions,
-} from '../../../services/v5Api';
 import type { SearchableSelectOption } from '../../SearchableSelect';
 
 type ActivityFilter = 'all' | 'active' | 'inactive';
@@ -194,24 +189,15 @@ export const useSupportMasterWorkflowConfig = ({
   }, [workflowFormFieldConfigs]);
 
   const loadWorkflowConfigs = useCallback(async (): Promise<void> => {
+    // Legacy workflow config endpoints were removed when workflow management
+    // moved to /workflow-management. Keep the hook quiet to avoid hitting
+    // stale /api/v5/workflow-status-* routes.
+    setWorkflowStatusCatalogs([]);
+    setWorkflowStatusTransitions([]);
+    setWorkflowFormFieldConfigs([]);
+    setIsWorkflowConfigLoading(false);
     if (!canReadStatuses) {
       return;
-    }
-
-    setIsWorkflowConfigLoading(true);
-    try {
-      const [catalogRows, transitionRows, fieldRows] = await Promise.all([
-        fetchWorkflowStatusCatalogs(true),
-        fetchWorkflowStatusTransitions(null, true),
-        fetchWorkflowFormFieldConfigs(null, true),
-      ]);
-      setWorkflowStatusCatalogs(catalogRows || []);
-      setWorkflowStatusTransitions(transitionRows || []);
-      setWorkflowFormFieldConfigs(fieldRows || []);
-    } catch (error) {
-      console.error('Failed to load workflow config datasets', error);
-    } finally {
-      setIsWorkflowConfigLoading(false);
     }
   }, [canReadStatuses]);
 

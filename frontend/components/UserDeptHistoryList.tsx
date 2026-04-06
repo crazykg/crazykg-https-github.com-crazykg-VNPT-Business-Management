@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { UserDeptHistory, Employee, Department, ModalType } from '../types';
 import { getEmployeeCode, getEmployeeLabel as formatEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
+import { formatDateDdMmYyyy } from '../utils/dateDisplay';
+import { findUserDeptHistoryDepartment, getUserDeptHistoryDepartmentLabel } from '../utils/userDeptHistoryDepartmentDisplay';
 
 interface UserDeptHistoryListProps {
   history: UserDeptHistory[];
@@ -55,13 +57,16 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
   };
 
   const getDeptLabel = (id: string, deptCode?: string | null, deptName?: string | null) => {
-    // Check both department id and legacy code/name.
-    const dept = departments.find(
-      d => String(d.id) === String(id) || d.dept_code === id || d.dept_name === id
-    );
-    if (dept) return `${dept.dept_code} - ${dept.dept_name}`;
-    if (deptCode || deptName) return `${deptCode || id}${deptName ? ` - ${deptName}` : ''}`;
-    return id;
+    const department = findUserDeptHistoryDepartment(departments, id, deptCode, deptName);
+    const resolvedLabel = getUserDeptHistoryDepartmentLabel(departments, id, { deptCode, deptName });
+    const resolvedCode = String(department?.dept_code ?? deptCode ?? '').trim();
+    const resolvedName = String(department?.dept_name ?? deptName ?? '').trim();
+
+    if (resolvedCode && resolvedName && resolvedLabel === `${resolvedCode} - ${resolvedName}`) {
+      return resolvedName;
+    }
+
+    return resolvedLabel;
   };
 
   // Filter Data
@@ -90,7 +95,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between md:gap-2">
         <div>
           <h2 className="text-sm font-bold text-deep-teal">Lịch sử luân chuyển</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử điều chuyển nhân sự giữa các phòng ban</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử điều chuyển nhân sự giữa các đơn vị</p>
         </div>
         <button
           onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY')}
@@ -123,8 +128,8 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
               <tr>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LC</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ phòng ban</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến phòng ban</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày luân chuyển</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
@@ -149,7 +154,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600 text-xs">
-                      {item.transferDate}
+                      {formatDateDdMmYyyy(item.transferDate)}
                     </td>
                     <td className="px-4 py-3 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
                       {item.reason}

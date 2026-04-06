@@ -975,47 +975,43 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 
   if (!canReadSchedules) {
     return (
-      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-8 text-sm text-amber-800">
+      <div className="rounded-lg border border-tertiary-fixed bg-tertiary-fixed text-tertiary p-4 text-sm">
         Bạn chưa có quyền xem lịch làm việc đơn vị.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 lg:space-y-5">
-      <div className="sticky top-0 z-20 -mx-1 bg-bg-light/95 px-1 pb-1 pt-2 backdrop-blur-sm">
-        <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_30%),linear-gradient(135deg,_#f8fbff_0%,_#ffffff_52%,_#eef6ff_100%)] shadow-[0_20px_48px_-34px_rgba(15,23,42,0.35)]">
-          <div className="p-4 lg:p-5">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 shadow-sm ring-1 ring-sky-100">
-                      <span className="material-symbols-outlined text-sm">calendar_month</span>
-                      Department Weekly Schedule
-                    </span>
-                    {scheduleLoading ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-700 ring-1 ring-amber-100">
-                        <span className="material-symbols-outlined text-sm">progress_activity</span>
-                        Đang đồng bộ dữ liệu
-                      </span>
-                    ) : null}
+    <div className="p-3 pb-6 space-y-3">
+      <div className="mb-3">
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="p-3">
+            <div className="flex flex-col gap-3">
+              {/* Page header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>calendar_month</span>
                   </div>
-
-                  <h1 className="mt-2 text-2xl font-black tracking-[-0.03em] text-slate-900 lg:text-[2rem]">
-                    Lịch làm việc đơn vị
-                  </h1>
+                  <div>
+                    <h2 className="text-sm font-bold text-deep-teal leading-tight">Lịch làm việc đơn vị</h2>
+                    <p className="text-[11px] text-slate-400 leading-tight">
+                      {selectedWeek
+                        ? `${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)}`
+                        : 'Chưa chọn tuần'}
+                    </p>
+                  </div>
                 </div>
-
-                <div className="inline-flex items-center gap-2 self-start rounded-full bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200/80">
-                  <span className="material-symbols-outlined text-sm">event</span>
-                  {selectedWeek
-                    ? `${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)}`
-                    : 'Chưa chọn tuần'}
-                </div>
+                {scheduleLoading ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-tertiary-fixed px-2 py-0.5 text-[11px] text-tertiary">
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>progress_activity</span>
+                    Đang đồng bộ
+                  </span>
+                ) : null}
               </div>
 
-              <div className="rounded-[24px] border border-slate-200/80 bg-white/90 p-3.5 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.45)] backdrop-blur">
+              {/* Filter card */}
+              <div className="rounded-lg border border-slate-100 bg-surface-low p-3">
                 <div className="grid gap-3 xl:grid-cols-[1.45fr_0.8fr_1.1fr]">
                   <SearchableSelect
                     value={selectedDepartmentId}
@@ -1065,17 +1061,17 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                           key={tab.id}
                           type="button"
                           onClick={() => setActiveViewTab(tab.id)}
-                          className={`group inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-left transition ${
+                          className={`group inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
                             isActive
-                              ? 'border-slate-900 bg-slate-900 text-white shadow-lg shadow-slate-900/15'
+                              ? 'border-primary bg-primary text-white'
                               : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                           }`}
                         >
-                          <span className={`material-symbols-outlined text-lg ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                          <span className={`material-symbols-outlined ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`} style={{ fontSize: 16 }}>
                             {tab.icon}
                           </span>
                           <span>
-                            <span className="block text-sm font-semibold">{tab.label}</span>
+                            <span className="block text-xs font-semibold">{tab.label}</span>
                             <span className={`block text-[11px] leading-4 ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
                               {tab.description}
                             </span>
@@ -1086,20 +1082,16 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-600">
-                      <span className="font-semibold text-slate-800">{previewWeekHeading}</span>
-                      <span className="mx-1.5 text-slate-300">•</span>
-                      {hasSelectedScope ? 'Sẵn sàng thao tác trên lịch tuần hiện tại.' : 'Chọn đủ bộ lọc để bắt đầu.'}
-                    </div>
                     <button
                       type="button"
                       onClick={() => {
                         void handleSave();
                       }}
                       disabled={!canPersistWeek}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition disabled:opacity-50 text-white shadow-sm"
+                      style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                     >
-                      <span className="material-symbols-outlined text-lg">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                         {isSaving ? 'progress_activity' : scheduleId ? 'save' : 'playlist_add_check_circle'}
                       </span>
                       {isSaving ? 'Đang lưu tuần...' : scheduleId ? 'Lưu thay đổi tuần' : 'Tạo lịch tuần'}
@@ -1113,25 +1105,25 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
       </div>
 
       {activeViewTab === 'REGISTER' ? (
-        <div className="rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,_rgba(248,250,252,0.95)_0%,_rgba(255,255,255,0.98)_100%)] p-3 shadow-sm">
-          <div className="mb-3 flex flex-col gap-3 rounded-[26px] border border-slate-200/80 bg-white/90 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Không gian đăng ký theo tuần</h2>
-              <p className="mt-1 text-sm text-slate-500">
+              <h2 className="text-xs font-bold text-deep-teal">Không gian đăng ký theo tuần</h2>
+              <p className="mt-1 text-[11px] text-on-surface-variant">
                 Chuyển nhanh giữa từng ngày, thêm nhiều dòng công việc theo buổi và lưu ngay khi hoàn tất.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-amber-700">
-                <span className="material-symbols-outlined text-sm">wb_sunny</span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-tertiary-fixed px-2.5 py-1.5 text-tertiary">
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>wb_sunny</span>
                 Buổi sáng
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-sky-700">
-                <span className="material-symbols-outlined text-sm">routine</span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-secondary/15 px-2.5 py-1.5 text-on-surface-variant">
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>routine</span>
                 Buổi chiều
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">
-                <span className="material-symbols-outlined text-sm">edit_square</span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1.5 text-slate-600">
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit_square</span>
                 Lưu từng dòng hoặc lưu cả tuần
               </span>
             </div>
@@ -1139,32 +1131,32 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 
           <div className="max-h-[calc(100vh-340px)] space-y-3 overflow-auto pr-1">
             {derivedWeekDays.length === 0 ? (
-              <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 shadow-sm">
-                <span className="material-symbols-outlined text-4xl text-slate-300">calendar_clock</span>
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 shadow-sm">
+                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>calendar_clock</span>
                 <p className="mt-3 font-semibold text-slate-700">Chọn phòng ban và tuần để bắt đầu nhập lịch làm việc.</p>
               </div>
             ) : (
               derivedWeekDays.map((day) => (
               <div
                 key={day.date}
-                className={`rounded-[28px] border bg-gradient-to-br p-4 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] ${
+                className={`rounded-lg border p-3 shadow-sm ${
                   day.is_holiday
-                    ? 'border-rose-200 from-rose-50 via-white to-white'
+                    ? 'border-rose-200 bg-red-50/30'
                     : day.is_working_day
-                    ? 'border-emerald-200 from-emerald-50 via-white to-white'
-                    : 'border-slate-200 from-slate-100 via-white to-white'
+                    ? 'border-emerald-200 bg-emerald-50/20'
+                    : 'border-slate-200 bg-surface-low'
                 }`}
               >
                 <div className="mb-2.5 flex flex-col gap-2 border-b border-slate-100 pb-2.5 md:flex-row md:items-end md:justify-between">
                   <div>
-                    <h2 className="text-[20px] font-bold text-slate-900">
+                    <h2 className="text-xs font-bold text-on-surface">
                       {DAY_NAMES[day.day_of_week] || day.day_name} - {String(day.day).padStart(2, '0')}/{String(day.month).padStart(2, '0')}
                     </h2>
-                    <p className="mt-0.5 text-[13px] text-slate-500">
+                    <p className="mt-0.5 text-[11px] text-on-surface-variant">
                       {day.is_holiday && day.holiday_name ? day.holiday_name : day.is_working_day ? 'Ngày làm việc' : 'Cuối tuần'}
                     </p>
                   </div>
-                  <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
+                  <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${
                     day.is_holiday
                       ? 'bg-rose-100 text-rose-700'
                       : day.is_working_day
@@ -1181,30 +1173,30 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                     return (
                       <div
                         key={`${day.date}-${session}`}
-                        className={`rounded-[24px] border p-3.5 ${
+                        className={`rounded-lg border p-3 ${
                           session === 'MORNING'
-                            ? 'border-amber-200 bg-amber-50/70'
-                            : 'border-sky-200 bg-sky-50/70'
+                            ? 'border-tertiary-fixed bg-tertiary-fixed/30'
+                            : 'border-slate-200 bg-secondary/5'
                         }`}
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div>
-                            <h3 className="text-[16px] font-semibold text-slate-900">{SESSION_LABELS[session]}</h3>
-                            <p className="text-[11px] text-slate-500">Mỗi buổi có thể thêm nhiều dòng công việc.</p>
+                            <h3 className="text-xs font-semibold text-on-surface">{SESSION_LABELS[session]}</h3>
+                            <p className="text-[11px] text-on-surface-variant">Mỗi buổi có thể thêm nhiều dòng công việc.</p>
                           </div>
                           <button
                             type="button"
                             onClick={() => handleAddEntry(day.date, session)}
                             disabled={!canWriteSchedules}
-                            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-primary/30 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-primary/30 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
                           >
-                            <span className="material-symbols-outlined text-base">add</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
                             Thêm dòng
                           </button>
                         </div>
 
                         {rows.length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-sm text-slate-400">
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[11px] text-slate-400">
                             Chưa có nội dung cho buổi {SESSION_LABELS[session].toLowerCase()}.
                           </div>
                         ) : (
@@ -1212,18 +1204,18 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                             {rows.map((entry, index) => (
                               <div
                                 key={entry.local_id}
-                                className={`rounded-[24px] border p-3.5 shadow-sm ${
+                                className={`rounded-lg border p-3 shadow-sm ${
                                   entry.id
                                     ? 'border-slate-200 bg-white'
-                                    : 'border-amber-200 bg-white shadow-[0_18px_35px_-30px_rgba(245,158,11,0.7)]'
+                                    : 'border-primary/20 bg-primary/5'
                                 }`}
                               >
                                 <div className="mb-3 flex items-start justify-between gap-3">
                                   <span
-                                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                                    className={`inline-flex rounded-full text-[10px] font-bold px-2 py-0.5 ${
                                       entry.id
                                         ? 'bg-primary/10 text-primary'
-                                        : 'bg-amber-100 text-amber-800'
+                                        : 'bg-tertiary-fixed text-tertiary'
                                     }`}
                                   >
                                     {entry.id ? `Dòng #${index + 1}` : `Bản nháp #${index + 1}`}
@@ -1235,13 +1227,9 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                         void handleSaveEntry(entry);
                                       }}
                                       disabled={!canWriteSchedules || isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)}
-                                      className={`inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 ${
-                                        entry.id
-                                          ? 'border-primary/20 bg-white text-primary hover:bg-primary/5'
-                                          : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100/70'
-                                      }`}
+                                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border border-primary/20 text-primary hover:bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      <span className="material-symbols-outlined text-base">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                                         {savingEntryIds.includes(entry.local_id)
                                           ? 'progress_activity'
                                           : entry.id
@@ -1263,9 +1251,9 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                       }}
                                       disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
                                       title={!entry.id || canDeleteEntry(entry) ? undefined : 'Chỉ người đăng ký hoặc admin mới được xóa'}
-                                      className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border border-error/20 text-error hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      <span className="material-symbols-outlined text-base">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                                         {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
                                       </span>
                                       {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
@@ -1274,14 +1262,14 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                 </div>
 
                                 {!canDeleteEntry(entry) && entry.id ? (
-                                  <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[11px] text-rose-500">
+                                  <div className="mb-3 rounded bg-red-50 px-3 py-2 text-[11px] text-error border border-error/20">
                                     Chỉ người đăng ký hoặc admin mới được xóa
                                   </div>
                                 ) : null}
 
                                 <div className="space-y-3">
                                   <label className="block">
-                                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Nội dung làm việc *</span>
+                                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Nội dung làm việc *</span>
                                     <textarea
                                       value={entry.work_content}
                                       onChange={(event) =>
@@ -1289,7 +1277,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                       }
                                       rows={3}
                                       disabled={!canWriteSchedules}
-                                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                                      className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                                       placeholder="Mô tả nội dung làm việc trong buổi này"
                                     />
                                   </label>
@@ -1311,7 +1299,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                     />
 
                                     <label className="block">
-                                      <span className="mb-1.5 block text-sm font-semibold text-slate-700">Thành phần tự do</span>
+                                      <span className="mb-1.5 block text-xs font-semibold text-neutral">Thành phần tự do</span>
                                       <input
                                         type="text"
                                         value={entry.participant_text}
@@ -1319,14 +1307,14 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                         updateEntry(entry.local_id, (current) => ({ ...current, participant_text: event.target.value }))
                                       }
                                       disabled={!canWriteSchedules}
-                                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                                      className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                                       placeholder="Ví dụ: Cộng tác viên, khách mời..."
                                     />
                                   </label>
                                   </div>
 
                                   <label className="block">
-                                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Địa điểm</span>
+                                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Địa điểm</span>
                                     <input
                                       type="text"
                                       value={entry.location}
@@ -1334,7 +1322,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                                         updateEntry(entry.local_id, (current) => ({ ...current, location: event.target.value }))
                                       }
                                       disabled={!canWriteSchedules}
-                                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                                      className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                                       placeholder="Nhập địa điểm làm việc"
                                     />
                                   </label>
@@ -1368,29 +1356,14 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
           </div>
         </div>
       ) : (
-        <div className="rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(245,248,252,1)_100%)] p-3 shadow-sm">
-          <div className="mb-3 flex flex-col gap-3 rounded-[26px] border border-slate-200/80 bg-white/90 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-900">Bảng thông báo tuần</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Nhấp vào từng ô để mở nhanh danh sách đăng ký hiện có và nhập thêm công việc cho buổi tương ứng.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-primary">
-                <span className="material-symbols-outlined text-sm">touch_app</span>
-                Click vào ô để đăng ký
-              </span>
-            </div>
-          </div>
-
-          <div className="w-full overflow-hidden rounded-[28px] border-[2.5px] border-slate-900 bg-white shadow-[0_24px_50px_-35px_rgba(15,23,42,0.35)]">
-            <div className="border-b-2 border-slate-900 px-4 py-3 text-center">
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-3 py-2 text-center">
               <div className="flex flex-col items-center justify-center gap-0.5">
-                <p className="text-[18px] font-black uppercase leading-tight text-slate-900 max-md:text-[16px]">
+                <p className="text-sm font-bold text-deep-teal leading-tight max-md:text-xs">
                   {selectedDepartment?.dept_name || 'Phòng ban'}
                 </p>
-                <p className="text-[12px] font-black italic leading-tight text-slate-900 max-md:text-[11px]">
+                <p className="text-[11px] text-on-surface-variant leading-tight max-md:text-[10px]">
                   {previewWeekHeading}
                   {selectedWeek ? `: (${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)})` : ''}
                 </p>
@@ -1409,7 +1382,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                 <thead>
                   <tr className="sticky top-0 z-10 bg-primary text-white">
                     {['Thứ', 'Ngày', 'Buổi', 'Nội dung làm việc', 'Thành phần', 'Địa điểm'].map((header) => (
-                      <th key={header} className="border-2 border-slate-900 px-2 py-2 text-center text-[14px] font-bold tracking-[0.01em] md:text-[15px]">
+                      <th key={header} className="border border-slate-200 px-2 py-2 text-center text-xs font-semibold">
                         {header}
                       </th>
                     ))}
@@ -1418,7 +1391,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                 <tbody>
                   {previewRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="border-2 border-slate-900 px-6 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={6} className="border border-slate-200 px-6 py-6 text-center text-sm text-slate-500">
                         Chưa có dữ liệu để xem trước.
                       </td>
                     </tr>
@@ -1437,10 +1410,10 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                       >
                         {row.showDayCells ? (
                           <>
-                            <td rowSpan={row.dayRowSpan} className={`align-middle border-2 border-slate-900 px-2 py-2.5 text-center text-[14px] font-bold md:text-[15px] ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                            <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
                               {PREVIEW_DAY_NAMES[row.day.day_of_week] || row.day.day_name}
                             </td>
-                            <td rowSpan={row.dayRowSpan} className={`align-middle border-2 border-slate-900 px-2 py-2.5 text-center text-[14px] font-bold md:text-[15px] ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                            <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
                               <div className="flex flex-col items-center justify-center gap-1">
                                 <span>{String(row.day.day).padStart(2, '0')}/{String(row.day.month).padStart(2, '0')}</span>
                                 {isToday ? (
@@ -1454,12 +1427,12 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                         ) : null}
 
                         {row.showSessionCell ? (
-                          <td rowSpan={row.sessionRowSpan} className={`align-middle border-2 border-slate-900 px-2 py-2.5 text-center text-[14px] font-bold md:text-[15px] ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                          <td rowSpan={row.sessionRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
                             {row.sessionLabel}
                           </td>
                         ) : null}
 
-                        <td className="border-2 border-slate-900 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
+                        <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
                           {normalizeText(row.workContent) ? (
                             <div className="flex min-h-[52px] flex-col gap-2">
                               <div>{row.workContent}</div>
@@ -1478,10 +1451,10 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
                             </div>
                           ) : '-'}
                         </td>
-                        <td className="border-2 border-slate-900 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
+                        <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
                           {normalizeText(row.participantDisplay) || '-'}
                         </td>
-                        <td className="border-2 border-slate-900 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
+                        <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
                           {normalizeText(row.location) || '-'}
                         </td>
                       </tr>
@@ -1583,14 +1556,15 @@ const ScheduleEntryModal: React.FC<{
       style={{ minHeight: '100vh', minWidth: '100vw' }}
     >
       <div
-        className="relative w-full max-w-6xl mx-4 overflow-hidden rounded-[28px] bg-white shadow-2xl animate-in fade-in zoom-in duration-200"
+        className="relative w-full max-w-6xl mx-4 overflow-hidden rounded-xl bg-white animate-in fade-in zoom-in duration-200"
+        style={{ boxShadow: '0 24px 48px -12px rgba(0,28,59,0.08)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 bg-slate-50">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 bg-slate-50">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-lg">edit_calendar</span>
-            <span className="text-sm font-bold text-slate-900">
+            <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>edit_calendar</span>
+            <span className="text-xs font-bold text-deep-teal">
               {DAY_NAMES[orderedPreviewWeekDays.find(d => d.date === editingSlot.calendarDate)?.day_of_week ?? 2]}
               {' — '}
               {formatDisplayDate(editingSlot.calendarDate)}
@@ -1600,34 +1574,34 @@ const ScheduleEntryModal: React.FC<{
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors"
+            className="p-1 rounded hover:bg-slate-200 transition-colors"
           >
-            <span className="material-symbols-outlined text-slate-500">close</span>
+            <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>close</span>
           </button>
         </div>
 
-        {/* Body: ưu tiên mở form mới, vẫn hiển thị danh sách đã đăng ký */}
-        <div className={`max-h-[72vh] overflow-y-auto p-5 ${registeredEntries.length > 0 ? 'grid gap-5 xl:grid-cols-[0.9fr_1.1fr]' : 'space-y-4'}`}>
+        {/* Body */}
+        <div className={`max-h-[72vh] overflow-y-auto p-3 ${registeredEntries.length > 0 ? 'grid gap-3 xl:grid-cols-[0.9fr_1.1fr]' : 'space-y-3'}`}>
           {registeredEntries.length > 0 ? (
-            <div className="space-y-4">
-              <div className="rounded-[24px] border border-slate-200 bg-slate-50/90 p-4">
+            <div className="space-y-3">
+              <div className="rounded-lg border border-slate-200 bg-surface-low p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Danh sách đã đăng ký</h3>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <h3 className="text-xs font-bold text-deep-teal">Danh sách đã đăng ký</h3>
+                  <p className="mt-1 text-[11px] text-on-surface-variant">
                     Buổi này đã có {registeredEntries.length} dòng lịch. Form đăng ký mới vẫn được mở sẵn để bạn nhập nhanh.
                   </p>
                 </div>
-                <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                   {registeredEntries.length} đăng ký
                 </span>
               </div>
 
               <div className="mt-3 space-y-2.5">
                 {registeredEntries.map((entry, index) => (
-                  <div key={`registered-${entry.local_id}`} className="rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm">
+                  <div key={`registered-${entry.local_id}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
-                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                         Đã đăng ký #{index + 1}
                       </span>
                       <div className="text-right text-[11px] leading-[1.35] text-slate-500">
@@ -1660,11 +1634,11 @@ const ScheduleEntryModal: React.FC<{
             </div>
           ) : null}
 
-          <div className="space-y-4">
-            <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-white to-sky-50/50 p-4">
+          <div className="space-y-3">
+            <div className="rounded-lg border border-slate-100 bg-surface-low p-3">
               <div className="space-y-1">
-                <h3 className="text-sm font-bold text-slate-900">Đăng ký của bạn</h3>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-xs font-bold text-deep-teal">Đăng ký của bạn</h3>
+                <p className="text-[11px] text-on-surface-variant">
                   {registeredEntries.length > 0
                     ? 'Form mới được ưu tiên mở sẵn để bạn đăng ký thêm hoặc cập nhật phần việc của mình.'
                     : 'Nhập nội dung làm việc cho buổi này.'}
@@ -1674,25 +1648,25 @@ const ScheduleEntryModal: React.FC<{
 
             {entries.length === 0 ? (
               <div className="text-center py-8 text-slate-400">
-                <span className="material-symbols-outlined text-4xl mb-2">inbox</span>
-                <p className="text-sm">Chưa có nội dung nào cho buổi này</p>
+                <span className="material-symbols-outlined mb-2" style={{ fontSize: 32 }}>inbox</span>
+                <p className="text-[11px] text-on-surface-variant">Chưa có nội dung nào cho buổi này</p>
               </div>
             ) : (
               entries.map((entry, index) => (
               <div
                 key={entry.local_id}
-                className={`rounded-[24px] border p-3.5 shadow-sm ${
+                className={`rounded-lg border p-3 shadow-sm ${
                   entry.id
                     ? 'border-slate-200 bg-white'
-                    : 'border-sky-200 bg-white shadow-[0_20px_36px_-28px_rgba(14,165,233,0.65)]'
+                    : 'border-primary/20 bg-primary/5'
                 }`}
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                    className={`inline-flex rounded-full text-[10px] font-bold px-2 py-0.5 ${
                       entry.id
                         ? 'bg-primary/10 text-primary'
-                        : 'bg-sky-100 text-sky-800'
+                        : 'bg-secondary/15 text-on-surface-variant'
                     }`}
                   >
                     {entry.id ? `Dòng #${index + 1}` : `Đăng ký mới #${index + 1}`}
@@ -1704,13 +1678,9 @@ const ScheduleEntryModal: React.FC<{
                         void handleSaveEntry(entry);
                       }}
                       disabled={isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)}
-                      className={`inline-flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 ${
-                        entry.id
-                          ? 'border-primary/20 bg-white text-primary hover:bg-primary/5'
-                          : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100/70'
-                      }`}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border border-primary/20 text-primary hover:bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="material-symbols-outlined text-base">
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                         {savingEntryIds.includes(entry.local_id)
                           ? 'progress_activity'
                           : entry.id
@@ -1731,9 +1701,9 @@ const ScheduleEntryModal: React.FC<{
                         void handleDeleteEntry(entry);
                       }}
                       disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
-                      className="inline-flex items-center gap-1 rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border border-error/20 text-error hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="material-symbols-outlined text-base">
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                         {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
                       </span>
                       {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
@@ -1742,14 +1712,14 @@ const ScheduleEntryModal: React.FC<{
                 </div>
 
                 {!canDeleteEntry(entry) && entry.id ? (
-                  <div className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[11px] text-rose-500">
+                  <div className="mb-3 rounded bg-red-50 px-3 py-2 text-[11px] text-error border border-error/20">
                     Chỉ người đăng ký hoặc admin mới được xóa
                   </div>
                 ) : null}
 
                 <div className="space-y-3">
                   <label className="block">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Nội dung làm việc *</span>
+                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Nội dung làm việc *</span>
                     <textarea
                       value={entry.work_content}
                       onChange={(event) =>
@@ -1757,7 +1727,7 @@ const ScheduleEntryModal: React.FC<{
                       }
                       rows={3}
                       disabled={!canWriteSchedules}
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                      className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                       placeholder="Mô tả nội dung làm việc trong buổi này"
                     />
                   </label>
@@ -1779,7 +1749,7 @@ const ScheduleEntryModal: React.FC<{
                     />
 
                     <label className="block">
-                      <span className="mb-1.5 block text-sm font-semibold text-slate-700">Thành phần tự do</span>
+                      <span className="mb-1.5 block text-xs font-semibold text-neutral">Thành phần tự do</span>
                       <input
                         type="text"
                         value={entry.participant_text}
@@ -1787,14 +1757,14 @@ const ScheduleEntryModal: React.FC<{
                           updateEntry(entry.local_id, (current) => ({ ...current, participant_text: event.target.value }))
                         }
                         disabled={!canWriteSchedules}
-                        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                        className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                         placeholder="Ví dụ: Cộng tác viên, khách mời..."
                       />
                     </label>
                   </div>
 
                   <label className="block">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">Địa điểm</span>
+                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Địa điểm</span>
                     <input
                       type="text"
                       value={entry.location}
@@ -1802,7 +1772,7 @@ const ScheduleEntryModal: React.FC<{
                         updateEntry(entry.local_id, (current) => ({ ...current, location: event.target.value }))
                       }
                       disabled={!canWriteSchedules}
-                      className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
+                      className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
                       placeholder="Nhập địa điểm làm việc"
                     />
                   </label>
@@ -1829,7 +1799,7 @@ const ScheduleEntryModal: React.FC<{
             {/* Nút Thêm dòng */}
             <button
               onClick={() => handleAddEntry(editingSlot.calendarDate, editingSlot.session)}
-              className="w-full rounded-2xl border-2 border-dashed border-slate-300 py-3 text-sm font-semibold text-slate-500 transition-colors hover:border-primary hover:text-primary"
+              className="w-full rounded-lg border border-dashed border-slate-200 py-2 text-xs font-semibold text-slate-500 transition-colors hover:border-primary hover:text-primary"
             >
               + Thêm dòng
             </button>

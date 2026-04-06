@@ -10,6 +10,7 @@ interface PaginationControlsProps {
   onPageChange: (page: number) => void;
   onRowsPerPageChange?: (rows: number) => void;
   rowsPerPageOptions?: number[];
+  hidePageSummary?: boolean;
 }
 
 export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(function PaginationControlsComponent({
@@ -22,6 +23,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
   onPageChange,
   onRowsPerPageChange,
   rowsPerPageOptions = [20, 50, 100, 200],
+  hidePageSummary = false,
 }) {
   const [jumpInput, setJumpInput] = useState('');
   const resolvedTotalItems = Math.max(0, Number(totalItems ?? total ?? 0));
@@ -181,7 +183,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
 
       {/* Right: jump to page (only when > 10 pages) */}
       <div className="order-2 md:order-3">
-        {resolvedTotalPages > 10 ? (
+        {hidePageSummary ? null : resolvedTotalPages > 10 ? (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap">Đến trang</span>
             <input

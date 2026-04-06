@@ -11,6 +11,7 @@ import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/e
 interface VendorListProps {
   vendors: Vendor[];
   onOpenModal: (type: ModalType, item?: Vendor) => void;
+  canImport?: boolean;
 }
 
 type VendorSortDirection = 'asc' | 'desc';
@@ -26,7 +27,7 @@ const RESPONSIVE_SORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'created_at:desc', label: 'Ngày tạo mới nhất' },
 ];
 
-export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModal }: VendorListProps) => {
+export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModal, canImport = false }: VendorListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -211,37 +212,39 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
         </div>
         <div className="flex items-center gap-2">
           {/* Import dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowImportMenu(!showImportMenu)}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            >
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
-              Nhập
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
-            </button>
-            {showImportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                <div className="absolute top-full left-0 z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                  <button
-                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
-                  >
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
-                    Nhập dữ liệu
-                  </button>
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
-                  >
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
-                    Tải file mẫu
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          {canImport ? (
+            <div className="relative">
+              <button
+                onClick={() => setShowImportMenu(!showImportMenu)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              >
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                Nhập
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+              </button>
+              {showImportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute top-full left-0 z-20 mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <button
+                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                    >
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
+                      Nhập dữ liệu
+                    </button>
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+                    >
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+                      Tải file mẫu
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
 
           {/* Export dropdown */}
           <div className="relative">

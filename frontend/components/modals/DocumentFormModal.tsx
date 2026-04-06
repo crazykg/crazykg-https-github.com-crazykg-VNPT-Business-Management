@@ -17,6 +17,7 @@ export interface DocumentFormModalProps {
   isCustomersLoading?: boolean;
   isProjectsLoading?: boolean;
   isProductsLoading?: boolean;
+  isSaving?: boolean;
   onClose: () => void;
   onSave: (data: Partial<AppDocument>) => void;
 }
@@ -32,10 +33,12 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
   isCustomersLoading = false,
   isProjectsLoading = false,
   isProductsLoading = false,
+  isSaving = false,
   onClose,
   onSave,
 }) => {
   const isProductUploadMode = mode === 'product_upload';
+  const uniformLabelClassName = 'block text-sm font-semibold text-slate-700';
 
   const initialProductIds = useMemo(() => {
     const selected = Array.isArray(data?.productIds) && data?.productIds.length > 0
@@ -63,12 +66,14 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
     projectId: data?.projectId || '',
     productId: initialProductIds[0] || '',
     productIds: initialProductIds,
+    commissionPolicyText: data?.commissionPolicyText || '',
     expiryDate: data?.expiryDate || '',
     status: data?.status || 'ACTIVE',
     attachments: data?.attachments || [],
   });
   const [isUploading, setIsUploading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const isBusy = isUploading || isSaving;
 
   const filteredProjects = useMemo(() => {
     if (!formData.customerId) return [];
@@ -88,6 +93,10 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
   };
 
   const handleSubmit = () => {
+    if (isBusy) {
+      return;
+    }
+
     if (validate()) {
       if (isProductUploadMode) {
         onSave({
@@ -181,6 +190,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
   return (
     <ModalWrapper
       onClose={onClose}
+      disableClose={isBusy}
       title={
         mode === 'product_upload'
           ? 'Upload tài liệu sản phẩm'
@@ -191,10 +201,10 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
       icon={mode === 'product_upload' ? 'upload_file' : 'folder_open'}
       width="max-w-4xl"
     >
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-5">
-          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 border-b border-slate-100 pb-2">
-            <span className="material-symbols-outlined text-primary text-lg">info</span>
+      <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
+        <div className="min-w-0 space-y-3">
+          <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5 border-b border-slate-100 pb-2">
+            <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>info</span>
             Thông tin cơ bản
           </h3>
 
@@ -203,9 +213,10 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             value={formData.id}
             onChange={(e: any) => handleChange('id', e.target.value)}
             placeholder={isProductUploadMode ? '123/QĐ-VNPT' : 'TL-2024-001'}
-            disabled={type === 'EDIT'}
+            disabled={type === 'EDIT' || isBusy}
             required
             error={errors.id}
+            labelClassName={uniformLabelClassName}
           />
 
           <FormInput
@@ -213,8 +224,10 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             value={formData.name}
             onChange={(e: any) => handleChange('name', e.target.value)}
             placeholder={isProductUploadMode ? 'Nhập tên/trích yếu văn bản' : 'Nhập tên tài liệu'}
+            disabled={isBusy}
             required
             error={errors.name}
+            labelClassName={uniformLabelClassName}
           />
 
           {!isProductUploadMode && (
@@ -223,6 +236,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
               value={formData.typeId}
               onChange={(e: any) => handleChange('typeId', e.target.value)}
               options={[{ value: '', label: 'Chọn loại tài liệu' }, ...DOCUMENT_TYPES.map((typeOption) => ({ value: typeOption.id, label: typeOption.name }))]}
+              disabled={isBusy}
               required
               error={errors.typeId}
             />
@@ -237,7 +251,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
               onChange={(value) => handleChange('customerId', value)}
               error={errors.customerId}
               placeholder={isCustomerOptionsLoading ? 'Đang tải khách hàng...' : 'Chọn khách hàng'}
-              disabled={isCustomerOptionsLoading}
+              disabled={isCustomerOptionsLoading || isBusy}
             />
           )}
 
@@ -247,7 +261,7 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
               options={filteredProjects.map((project) => ({ value: String(project.id), label: `${project.project_code} - ${project.project_name}` }))}
               value={formData.projectId || ''}
               onChange={(value) => handleChange('projectId', value)}
-              disabled={!formData.customerId || isProjectOptionsLoading}
+              disabled={!formData.customerId || isProjectOptionsLoading || isBusy}
               placeholder={
                 !formData.customerId
                   ? 'Vui lòng chọn KH trước'
@@ -269,46 +283,82 @@ export const DocumentFormModal: React.FC<DocumentFormModalProps> = ({
             }}
             placeholder={isProductOptionsLoading ? 'Đang tải sản phẩm...' : 'Chọn một hoặc nhiều sản phẩm'}
             error={errors.productIds}
-            disabled={isProductOptionsLoading}
+            disabled={isProductOptionsLoading || isBusy}
+            usePortal
           />
+
+          {isProductUploadMode ? (
+            <div className="flex flex-col gap-1.5">
+              <label className={uniformLabelClassName}>Chính sách hoa hồng</label>
+              <textarea
+                value={formData.commissionPolicyText || ''}
+                onChange={(e) => handleChange('commissionPolicyText', e.target.value)}
+                placeholder="Nhập nội dung chính sách hoa hồng..."
+                disabled={isBusy}
+                className="min-h-[108px] w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+          ) : null}
+
           {(isCustomerOptionsLoading || isProjectOptionsLoading || isProductOptionsLoading) && (
-            <p className="text-xs text-slate-500">
+            <p className="text-[11px] text-slate-400">
               Danh mục liên quan đang được nạp, các lựa chọn sẽ xuất hiện ngay khi dữ liệu sẵn sàng.
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:items-start">
             <FormInput
               label={isProductUploadMode ? 'Ngày ban hành' : 'Ngày hết hạn'}
               type="date"
               value={formData.expiryDate}
               onChange={(e: any) => handleChange('expiryDate', e.target.value)}
+              disabled={isBusy}
+              className="gap-1.5"
+              labelClassName={uniformLabelClassName}
+              inputClassName="h-[46px] rounded-lg px-4 text-[15px]"
             />
             <FormSelect
               label="Trạng thái"
               value={formData.status}
               onChange={(e: any) => handleChange('status', e.target.value)}
+              disabled={isBusy}
               options={DOCUMENT_STATUSES}
             />
           </div>
         </div>
 
-        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
           <AttachmentManager
             attachments={formData.attachments || []}
             onUpload={handleUploadFile}
             onDelete={handleDeleteFile}
             isUploading={isUploading}
+            disabled={isSaving}
             enableClipboardPaste
             clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
           />
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Hủy</button>
-        <button onClick={handleSubmit} className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
-          <span className="material-symbols-outlined text-lg">check</span> {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
+      <div className="flex items-center justify-end gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isBusy}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          Hủy
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={isBusy}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm disabled:opacity-50"
+        >
+          <span className={`material-symbols-outlined ${isBusy ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
+            {isBusy ? 'progress_activity' : 'check'}
+          </span>
+          {isUploading ? 'Đang tải file...' : isSaving ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}
         </button>
       </div>
     </ModalWrapper>

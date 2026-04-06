@@ -25,6 +25,7 @@ import {
   fetchPaginatedList,
   JSON_ACCEPT_HEADER,
   JSON_HEADERS,
+  normalizeNullableNumber,
   normalizeNullableText,
   parseErrorMessage,
   parseItemJson,
@@ -58,6 +59,60 @@ export const fetchUserDeptHistoryPage = async (query: PaginatedQuery): Promise<P
     ...result,
     data: result.data.map((item) => normalizeUserDeptHistoryRecord(item)),
   };
+};
+
+const buildUserDeptHistoryRequestPayload = (payload: Partial<UserDeptHistory>) => ({
+  user_id: normalizeNullableNumber(payload.userId),
+  from_dept_id: normalizeNullableNumber(payload.fromDeptId),
+  to_dept_id: normalizeNullableNumber(payload.toDeptId),
+  transfer_date: normalizeNullableText(payload.transferDate),
+  decision_number: normalizeNullableText(payload.decisionNumber),
+  reason: normalizeNullableText(payload.reason),
+});
+
+export const createUserDeptHistory = async (payload: Partial<UserDeptHistory>): Promise<UserDeptHistory> => {
+  const res = await apiFetch('/api/v5/user-dept-history', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildUserDeptHistoryRequestPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_USER_DEPT_HISTORY_FAILED'));
+  }
+
+  return normalizeUserDeptHistoryRecord(await parseItemJson<Record<string, unknown>>(res));
+};
+
+export const updateUserDeptHistory = async (
+  id: string | number,
+  payload: Partial<UserDeptHistory>
+): Promise<UserDeptHistory> => {
+  const res = await apiFetch(`/api/v5/user-dept-history/${encodeURIComponent(String(id))}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildUserDeptHistoryRequestPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_USER_DEPT_HISTORY_FAILED'));
+  }
+
+  return normalizeUserDeptHistoryRecord(await parseItemJson<Record<string, unknown>>(res));
+};
+
+export const deleteUserDeptHistory = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/user-dept-history/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_USER_DEPT_HISTORY_FAILED'));
+  }
 };
 
 export const fetchAuditLogs = async (): Promise<AuditLog[]> => fetchList<AuditLog>('/api/v5/audit-logs');

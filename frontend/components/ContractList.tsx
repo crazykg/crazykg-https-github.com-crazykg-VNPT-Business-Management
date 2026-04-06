@@ -4,6 +4,8 @@ import {
   ContractAggregateKpis,
   Customer,
   ModalType,
+  PaginatedQuery,
+  PaginationMeta,
   PaymentCycle,
   Project,
 } from '../types';
@@ -19,13 +21,28 @@ import { ContractRevenueView } from './contract-revenue/ContractRevenueView';
 type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
 type ContractViewMode = 'CONTRACTS' | 'REVENUE';
 
+interface ContractListQuery extends PaginatedQuery {
+  filters?: {
+    status?: string;
+    type?: string;
+    sign_date_from?: string;
+    sign_date_to?: string;
+  };
+}
+
 interface ContractListProps {
+  contracts?: Contract[];
+  contractsPageRows?: Contract[];
+  paginationMeta?: PaginationMeta;
+  isLoading?: boolean;
   projects: Project[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Contract) => void;
   canAdd?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  onQueryChange?: (query: ContractListQuery) => void;
+  onExportContracts?: () => Promise<Contract[]>;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
   aggregateKpis?: ContractAggregateKpis;
 }
@@ -105,23 +122,35 @@ function resolvePresetDates(
 }
 
 export const ContractList: React.FC<ContractListProps> = ({
+  contracts: contractsProp,
+  contractsPageRows: contractsPageRowsProp,
+  paginationMeta,
+  isLoading,
   projects = [],
   customers = [],
   onOpenModal,
   canAdd = true,
   canEdit = false,
   canDelete = false,
+  onQueryChange,
+  onExportContracts,
   onNotify,
   aggregateKpis,
 }: ContractListProps) => {
   const authUser = useAuthStore((state) => state.user);
-  const contracts = useContractStore((state) => state.contracts);
-  const contractsPageRows = useContractStore((state) => state.contractsPageRows);
-  const contractsPageMeta = useContractStore((state) => state.contractsPageMeta);
-  const isContractsPageLoading = useContractStore((state) => state.isContractsPageLoading);
-  const handleContractsPageQueryChange = useContractStore((state) => state.handleContractsPageQueryChange);
-  const exportContractsByCurrentQuery = useContractStore((state) => state.exportContractsByCurrentQuery);
-  const serverMode = true;
+  const storeContracts = useContractStore((state) => state.contracts);
+  const storeContractsPageRows = useContractStore((state) => state.contractsPageRows);
+  const storeContractsPageMeta = useContractStore((state) => state.contractsPageMeta);
+  const storeIsContractsPageLoading = useContractStore((state) => state.isContractsPageLoading);
+  const storeHandleContractsPageQueryChange = useContractStore((state) => state.handleContractsPageQueryChange);
+  const storeExportContractsByCurrentQuery = useContractStore((state) => state.exportContractsByCurrentQuery);
+  const contracts = contractsProp ?? storeContracts;
+  const contractsPageRows = contractsPageRowsProp ?? storeContractsPageRows;
+  const contractsPageMeta = paginationMeta ?? storeContractsPageMeta;
+  const isContractsPageLoading = isLoading ?? storeIsContractsPageLoading;
+  const handleContractsPageQueryChange = onQueryChange ?? storeHandleContractsPageQueryChange;
+  const exportContractsByCurrentQuery = onExportContracts ?? storeExportContractsByCurrentQuery;
+  const serverMode = Boolean(contractsPageMeta);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -261,7 +290,7 @@ export const ContractList: React.FC<ContractListProps> = ({
     }
 
     return result;
-  }, [serverMode, contracts, debouncedSearchTerm, statusFilter, sortConfig, projects, customers]);
+  }, [serverMode, contracts, debouncedSearchTerm, statusFilter, sortConfig, projects, customers, typeFilter]);
 
   const statusFilterOptions = useMemo(
     () => [

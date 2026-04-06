@@ -27,6 +27,7 @@ class StoreDocumentRequest extends V5FormRequest
             'typeId' => [$isProductPricingScope ? 'nullable' : 'required'],
             'customerId' => [$isProductPricingScope ? 'nullable' : 'required', 'integer'],
             'projectId' => ['nullable', 'integer'],
+            'commissionPolicyText' => ['nullable', 'string', 'max:5000'],
             'expiryDate' => ['nullable', 'date'],
             'releaseDate' => ['nullable', 'date'],
             'status' => ['nullable', Rule::in(self::DOCUMENT_STATUSES)],

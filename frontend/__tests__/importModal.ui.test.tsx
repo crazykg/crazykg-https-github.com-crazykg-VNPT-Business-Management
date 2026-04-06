@@ -120,4 +120,47 @@ describe('ImportModal', () => {
     expect(screen.getByText('30/08/1992')).toBeInTheDocument();
     expect(screen.queryByText('33846')).not.toBeInTheDocument();
   });
+
+  it('accepts import files larger than 5MB without blocking the upload', async () => {
+    const user = userEvent.setup();
+
+    const parsedFile = {
+      fileName: 'catalog-large.xlsx',
+      sheets: [
+        {
+          name: 'Products',
+          headers: ['Mã sản phẩm', 'Tên sản phẩm'],
+          rows: [['SP_BIG', 'Sản phẩm lớn']],
+        },
+      ],
+    };
+
+    parseImportFileMock.mockResolvedValue(parsedFile);
+    pickImportSheetByModuleMock.mockReturnValue(parsedFile.sheets[0]);
+
+    const { container } = render(
+      <ImportModal
+        title="Import sản phẩm"
+        moduleKey="products"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    const file = new File([new Uint8Array(6 * 1024 * 1024)], 'catalog-large.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    await user.upload(input as HTMLInputElement, file);
+
+    await waitFor(() => {
+      expect(screen.getByText('catalog-large.xlsx')).toBeInTheDocument();
+    });
+
+    expect(parseImportFileMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/File vượt quá 5MB/)).not.toBeInTheDocument();
+  });
 });

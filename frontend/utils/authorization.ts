@@ -90,6 +90,15 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   customer_request_management: 'support_requests.import',
 };
 
+const SUPPORTED_IMPORT_MODULES = new Set<string>([
+  'departments',
+  'internal_user_list',
+  'internal_user_party_members',
+  'products',
+  'clients',
+  'cus_personnel',
+]);
+
 export const hasPermission = (user: AuthUser | null, permission: string | null | undefined): boolean => {
   if (!permission) {
     return true;
@@ -136,6 +145,14 @@ export const resolveImportPermission = (moduleKey: string): string | null => {
   return IMPORT_PERMISSION_BY_MODULE[moduleKey] ?? null;
 };
 
+export const isImportSupportedModule = (moduleKey: string): boolean => {
+  return SUPPORTED_IMPORT_MODULES.has(String(moduleKey || '').trim());
+};
+
+export const canImportModule = (user: AuthUser | null, moduleKey: string): boolean => {
+  return isImportSupportedModule(moduleKey) && hasPermission(user, resolveImportPermission(moduleKey));
+};
+
 export const canOpenModal = (
   user: AuthUser | null,
   modalType: ModalType,
@@ -146,7 +163,7 @@ export const canOpenModal = (
   }
 
   if (modalType === 'IMPORT_DATA') {
-    return hasPermission(user, resolveImportPermission(activeModuleKey));
+    return canImportModule(user, activeModuleKey);
   }
 
   return hasPermission(user, MODAL_PERMISSION_MAP[modalType] ?? null);

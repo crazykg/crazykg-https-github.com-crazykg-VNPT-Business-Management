@@ -667,7 +667,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     let cancelled = false;
 
     void fetchCustomerRequestProjectItems({
-      include_project_item_id: masterDraft.project_item_id ?? null,
+      include_project_item_id: (masterDraft.project_item_id as string | number | null | undefined) ?? null,
     })
       .then((items) => {
         if (!cancelled) {
@@ -769,7 +769,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     const dispatcherUserIdFromStatusRow = statusRow?.dispatcher_user_id ?? processRow?.dispatcher_user_id;
 
     // Tìm người thực hiện từ people array (vai_tro = "nguoi_thuc_hien")
-    const nguoiThucHien = people.find((p: Record<string, unknown>) => p.vai_tro === 'nguoi_thuc_hien' && p.is_active);
+    const nguoiThucHien = people.find((p) => p.vai_tro === 'nguoi_thuc_hien' && p.is_active);
     const performerUserIdFromPeople = nguoiThucHien?.user_id;
 
     // Với status "completed", lấy completed_by_user_id
@@ -2027,17 +2027,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const showDetailModal = selectedRequestId !== null;
 
   return (
-    <div className="space-y-3 px-3 py-3 md:space-y-5 md:px-5 md:py-5 xl:px-6 xl:py-6">
+    <div className="p-3 pb-6">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start justify-between gap-3 md:items-center">
-        <div>
-          <h2 className="text-[1.7rem] font-semibold leading-tight tracking-tight text-slate-900 md:text-[2rem]">
-            Quản lý yêu cầu khách hàng
-          </h2>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>support_agent</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Quản lý yêu cầu khách hàng</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">Theo dõi và xử lý các yêu cầu từ khách hàng</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-2">
           {isAdminViewer && (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-700">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning/15 text-tertiary">
               Chế độ xem quản trị
             </span>
           )}
@@ -2045,9 +2049,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             <button
               type="button"
               onClick={handleCreateRequest}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(15,118,110,0.18)] transition hover:bg-deep-teal md:gap-2 md:px-4"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white shadow-sm disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
             >
-              <span className="material-symbols-outlined text-[16px] md:text-[18px]">add</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
               Thêm yêu cầu
             </button>
           )}
@@ -2065,7 +2070,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           performerActionCount={patchedPerformerBuckets.pendingRows.length}
           showPanels={activeSurface === 'inbox' && !isCreateMode}
           toolbar={
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
               <CustomerRequestSurfaceSwitch
                 activeSurface={activeSurface}
                 onSurfaceChange={(surface) => {
@@ -2077,10 +2082,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 type="button"
                 onClick={() => bumpDataVersion()}
                 disabled={isDashboardLoading}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                 title="Làm mới dữ liệu"
               >
-                <span className={`material-symbols-outlined text-[18px] ${isDashboardLoading ? 'animate-spin' : ''}`}>
+                <span className={`material-symbols-outlined ${isDashboardLoading ? 'animate-spin' : ''}`} style={{ fontSize: 16 }}>
                   refresh
                 </span>
                 <span className="hidden sm:inline">Làm mới</span>
@@ -2147,9 +2152,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               type="button"
               onClick={handleRevealQuickAccess}
               aria-label="Lối tắt"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-[13px] font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur-sm transition hover:bg-slate-50"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
+              <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 15 }}>
                 bookmark_manager
               </span>
               <span>Lối tắt</span>
@@ -2172,7 +2177,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       {/* ── Main area ──────────────────────────────────────────────────── */}
       {activeSurface === 'analytics' ? (
-        <div className="mt-2">
+        <div>
         <CustomerRequestDashboardCards
           activeRoleFilter={dashboardRoleFilter}
           onRoleFilterChange={handleDashboardRoleFilterChange}
@@ -2186,7 +2191,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         />
         </div>
       ) : activeSurface === 'list' ? (
-        <div className="h-[calc(100vh-280px)] flex-1 overflow-hidden">
+        <div className="h-[calc(100vh-240px)] flex-1 overflow-hidden">
           <CustomerRequestListPane {...listPaneProps} />
         </div>
       ) : null}

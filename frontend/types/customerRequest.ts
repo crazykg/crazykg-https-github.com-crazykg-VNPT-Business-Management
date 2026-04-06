@@ -321,6 +321,18 @@ export interface YeuCau {
   dispatch_route?: string | null;
   dispatched_at?: string | null;
   performer_accepted_at?: string | null;
+  receiver_user_id?: string | number | null;
+  receiver_name?: string | null;
+  receiver_username?: string | null;
+  receiver_code?: string | null;
+  performer_id?: string | number | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
+  current_owner_user_id?: string | number | null;
+  current_owner_name?: string | null;
+  current_owner_field?: string | null;
+  process_row?: YeuCauProcessRow | null;
+  status_row?: YeuCauProcessRow | null;
 }
 
 export type CRCStatusCode =
@@ -596,6 +608,7 @@ export interface YeuCauProcessDetail {
   current_process?: YeuCauProcessMeta | null;
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
+  status_row?: YeuCauProcessRow | null;
   allowed_next_processes: YeuCauProcessMeta[];
   allowed_previous_processes?: YeuCauProcessMeta[];
   transition_allowed: boolean;

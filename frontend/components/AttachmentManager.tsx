@@ -256,7 +256,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
 
   return (
     <div className={compact ? 'space-y-2' : 'space-y-3'}>
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1">
           <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
             <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
@@ -273,9 +273,9 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           type="button"
           onClick={openFilePicker}
           disabled={isUploading || disabled}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
             compact ? 'px-3 py-1.5' : 'px-4 py-2'
-          }`}
+          } min-w-[116px]`}
         >
           {isUploading ? (
             <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />

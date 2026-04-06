@@ -24,6 +24,7 @@ interface EmployeeListProps {
   onOpenModal: (type: ModalType, item?: Employee) => void;
   hrStatistics?: HRStatistics;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  canImport?: boolean;
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: EmployeeListQuery) => void;
@@ -72,10 +73,10 @@ const primaryButtonClass =
   'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60';
 
 const compactInputClass =
-  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30';
+  'h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm leading-6 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 md:h-8 md:text-xs md:leading-5';
 
 const compactSelectTriggerClass =
-  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+  'h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm leading-6 text-slate-700 outline-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 md:h-8 md:text-xs md:leading-5';
 
 const menuPanelClass = 'absolute top-full z-20 mt-2 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-fade-in';
 const menuItemClass =
@@ -135,6 +136,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   departments = [],
   onOpenModal,
   onNotify,
+  canImport = false,
   paginationMeta,
   isLoading = false,
   onQueryChange,
@@ -363,28 +365,24 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     {
       label: 'Nhân sự theo bộ lọc',
       value: totalItems,
-      caption: 'Tổng số hồ sơ khớp với truy vấn hiện tại.',
       tone: 'border-transparent bg-gradient-to-r from-primary to-primary-container text-white',
       iconName: 'group',
     },
     {
       label: 'Đang hoạt động',
       value: activeVisibleCount,
-      caption: serverMode ? 'Đếm trên tập dữ liệu đang tải của trang hiện tại.' : 'Sẵn sàng vận hành trong tập kết quả hiện tại.',
       tone: 'border-secondary/20 bg-secondary-fixed text-deep-teal',
       iconName: 'verified_user',
     },
     {
       label: 'Đã bật VPN',
       value: vpnVisibleCount,
-      caption: 'Số hồ sơ có trạng thái VPN khả dụng trên dữ liệu đang hiển thị.',
       tone: 'border-primary/10 bg-primary-container-soft text-deep-teal',
       iconName: 'lan',
     },
     {
       label: 'Phòng ban hiện diện',
       value: departmentCoverageCount,
-      caption: 'Số đơn vị xuất hiện trong tập dữ liệu đang hiển thị.',
       tone: 'border-tertiary/10 bg-tertiary-fixed text-tertiary',
       iconName: 'apartment',
     },
@@ -570,54 +568,48 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 </span>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">People Directory</p>
                 <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản lý danh sách nhân sự</h2>
-                <p className="text-[11px] leading-tight text-slate-400">
-                  Tập trung quản trị hồ sơ nhân sự, trạng thái vận hành tài khoản và các thao tác nhập xuất dữ liệu.
-                </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                {serverMode ? `Trang ${paginationMeta?.page || currentPage}/${totalPages}` : `${new Intl.NumberFormat('vi-VN').format(totalItems)} hồ sơ`}
-              </span>
+              {canImport ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowImportMenu(!showImportMenu)}
+                    className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                  >
+                    <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
+                    Nhập
+                    <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
+                  </button>
 
-              <div className="relative">
-                <button
-                  onClick={() => setShowImportMenu(!showImportMenu)}
-                  className={`${secondaryButtonClass} min-w-[92px] justify-center`}
-                >
-                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
-                  Nhập
-                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
-                </button>
-
-                {showImportMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
-                    <div className={`${menuPanelClass} left-0 w-44`}>
-                      <button
-                        onClick={() => {
-                          setShowImportMenu(false);
-                          onOpenModal('IMPORT_DATA');
-                        }}
-                        className={menuItemClass}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
-                        Nhập dữ liệu
-                      </button>
-                      <button
-                        onClick={handleDownloadTemplate}
-                        className={`${menuItemClass} border-t border-slate-100`}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
-                        Tải file mẫu
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+                  {showImportMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)}></div>
+                      <div className={`${menuPanelClass} left-0 w-44`}>
+                        <button
+                          onClick={() => {
+                            setShowImportMenu(false);
+                            onOpenModal('IMPORT_DATA');
+                          }}
+                          className={menuItemClass}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
+                          Nhập dữ liệu
+                        </button>
+                        <button
+                          onClick={handleDownloadTemplate}
+                          className={`${menuItemClass} border-t border-slate-100`}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                          Tải file mẫu
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
 
               <div className="relative">
                 <button
@@ -687,7 +679,6 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 </span>
               </div>
               <p className="mt-2 text-xl font-black leading-none">{new Intl.NumberFormat('vi-VN').format(card.value)}</p>
-              <p className="mt-1 text-[11px] leading-5 opacity-80">{card.caption}</p>
             </div>
           ))}
         </div>
@@ -702,12 +693,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               </div>
               <div>
                 <p className="text-xs font-bold text-slate-700">Bộ lọc và tra cứu</p>
-                <p className="text-[10px] text-slate-400">Tìm nhanh theo mã, tài khoản, email, phòng ban và trạng thái vận hành.</p>
               </div>
             </div>
-            <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-              Hiển thị {new Intl.NumberFormat('vi-VN').format(currentData.length)} / {new Intl.NumberFormat('vi-VN').format(totalItems)}
-            </span>
           </div>
 
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_220px_180px] xl:items-center">
@@ -916,6 +903,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               setCurrentPage(1);
             }}
             rowsPerPageOptions={[7, 10, 20, 50]}
+            hidePageSummary
           />
         </div>
       </div>

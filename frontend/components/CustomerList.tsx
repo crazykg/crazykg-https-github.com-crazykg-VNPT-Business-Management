@@ -11,7 +11,7 @@ import {
 } from '../utils/customerClassification';
 import { downloadExcelTemplate } from '../utils/excelTemplate';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
-import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
+import { exportCsv, exportCustomersByCurrentQuery, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 
 interface CustomerListQuery extends PaginatedQuery {}
 
@@ -115,6 +115,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [sortConfig, setSortConfig] = useState<CustomerSortConfig | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
   const [selectedHealthcareFacilityType, setSelectedHealthcareFacilityType] = useState<HealthcareFacilityFilterValue | null>(null);
 
@@ -409,40 +410,77 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     downloadExcelTemplate('mau_nhap_khach_hang', 'KhachHang', headers, sampleRows);
   };
 
-  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
+  const buildRemoteExportQuery = (): CustomerListQuery => {
+    const nextFilters: Record<string, string> = {};
+    if (selectedCustomerSectors.length > 0) {
+      nextFilters.customer_sector = selectedCustomerSectors.join(',');
+    }
+    if (selectedHealthcareFacilityType !== null) {
+      nextFilters.healthcare_facility_type = selectedHealthcareFacilityType;
+    }
+
+    return {
+      page: 1,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'customer_code',
+      sort_dir: sortConfig?.direction || 'asc',
+      filters: nextFilters,
+    };
+  };
+
+  const handleExport = async (type: 'excel' | 'csv' | 'pdf') => {
+    if (isExporting) {
+      return;
+    }
+
     setShowExportMenu(false);
-    const headers = ['Mã KH', 'Tên Khách Hàng', 'Nhóm khách hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
-    const rows = filteredCustomers.map((row) => [
-      row.customer_code || '',
-      row.customer_name,
-      getCustomerGroupDisplay(row).label,
-      row.tax_code || '',
-      row.address || '',
-      row.created_at || '',
-    ]);
-    const fileName = `ds_khach_hang_${isoDateStamp()}`;
+    setIsExporting(true);
 
-    if (type === 'excel') {
-      exportExcel(fileName, 'KhachHang', headers, rows);
-      return;
-    }
+    try {
+      const dataToExport = serverMode
+        ? await exportCustomersByCurrentQuery(buildRemoteExportQuery())
+        : filteredCustomers;
+      const headers = ['Mã KH', 'Tên Khách Hàng', 'Nhóm khách hàng', 'Mã số thuế', 'Địa chỉ', 'Ngày tạo'];
+      const rows = dataToExport.map((row) => [
+        row.customer_code || '',
+        row.customer_name,
+        getCustomerGroupDisplay(row).label,
+        row.tax_code || '',
+        row.address || '',
+        row.created_at || '',
+      ]);
+      const fileName = `ds_khach_hang_${isoDateStamp()}`;
 
-    if (type === 'csv') {
-      exportCsv(fileName, headers, rows);
-      return;
-    }
+      if (type === 'excel') {
+        exportExcel(fileName, 'KhachHang', headers, rows);
+        return;
+      }
 
-    const canPrint = exportPdfTable({
-      fileName,
-      title: 'Danh sách khách hàng',
-      headers,
-      rows,
-      subtitle: `Ngày xuất: ${new Date().toLocaleString('vi-VN')}`,
-      landscape: true,
-    });
+      if (type === 'csv') {
+        exportCsv(fileName, headers, rows);
+        return;
+      }
 
-    if (!canPrint) {
-      onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+      const canPrint = exportPdfTable({
+        fileName,
+        title: 'Danh sách khách hàng',
+        headers,
+        rows,
+        subtitle: `Ngày xuất: ${new Date().toLocaleString('vi-VN')}`,
+        landscape: true,
+      });
+
+      if (!canPrint) {
+        onNotify?.('error', 'Xuất dữ liệu', 'Trình duyệt đang chặn popup. Vui lòng cho phép popup để xuất PDF.');
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim() !== ''
+        ? error.message
+        : 'Không thể xuất dữ liệu khách hàng.';
+      onNotify?.('error', 'Xuất dữ liệu', message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -489,12 +527,18 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const renderCustomerGroup = (item: Customer, compact = false) => {
     const group = getCustomerGroupDisplay(item);
     const badgeClassName = CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR[group.sector] || CUSTOMER_GROUP_BADGE_CLASS_BY_SECTOR.OTHER;
+    const healthcareDetail = group.sector === 'HEALTHCARE' ? group.detail : null;
 
     return (
-      <div className={compact ? '' : 'min-w-0'}>
+      <div className={`${compact ? '' : 'min-w-0'} space-y-1`}>
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${badgeClassName}`}>
           {group.label}
         </span>
+        {healthcareDetail ? (
+          <p className="max-w-full break-words text-[11px] leading-4 text-slate-500">
+            {healthcareDetail}
+          </p>
+        ) : null}
       </div>
     );
   };

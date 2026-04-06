@@ -39,6 +39,11 @@ class ProductController extends V5BaseController
         return $this->productService->store($request);
     }
 
+    public function storeBulk(Request $request): JsonResponse
+    {
+        return $this->productService->storeBulk($request);
+    }
+
     public function update(UpdateProductRequest $request, int $id): JsonResponse
     {
         return $this->productService->update($request, $id);

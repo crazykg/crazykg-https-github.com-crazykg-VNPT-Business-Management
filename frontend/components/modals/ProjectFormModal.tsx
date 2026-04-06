@@ -53,6 +53,7 @@ import {
   ProjectRaciTab,
   type ProjectImportSummary,
 } from './ProjectTabs';
+import { QuotationPickerModal } from './QuotationPickerModal';
 import type { SearchableSelectOption } from './selectPrimitives';
 import {
   DATE_INPUT_MAX,
@@ -254,6 +255,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const itemsDirtyRef = useRef(type === 'ADD');
   const raciDirtyRef = useRef(type === 'ADD');
   const [showItemImportMenu, setShowItemImportMenu] = useState(false);
+  const [showQuotationPicker, setShowQuotationPicker] = useState(false);
   const [showItemImportModal, setShowItemImportModal] = useState(false);
   const [isItemImportSaving, setIsItemImportSaving] = useState(false);
   const [itemImportLoadingText, setItemImportLoadingText] = useState('');
@@ -269,6 +271,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     useState<ProjectImportSummary | null>(null);
   const raciImportInFlightRef = useRef(false);
   const raciImportMenuRef = useRef<HTMLDivElement>(null);
+  const [duplicateRaciIds, setDuplicateRaciIds] = useState<Set<string>>(new Set());
 
   const [procedureTemplates, setProcedureTemplates] = useState<
     ProcedureTemplate[]
@@ -741,9 +744,33 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       newErrors.items = 'Không được chọn trùng sản phẩm trong cùng một dự án.';
     }
 
+    const seenRaci = new Map<string, string>();
+    const conflictingRaciIds = new Set<string>();
+    for (const r of formData.raci || []) {
+      const uid = String(r.userId ?? '').trim();
+      const role = String(r.roleType ?? '').trim().toUpperCase();
+      if (!uid || !role) continue;
+      const key = `${uid}|${role}`;
+      if (seenRaci.has(key)) {
+        conflictingRaciIds.add(r.id);
+        conflictingRaciIds.add(seenRaci.get(key)!);
+      } else {
+        seenRaci.set(key, r.id);
+      }
+    }
+    if (conflictingRaciIds.size > 0) {
+      newErrors.raci = 'Có nhân sự được gán trùng vai trò RACI. Vui lòng kiểm tra lại.';
+      setDuplicateRaciIds(conflictingRaciIds);
+    } else {
+      setDuplicateRaciIds(new Set());
+    }
+
     setErrors(newErrors);
     const isValid = Object.keys(newErrors).length === 0;
-    if (!isValid && newErrors.items && activeTab !== 'items') {
+    if (!isValid && newErrors.raci) {
+      if (activeTab !== 'raci') setActiveTab('raci');
+      onNotify?.('error', 'Vai trò RACI bị trùng', newErrors.raci);
+    } else if (!isValid && newErrors.items && activeTab !== 'items') {
       setActiveTab('items');
       onNotify?.('error', 'Sản phẩm bị trùng', newErrors.items);
     } else if (!isValid && activeTab !== 'info') {
@@ -1104,6 +1131,48 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setFormData((prev) => ({ ...prev, items: [...(prev.items || []), newItem] }));
   };
 
+  const handleImportFromQuotation = (newItems: ProjectItem[], mergeMode: 'merge' | 'replace') => {
+    if (!isPersistedProject) {
+      onNotify?.('error', 'Dự án chưa lưu', 'Vui lòng lưu dự án trước khi lấy hạng mục từ báo giá.');
+      return;
+    }
+    itemsDirtyRef.current = true;
+    setFormData((prev) => {
+      if (mergeMode === 'replace') {
+        return { ...prev, items: newItems };
+      }
+      // merge: nếu product_id đã có → cộng số lượng; chưa có → append
+      const existing = [...(prev.items || [])];
+      for (const incoming of newItems) {
+        const idx = existing.findIndex(
+          (ei) => String(ei.productId || ei.product_id) === String(incoming.productId)
+        );
+        if (idx >= 0) {
+          const current = existing[idx];
+          const newQty = Number(current.quantity || 0) + Number(incoming.quantity || 0);
+          const price = Number(current.unitPrice || current.unit_price || 0);
+          existing[idx] = {
+            ...current,
+            quantity: newQty,
+            lineTotal: newQty * price,
+            line_total: newQty * price,
+          };
+        } else {
+          existing.push(incoming);
+        }
+      }
+      return { ...prev, items: existing };
+    });
+    setShowQuotationPicker(false);
+    onNotify?.(
+      'success',
+      'Lấy hạng mục từ báo giá',
+      mergeMode === 'replace'
+        ? `Đã thay thế toàn bộ bằng ${newItems.length} hạng mục từ báo giá.`
+        : `Đã gộp ${newItems.length} hạng mục từ báo giá vào danh sách.`
+    );
+  };
+
   const handleUpdateItem = (itemId: string, field: keyof ProjectItem, value: any) => {
     itemsDirtyRef.current = true;
     setFormData((prev) => {
@@ -1396,12 +1465,22 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         const roleLabel =
           RACI_ROLES.find((role) => role.value === nextRoleType)?.label ||
           nextRoleType;
-        alert(
+        onNotify?.(
+          'error',
+          'Vai trò bị trùng',
           `Nhân sự này đã được phân công vai trò [${roleLabel}] trong dự án. Vui lòng chọn vai trò khác!`
         );
+        setDuplicateRaciIds((prev) => new Set([...prev, raciId, duplicate.id]));
         return;
       }
     }
+
+    setDuplicateRaciIds((prev) => {
+      if (!prev.has(raciId)) return prev;
+      const next = new Set(prev);
+      next.delete(raciId);
+      return next;
+    });
 
     raciDirtyRef.current = true;
     setFormData((prev) => ({
@@ -1449,6 +1528,23 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       ...prev,
       raci: prev.raci?.filter((r) => r.id !== raciId),
     }));
+  };
+
+  const handleCopyRACI = (raciId: string) => {
+    const source = formData.raci?.find((r) => r.id === raciId);
+    if (!source) return;
+    const copy: ProjectRACI = {
+      ...source,
+      id: `RACI_${Date.now()}`,
+      user_id: null,
+    };
+    raciDirtyRef.current = true;
+    setFormData((prev) => {
+      const idx = prev.raci?.findIndex((r) => r.id === raciId) ?? -1;
+      const next = [...(prev.raci || [])];
+      next.splice(idx + 1, 0, copy);
+      return { ...prev, raci: next };
+    });
   };
 
   const itemSummary = useMemo(() => {
@@ -1537,6 +1633,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         toggleItemImportMenu={() => setShowItemImportMenu((prev) => !prev)}
         totalDiscountPercent={totalDiscountPercent}
         triggerProjectItemImport={triggerProjectItemImport}
+        onOpenQuotationPicker={() => setShowQuotationPicker(true)}
       />
     ) : activeTab === 'raci' ? (
       <ProjectRaciTab
@@ -1544,10 +1641,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         employeeOptions={employeeOptions}
         formData={formData}
         handleAddRACI={handleAddRACI}
+        handleCopyRACI={handleCopyRACI}
         handleDownloadProjectRaciTemplate={handleDownloadProjectRaciTemplate}
         handleRaciAssignedDateBlur={handleRaciAssignedDateBlur}
         handleRemoveRACI={handleRemoveRACI}
         handleUpdateRACI={handleUpdateRACI}
+        duplicateRaciIds={duplicateRaciIds}
         isDepartmentsLoading={isDepartmentsLoading}
         isProjectEmployeeOptionsLoading={isProjectEmployeeOptionsLoading}
         isRaciImportSaving={isRaciImportSaving}
@@ -1573,6 +1672,15 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   const projectImportDialogs = (
     <>
+      {showQuotationPicker && (
+        <QuotationPickerModal
+          projectCustomerId={formData.customer_id ?? null}
+          productById={productById}
+          existingItems={formData.items ?? []}
+          onConfirm={handleImportFromQuotation}
+          onClose={() => setShowQuotationPicker(false)}
+        />
+      )}
       {showItemImportModal && (
         <ImportModal
           title="Nhập dữ liệu hạng mục dự án"

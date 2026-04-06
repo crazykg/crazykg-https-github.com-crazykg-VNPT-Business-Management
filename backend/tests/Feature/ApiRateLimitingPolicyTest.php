@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Cache\RateLimiter as CacheRateLimiter;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Route as IlluminateRoute;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
@@ -100,6 +102,21 @@ class ApiRateLimitingPolicyTest extends TestCase
 
         $this->assertNotContains('throttle:api.write.customer_import', $canonicalRoute->gatherMiddleware());
         $this->assertNotContains('throttle:api.write.customer_import', $aliasRoute->gatherMiddleware());
+    }
+
+    public function test_product_bulk_import_route_bypasses_the_standard_write_bucket(): void
+    {
+        $limiter = app(CacheRateLimiter::class)->limiter('api.write');
+
+        $this->assertNotNull($limiter);
+
+        $request = Request::create('/api/v5/products/bulk', 'POST');
+        $request->headers->set('User-Agent', 'rate-limit-product-bulk');
+        $request->server->set('REMOTE_ADDR', '127.0.0.1');
+
+        $limit = $limiter($request);
+
+        $this->assertSame(PHP_INT_MAX, $limit->maxAttempts);
     }
 
     private function registerTestRoutes(): void

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../../services/v5Api';
 import type { Business, Product, ProductUnitMaster, Vendor } from '../../types';
 import { normalizeProductUnitForSave } from '../../utils/productUnit';
+import { useToastStore } from '../../shared/stores/toastStore';
 import {
   DEFAULT_PRODUCT_SERVICE_GROUP,
   isProductServiceGroupCode,
@@ -425,8 +426,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         ...formData,
         service_group: normalizeProductServiceGroup(formData.service_group),
       });
-    } catch {
-      // Parent handles the toast.
+    } catch (error) {
+      useToastStore.getState().addToast('error', 'Lưu thất bại', error instanceof Error ? error.message : 'Không thể lưu sản phẩm. Vui lòng thử lại.');
     } finally {
       if (isMountedRef.current) {
         setIsSubmitting(false);
@@ -656,9 +657,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="mb-4">
-            <p className="text-sm font-semibold text-slate-900">Bổ sung</p>
-          </div>
           <div className="space-y-5">
             <div data-product-field="description" className="flex flex-col gap-1.5">
               <label className={PRODUCT_FORM_LABEL_CLASS_NAME}>Mô tả</label>

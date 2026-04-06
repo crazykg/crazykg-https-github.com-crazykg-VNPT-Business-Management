@@ -12,6 +12,7 @@ interface DepartmentListProps {
   departments: Department[];
   employees?: Employee[];
   onOpenModal: (type: ModalType, item?: Department) => void;
+  canImport?: boolean;
 }
 
 type DepartmentTreeNode = Department & { children: DepartmentTreeNode[]; level: number };
@@ -63,7 +64,7 @@ const flattenTree = (
   return result;
 };
 
-export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], employees = [], onOpenModal }: DepartmentListProps) => {
+export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = [], employees = [], onOpenModal, canImport = false }: DepartmentListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string | number>>(new Set());
@@ -276,37 +277,39 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
         </div>
         <div className="flex items-center gap-2">
           {/* Import dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowImportMenu((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            >
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
-              Nhập
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
-            </button>
-            {showImportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in">
-                  <button
-                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
-                  >
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
-                    Nhập dữ liệu
-                  </button>
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left border-t border-slate-100"
-                  >
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
-                    Tải file mẫu
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          {canImport ? (
+            <div className="relative">
+              <button
+                onClick={() => setShowImportMenu((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              >
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                Nhập
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+              </button>
+              {showImportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden animate-fade-in">
+                    <button
+                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left"
+                    >
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                      Nhập dữ liệu
+                    </button>
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors text-left border-t border-slate-100"
+                    >
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
+                      Tải file mẫu
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
 
           {/* Export dropdown */}
           <div className="relative">

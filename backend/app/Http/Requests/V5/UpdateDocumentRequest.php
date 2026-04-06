@@ -28,6 +28,7 @@ class UpdateDocumentRequest extends V5FormRequest
             'typeId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required'],
             'customerId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required', 'integer'],
             'projectId' => ['sometimes', 'nullable', 'integer'],
+            'commissionPolicyText' => ['sometimes', 'nullable', 'string', 'max:5000'],
             'expiryDate' => ['sometimes', 'nullable', 'date'],
             'releaseDate' => ['sometimes', 'nullable', 'date'],
             'status' => ['sometimes', 'nullable', Rule::in(self::DOCUMENT_STATUSES)],

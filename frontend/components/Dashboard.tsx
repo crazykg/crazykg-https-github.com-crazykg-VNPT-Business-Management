@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle,
@@ -13,8 +13,15 @@ import {
   ContractStatusBreakdown,
   ExpiringContractSummary,
   ProjectStatusBreakdown,
+  Contract,
+  PaymentSchedule,
+  Project,
+  Customer,
+  Department,
+  Employee,
 } from '../types';
 import type { DashboardStats } from '../types/dashboard';
+import { calculateDashboardStats, EMPTY_DASHBOARD_STATS } from '../utils/dashboardCalculations';
 import { getProjectStatusLabel } from '../constants';
 
 const resolveProjectStatusColor = (status: string): string => {
@@ -79,10 +86,121 @@ const formatDate = (value?: string | null): string => {
 };
 
 interface DashboardProps {
-  stats: DashboardStats;
+  contracts: Contract[];
+  paymentSchedules: PaymentSchedule[];
+  projects: Project[];
+  customers: Customer[];
+  departments: Department[];
+  employees: Employee[];
+  /** @deprecated pass raw data instead; kept for compatibility */
+  stats?: DashboardStats;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
+// ── period helpers ──────────────────────────────────────────────────────────
+const CURRENT_YEAR = new Date().getFullYear();
+type PeriodKey = 'all' | 'this_year' | 'this_quarter' | 'this_month' | string;
+
+const PERIOD_OPTIONS: { value: PeriodKey; label: string }[] = [
+  { value: 'all', label: 'Tất cả thời gian' },
+  { value: 'this_year', label: `Năm ${CURRENT_YEAR}` },
+  { value: 'this_quarter', label: 'Quý này' },
+  { value: 'this_month', label: 'Tháng này' },
+  ...Array.from({ length: 4 }, (_, i) => {
+    const y = CURRENT_YEAR - i;
+    return { value: String(y), label: `Năm ${y}` };
+  }).slice(1),
+];
+
+function periodBounds(period: PeriodKey): { from: Date; to: Date } | null {
+  const now = new Date();
+  if (period === 'all') return null;
+  if (period === 'this_month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    return { from, to };
+  }
+  if (period === 'this_quarter') {
+    const qStart = Math.floor(now.getMonth() / 3) * 3;
+    const from = new Date(now.getFullYear(), qStart, 1);
+    const to = new Date(now.getFullYear(), qStart + 3, 0, 23, 59, 59);
+    return { from, to };
+  }
+  if (period === 'this_year') {
+    return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear(), 11, 31, 23, 59, 59) };
+  }
+  const y = parseInt(period, 10);
+  if (!Number.isNaN(y)) {
+    return { from: new Date(y, 0, 1), to: new Date(y, 11, 31, 23, 59, 59) };
+  }
+  return null;
+}
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  contracts: allContracts,
+  paymentSchedules: allSchedules,
+  projects: allProjects,
+  customers,
+  departments,
+  employees,
+}) => {
+  // ── filter state ────────────────────────────────────────────────────────
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const [deptId, setDeptId] = useState<string>('all');
+  const [employeeId, setEmployeeId] = useState<string>('all');
+
+  // ── derived: employees of selected dept ────────────────────────────────
+  const deptEmployees = useMemo(() => {
+    if (deptId === 'all') return employees;
+    return employees.filter((e) => String(e.department_id) === deptId);
+  }, [employees, deptId]);
+
+  // ── filtered raw data ───────────────────────────────────────────────────
+  const contracts = useMemo(() => {
+    let list = allContracts;
+    // dept filter
+    if (deptId !== 'all') {
+      list = list.filter((c) => String(c.dept_id) === deptId);
+    }
+    // signer/employee filter
+    if (employeeId !== 'all') {
+      list = list.filter((c) => String(c.signer_user_id) === employeeId);
+    }
+    // period filter: by sign_date
+    const bounds = periodBounds(period);
+    if (bounds) {
+      list = list.filter((c) => {
+        const d = c.sign_date ? new Date(c.sign_date) : null;
+        return d && d >= bounds.from && d <= bounds.to;
+      });
+    }
+    return list;
+  }, [allContracts, deptId, employeeId, period]);
+
+  const contractIds = useMemo(() => new Set(contracts.map((c) => String(c.id))), [contracts]);
+
+  const paymentSchedules = useMemo(() => {
+    if (deptId === 'all' && employeeId === 'all' && period === 'all') return allSchedules;
+    return allSchedules.filter((s) => contractIds.has(String(s.contract_id)));
+  }, [allSchedules, contractIds, deptId, employeeId, period]);
+
+  const projects = useMemo(() => {
+    let list = allProjects;
+    if (deptId !== 'all' || employeeId !== 'all') {
+      // filter projects linked to filtered contracts
+      const projectIdsFromContracts = new Set(
+        contracts.map((c) => c.project_id).filter(Boolean).map(String)
+      );
+      list = list.filter((p) => projectIdsFromContracts.has(String(p.id)));
+    }
+    return list;
+  }, [allProjects, contracts, deptId, employeeId]);
+
+  // ── computed stats ──────────────────────────────────────────────────────
+  const stats = useMemo<DashboardStats>(
+    () => calculateDashboardStats(contracts, paymentSchedules, projects, customers),
+    [contracts, paymentSchedules, projects, customers]
+  );
+
   const projectStatusCounts = stats.projectStatusCounts || [];
   const contractStatusCounts = stats.contractStatusCounts || [];
   const monthlyRevenueComparison = stats.monthlyRevenueComparison || [];
@@ -98,178 +216,365 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats }) => {
     return Math.max(1, ...values);
   }, [monthlyRevenueComparison]);
 
+  const achievementRate = stats.totalRevenue > 0
+    ? Math.round((stats.actualRevenue / stats.totalRevenue) * 100)
+    : 0;
+
+  const forecastVsActualGap = stats.forecastRevenueMonth - stats.actualRevenue;
+  const forecastGapPositive = forecastVsActualGap >= 0;
+
+  const activeProjects = projectStatusCounts
+    .filter((p) => !['HUY', 'CANCELLED', 'KET_THUC_DAU_TU', 'COMPLETED'].includes(p.status.toUpperCase()))
+    .reduce((s, p) => s + p.count, 0);
+  const totalProjects = projectStatusCounts.reduce((s, p) => s + p.count, 0);
+
   return (
-    <div className="p-4 md:p-8 space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-r from-deep-teal to-primary p-8 rounded-3xl text-white shadow-xl shadow-primary/25 relative overflow-hidden"
-      >
-        <div className="relative z-10 max-w-3xl">
-          <h1 className="text-2xl md:text-4xl font-black mb-3 tracking-tight">Bảng điều khiển KPI chiến lược</h1>
-          <p className="text-base md:text-lg font-medium opacity-90 leading-relaxed">
-            Theo dõi doanh thu thực tế, forecast dòng tiền và tiến độ thực hiện theo dữ liệu hợp đồng và kỳ thanh toán.
-          </p>
-        </div>
-        <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-      </motion.div>
+    <div className="p-3 pb-6 space-y-3">
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <FinanceCard
-          title="Doanh thu thực tế"
-          value={formatCurrency(stats.actualRevenue)}
-          hint="SUM(actual_paid_amount) các kỳ đã thu"
-          icon={<CircleDollarSign className="w-5 h-5" />}
-          colorClass="text-emerald-600 bg-emerald-50"
-        />
-        <FinanceCard
-          title="Forecast tháng hiện tại"
-          value={formatCurrency(stats.forecastRevenueMonth)}
-          hint="Tổng expected_amount của các kỳ chờ thu trong tháng"
-          icon={<CalendarClock className="w-5 h-5" />}
-          colorClass="text-primary bg-blue-50"
-        />
-        <FinanceCard
-          title="Forecast quý hiện tại"
-          value={formatCurrency(stats.forecastRevenueQuarter)}
-          hint="Tổng expected_amount của các kỳ chờ thu trong quý"
-          icon={<CalendarClock className="w-5 h-5" />}
-          colorClass="text-amber-600 bg-amber-50"
-        />
-        <FinanceCard
-          title="Hợp đồng đã ký"
-          value={formatCurrency(stats.totalRevenue)}
-          hint="Tổng giá trị các hợp đồng ở trạng thái Đã ký"
-          icon={<CircleDollarSign className="w-5 h-5" />}
-          colorClass="text-indigo-600 bg-indigo-50"
-        />
-      </div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-      >
-        <div className="flex items-center justify-between gap-4 mb-6">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>dashboard</span>
+          </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Phân tích kinh doanh</p>
-            <h3 className="text-2xl font-black text-slate-900 mt-2">Doanh thu thực tế vs Kế hoạch theo tháng</h3>
-          </div>
-          <TrendingUp className="w-6 h-6 text-primary" />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
-          {monthlyRevenueComparison.map((item) => (
-            <div key={item.month} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-              <div className="h-28 flex items-end justify-center gap-2">
-                <div className="w-4 rounded-t-md bg-slate-300" style={{ height: `${(item.planned / maxMonthlyValue) * 100}%` }} />
-                <div className="w-4 rounded-t-md bg-primary" style={{ height: `${(item.actual / maxMonthlyValue) * 100}%` }} />
-              </div>
-              <p className="text-xs font-semibold text-slate-700 text-center mt-2">{item.month}</p>
-              <p className="text-[11px] text-slate-500 text-center">KH: {formatCurrency(item.planned)}</p>
-              <p className="text-[11px] text-primary text-center font-semibold">TT: {formatCurrency(item.actual)}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-end gap-4 mt-4 text-xs text-slate-500">
-          <div className="inline-flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm bg-slate-300" />
-            Kế hoạch
-          </div>
-          <div className="inline-flex items-center gap-2">
-            <span className="w-3 h-3 rounded-sm bg-primary" />
-            Thực tế
+            <h2 className="text-sm font-bold text-deep-teal">Bảng điều khiển KPI chiến lược</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">Doanh thu · Kế hoạch · Dự báo · Rủi ro · Tổng thể thi công</p>
           </div>
         </div>
-      </motion.div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ProjectStatusCard data={projectStatusCounts} maxValue={maxProjectValue} />
-        <ContractStatusCard data={contractStatusCounts} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <CollectionRateCard
-          collectionRate={stats.collectionRate}
-          overduePaymentCount={stats.overduePaymentCount}
-          overduePaymentAmount={stats.overduePaymentAmount}
-        />
-        <ExpiringContractsCard data={expiringContracts} />
+      {/* ── Filter bar ── */}
+      <div className="flex flex-wrap items-center gap-2">
+
+        {/* Period */}
+        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm min-w-0">
+          <span className="material-symbols-outlined text-slate-400 shrink-0" style={{ fontSize: 14 }}>calendar_month</span>
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as PeriodKey)}
+            className="text-xs font-medium text-slate-700 bg-transparent border-none outline-none cursor-pointer pr-1 max-w-[140px]"
+          >
+            {PERIOD_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Department */}
+        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm min-w-0">
+          <span className="material-symbols-outlined text-slate-400 shrink-0" style={{ fontSize: 14 }}>corporate_fare</span>
+          <select
+            value={deptId}
+            onChange={(e) => { setDeptId(e.target.value); setEmployeeId('all'); }}
+            className="text-xs font-medium text-slate-700 bg-transparent border-none outline-none cursor-pointer pr-1 max-w-[160px]"
+          >
+            <option value="all">Tất cả phòng ban</option>
+            {departments.filter((d) => d.is_active).map((d) => (
+              <option key={String(d.id)} value={String(d.id)}>{d.dept_name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Employee — filtered by dept */}
+        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm min-w-0">
+          <span className="material-symbols-outlined text-slate-400 shrink-0" style={{ fontSize: 14 }}>person</span>
+          <select
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            className="text-xs font-medium text-slate-700 bg-transparent border-none outline-none cursor-pointer pr-1 max-w-[160px]"
+          >
+            <option value="all">Tất cả nhân sự</option>
+            {deptEmployees.filter((e) => e.status === 'ACTIVE').map((e) => (
+              <option key={String(e.id)} value={String(e.id)}>{e.full_name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Active filter chips + Reset */}
+        {(period !== 'all' || deptId !== 'all' || employeeId !== 'all') && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {period !== 'all' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-primary/10 text-primary rounded-full px-2 py-0.5">
+                {PERIOD_OPTIONS.find((o) => o.value === period)?.label}
+                <button onClick={() => setPeriod('all')} className="hover:text-red-500 ml-0.5">×</button>
+              </span>
+            )}
+            {deptId !== 'all' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-secondary/10 text-secondary rounded-full px-2 py-0.5">
+                {departments.find((d) => String(d.id) === deptId)?.dept_name}
+                <button onClick={() => { setDeptId('all'); setEmployeeId('all'); }} className="hover:text-red-500 ml-0.5">×</button>
+              </span>
+            )}
+            {employeeId !== 'all' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-amber-100 text-amber-700 rounded-full px-2 py-0.5">
+                {employees.find((e) => String(e.id) === employeeId)?.full_name}
+                <button onClick={() => setEmployeeId('all')} className="hover:text-red-500 ml-0.5">×</button>
+              </span>
+            )}
+            <button
+              onClick={() => { setPeriod('all'); setDeptId('all'); setEmployeeId('all'); }}
+              className="text-[11px] text-slate-400 hover:text-red-500 underline underline-offset-2"
+            >
+              Xóa bộ lọc
+            </button>
+          </div>
+        )}
+
+        {/* Summary badge: showing N/total contracts */}
+        <div className="ml-auto text-[11px] text-slate-400">
+          {contracts.length} / {allContracts.length} hợp đồng
+          {projects.length !== allProjects.length && <span className="ml-2">{projects.length} / {allProjects.length} dự án</span>}
+        </div>
+      </div>
+
+      {/* ── Hàng 1: 4 KPI thẻ tóm tắt ── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+
+        {/* KPI 1 – Doanh thu thực tế + tỉ lệ hoàn thành */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="w-7 h-7 rounded bg-emerald-50 flex items-center justify-center shrink-0">
+              <CircleDollarSign className="w-4 h-4 text-emerald-600" />
+            </div>
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${achievementRate >= 80 ? 'bg-emerald-100 text-emerald-700' : achievementRate >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>
+              {achievementRate}% HT
+            </span>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Doanh thu thực tế</p>
+            <p className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{formatCurrency(stats.actualRevenue)}</p>
+          </div>
+          <div className="mt-auto">
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>KH ký: {formatCurrency(stats.totalRevenue)}</span>
+              <span>{achievementRate}%</span>
+            </div>
+            <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(achievementRate, 100)}%` }} />
+            </div>
+          </div>
+        </motion.div>
+
+        {/* KPI 2 – Forecast tháng + gap */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="w-7 h-7 rounded bg-blue-50 flex items-center justify-center shrink-0">
+              <CalendarClock className="w-4 h-4 text-primary" />
+            </div>
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${forecastGapPositive ? 'bg-blue-50 text-primary' : 'bg-red-100 text-red-600'}`}>
+              {forecastGapPositive ? '▲' : '▼'} Tháng
+            </span>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Forecast tháng hiện tại</p>
+            <p className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{formatCurrency(stats.forecastRevenueMonth)}</p>
+          </div>
+          <p className={`text-[11px] mt-auto ${forecastGapPositive ? 'text-primary' : 'text-red-500'}`}>
+            {forecastGapPositive ? '+' : ''}{formatCurrency(forecastVsActualGap)} so với thực tế
+          </p>
+        </motion.div>
+
+        {/* KPI 3 – Forecast quý */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="w-7 h-7 rounded bg-amber-50 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4 h-4 text-amber-600" />
+            </div>
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Quý</span>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Forecast quý hiện tại</p>
+            <p className="text-lg font-black text-slate-900 mt-0.5 leading-tight">{formatCurrency(stats.forecastRevenueQuarter)}</p>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-auto">Dự kiến thu trong quý theo kỳ thanh toán</p>
+        </motion.div>
+
+        {/* KPI 4 – Rủi ro thu nợ */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className={`rounded-lg border p-3 shadow-sm flex flex-col gap-2 ${stats.overduePaymentCount > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className={`w-7 h-7 rounded flex items-center justify-center shrink-0 ${stats.overduePaymentCount > 0 ? 'bg-red-100' : 'bg-emerald-50'}`}>
+              <AlertTriangle className={`w-4 h-4 ${stats.overduePaymentCount > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
+            </div>
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${stats.overduePaymentCount > 0 ? 'bg-red-200 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {stats.overduePaymentCount > 0 ? 'Rủi ro' : 'An toàn'}
+            </span>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Nợ quá hạn</p>
+            <p className={`text-lg font-black mt-0.5 leading-tight ${stats.overduePaymentCount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+              {stats.overduePaymentCount > 0 ? formatCurrency(stats.overduePaymentAmount) : '0 đ'}
+            </p>
+          </div>
+          <p className={`text-[11px] mt-auto ${stats.overduePaymentCount > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+            {stats.overduePaymentCount > 0 ? `${stats.overduePaymentCount} kỳ chưa thu` : 'Không có kỳ nào quá hạn'}
+          </p>
+        </motion.div>
+      </div>
+
+      {/* ── Hàng 2: Biểu đồ doanh thu + Tỷ lệ thu tiền ── */}
+      <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
+
+        {/* Biểu đồ cột Thực tế vs KH */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+                <TrendingUp className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Kế hoạch vs Thực tế</p>
+                <h3 className="text-xs font-bold text-slate-800">Doanh thu 6 tháng gần nhất</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-[10px] text-slate-400">
+              <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-200" />KH</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary" />TT</span>
+            </div>
+          </div>
+
+          {monthlyRevenueComparison.length === 0 ? (
+            <div className="h-28 flex items-center justify-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
+              Chưa có dữ liệu tháng
+            </div>
+          ) : (
+            <div className="flex items-end gap-2 h-28 pt-2">
+              {monthlyRevenueComparison.map((item) => {
+                const plannedH = maxMonthlyValue > 0 ? (item.planned / maxMonthlyValue) * 100 : 0;
+                const actualH = maxMonthlyValue > 0 ? (item.actual / maxMonthlyValue) * 100 : 0;
+                const over = item.actual > item.planned;
+                return (
+                  <div key={item.month} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                    <div className="w-full flex items-end justify-center gap-0.5 h-20">
+                      <div className="w-[45%] rounded-t bg-slate-200" style={{ height: `${plannedH}%`, minHeight: 2 }} title={`KH: ${formatCurrency(item.planned)}`} />
+                      <div className={`w-[45%] rounded-t transition-all ${over ? 'bg-emerald-500' : 'bg-primary'}`} style={{ height: `${actualH}%`, minHeight: 2 }} title={`TT: ${formatCurrency(item.actual)}`} />
+                    </div>
+                    <p className="text-[10px] font-semibold text-slate-600 truncate w-full text-center">{item.month}</p>
+                    {over && <span className="text-[9px] text-emerald-600 font-bold">▲</span>}
+                    {!over && item.actual < item.planned && <span className="text-[9px] text-red-500 font-bold">▼</span>}
+                    {item.actual === item.planned && <span className="text-[9px] text-slate-300">—</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
+
+        {/* Tỷ lệ thu tiền – donut */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded bg-emerald-50 flex items-center justify-center">
+              <CircleDollarSign className="w-3.5 h-3.5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Thu nợ</p>
+              <h3 className="text-xs font-bold text-slate-800">Tỷ lệ thu tiền</h3>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 flex-1">
+            <CollectionDonut rate={Math.max(0, Math.min(100, Math.round(stats.collectionRate || 0)))} />
+            <div className="flex-1 space-y-2 min-w-0">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">Đã thu</span>
+                <span className="font-bold text-emerald-700">{Math.max(0, Math.min(100, Math.round(stats.collectionRate || 0)))}%</span>
+              </div>
+              <div className="h-1 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Math.round(stats.collectionRate || 0)))}%` }} /></div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-500">Còn lại</span>
+                <span className="font-bold text-slate-600">{100 - Math.max(0, Math.min(100, Math.round(stats.collectionRate || 0)))}%</span>
+              </div>
+              <div className="h-1 rounded-full bg-slate-100"><div className="h-full rounded-full bg-slate-300" style={{ width: `${100 - Math.max(0, Math.min(100, Math.round(stats.collectionRate || 0)))}%` }} /></div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* ── Hàng 3: Tổng thể HĐ + Tiến độ DA ── */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <ContractStatusCard data={contractStatusCounts} />
+        <ProjectStatusCard data={projectStatusCounts} maxValue={maxProjectValue} activeCount={activeProjects} totalCount={totalProjects} />
+      </div>
+
+      {/* ── Hàng 4: Cảnh báo HĐ hết hạn (full width) ── */}
+      <ExpiringContractsCard data={expiringContracts} />
+
+    </div>
+  );
+};
+
+// CollectionDonut — mini SVG donut used inside the collection card
+const CollectionDonut: React.FC<{ rate: number }> = ({ rate }) => {
+  const strokeDasharray = `${rate * 2.51} 251`;
+  const color = rate >= 80 ? '#16a34a' : rate >= 50 ? '#d97706' : '#dc2626';
+  return (
+    <div className="relative h-20 w-20 shrink-0">
+      <svg viewBox="0 0 100 100" className="h-20 w-20 -rotate-90">
+        <circle cx="50" cy="50" r="40" fill="none" stroke="#f1f5f9" strokeWidth="10" />
+        <circle cx="50" cy="50" r="40" fill="none" stroke={color} strokeWidth="10"
+          strokeLinecap="round" strokeDasharray={strokeDasharray} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-base font-black text-slate-900">{rate}%</span>
+        <span className="text-[9px] uppercase tracking-[0.1em] text-slate-400">thu</span>
       </div>
     </div>
   );
 };
 
-interface FinanceCardProps {
-  title: string;
-  value: string;
-  hint: string;
-  icon: React.ReactNode;
-  colorClass: string;
-}
-
-const FinanceCard: React.FC<FinanceCardProps> = ({ title, value, hint, icon, colorClass }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
-  >
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{title}</p>
-        <p className="text-xl font-black text-slate-900 mt-2">{value}</p>
-      </div>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colorClass}`}>
-        {icon}
-      </div>
-    </div>
-    <p className="text-xs text-slate-500 mt-3">{hint}</p>
-  </motion.div>
-);
-
 interface ProjectStatusCardProps {
   data: ProjectStatusBreakdown[];
   maxValue: number;
+  activeCount: number;
+  totalCount: number;
 }
 
-const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 12 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-  >
-    <div className="flex items-center justify-between mb-5">
-      <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Tiến độ dự án</p>
-        <h3 className="text-2xl font-black text-slate-900 mt-2">Project Execution</h3>
+const ProjectStatusCard: React.FC<ProjectStatusCardProps> = ({ data, maxValue, activeCount, totalCount }) => (
+  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+    className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+    <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+          <Briefcase className="w-3.5 h-3.5 text-primary" />
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Tổng thể thi công</p>
+          <h3 className="text-xs font-bold text-slate-800">Tiến độ dự án</h3>
+        </div>
       </div>
-      <Briefcase className="w-6 h-6 text-primary" />
+      <div className="text-right">
+        <p className="text-base font-black text-slate-900">{activeCount}<span className="text-slate-400 text-xs font-normal">/{totalCount}</span></p>
+        <p className="text-[10px] text-slate-400">đang thực hiện</p>
+      </div>
     </div>
 
-    <div className="space-y-4">
-      {data.map((item) => (
-        <div key={item.status}>
-          <div className="flex items-center justify-between text-sm text-slate-700">
-            <span className="inline-flex items-center gap-2 font-semibold">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: resolveProjectStatusColor(item.status) }} />
-              {getProjectStatusLabel(item.status)}
-            </span>
-            <span>{item.count} dự án</span>
+    {data.length === 0 ? (
+      <div className="h-20 flex items-center justify-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">Chưa có dữ liệu dự án</div>
+    ) : (
+      <div className="space-y-2">
+        {data.map((item) => (
+          <div key={item.status}>
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: resolveProjectStatusColor(item.status) }} />
+                {getProjectStatusLabel(item.status)}
+              </span>
+              <span className="text-slate-400">{item.count}</span>
+            </div>
+            <div className="h-1 rounded-full bg-slate-100">
+              <div className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${(item.count / maxValue) * 100}%`, backgroundColor: resolveProjectStatusColor(item.status) }} />
+            </div>
           </div>
-          <div className="mt-2 h-2 rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{
-                width: `${(item.count / maxValue) * 100}%`,
-                backgroundColor: resolveProjectStatusColor(item.status),
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    )}
   </motion.div>
 );
 
@@ -281,57 +586,48 @@ const ContractStatusCard: React.FC<ContractStatusCardProps> = ({ data }) => {
   const totalContracts = data.reduce((sum, item) => sum + item.count, 0);
   const totalValue = data.reduce((sum, item) => sum + item.totalValue, 0);
   const gradient = buildContractStatusGradient(data, totalContracts);
-  const leadingStatus = data.length > 0
-    ? data.reduce((prev, current) => (current.count > prev.count ? current : prev), data[0])
-    : null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-    >
-      <div className="flex items-center justify-between gap-4 mb-5">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Phân bổ hợp đồng</p>
-          <h3 className="text-2xl font-black text-slate-900 mt-2">{totalContracts} hợp đồng</h3>
-          <p className="text-xs text-slate-500 mt-2">Tổng giá trị: {formatCurrency(totalValue)}</p>
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center">
+            <FileText className="w-3.5 h-3.5 text-primary" />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Phân bổ hợp đồng</p>
+            <h3 className="text-xs font-bold text-slate-800">Danh mục hợp đồng</h3>
+          </div>
         </div>
-        <FileText className="w-6 h-6 text-primary" />
+        <div className="text-right">
+          <p className="text-base font-black text-slate-900">{totalContracts}</p>
+          <p className="text-[10px] text-slate-400">{formatCurrency(totalValue)}</p>
+        </div>
       </div>
 
       {totalContracts === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-          Chưa có dữ liệu hợp đồng để phân tích.
-        </div>
+        <div className="h-20 flex items-center justify-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">Chưa có dữ liệu hợp đồng</div>
       ) : (
-        <div className="flex flex-col lg:flex-row gap-5">
-          <div className="flex-none flex flex-col items-center gap-3">
-            <div className="w-36 h-36 rounded-full border border-slate-100 shadow-inner" style={{ background: gradient }} />
-            {leadingStatus && (
-              <div className="text-center">
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{contractStatusLabels[leadingStatus.status]}</p>
-                <p className="text-sm font-semibold text-slate-900">
-                  {Math.round((leadingStatus.count / totalContracts) * 100)}% danh mục
-                </p>
-              </div>
-            )}
+        <div className="flex items-center gap-4">
+          <div className="shrink-0">
+            <div className="w-20 h-20 rounded-full" style={{ background: gradient }} />
           </div>
-
-          <div className="flex-1 grid gap-2">
+          <div className="flex-1 space-y-1.5 min-w-0">
             {data.map((item) => {
               const percent = totalContracts > 0 ? Math.round((item.count / totalContracts) * 100) : 0;
               return (
-                <div key={item.status} className="rounded-xl border border-slate-100 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: contractStatusColors[item.status] }} />
+                <div key={item.status}>
+                  <div className="flex items-center justify-between text-[11px] mb-0.5">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: contractStatusColors[item.status] }} />
                       {contractStatusLabels[item.status]}
                     </span>
-                    <span className="text-xs text-slate-500">{percent}%</span>
+                    <span className="text-slate-400">{item.count} · {percent}%</span>
                   </div>
-                  <p className="text-sm font-bold text-slate-900 mt-1">{item.count} hợp đồng</p>
-                  <p className="text-xs text-slate-500 mt-1">{formatCurrency(item.totalValue)}</p>
+                  <div className="h-1 rounded-full bg-slate-100">
+                    <div className="h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: contractStatusColors[item.status] }} />
+                  </div>
                 </div>
               );
             })}
@@ -342,133 +638,50 @@ const ContractStatusCard: React.FC<ContractStatusCardProps> = ({ data }) => {
   );
 };
 
-interface CollectionRateCardProps {
-  collectionRate: number;
-  overduePaymentCount: number;
-  overduePaymentAmount: number;
-}
-
-const CollectionRateCard: React.FC<CollectionRateCardProps> = ({
-  collectionRate,
-  overduePaymentCount,
-  overduePaymentAmount,
-}) => {
-  const rate = Math.max(0, Math.min(100, Math.round(collectionRate || 0)));
-  const strokeDasharray = `${rate * 2.51} 251`;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-    >
-      <div className="flex items-center justify-between gap-4 mb-5">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Dòng tiền hợp đồng</p>
-          <h3 className="text-2xl font-black text-slate-900 mt-2">Tỷ lệ thu tiền</h3>
-        </div>
-        <CircleDollarSign className="w-6 h-6 text-emerald-600" />
-      </div>
-
-      <div className="flex items-center gap-5">
-        <div className="relative h-28 w-28 shrink-0">
-          <svg viewBox="0 0 100 100" className="h-28 w-28 -rotate-90">
-            <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e8f0" strokeWidth="8" />
-            <circle
-              cx="50"
-              cy="50"
-              r="40"
-              fill="none"
-              stroke="#16a34a"
-              strokeWidth="8"
-              strokeLinecap="round"
-              strokeDasharray={strokeDasharray}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-black text-slate-900">{rate}%</span>
-            <span className="text-[11px] uppercase tracking-[0.2em] text-slate-400">đã thu</span>
-          </div>
-        </div>
-
-        <div className="flex-1">
-          <p className="text-sm text-slate-600 leading-relaxed">
-            Tỷ lệ tổng tiền đã thu đủ trên toàn bộ kế hoạch thanh toán dự kiến của các hợp đồng.
-          </p>
-          <div className="mt-4 h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${rate}%` }} />
-          </div>
-          <p className="text-xs text-slate-500 mt-2">{rate}% kế hoạch đã được thu đủ.</p>
-        </div>
-      </div>
-
-      <div className={`mt-6 rounded-2xl border p-4 ${
-        overduePaymentCount > 0
-          ? 'border-red-200 bg-gradient-to-r from-red-50 to-orange-50'
-          : 'border-emerald-200 bg-emerald-50'
-      }`}>
-        <div className="flex items-start gap-3">
-          <AlertTriangle className={`w-5 h-5 mt-0.5 ${overduePaymentCount > 0 ? 'text-red-500' : 'text-emerald-600'}`} />
-          <div>
-            <p className={`text-sm font-bold ${overduePaymentCount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-              {overduePaymentCount > 0 ? `${overduePaymentCount} kỳ thanh toán quá hạn` : 'Không có kỳ thanh toán quá hạn'}
-            </p>
-            <p className={`text-sm mt-1 ${overduePaymentCount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-              {overduePaymentCount > 0
-                ? `Tổng nợ quá hạn: ${formatCurrency(overduePaymentAmount)}`
-                : 'Dòng tiền đang ở trạng thái an toàn.'}
-            </p>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
 interface ExpiringContractsCardProps {
   data: ExpiringContractSummary[];
 }
 
 const ExpiringContractsCard: React.FC<ExpiringContractsCardProps> = ({ data }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 12 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
-  >
-    <div className="flex items-center justify-between gap-4 mb-5">
-      <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Cảnh báo hợp đồng</p>
-        <h3 className="text-2xl font-black text-slate-900 mt-2">HĐ sắp hết hiệu lực</h3>
+  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+    className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+    <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded bg-amber-50 flex items-center justify-center">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400">Cảnh báo rủi ro</p>
+          <h3 className="text-xs font-bold text-slate-800">Hợp đồng sắp hết hiệu lực</h3>
+        </div>
       </div>
-      <AlertTriangle className="w-6 h-6 text-amber-500" />
+      {data.length > 0 && (
+        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+          {data.length} HĐ · {data.filter((d: ExpiringContractSummary) => d.daysRemaining <= 7).length} khẩn
+        </span>
+      )}
     </div>
 
     {data.length === 0 ? (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-        Không có hợp đồng nào sắp hết hạn trong 30 ngày tới.
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+        <span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+          <span className="text-emerald-600 text-[11px] font-black">✓</span>
+        </span>
+        <p className="text-xs text-emerald-700 font-medium">Không có hợp đồng nào sắp hết hạn trong 30 ngày tới.</p>
       </div>
     ) : (
-      <div className="space-y-3">
-        {data.map((item) => (
-          <div key={String(item.id)} className="rounded-2xl border border-slate-100 p-4">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-900 truncate">
-                  {item.contract_code} - {item.contract_name}
-                </p>
-                <p className="text-sm text-slate-600 mt-1">{item.customer_name}</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Hết hạn: {formatDate(item.expiry_date)} · Giá trị: {formatCurrency(item.value)}
-                </p>
-              </div>
-              <span className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                item.daysRemaining <= 7
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}>
-                {item.daysRemaining} ngày
-              </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+        {data.map((item: ExpiringContractSummary) => (
+          <div key={String(item.id)} className={`rounded-lg border p-2.5 flex items-start justify-between gap-2 ${item.daysRemaining <= 7 ? 'border-red-200 bg-red-50' : 'border-amber-100 bg-amber-50/40'}`}>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold text-slate-900 truncate">{item.contract_code}</p>
+              <p className="text-[11px] text-slate-600 truncate">{item.contract_name}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5 truncate">{item.customer_name}</p>
+              <p className="text-[10px] font-semibold text-slate-500 mt-0.5">{formatCurrency(item.value)} · hạn {formatDate(item.expiry_date)}</p>
             </div>
+            <span className={`shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full ${item.daysRemaining <= 7 ? 'bg-red-200 text-red-700' : 'bg-amber-200 text-amber-800'}`}>
+              {item.daysRemaining}d
+            </span>
           </div>
         ))}
       </div>

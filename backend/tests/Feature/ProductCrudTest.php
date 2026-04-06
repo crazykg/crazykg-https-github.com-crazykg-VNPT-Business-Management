@@ -135,6 +135,48 @@ class ProductCrudTest extends TestCase
             ->assertJsonValidationErrors(['service_group']);
     }
 
+    public function test_it_bulk_imports_products_and_reports_row_failures(): void
+    {
+        $response = $this->postJson('/api/v5/products/bulk', [
+            'items' => [
+                [
+                    'service_group' => 'GROUP_B',
+                    'product_code' => 'SPBULK01',
+                    'product_name' => 'San pham import 01',
+                    'package_name' => 'Goi import 01',
+                    'domain_id' => 1,
+                    'vendor_id' => 1,
+                    'standard_price' => 250000,
+                    'unit' => 'Goi',
+                ],
+                [
+                    'service_group' => 'GROUP_C',
+                    'product_code' => 'SPBULK02',
+                    'product_name' => 'San pham import 02',
+                    'domain_id' => 999,
+                    'vendor_id' => 1,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.created_count', 1)
+            ->assertJsonPath('data.failed_count', 1)
+            ->assertJsonPath('data.results.0.success', true)
+            ->assertJsonPath('data.results.0.data.product_code', 'SPBULK01')
+            ->assertJsonPath('data.results.1.success', false)
+            ->assertJsonPath('data.results.1.message', 'domain_id is invalid.');
+
+        $this->assertDatabaseHas('products', [
+            'product_code' => 'SPBULK01',
+            'product_name' => 'San pham import 01',
+        ]);
+        $this->assertDatabaseMissing('products', [
+            'product_code' => 'SPBULK02',
+        ]);
+    }
+
     public function test_it_blocks_product_delete_until_references_are_removed(): void
     {
         $createResponse = $this->postJson('/api/v5/products', [
@@ -172,6 +214,59 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('message', 'Product deleted.');
 
         $this->assertNotNull(DB::table('products')->where('id', 1)->value('deleted_at'));
+    }
+
+    public function test_it_locks_standard_price_update_when_price_has_been_used_in_other_tables(): void
+    {
+        $createResponse = $this->postJson('/api/v5/products', [
+            'service_group' => 'GROUP_B',
+            'product_code' => 'SPLOCK',
+            'product_name' => 'San pham khoa don gia',
+            'package_name' => 'Goi khoa don gia',
+            'domain_id' => 1,
+            'vendor_id' => 1,
+            'standard_price' => 1500000,
+        ]);
+
+        $createResponse
+            ->assertCreated()
+            ->assertJsonPath('data.standard_price_locked', false);
+
+        DB::table('contract_items')->insert([
+            'contract_id' => 1,
+            'product_id' => 1,
+            'quantity' => 1,
+            'unit_price' => 1500000,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $listResponse = $this->getJson('/api/v5/products');
+
+        $listResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.standard_price_locked', true)
+            ->assertJsonPath('data.0.standard_price_lock_references.0.table', 'contract_items');
+
+        $blockedResponse = $this->putJson('/api/v5/products/1', [
+            'standard_price' => 1750000,
+        ]);
+
+        $blockedResponse
+            ->assertStatus(422)
+            ->assertJsonPath('data.standard_price_locked', true)
+            ->assertJsonPath('data.references.0.table', 'contract_items');
+
+        $allowedResponse = $this->putJson('/api/v5/products/1', [
+            'product_name' => 'San pham khoa don gia da doi ten',
+            'standard_price' => 1500000,
+        ]);
+
+        $allowedResponse
+            ->assertOk()
+            ->assertJsonPath('data.product_name', 'San pham khoa don gia da doi ten')
+            ->assertJsonPath('data.standard_price', 1500000.0)
+            ->assertJsonPath('data.standard_price_locked', true);
     }
 
     private function setUpSchema(): void

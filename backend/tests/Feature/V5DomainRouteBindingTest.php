@@ -89,6 +89,7 @@ class V5DomainRouteBindingTest extends TestCase
             ['POST', 'api/v5/products/quotations', 'App\Http\Controllers\Api\V5\ProductController@storeQuotation', 'permission:products.write'],
             ['PUT', 'api/v5/products/quotations/{id}', 'App\Http\Controllers\Api\V5\ProductController@updateQuotation', 'permission:products.write'],
             ['POST', 'api/v5/products/quotations/{id}/print-word', 'App\Http\Controllers\Api\V5\ProductController@printStoredQuotationWord', 'permission:products.write'],
+            ['POST', 'api/v5/products/bulk', 'App\Http\Controllers\Api\V5\ProductController@storeBulk', 'permission:products.write'],
             ['POST', 'api/v5/products', 'App\Http\Controllers\Api\V5\ProductController@store', 'permission:products.write'],
             ['PUT', 'api/v5/products/{id}/feature-catalog', 'App\Http\Controllers\Api\V5\ProductController@updateFeatureCatalog', 'permission:products.write'],
             ['PUT', 'api/v5/products/{id}/target-segments-sync', 'App\Http\Controllers\Api\V5\ProductController@syncTargetSegments', 'permission:products.write'],

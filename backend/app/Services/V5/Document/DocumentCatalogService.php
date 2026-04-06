@@ -42,6 +42,7 @@ class DocumentCatalogService
                 'id',
                 'document_code',
                 'document_name',
+                'commission_policy_text',
                 'document_type_id',
                 'customer_id',
                 'project_id',
@@ -151,6 +152,7 @@ class DocumentCatalogService
             'typeId' => [$isProductPricingScope ? 'nullable' : 'required'],
             'customerId' => [$isProductPricingScope ? 'nullable' : 'required', 'integer'],
             'projectId' => ['nullable', 'integer'],
+            'commissionPolicyText' => ['nullable', 'string', 'max:5000'],
             'expiryDate' => ['nullable', 'date'],
             'releaseDate' => ['nullable', 'date'],
             'status' => ['nullable', Rule::in(self::DOCUMENT_STATUSES)],
@@ -196,7 +198,7 @@ class DocumentCatalogService
         $customerId = null;
         if ($isProductPricingScope) {
             $customerId = $this->resolveProductPricingDocumentCustomerId();
-            if ($this->support->hasColumn('documents', 'customer_id') && $customerId === null) {
+            if ($this->requiresProductPricingDocumentCustomerId() && $customerId === null) {
                 return response()->json(['message' => 'Không thể xác định customerId cho tài liệu giá sản phẩm.'], 422);
             }
         } else {
@@ -221,6 +223,7 @@ class DocumentCatalogService
 
         $documentCode = trim((string) ($validated['id'] ?? ''));
         $documentName = trim((string) ($validated['name'] ?? ''));
+        $commissionPolicyText = $this->support->normalizeNullableString($validated['commissionPolicyText'] ?? null);
         $status = $this->normalizeDocumentStatus((string) ($validated['status'] ?? 'ACTIVE'));
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $attachments = is_array($validated['attachments'] ?? null) ? $validated['attachments'] : [];
@@ -245,11 +248,13 @@ class DocumentCatalogService
             $actorId,
             $productIds,
             $attachments,
-            $documentDate
+            $documentDate,
+            $commissionPolicyText
         ): int {
             $payload = $this->support->filterPayloadByTableColumns('documents', [
                 'document_code' => $documentCode,
                 'document_name' => $documentName,
+                'commission_policy_text' => $commissionPolicyText,
                 'document_type_id' => $documentTypeId,
                 'customer_id' => $customerId,
                 'project_id' => $projectId,
@@ -322,6 +327,7 @@ class DocumentCatalogService
             'typeId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required'],
             'customerId' => ['sometimes', $isProductPricingScope ? 'nullable' : 'required', 'integer'],
             'projectId' => ['sometimes', 'nullable', 'integer'],
+            'commissionPolicyText' => ['sometimes', 'nullable', 'string', 'max:5000'],
             'expiryDate' => ['sometimes', 'nullable', 'date'],
             'releaseDate' => ['sometimes', 'nullable', 'date'],
             'status' => ['sometimes', 'nullable', Rule::in(self::DOCUMENT_STATUSES)],
@@ -391,7 +397,7 @@ class DocumentCatalogService
         $customerIdForProductPricing = null;
         if ($isProductPricingScope) {
             $customerIdForProductPricing = $this->resolveProductPricingDocumentCustomerId();
-            if ($this->support->hasColumn('documents', 'customer_id') && $customerIdForProductPricing === null) {
+            if ($this->requiresProductPricingDocumentCustomerId() && $customerIdForProductPricing === null) {
                 return response()->json(['message' => 'Không thể xác định customerId cho tài liệu giá sản phẩm.'], 422);
             }
         }
@@ -421,6 +427,9 @@ class DocumentCatalogService
             }
             if (array_key_exists('name', $validated)) {
                 $updates['document_name'] = trim((string) $validated['name']);
+            }
+            if (array_key_exists('commissionPolicyText', $validated)) {
+                $updates['commission_policy_text'] = $this->support->normalizeNullableString($validated['commissionPolicyText']);
             }
             if ($isProductPricingScope || array_key_exists('typeId', $validated)) {
                 $updates['document_type_id'] = $documentTypeId;
@@ -708,6 +717,12 @@ class DocumentCatalogService
         return 0;
     }
 
+    private function requiresProductPricingDocumentCustomerId(): bool
+    {
+        return $this->support->hasColumn('documents', 'customer_id')
+            && ! $this->isColumnNullable('documents', 'customer_id');
+    }
+
     private function resolveDocumentTypeIdFromInput(mixed $input): ?int
     {
         if (! $this->support->hasTable('document_types')) {
@@ -785,6 +800,7 @@ class DocumentCatalogService
                 'id',
                 'document_code',
                 'document_name',
+                'commission_policy_text',
                 'document_type_id',
                 'customer_id',
                 'project_id',
@@ -1018,6 +1034,7 @@ class DocumentCatalogService
         return [
             'id' => $documentCode,
             'name' => (string) ($row['document_name'] ?? ''),
+            'commissionPolicyText' => $this->support->normalizeNullableString($row['commission_policy_text'] ?? null),
             'typeId' => (string) $typeId,
             'customerId' => $normalizedCustomerId,
             'projectId' => $row['project_id'] === null ? null : (string) $row['project_id'],
@@ -1069,8 +1086,24 @@ class DocumentCatalogService
         }
 
         try {
-            $databaseName = DB::getDatabaseName();
-            $columnInfo = DB::table('information_schema.COLUMNS')
+            $connection = DB::connection();
+            $driver = $connection->getDriverName();
+
+            if ($driver === 'sqlite') {
+                $columns = $connection->select(sprintf("PRAGMA table_info('%s')", str_replace("'", "''", $table)));
+                foreach ($columns as $columnInfo) {
+                    if (strcasecmp((string) ($columnInfo->name ?? ''), $column) !== 0) {
+                        continue;
+                    }
+
+                    return (int) ($columnInfo->notnull ?? 1) === 0;
+                }
+
+                return false;
+            }
+
+            $databaseName = $connection->getDatabaseName();
+            $columnInfo = $connection->table('information_schema.COLUMNS')
                 ->select(['IS_NULLABLE'])
                 ->where('TABLE_SCHEMA', $databaseName)
                 ->where('TABLE_NAME', $table)

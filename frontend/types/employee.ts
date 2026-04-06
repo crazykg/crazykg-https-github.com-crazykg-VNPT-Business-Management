@@ -81,6 +81,11 @@ export interface HRPositionBreakdown {
   count: number;
 }
 
+export interface HRJobTitleBreakdown {
+  job_title_name: string;
+  count: number;
+}
+
 export interface HRDepartmentTypeBreakdown {
   department_id: string | number | null;
   dept_code: string;
@@ -108,5 +113,6 @@ export interface HRStatistics {
   genderBreakdown: HRGenderBreakdown[];
   personnelTypeBreakdown: HRPersonnelTypeBreakdown[];
   positionBreakdown: HRPositionBreakdown[];
+  jobTitleBreakdown: HRJobTitleBreakdown[];
   departmentTypeBreakdown: HRDepartmentTypeBreakdown[];
 }

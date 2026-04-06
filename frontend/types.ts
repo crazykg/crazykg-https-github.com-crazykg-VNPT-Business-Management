@@ -1,10 +1,12 @@
 export type Status = 'Active' | 'Inactive';
 export type DeptScopeType = 'SELF_ONLY' | 'DEPT_ONLY' | 'DEPT_AND_CHILDREN' | 'ALL';
 
-export type { EmployeePartyProfile, EmployeePartyProfileQuality } from './types/employee';
+export type { EmployeePartyProfile, EmployeePartyProfileQuality, EmployeePartyListItem } from './types/employee';
 export type { ProductFeatureCatalogListPage } from './types/product';
-export type { RevenueSuggestionResponse } from './types/revenue';
+export type { RevenueSuggestionResponse, RevenueSuggestionPreview, RevenueSuggestionPreviewContractSource } from './types/revenue';
 export type { UpsellProductDetail } from './types/customer';
+export type { EmailSmtpIntegrationSettings, EmailSmtpIntegrationSettingsUpdatePayload } from './types/admin';
+export type { ContractSignerOption } from './types/contract';
 
 export interface UserDeptScope {
   dept_id: number;
@@ -1124,7 +1126,7 @@ export interface ProjectItemMaster {
 }
 
 export type ProjectStatus = string; // phase codes + special statuses: 'CO_HOI' | 'CHUAN_BI' | ... | 'TAM_NGUNG' | 'HUY'
-export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU';
+export type InvestmentMode = 'DAU_TU' | 'THUE_DICH_VU_DACTHU' | 'THUE_DICH_VU_COSAN';
 export type PaymentCycle = 'ONCE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 
 export interface ProjectTypeOption {
@@ -1667,6 +1669,7 @@ export interface YeuCauProcessDetail {
   current_process?: YeuCauProcessMeta | null;
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
+  status_row?: YeuCauProcessRow | null;
   allowed_next_processes: YeuCauProcessMeta[];
   allowed_previous_processes?: YeuCauProcessMeta[];
   transition_allowed: boolean;
@@ -2182,6 +2185,7 @@ export interface Document {
   projectId?: string | null;
   productId?: string;
   productIds?: string[];
+  commissionPolicyText?: string | null;
   expiryDate?: string;
   releaseDate?: string;
   scope?: 'DEFAULT' | 'PRODUCT_PRICING';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAccessTab, canOpenModal, hasPermission, resolveImportPermission } from '../utils/authorization';
+import { canAccessTab, canImportModule, canOpenModal, hasPermission, resolveImportPermission } from '../utils/authorization';
 import type { AuthUser, ModalType } from '../types';
 
 const buildUser = (overrides: Partial<AuthUser> = {}): AuthUser => ({
@@ -86,13 +86,29 @@ describe('authorization helpers', () => {
     });
   });
 
+  describe('canImportModule', () => {
+    it('only allows modules that have both permission and configured import flow', () => {
+      const user = buildUser({ permissions: ['products.import', 'projects.import', 'employee_party.import'] });
+
+      expect(canImportModule(user, 'products')).toBe(true);
+      expect(canImportModule(user, 'internal_user_party_members')).toBe(true);
+      expect(canImportModule(user, 'projects')).toBe(false);
+    });
+  });
+
   describe('canOpenModal', () => {
     it('uses module import permissions for import modal', () => {
-      const user = buildUser({ permissions: ['projects.import', 'customer_personnel.write'] });
+      const user = buildUser({ permissions: ['products.import', 'customer_personnel.write'] });
 
-      expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'projects')).toBe(true);
+      expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'products')).toBe(true);
       expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'contracts')).toBe(false);
       expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'cus_personnel')).toBe(true);
+    });
+
+    it('blocks import modal for modules without configured import flow even if permission exists', () => {
+      const user = buildUser({ permissions: ['projects.import'] });
+
+      expect(canOpenModal(user, 'IMPORT_DATA' as ModalType, 'projects')).toBe(false);
     });
 
     it('uses modal specific permissions for regular modals', () => {

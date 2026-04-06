@@ -70,6 +70,7 @@ class DocumentExtractionTest extends TestCase
             'typeId' => 'LEGAL',
             'customerId' => 5,
             'projectId' => 7,
+            'commissionPolicyText' => 'Hoa hồng 12% cho đại lý hạng A',
             'expiryDate' => '2026-12-31',
             'status' => 'ACTIVE',
             'productIds' => [9],
@@ -90,6 +91,7 @@ class DocumentExtractionTest extends TestCase
             ->assertJsonPath('data.typeId', 'LEGAL')
             ->assertJsonPath('data.customerId', '5')
             ->assertJsonPath('data.projectId', '7')
+            ->assertJsonPath('data.commissionPolicyText', 'Hoa hồng 12% cho đại lý hạng A')
             ->assertJsonPath('data.productIds.0', '9')
             ->assertJsonPath('data.attachments.0.fileName', 'manual.pdf');
 
@@ -100,6 +102,7 @@ class DocumentExtractionTest extends TestCase
 
         $updateResponse = $this->putJson('/api/v5/documents/DOC-001', [
             'name' => 'Tai lieu 1 updated',
+            'commissionPolicyText' => 'Hoa hồng 15% cho đại lý hạng A',
             'status' => 'SUSPENDED',
             'attachments' => [
                 [
@@ -114,6 +117,7 @@ class DocumentExtractionTest extends TestCase
 
         $updateResponse
             ->assertJsonPath('data.name', 'Tai lieu 1 updated')
+            ->assertJsonPath('data.commissionPolicyText', 'Hoa hồng 15% cho đại lý hạng A')
             ->assertJsonPath('data.status', 'SUSPENDED')
             ->assertJsonPath('data.attachments.0.fileName', 'manual-v2.pdf');
 
@@ -158,6 +162,60 @@ class DocumentExtractionTest extends TestCase
             ->assertJsonPath('message', 'Đã xóa file đính kèm.');
 
         Storage::disk('local')->assertMissing($storagePath);
+    }
+
+    public function test_product_pricing_documents_can_store_and_update_without_customer_id_when_column_is_nullable(): void
+    {
+        DB::table('products')->insert([
+            'id' => 9,
+            'product_code' => 'PRD09',
+            'product_name' => 'San pham 9',
+        ]);
+
+        $createResponse = $this->postJson('/api/v5/documents', [
+            'scope' => 'PRODUCT_PRICING',
+            'id' => 'PRICE-001',
+            'name' => 'Bang gia thang 04',
+            'releaseDate' => '2026-04-05',
+            'status' => 'ACTIVE',
+            'productIds' => [9],
+            'attachments' => [
+                [
+                    'id' => 'temp-price-1',
+                    'fileName' => 'bang-gia.png',
+                    'fileUrl' => '/temp/bang-gia.png',
+                    'fileSize' => 321,
+                    'mimeType' => 'image/png',
+                ],
+            ],
+        ]);
+
+        $createResponse
+            ->assertCreated()
+            ->assertJsonPath('data.id', 'PRICE-001')
+            ->assertJsonPath('data.name', 'Bang gia thang 04')
+            ->assertJsonPath('data.typeId', 'DT_PRICING')
+            ->assertJsonPath('data.customerId', '')
+            ->assertJsonPath('data.productIds.0', '9')
+            ->assertJsonPath('data.attachments.0.fileName', 'bang-gia.png');
+
+        $this->assertNull(DB::table('documents')->where('id', 1)->value('customer_id'));
+
+        $updateResponse = $this->putJson('/api/v5/documents/PRICE-001', [
+            'scope' => 'PRODUCT_PRICING',
+            'name' => 'Bang gia thang 04 cap nhat',
+            'commissionPolicyText' => 'Hoa hong 10%',
+        ]);
+
+        $updateResponse
+            ->assertOk()
+            ->assertJsonPath('data.id', 'PRICE-001')
+            ->assertJsonPath('data.name', 'Bang gia thang 04 cap nhat')
+            ->assertJsonPath('data.customerId', '')
+            ->assertJsonPath('data.commissionPolicyText', 'Hoa hong 10%');
+
+        $this->assertNull(DB::table('documents')->where('id', 1)->value('customer_id'));
+        $this->assertSame('Bang gia thang 04 cap nhat', DB::table('documents')->where('id', 1)->value('document_name'));
     }
 
     private function setUpSchema(): void
@@ -243,6 +301,7 @@ class DocumentExtractionTest extends TestCase
             $table->bigIncrements('id');
             $table->string('document_code')->nullable();
             $table->string('document_name')->nullable();
+            $table->text('commission_policy_text')->nullable();
             $table->unsignedBigInteger('document_type_id')->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->unsignedBigInteger('project_id')->nullable();

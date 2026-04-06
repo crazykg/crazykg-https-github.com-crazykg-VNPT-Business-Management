@@ -115,7 +115,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
       </div>
 
       <div className="col-span-1">
-        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+        <label className="block text-sm font-semibold text-slate-700 mb-2">
           Trạng thái
         </label>
         <div className="flex items-center gap-2">

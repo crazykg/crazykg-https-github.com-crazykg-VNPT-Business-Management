@@ -5,11 +5,38 @@
 @tailwind utilities;
 
 :root {
+  /* Device-native font stack — ưu tiên font hệ thống thiết bị đang truy cập */
   --dashboard-font: sans-serif,
     system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial;
   --dashboard-bg: #F9F9FF;
   font-synthesis: none;
+
+  /* Base font size — mobile first (điện thoại) */
+  font-size: 14px;
+  -webkit-text-size-adjust: 100%; /* Ngăn iOS auto-scale font khi xoay ngang */
+  text-size-adjust: 100%;
+}
+
+/* Tablet: 768px+ */
+@media (min-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+/* Laptop: 1024px+ */
+@media (min-width: 1024px) {
+  :root {
+    font-size: 15px;
+  }
+}
+
+/* Desktop: 1280px+ */
+@media (min-width: 1280px) {
+  :root {
+    font-size: 16px;
+  }
 }
 
 * {
@@ -23,6 +50,10 @@
     font-family: var(--dashboard-font);
     background-color: var(--dashboard-bg);
     color: #191C21;
+    /* Tối ưu rendering chữ trên màn hình retina (mobile/tablet) */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   #root {

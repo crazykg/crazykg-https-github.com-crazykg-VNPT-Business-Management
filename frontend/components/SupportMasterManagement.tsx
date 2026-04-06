@@ -17,7 +17,7 @@ import {
 import {
   fetchMonthlyCalendars,
   updateCalendarDay,
-  generateCalendarDay,
+  generateCalendarYear,
 } from '../services/v5Api';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';

@@ -7,7 +7,6 @@ import { ModalWrapper } from './shared';
 
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DMY_DATE_REGEX = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/;
-const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_IMPORT_PREVIEW_PAGE_SIZE = 20;
 
 const isValidIsoDate = (value: string): boolean => {
@@ -219,8 +218,8 @@ export function ImportModal({
   const excelOnlyImport = isProjectItemsImport || isProjectRaciImport || isEmployeePartyImport;
   const fileAccept = excelOnlyImport ? '.xlsx,.xls' : '.xlsx,.xls,.xml,.csv';
   const supportFormatText = excelOnlyImport
-    ? 'Hỗ trợ định dạng .xlsx, .xls (Tối đa 5MB)'
-    : 'Hỗ trợ định dạng .xlsx, .xls, .xml, .csv (Tối đa 5MB)';
+    ? 'Hỗ trợ định dạng .xlsx, .xls'
+    : 'Hỗ trợ định dạng .xlsx, .xls, .xml, .csv';
   const isBusy = isLoading || isParsing || isSubmitting;
   const isFileInteractionDisabled = isBusy;
   const fileInputId = `import-file-input-${normalizedModuleKey || 'default'}`;
@@ -253,11 +252,6 @@ export function ImportModal({
     const lowerFileName = String(file.name || '').toLowerCase();
     if (excelOnlyImport && !lowerFileName.endsWith('.xlsx') && !lowerFileName.endsWith('.xls')) {
       setErrorMessage('File nhập chỉ hỗ trợ định dạng Excel (.xlsx, .xls).');
-      return;
-    }
-
-    if (file.size > MAX_IMPORT_FILE_SIZE) {
-      setErrorMessage('File vượt quá 5MB. Vui lòng chọn file nhỏ hơn.');
       return;
     }
 

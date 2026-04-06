@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createProductsBulk,
   exportProductQuotationPdf,
   fetchProductFeatureCatalogList,
   fetchProductTargetSegments,
@@ -113,6 +114,57 @@ describe('productApi module', () => {
           is_active: true,
         },
       ],
+    });
+  });
+
+  it('sends bulk product imports to the dedicated bulk endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          results: [],
+          created: [],
+          created_count: 0,
+          failed_count: 0,
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await createProductsBulk([
+      {
+        service_group: 'GROUP_B',
+        product_code: ' SP001 ',
+        product_name: ' Gói Internet ',
+        package_name: ' Fiber Pro ',
+        domain_id: 10,
+        vendor_id: 20,
+        standard_price: 1200000,
+        unit: ' gói ',
+        description: ' Gói cước mẫu ',
+        is_active: false,
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/products/bulk');
+
+    const payload = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
+    expect(payload).toEqual({
+      items: [{
+        service_group: 'GROUP_B',
+        product_code: 'SP001',
+        product_name: 'Gói Internet',
+        package_name: 'Fiber Pro',
+        domain_id: 10,
+        vendor_id: 20,
+        standard_price: 1200000,
+        unit: 'gói',
+        description: 'Gói cước mẫu',
+        is_active: false,
+      }],
     });
   });
 });

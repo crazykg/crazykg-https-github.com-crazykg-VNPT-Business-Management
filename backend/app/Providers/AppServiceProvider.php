@@ -175,6 +175,10 @@ class AppServiceProvider extends ServiceProvider
 
     private function buildWriteLimiter(Request $request): Limit
     {
+        if ($this->shouldBypassWriteLimiter($request)) {
+            return Limit::none();
+        }
+
         return $this->buildLimiter(
             $request,
             'api_write',
@@ -207,6 +211,15 @@ class AppServiceProvider extends ServiceProvider
     private function isReadRequest(Request $request): bool
     {
         return in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true);
+    }
+
+    private function shouldBypassWriteLimiter(Request $request): bool
+    {
+        if (in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)) {
+            return false;
+        }
+
+        return $request->is('api/v5/products/bulk');
     }
 
     private function isDashboardOrReportRoute(Request $request): bool

@@ -74,6 +74,7 @@ describe('ProductFormModal UI', () => {
     expect(screen.getByText('Gói cước')).toHaveClass('text-sm');
     expect(screen.getByText('Giá tiêu chuẩn (VNĐ)')).toHaveClass('text-sm');
     expect(screen.getByText('Mô tả')).toHaveClass('text-sm');
+    expect(screen.queryByText('Bổ sung')).not.toBeInTheDocument();
 
     expect(screen.getByDisplayValue('HISL3-1')).toHaveClass('h-[46px]', 'text-[15px]', 'leading-6');
     expect(screen.getByDisplayValue('Phần mềm VNPT-HIS')).toHaveClass('h-[46px]', 'text-[15px]', 'leading-6');

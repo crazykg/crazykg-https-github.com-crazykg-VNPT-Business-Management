@@ -1,4 +1,4 @@
-import type { PaginatedQuery, PaginatedResult } from '../../types/common';
+import type { BulkMutationResult, PaginatedQuery, PaginatedResult } from '../../types/common';
 import type { Employee } from '../../types/employee';
 import type {
   Product,
@@ -17,6 +17,7 @@ import {
   normalizeNullableNumber,
   normalizeNullableText,
   normalizeNumber,
+  parseBulkMutationJson,
   parseErrorMessage,
   parseItemJson,
   resolveDownloadFilename,
@@ -238,6 +239,20 @@ const serializeProductAttachments = (attachments: Product['attachments']) =>
       }))
     : undefined;
 
+const buildProductRequestPayload = (payload: Partial<Product>) => ({
+  service_group: normalizeNullableText(payload.service_group),
+  product_code: normalizeNullableText(payload.product_code),
+  product_name: normalizeNullableText(payload.product_name),
+  package_name: normalizeNullableText(payload.package_name),
+  domain_id: normalizeNullableNumber(payload.domain_id),
+  vendor_id: normalizeNullableNumber(payload.vendor_id),
+  standard_price: normalizeNumber(payload.standard_price, 0),
+  unit: normalizeNullableText(payload.unit),
+  description: normalizeNullableText(payload.description),
+  attachments: serializeProductAttachments(payload.attachments),
+  is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+});
+
 const buildProductQuotationFallbackFilename = (
   payload: ProductQuotationExportPayload,
   extension: string
@@ -263,19 +278,7 @@ export const createProduct = async (payload: Partial<Product>): Promise<Product>
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      service_group: normalizeNullableText(payload.service_group),
-      product_code: normalizeNullableText(payload.product_code),
-      product_name: normalizeNullableText(payload.product_name),
-      package_name: normalizeNullableText(payload.package_name),
-      domain_id: normalizeNullableNumber(payload.domain_id),
-      vendor_id: normalizeNullableNumber(payload.vendor_id),
-      standard_price: normalizeNumber(payload.standard_price, 0),
-      unit: normalizeNullableText(payload.unit),
-      description: normalizeNullableText(payload.description),
-      attachments: serializeProductAttachments(payload.attachments),
-      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
-    }),
+    body: JSON.stringify(buildProductRequestPayload(payload)),
   });
 
   if (!res.ok) {
@@ -285,24 +288,33 @@ export const createProduct = async (payload: Partial<Product>): Promise<Product>
   return parseItemJson<Product>(res);
 };
 
+export const createProductsBulk = async (items: Array<Partial<Product>>): Promise<BulkMutationResult<Product>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/products/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => buildProductRequestPayload(item)),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCTS_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<Product>(res);
+};
+
 export const updateProduct = async (id: string | number, payload: Partial<Product>): Promise<Product> => {
   const res = await apiFetch(`/api/v5/products/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      service_group: normalizeNullableText(payload.service_group),
-      product_code: normalizeNullableText(payload.product_code),
-      product_name: normalizeNullableText(payload.product_name),
-      package_name: normalizeNullableText(payload.package_name),
-      domain_id: normalizeNullableNumber(payload.domain_id),
-      vendor_id: normalizeNullableNumber(payload.vendor_id),
-      standard_price: normalizeNumber(payload.standard_price, 0),
-      unit: normalizeNullableText(payload.unit),
-      description: normalizeNullableText(payload.description),
-      attachments: serializeProductAttachments(payload.attachments),
-      is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
-    }),
+    body: JSON.stringify(buildProductRequestPayload(payload)),
   });
 
   if (!res.ok) {

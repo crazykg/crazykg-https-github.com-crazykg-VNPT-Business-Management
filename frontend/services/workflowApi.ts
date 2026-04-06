@@ -149,11 +149,12 @@ export const getWorkflowStatistics = async (
 export const createWorkflow = async (
   payload: Partial<WorkflowDefinition>
 ): Promise<ApiResponse<WorkflowDefinition>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  return response.json();
 };
 
 /**
@@ -191,27 +192,30 @@ export const updateWorkflow = async (
  * Activate workflow
  */
 export const activateWorkflow = async (id: number): Promise<ApiResponse<WorkflowDefinition>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${id}/activate`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${id}/activate`, {
     method: 'POST',
   });
+  return response.json();
 };
 
 /**
  * Deactivate workflow
  */
 export const deactivateWorkflow = async (id: number): Promise<ApiResponse<WorkflowDefinition>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${id}/deactivate`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${id}/deactivate`, {
     method: 'POST',
   });
+  return response.json();
 };
 
 /**
  * Delete workflow
  */
 export const deleteWorkflow = async (id: number): Promise<{ message: string }> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${id}`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${id}`, {
     method: 'DELETE',
   });
+  return response.json();
 };
 
 // ============================================================================
@@ -280,11 +284,12 @@ export const createTransition = async (
   workflowId: number,
   payload: Partial<WorkflowTransition>
 ): Promise<ApiResponse<WorkflowTransition>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  return response.json();
 };
 
 /**
@@ -294,20 +299,22 @@ export const updateTransition = async (
   id: number,
   payload: Partial<WorkflowTransition>
 ): Promise<ApiResponse<WorkflowTransition>> => {
-  return apiFetch(`${BASE_URL}/workflow-transitions/${id}`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-transitions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  return response.json();
 };
 
 /**
  * Delete transition
  */
 export const deleteTransition = async (id: number): Promise<{ message: string }> => {
-  return apiFetch(`${BASE_URL}/workflow-transitions/${id}`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-transitions/${id}`, {
     method: 'DELETE',
   });
+  return response.json();
 };
 
 /**
@@ -317,11 +324,12 @@ export const bulkCreateTransitions = async (
   workflowId: number,
   transitions: Partial<WorkflowTransition>[]
 ): Promise<ApiResponse<WorkflowTransition[]>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions/bulk`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions/bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transitions }),
   });
+  return response.json();
 };
 
 /**
@@ -338,7 +346,7 @@ export const importTransitions = async (
   updated: number;
   errors: string[];
 }>> => {
-  return apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions/import`, {
+  const response = await apiFetch(`${BASE_URL}/workflow-definitions/${workflowId}/transitions/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -347,6 +355,7 @@ export const importTransitions = async (
       update_existing: updateExisting,
     }),
   });
+  return response.json();
 };
 
 /**

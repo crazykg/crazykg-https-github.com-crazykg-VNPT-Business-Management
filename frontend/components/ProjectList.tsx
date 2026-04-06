@@ -25,6 +25,7 @@ interface ProjectListProps {
   onExportProjects?: () => Promise<Project[]>;
   onExportProjectRaci?: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
   projectItems?: ProjectItemMaster[];
+  canImport?: boolean;
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: ProjectListQuery) => void;
@@ -41,6 +42,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   onExportProjects,
   onExportProjectRaci,
   projectItems = [],
+  canImport = false,
   paginationMeta,
   isLoading = false,
   onQueryChange,
@@ -485,35 +487,37 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Import */}
-          <div className="relative">
-            <button
-              onClick={() => { setShowImportMenu((prev) => !prev); setShowExportMenu(false); }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-            >
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
-              Nhập
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
-            </button>
-            {showImportMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden">
-                  <button
-                    onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>upload_file</span> Nhập dữ liệu
-                  </button>
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>download</span> Tải file mẫu
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          {canImport ? (
+            <div className="relative">
+              <button
+                onClick={() => { setShowImportMenu((prev) => !prev); setShowExportMenu(false); }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              >
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                Nhập
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+              </button>
+              {showImportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute top-full left-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden">
+                    <button
+                      onClick={() => { setShowImportMenu(false); onOpenModal('IMPORT_DATA'); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>upload_file</span> Nhập dữ liệu
+                    </button>
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="w-full flex items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-neutral" style={{ fontSize: 15 }}>download</span> Tải file mẫu
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
 
           {/* Export */}
           <div className="relative">

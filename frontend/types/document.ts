@@ -15,6 +15,7 @@ export interface Document {
   projectId?: string | null;
   productId?: string;
   productIds?: string[];
+  commissionPolicyText?: string | null;
   expiryDate?: string;
   releaseDate?: string;
   scope?: 'DEFAULT' | 'PRODUCT_PRICING';

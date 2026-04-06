@@ -14,7 +14,7 @@ import {
   CUSTOMER_SECTOR_OPTIONS,
   HEALTHCARE_FACILITY_TYPE_OPTIONS,
 } from '../utils/customerClassification';
-import { ModalWrapper } from './modals';
+import { ModalWrapper } from './Modals';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 type NotifyFn = (type: 'success' | 'error', title: string, message: string) => void;
@@ -347,17 +347,17 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
       title={`Cấu hình đề xuất bán hàng • ${product.product_name}`}
       icon="target"
       width="max-w-[1120px]"
-      panelClassName="rounded-3xl"
+      panelClassName="rounded-lg"
       headerClassName="gap-2 px-4 py-3 md:px-5 md:py-3"
     >
-      <div className="bg-gradient-to-br from-amber-50 via-white to-orange-50">
-        <div className="border-b border-amber-100 px-4 py-3">
+      <div className="bg-white">
+        <div className="border-b border-slate-100 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
               {product.product_code}
             </span>
             {product.package_name ? (
-              <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-700">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-tertiary-fixed text-tertiary">
                 {product.package_name}
               </span>
             ) : null}
@@ -366,25 +366,26 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
 
         {loading ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm font-medium text-slate-600">Đang tải danh sách phân khúc khách hàng...</p>
+            <p className="text-xs font-semibold text-on-surface-variant">Đang tải danh sách phân khúc khách hàng...</p>
           </div>
         ) : error ? (
           <div className="px-4 py-6">
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
-              <p className="text-base font-semibold text-red-700">Không thể tải cấu hình phân khúc khách hàng.</p>
-              <p className="mt-2 text-sm leading-6 text-red-600">{error}</p>
-              <div className="mt-5 flex flex-wrap gap-3">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-sm font-bold text-deep-teal">Không thể tải cấu hình phân khúc khách hàng.</p>
+              <p className="mt-1.5 text-xs text-error leading-5">{error}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => setReloadKey((value) => value + 1)}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-error text-white hover:bg-red-700"
                 >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
                   Thử lại
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
                   Đóng
                 </button>
@@ -395,24 +396,26 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
           <>
             <div className="px-4 py-4">
               {!tableAvailable ? (
-                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-base font-semibold text-amber-900">Tính năng chưa sẵn sàng trong môi trường này.</p>
-                  <p className="mt-2 text-sm leading-6 text-amber-800">
+                <div className="rounded-lg border border-slate-200 bg-surface-low px-3 py-2">
+                  <p className="text-xs font-semibold text-on-surface">Tính năng chưa sẵn sàng trong môi trường này.</p>
+                  <p className="mt-1 text-xs text-on-surface-variant leading-5">
                     Bảng dữ liệu `product_target_segments` chưa được tạo. Vui lòng chạy migration trước khi cấu hình đề xuất bán hàng.
                   </p>
                 </div>
               ) : segments.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-amber-300 bg-white/90 p-5 text-center">
-                  <p className="text-lg font-semibold text-slate-900">Chưa cấu hình đề xuất</p>
-                  <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-600">
+                <div className="rounded-lg border border-dashed border-slate-200 bg-surface-low px-3 py-6 text-center">
+                  <p className="text-sm font-bold text-deep-teal">Chưa cấu hình đề xuất</p>
+                  <p className="mx-auto mt-2 max-w-xl text-xs text-on-surface-variant leading-5">
                     Sản phẩm này chưa được gắn với phân khúc khách hàng nào. Hãy thêm phân khúc để hệ thống gợi ý đúng đối tượng hơn.
                   </p>
                   {canManage ? (
                     <button
                       type="button"
                       onClick={() => setSegments([createEmptySegment()])}
-                      className="mt-5 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-600"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white shadow-sm mt-4"
+                      style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                     >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
                       Thêm phân khúc đầu tiên
                     </button>
                   ) : null}
@@ -426,21 +429,29 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                     return (
                       <section
                         key={segment._tempId}
-                        className="overflow-visible rounded-3xl border border-slate-200 bg-white shadow-sm"
+                        className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm"
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2">
                           <div>
-                            <p className="text-sm font-semibold text-slate-900">{formatSegmentSubtitle(segment)}</p>
+                            <p className="text-xs font-semibold text-on-surface">{formatSegmentSubtitle(segment)}</p>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <label className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+                            <label className="inline-flex items-center gap-1.5 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={segment.is_active}
                                 onChange={(event) => updateSegment(segment._tempId, 'is_active', event.target.checked)}
                                 disabled={disableEditing}
                               />
-                              Hoạt động
+                              {segment.is_active ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                                  Hoạt động
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                                  Tạm ngưng
+                                </span>
+                              )}
                             </label>
                             {canManage ? (
                               <button
@@ -448,25 +459,26 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 onClick={() => removeSegment(segment._tempId)}
                                 disabled={disableEditing}
                                 title="Xóa phân khúc"
-                                className="rounded-xl border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-error/20 text-error hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                                 Xóa
                               </button>
                             ) : null}
                           </div>
                         </div>
 
-                        <div className="grid gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-4">
-                          <div className="flex flex-col gap-1.5 xl:col-span-1">
-                            <label className="text-sm font-semibold text-slate-700">Lĩnh vực khách hàng</label>
+                        <div className="grid gap-3 px-3 py-3 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="flex flex-col gap-1 xl:col-span-1">
+                            <label className="text-xs font-semibold text-neutral">Lĩnh vực khách hàng</label>
                             <select
                               aria-label="Lĩnh vực khách hàng"
                               value={segment.customer_sector}
                               onChange={(event) => updateSegment(segment._tempId, 'customer_sector', event.target.value)}
                               disabled={disableEditing}
-                              className={`h-11 rounded-xl border bg-white px-4 text-sm text-slate-900 outline-none transition-colors ${
+                              className={`h-8 px-3 rounded border bg-white text-xs text-slate-900 outline-none transition-colors ${
                                 segmentErrors.customer_sector ? 'border-red-400' : 'border-slate-200'
-                              } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-amber-400'}`}
+                              } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
                             >
                               <option value="">Chọn lĩnh vực</option>
                               {CUSTOMER_SECTOR_OPTIONS.map((option) => (
@@ -476,13 +488,13 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                               ))}
                             </select>
                             {segmentErrors.customer_sector ? (
-                              <p className="text-xs font-medium text-red-500">{segmentErrors.customer_sector}</p>
+                              <p className="text-xs font-medium text-error">{segmentErrors.customer_sector}</p>
                             ) : null}
                           </div>
 
                           {isHealthcare ? (
-                            <div className="flex flex-col gap-1.5 xl:col-span-1">
-                              <label className="text-sm font-semibold text-slate-700">Loại hình y tế</label>
+                            <div className="flex flex-col gap-1 xl:col-span-1">
+                              <label className="text-xs font-semibold text-neutral">Loại hình y tế</label>
                               <SearchableMultiSelect
                                 ariaLabel="Loại hình y tế"
                                 values={segment.facility_types}
@@ -500,27 +512,27 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 searchPlaceholder="Tìm loại hình y tế..."
                                 noOptionsText="Không tìm thấy loại hình phù hợp"
                                 disabled={disableEditing}
-                                triggerClassName={`h-11 rounded-xl border bg-white px-4 text-sm text-slate-900 ${
+                                triggerClassName={`h-8 rounded border bg-white px-3 text-xs text-slate-900 ${
                                   segmentErrors.facility_types ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'
-                                } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : ''}`}
-                                dropdownClassName="z-[160] rounded-2xl"
+                                } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
+                                dropdownClassName="z-[160] rounded-lg"
                               />
                               {segmentErrors.facility_types ? (
-                                <p className="text-xs font-medium text-red-500">{segmentErrors.facility_types}</p>
+                                <p className="text-xs font-medium text-error">{segmentErrors.facility_types}</p>
                               ) : (
-                                <p className="text-xs text-slate-500">
+                                <p className="text-xs text-on-surface-variant">
                                   Bỏ trống để áp dụng cho tất cả loại hình y tế. Có thể chọn nhiều giá trị cùng lúc.
                                 </p>
                               )}
                             </div>
                           ) : (
-                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-500 xl:col-span-1">
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-surface-low px-3 py-2 text-xs text-on-surface-variant xl:col-span-1">
                               Trường loại hình và quy mô giường bệnh chỉ áp dụng cho nhóm khách hàng Y tế.
                             </div>
                           )}
 
-                          <div className="flex flex-col gap-1.5 xl:col-span-1">
-                            <label className="text-sm font-semibold text-slate-700">Mức ưu tiên</label>
+                          <div className="flex flex-col gap-1 xl:col-span-1">
+                            <label className="text-xs font-semibold text-neutral">Mức ưu tiên</label>
                             <input
                               aria-label="Mức ưu tiên"
                               type="number"
@@ -533,27 +545,27 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 Math.max(1, Math.min(255, Number(event.target.value || 1)))
                               )}
                               disabled={disableEditing}
-                              className={`h-11 rounded-xl border bg-white px-4 text-sm text-slate-900 outline-none transition-colors ${
+                              className={`h-8 px-3 rounded border bg-white text-xs text-slate-900 outline-none transition-colors ${
                                 segmentErrors.priority ? 'border-red-400' : 'border-slate-200'
-                              } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-amber-400'}`}
+                              } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
                             />
                             {segmentErrors.priority ? (
-                              <p className="text-xs font-medium text-red-500">{segmentErrors.priority}</p>
+                              <p className="text-xs font-medium text-error">{segmentErrors.priority}</p>
                             ) : null}
                           </div>
 
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 xl:col-span-1">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Tóm tắt</p>
-                            <p className="mt-2 text-sm font-medium text-slate-700">{formatSegmentSubtitle(segment)}</p>
-                            <p className="mt-1 text-sm text-slate-500">
+                          <div className="rounded-lg border border-slate-100 bg-surface-low px-3 py-2 xl:col-span-1">
+                            <p className="text-[10px] font-semibold text-neutral uppercase tracking-wide">Tóm tắt</p>
+                            <p className="mt-1 text-xs font-semibold text-on-surface">{formatSegmentSubtitle(segment)}</p>
+                            <p className="mt-0.5 text-xs text-on-surface-variant">
                               {segment.is_active ? 'Đang được dùng để gợi ý bán hàng.' : 'Tạm ngưng áp dụng.'}
                             </p>
                           </div>
 
                           {isHealthcare ? (
                             <>
-                              <div className="flex flex-col gap-1.5 xl:col-span-2">
-                                <label className="text-sm font-semibold text-slate-700">Giường bệnh tối thiểu</label>
+                              <div className="flex flex-col gap-1 xl:col-span-2">
+                                <label className="text-xs font-semibold text-neutral">Giường bệnh tối thiểu</label>
                                 <input
                                   aria-label="Giường bệnh tối thiểu"
                                   type="number"
@@ -566,16 +578,16 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                   )}
                                   disabled={disableEditing}
                                   placeholder="Không giới hạn"
-                                  className={`h-11 rounded-xl border bg-white px-4 text-sm text-slate-900 outline-none transition-colors ${
+                                  className={`h-8 px-3 rounded border bg-white text-xs text-slate-900 outline-none transition-colors ${
                                     segmentErrors.bed_capacity_min ? 'border-red-400' : 'border-slate-200'
-                                  } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-amber-400'}`}
+                                  } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
                                 />
                                 {segmentErrors.bed_capacity_min ? (
-                                  <p className="text-xs font-medium text-red-500">{segmentErrors.bed_capacity_min}</p>
+                                  <p className="text-xs font-medium text-error">{segmentErrors.bed_capacity_min}</p>
                                 ) : null}
                               </div>
-                              <div className="flex flex-col gap-1.5 xl:col-span-2">
-                                <label className="text-sm font-semibold text-slate-700">Giường bệnh tối đa</label>
+                              <div className="flex flex-col gap-1 xl:col-span-2">
+                                <label className="text-xs font-semibold text-neutral">Giường bệnh tối đa</label>
                                 <input
                                   aria-label="Giường bệnh tối đa"
                                   type="number"
@@ -588,19 +600,19 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                   )}
                                   disabled={disableEditing}
                                   placeholder="Không giới hạn"
-                                  className={`h-11 rounded-xl border bg-white px-4 text-sm text-slate-900 outline-none transition-colors ${
+                                  className={`h-8 px-3 rounded border bg-white text-xs text-slate-900 outline-none transition-colors ${
                                     segmentErrors.bed_capacity_max ? 'border-red-400' : 'border-slate-200'
-                                  } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-amber-400'}`}
+                                  } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
                                 />
                                 {segmentErrors.bed_capacity_max ? (
-                                  <p className="text-xs font-medium text-red-500">{segmentErrors.bed_capacity_max}</p>
+                                  <p className="text-xs font-medium text-error">{segmentErrors.bed_capacity_max}</p>
                                 ) : null}
                               </div>
                             </>
                           ) : null}
 
-                          <div className="flex flex-col gap-1.5 xl:col-span-4">
-                            <label className="text-sm font-semibold text-slate-700">Ghi chú bán hàng</label>
+                          <div className="flex flex-col gap-1 xl:col-span-4">
+                            <label className="text-xs font-semibold text-neutral">Ghi chú bán hàng</label>
                             <textarea
                               aria-label="Ghi chú bán hàng"
                               rows={3}
@@ -608,14 +620,14 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                               onChange={(event) => updateSegment(segment._tempId, 'sales_notes', event.target.value)}
                               disabled={disableEditing}
                               placeholder="Gợi ý cho nhân viên bán hàng khi tư vấn sản phẩm này cho nhóm khách hàng tương ứng."
-                              className={`rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors ${
-                                disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-amber-400'
+                              className={`rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-colors ${
+                                disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'
                               }`}
                             />
                           </div>
 
                           {segmentErrors.duplicate ? (
-                            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600 xl:col-span-4">
+                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-error xl:col-span-4">
                               {segmentErrors.duplicate}
                             </div>
                           ) : null}
@@ -627,30 +639,31 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
               )}
 
               {saveError ? (
-                <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-error">
                   {saveError}
                 </div>
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3">
-              <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-3">
+              <div className="flex flex-wrap gap-2">
                 {canManage && tableAvailable ? (
                   <button
                     type="button"
                     onClick={() => setSegments((currentSegments) => [...currentSegments, createEmptySegment()])}
                     disabled={disableEditing || !tableAvailable}
-                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
                     Thêm phân khúc
                   </button>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
                   {canManage ? 'Hủy' : 'Đóng'}
                 </button>
@@ -660,8 +673,10 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                     onClick={handleSave}
                     disabled={saving || !tableAvailable}
                     title={!tableAvailable ? 'Tính năng chưa sẵn sàng' : undefined}
-                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white hover:bg-deep-teal shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                   >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>save</span>
                     {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
                   </button>
                 ) : null}
@@ -672,6 +687,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
       </div>
     </ModalWrapper>
   );
+
 };
 
 export default ProductTargetSegmentModal;

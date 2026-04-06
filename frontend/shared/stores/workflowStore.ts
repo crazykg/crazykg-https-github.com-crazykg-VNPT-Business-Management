@@ -188,9 +188,9 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   
   setSaving: (saving) => set({ isSaving: saving }),
   
-  setError: (error) => set({ error, successMessage: error ? null : state.successMessage }),
-  
-  setSuccessMessage: (message) => set({ successMessage: message, error: message ? null : state.error }),
+  setError: (error) => set((s) => ({ error, successMessage: error ? null : s.successMessage })),
+
+  setSuccessMessage: (message) => set((s) => ({ successMessage: message, error: message ? null : s.error })),
   
   // Modal Actions
   setShowCreateModal: (show) => set({ showCreateModal: show }),

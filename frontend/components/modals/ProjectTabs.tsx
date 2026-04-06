@@ -42,6 +42,7 @@ interface ProjectItemsTabProps {
   toggleItemImportMenu: () => void;
   totalDiscountPercent: number;
   triggerProjectItemImport: () => void;
+  onOpenQuotationPicker: () => void;
 }
 
 export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
@@ -69,12 +70,21 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
   toggleItemImportMenu,
   totalDiscountPercent,
   triggerProjectItemImport,
+  onOpenQuotationPicker,
 }) => {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-sm font-bold text-slate-700">Danh sách sản phẩm/dịch vụ</h3>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenQuotationPicker}
+            className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors"
+          >
+            <span className="material-symbols-outlined text-sm text-primary">receipt_long</span>
+            Lấy từ Báo giá
+          </button>
           <div className="relative" ref={itemImportMenuRef}>
             <button
               type="button"
@@ -153,14 +163,14 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
         <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[30%]">Sản phẩm</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-center whitespace-nowrap">Đơn vị tính</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">SL</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[14%] text-right whitespace-nowrap">Đơn giá</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[9%] text-right whitespace-nowrap">% CK</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[13%] text-right whitespace-nowrap">Giảm giá</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[11%] text-right whitespace-nowrap">Thành tiền</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[5%] text-center whitespace-nowrap">Xóa</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[38%]">Sản phẩm</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Đơn vị tính</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[6%] text-center whitespace-nowrap">SL</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[13%] text-right whitespace-nowrap">Đơn giá</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[7%] text-right whitespace-nowrap">% CK</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Giảm giá</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Thành tiền</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[4%] text-center whitespace-nowrap">Xóa</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -283,10 +293,12 @@ interface ProjectRaciTabProps {
   employeeOptions: SearchableSelectOption[];
   formData: Partial<Project>;
   handleAddRACI: () => void;
+  handleCopyRACI: (raciId: string) => void;
   handleDownloadProjectRaciTemplate: () => void;
   handleRaciAssignedDateBlur: (raciId: string) => void;
   handleRemoveRACI: (raciId: string) => void;
   handleUpdateRACI: (raciId: string, field: keyof ProjectRACI, value: any) => void;
+  duplicateRaciIds: Set<string>;
   isDepartmentsLoading: boolean;
   isProjectEmployeeOptionsLoading: boolean;
   isRaciImportSaving: boolean;
@@ -303,10 +315,12 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
   employeeOptions,
   formData,
   handleAddRACI,
+  handleCopyRACI,
   handleDownloadProjectRaciTemplate,
   handleRaciAssignedDateBlur,
   handleRemoveRACI,
   handleUpdateRACI,
+  duplicateRaciIds,
   isDepartmentsLoading,
   isProjectEmployeeOptionsLoading,
   isRaciImportSaving,
@@ -421,7 +435,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                     : String(employee?.department_id ?? employee?.department ?? '---');
 
                   return (
-                    <tr key={raci.id} className="hover:bg-slate-50">
+                    <tr key={raci.id} className={duplicateRaciIds.has(raci.id) ? 'bg-red-50 ring-1 ring-inset ring-red-300' : 'hover:bg-slate-50'}>
                       <td className="p-2">
                         <SearchableSelect
                           compact
@@ -465,6 +479,13 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                         />
                       </td>
                       <td className="p-2 text-center w-[120px]">
+                        <button
+                          onClick={() => handleCopyRACI(raci.id)}
+                          title="Sao chép dòng này"
+                          className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                        >
+                          <span className="material-symbols-outlined text-lg">content_copy</span>
+                        </button>
                         <button
                           onClick={() => handleRemoveRACI(raci.id)}
                           className="text-slate-400 hover:text-red-500 transition-colors p-1"

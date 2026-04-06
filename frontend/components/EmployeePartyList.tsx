@@ -21,6 +21,7 @@ interface EmployeePartyListProps {
   departments: Department[];
   onOpenModal: (type: ModalType, item?: EmployeePartyListItem) => void;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
+  canImport?: boolean;
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: EmployeePartyListQuery) => void;
@@ -81,6 +82,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
   departments = [],
   onOpenModal,
   onNotify,
+  canImport = false,
   paginationMeta,
   isLoading = false,
   onQueryChange,
@@ -109,7 +111,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
       { value: '', label: 'Phòng ban' },
       ...sortedDepartments.map((department) => ({
         value: String(department.id),
-        label: `${department.dept_code} - ${department.dept_name}`,
+        label: department.dept_name,
         searchText: `${department.dept_code} ${department.dept_name}`,
       })),
     ],
@@ -159,54 +161,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
   const currentData = serverMode
     ? partyProfiles
     : filteredProfiles.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
-  const visibleProfiles = serverMode ? currentData : filteredProfiles;
-  const kpis = paginationMeta?.kpis || {};
-  const totalPartyMembers = kpis.total_party_members ?? filteredProfiles.length;
-  const missingPartyCardCount = kpis.missing_party_card_number_count ?? filteredProfiles.filter((item) => isMissingPartyCard(item)).length;
-  const readyPartyCardCount = Math.max(0, totalPartyMembers - missingPartyCardCount);
-  const departmentCoverageCount = new Set(
-    visibleProfiles
-      .map((profile) => String(profile.employee?.department_id ?? '').trim())
-      .filter(Boolean)
-  ).size;
-  const notesCoverageCount = visibleProfiles.filter((profile) => String(profile.notes || '').trim() !== '').length;
   const hasActiveFilters = Boolean(searchTerm.trim() || departmentFilter || qualityFilter);
-  const cards = [
-    {
-      label: 'Hồ sơ theo bộ lọc',
-      value: totalItems,
-      tone: 'border-transparent bg-gradient-to-r from-primary to-primary-container text-white',
-      iconName: 'shield',
-      iconTone: 'bg-white/15 text-white',
-      caption: 'Tổng số hồ sơ Đảng viên khớp với truy vấn hiện tại.',
-    },
-    {
-      label: 'Có số thẻ Đảng',
-      value: readyPartyCardCount,
-      tone: 'border-secondary/20 bg-secondary-fixed text-deep-teal',
-      iconName: 'verified_user',
-      iconTone: 'bg-white/80 text-current',
-      caption: 'Hồ sơ đã sẵn sàng cho đối soát và xuất dữ liệu.',
-    },
-    {
-      label: 'Thiếu số thẻ Đảng',
-      value: missingPartyCardCount,
-      tone: 'border-rose-200 bg-rose-50 text-rose-700',
-      iconName: 'warning',
-      iconTone: 'bg-white/80 text-current',
-      caption: 'Những hồ sơ cần ưu tiên bổ sung trường dữ liệu lõi.',
-    },
-    {
-      label: 'Phòng ban hiện diện',
-      value: departmentCoverageCount,
-      tone: 'border-tertiary/10 bg-tertiary-fixed text-tertiary',
-      iconName: 'apartment',
-      iconTone: 'bg-white/80 text-current',
-      caption: serverMode
-        ? 'Số đơn vị xuất hiện trong trang dữ liệu đang hiển thị.'
-        : 'Số đơn vị xuất hiện trong tập kết quả hiện tại.',
-    },
-  ];
 
   const exportRows = serverMode ? partyProfiles : filteredProfiles;
 
@@ -303,63 +258,54 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
     <div className="space-y-3 p-3 pb-6">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
         <div className="border-b border-slate-100 px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
                 <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>shield</span>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Party Registry</p>
                 <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản lý Đảng viên</h2>
-                <p className="text-[11px] leading-tight text-slate-400">
-                  Theo dõi hồ sơ Đảng viên gắn với nhân sự nội bộ, rà soát chất lượng dữ liệu và chuẩn hóa import theo mã nhân sự.
-                </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                {serverMode ? `Trang ${paginationMeta?.page || currentPage}/${totalPages}` : `${formatCount(totalItems)} hồ sơ`}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-                {formatCount(notesCoverageCount)} hồ sơ có ghi chú
-              </span>
+              {canImport ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowImportMenu((prev) => !prev)}
+                    className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                  >
+                    <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
+                    Nhập
+                    <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
+                  </button>
 
-              <div className="relative">
-                <button
-                  onClick={() => setShowImportMenu((prev) => !prev)}
-                  className={`${secondaryButtonClass} min-w-[92px] justify-center`}
-                >
-                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
-                  Nhập
-                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
-                </button>
-
-                {showImportMenu ? (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                    <div className={`${menuPanelClass} left-0 w-48`}>
-                      <button
-                        onClick={() => {
-                          setShowImportMenu(false);
-                          onOpenModal('IMPORT_DATA');
-                        }}
-                        className={menuItemClass}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
-                        Nhập danh sách
-                      </button>
-                      <button
-                        onClick={handleDownloadTemplate}
-                        className={`${menuItemClass} border-t border-slate-100`}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
-                        Tải file mẫu
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
+                  {showImportMenu ? (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                      <div className={`${menuPanelClass} left-0 w-48`}>
+                        <button
+                          onClick={() => {
+                            setShowImportMenu(false);
+                            onOpenModal('IMPORT_DATA');
+                          }}
+                          className={menuItemClass}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>upload_file</span>
+                          Nhập danh sách
+                        </button>
+                        <button
+                          onClick={handleDownloadTemplate}
+                          className={`${menuItemClass} border-t border-slate-100`}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+                          Tải file mẫu
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="relative">
                 <button
@@ -402,21 +348,6 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
             </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-2 gap-3 p-3 xl:grid-cols-4">
-          {cards.map((card) => (
-            <div key={card.label} className={`rounded-lg border p-3 shadow-sm ${card.tone}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</p>
-                <span className={`inline-flex h-7 w-7 items-center justify-center rounded ${card.iconTone}`}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{card.iconName}</span>
-                </span>
-              </div>
-              <p className="mt-2 text-xl font-black leading-none">{formatCount(card.value ?? 0)}</p>
-              <p className="mt-1 text-[11px] leading-5 opacity-80">{card.caption}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -428,7 +359,6 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
               </div>
               <div>
                 <p className="text-xs font-bold text-slate-700">Bộ lọc và rà soát</p>
-                <p className="text-[10px] text-slate-400">Tìm nhanh theo mã nhân sự, phòng ban và trạng thái thiếu số thẻ Đảng.</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -525,9 +455,9 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
                       { label: 'HỒ SƠ', width: 'min-w-[220px]' },
                       { label: 'PHÒNG BAN', width: 'min-w-[220px]' },
                       { label: 'THÔNG TIN ĐẢNG', width: 'min-w-[250px]' },
-                      { label: 'NHÂN THÂN', width: 'min-w-[220px]' },
+                      { label: 'QUÊ QUÁN', width: 'min-w-[220px]' },
                       { label: 'GHI CHÚ', width: 'min-w-[220px]' },
-                      { label: 'CHẤT LƯỢNG', width: 'min-w-[180px]' },
+                      { label: 'THẺ ĐẢNG', width: 'min-w-[180px]' },
                     ].map((column) => (
                       <th
                         key={column.label}
@@ -583,16 +513,16 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
                         </td>
                         <td className="min-w-[180px] px-4 py-3">
                           <div className="space-y-2">
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${missingCard ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' : 'bg-secondary-fixed text-deep-teal ring-1 ring-secondary/20'}`}>
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${missingCard ? 'bg-tertiary-fixed text-tertiary ring-1 ring-tertiary/20' : 'bg-secondary-fixed text-deep-teal ring-1 ring-secondary/20'}`}>
                               {missingCard ? 'Thiếu số thẻ' : 'Đủ thông tin'}
                             </span>
-                            <p className="text-[11px] leading-5 text-slate-400">
-                              {missingCard
-                                ? 'Nên bổ sung số thẻ trước khi xuất biểu mẫu.'
-                                : noteText
+                            {!missingCard ? (
+                              <p className="text-[11px] leading-5 text-slate-400">
+                                {noteText
                                   ? 'Hồ sơ đã có ghi chú phục vụ rà soát.'
                                   : 'Sẵn sàng cho tra cứu và xuất dữ liệu.'}
-                            </p>
+                              </p>
+                            ) : null}
                           </div>
                         </td>
                         <td className="sticky right-0 bg-white px-4 py-3 text-right shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)] transition-colors group-hover:bg-slate-50/90">
@@ -629,7 +559,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
                           {getDepartmentLabel(profile.employee, departments)}
                         </p>
                       </div>
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${missingCard ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' : 'bg-secondary-fixed text-deep-teal ring-1 ring-secondary/20'}`}>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${missingCard ? 'bg-tertiary-fixed text-tertiary ring-1 ring-tertiary/20' : 'bg-secondary-fixed text-deep-teal ring-1 ring-secondary/20'}`}>
                         {missingCard ? 'Thiếu số thẻ' : 'Đủ thông tin'}
                       </span>
                     </div>
@@ -646,7 +576,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
                       </div>
 
                       <div className="rounded-lg bg-slate-50/80 p-3 text-xs text-slate-600">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">Nhân thân và ghi chú</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">Quê quán và ghi chú</p>
                         <div className="mt-2 space-y-1.5">
                           <p>Quê quán: {profile.hometown || '--'}</p>
                           <p>Dân tộc: {profile.ethnicity || '--'}</p>
@@ -685,6 +615,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
             setCurrentPage(1);
           }}
           rowsPerPageOptions={[10, 20, 50]}
+          hidePageSummary
         />
       </div>
     </div>

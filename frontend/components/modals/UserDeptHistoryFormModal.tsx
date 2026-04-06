@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Department, Employee, UserDeptHistory } from '../../types';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../../utils/employeeDisplay';
+import { getUserDeptHistoryDepartmentLabel } from '../../utils/userDeptHistoryDepartmentDisplay';
 import { SearchableSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
@@ -52,6 +53,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     fromDeptId: resolveDeptId(data?.fromDeptId),
     toDeptId: resolveDeptId(data?.toDeptId),
     transferDate: data?.transferDate || new Date().toISOString().split('T')[0],
+    decisionNumber: data?.decisionNumber || '',
     reason: data?.reason || '',
   });
 
@@ -69,9 +71,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
   const validate = () => {
     const nextErrors: Record<string, string> = {};
     if (!formData.userId) nextErrors.userId = 'Vui lòng chọn nhân sự';
-    if (!formData.toDeptId) nextErrors.toDeptId = 'Vui lòng chọn phòng ban mới';
+    if (!formData.toDeptId) nextErrors.toDeptId = 'Vui lòng chọn đơn vị mới';
     if (!formData.transferDate) nextErrors.transferDate = 'Ngày luân chuyển là bắt buộc';
-    if (formData.fromDeptId === formData.toDeptId) nextErrors.toDeptId = 'Phòng ban mới phải khác phòng ban hiện tại';
+    if (formData.fromDeptId === formData.toDeptId) nextErrors.toDeptId = 'Đơn vị mới phải khác đơn vị hiện tại';
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -101,14 +103,16 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         department.dept_name === currentValue
     );
     if (matchedDept) {
-      return `${matchedDept.dept_code} - ${matchedDept.dept_name}`;
+      return getUserDeptHistoryDepartmentLabel(departments, currentValue, {
+        deptCode: matchedDept.dept_code,
+        deptName: matchedDept.dept_name,
+      });
     }
 
-    if (data?.fromDeptCode || data?.fromDeptName) {
-      return `${data?.fromDeptCode || currentValue}${data?.fromDeptName ? ` - ${data.fromDeptName}` : ''}`;
-    }
-
-    return currentValue;
+    return getUserDeptHistoryDepartmentLabel(departments, currentValue, {
+      deptCode: data?.fromDeptCode,
+      deptName: data?.fromDeptName,
+    });
   }, [formData.fromDeptId, departments, data?.fromDeptCode, data?.fromDeptName]);
 
   const toDepartmentOptions = useMemo(
@@ -117,7 +121,11 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         .filter((department) => String(department.id) !== String(formData.fromDeptId || ''))
         .map((department) => ({
           value: String(department.id),
-          label: `${department.dept_code} - ${department.dept_name}`,
+          label: getUserDeptHistoryDepartmentLabel(departments, department.id, {
+            deptCode: department.dept_code,
+            deptName: department.dept_name,
+          }),
+          searchText: `${department.dept_code || ''} ${department.dept_name || ''}`,
         })),
     [departments, formData.fromDeptId]
   );
@@ -187,7 +195,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         />
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Từ phòng ban</label>
+          <label className="text-sm font-semibold text-slate-700">Từ đơn vị</label>
           <input
             type="text"
             value={fromDeptLabel}
@@ -198,13 +206,13 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         </div>
 
         <SearchableSelect
-          label="Đến phòng ban"
+          label="Đến đơn vị"
           required
           options={toDepartmentOptions}
           value={formData.toDeptId || ''}
           onChange={(value) => handleChange('toDeptId', value)}
           error={errors.toDeptId}
-          placeholder="Chọn phòng ban mới"
+          placeholder="Chọn đơn vị mới"
         />
 
         <FormInput
@@ -214,6 +222,13 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
           onChange={(e: any) => handleChange('transferDate', e.target.value)}
           required
           error={errors.transferDate}
+        />
+
+        <FormInput
+          label="Số quyết định"
+          value={formData.decisionNumber || ''}
+          onChange={(e: any) => handleChange('decisionNumber', e.target.value)}
+          placeholder="Nhập số quyết định..."
         />
 
         <div className="flex flex-col gap-1.5">

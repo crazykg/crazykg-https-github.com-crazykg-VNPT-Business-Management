@@ -340,6 +340,131 @@ class IntegrationSettingsOperationsService
         ]);
     }
 
+    public function storeUserDeptHistory(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('user_dept_history')) {
+            return $this->support->missingTable('user_dept_history');
+        }
+
+        $payload = $this->validateUserDeptHistoryPayload($request);
+        if ($payload instanceof JsonResponse) {
+            return $payload;
+        }
+
+        $created = DB::transaction(function () use ($payload): ?array {
+            $insertPayload = $this->support->filterPayloadByTableColumns('user_dept_history', [
+                'user_id' => $payload['user_id'],
+                'from_dept_id' => $payload['from_dept_id'],
+                'to_dept_id' => $payload['to_dept_id'],
+                'transfer_date' => $payload['transfer_date'],
+                'decision_number' => $payload['decision_number'],
+                'reason' => $payload['reason'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $historyId = (int) DB::table('user_dept_history')->insertGetId($insertPayload);
+            $this->syncTransferUserDepartment($payload['user_id'], $payload['from_dept_id']);
+
+            return $this->loadSerializedUserDeptHistoryRow($historyId);
+        });
+
+        if ($created === null) {
+            return response()->json(['message' => 'Không thể tạo lịch sử luân chuyển.'], 500);
+        }
+
+        return response()->json(['data' => $created], 201);
+    }
+
+    public function updateUserDeptHistory(Request $request, string $id): JsonResponse
+    {
+        if (! $this->support->hasTable('user_dept_history')) {
+            return $this->support->missingTable('user_dept_history');
+        }
+
+        $historyId = $this->support->parseNullableInt($id);
+        if ($historyId === null) {
+            return response()->json(['message' => 'id không hợp lệ.'], 422);
+        }
+
+        $current = $this->loadUserDeptHistoryRow($historyId);
+        if ($current === null) {
+            return response()->json(['message' => 'Không tìm thấy lịch sử luân chuyển.'], 404);
+        }
+
+        $payload = $this->validateUserDeptHistoryPayload($request, $current);
+        if ($payload instanceof JsonResponse) {
+            return $payload;
+        }
+
+        $currentUserId = $this->support->parseNullableInt($current['user_id'] ?? null);
+        $currentFromDeptId = $this->support->parseNullableInt($current['from_dept_id'] ?? null);
+
+        $updated = DB::transaction(function () use ($historyId, $payload, $currentUserId, $currentFromDeptId): ?array {
+            $updatePayload = $this->support->filterPayloadByTableColumns('user_dept_history', [
+                'user_id' => $payload['user_id'],
+                'from_dept_id' => $payload['from_dept_id'],
+                'to_dept_id' => $payload['to_dept_id'],
+                'transfer_date' => $payload['transfer_date'],
+                'decision_number' => $payload['decision_number'],
+                'reason' => $payload['reason'],
+                'updated_at' => now(),
+            ]);
+
+            DB::table('user_dept_history')
+                ->where('id', $historyId)
+                ->update($updatePayload);
+
+            if ($currentUserId !== null && $currentUserId !== $payload['user_id']) {
+                $this->syncTransferUserDepartment($currentUserId, $currentFromDeptId);
+            }
+
+            $this->syncTransferUserDepartment($payload['user_id'], $payload['from_dept_id']);
+
+            return $this->loadSerializedUserDeptHistoryRow($historyId);
+        });
+
+        if ($updated === null) {
+            return response()->json(['message' => 'Không thể cập nhật lịch sử luân chuyển.'], 500);
+        }
+
+        return response()->json(['data' => $updated]);
+    }
+
+    public function destroyUserDeptHistory(string $id): JsonResponse
+    {
+        if (! $this->support->hasTable('user_dept_history')) {
+            return $this->support->missingTable('user_dept_history');
+        }
+
+        $historyId = $this->support->parseNullableInt($id);
+        if ($historyId === null) {
+            return response()->json(['message' => 'id không hợp lệ.'], 422);
+        }
+
+        $current = $this->loadUserDeptHistoryRow($historyId);
+        if ($current === null) {
+            return response()->json(['message' => 'Không tìm thấy lịch sử luân chuyển.'], 404);
+        }
+
+        $userId = $this->support->parseNullableInt($current['user_id'] ?? null);
+        $fallbackDeptId = $this->support->parseNullableInt($current['from_dept_id'] ?? null);
+
+        DB::transaction(function () use ($historyId, $userId, $fallbackDeptId): void {
+            DB::table('user_dept_history')
+                ->where('id', $historyId)
+                ->delete();
+
+            if ($userId !== null) {
+                $this->syncTransferUserDepartment($userId, $fallbackDeptId);
+            }
+        });
+
+        return response()->json([
+            'message' => 'Đã xóa lịch sử luân chuyển.',
+        ]);
+    }
+
     public function contractExpiryAlertSettings(): JsonResponse
     {
         $settingsRow = $this->loadContractExpiryAlertSettingsRow();
@@ -605,6 +730,63 @@ class IntegrationSettingsOperationsService
     }
 
     /**
+     * @param array<string, mixed>|null $current
+     * @return array{user_id:int,from_dept_id:?int,to_dept_id:int,transfer_date:string,decision_number:?string,reason:?string}|JsonResponse
+     */
+    private function validateUserDeptHistoryPayload(Request $request, ?array $current = null): array|JsonResponse
+    {
+        $userTable = $this->resolveEmployeeTable();
+        if ($userTable === null) {
+            return $this->support->missingTable('internal_users');
+        }
+
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer'],
+            'from_dept_id' => ['nullable', 'integer'],
+            'to_dept_id' => ['required', 'integer'],
+            'transfer_date' => ['required', 'date'],
+            'decision_number' => ['nullable', 'string', 'max:100'],
+            'reason' => ['nullable', 'string'],
+        ]);
+
+        $userId = $this->support->parseNullableInt($validated['user_id'] ?? null);
+        $toDeptId = $this->support->parseNullableInt($validated['to_dept_id'] ?? null);
+        $fromDeptId = $this->support->parseNullableInt($validated['from_dept_id'] ?? ($current['from_dept_id'] ?? null));
+
+        if ($userId === null) {
+            return response()->json(['message' => 'user_id không hợp lệ.'], 422);
+        }
+        if (! DB::table($userTable)->where('id', $userId)->exists()) {
+            return response()->json(['message' => 'user_id không tồn tại.'], 422);
+        }
+        if ($toDeptId === null || ! $this->departmentExists($toDeptId)) {
+            return response()->json(['message' => 'to_dept_id không hợp lệ.'], 422);
+        }
+        if ($fromDeptId !== null && ! $this->departmentExists($fromDeptId)) {
+            return response()->json(['message' => 'from_dept_id không hợp lệ.'], 422);
+        }
+
+        if ($fromDeptId === null) {
+            $fromDeptId = $this->resolveEmployeeDepartmentId($userId);
+        }
+
+        if ($fromDeptId !== null && $fromDeptId === $toDeptId) {
+            return response()->json([
+                'message' => 'to_dept_id phải khác from_dept_id.',
+            ], 422);
+        }
+
+        return [
+            'user_id' => $userId,
+            'from_dept_id' => $fromDeptId,
+            'to_dept_id' => $toDeptId,
+            'transfer_date' => (string) $validated['transfer_date'],
+            'decision_number' => $this->support->normalizeNullableString($validated['decision_number'] ?? ($current['decision_number'] ?? null)),
+            'reason' => $this->support->normalizeNullableString($validated['reason'] ?? ($current['reason'] ?? null)),
+        ];
+    }
+
+    /**
      * @param array<int, int> $userIds
      * @return array<string, array<string, string>>
      */
@@ -674,6 +856,109 @@ class IntegrationSettingsOperationsService
             ->filter(fn (array $record): bool => $record['id'] !== '')
             ->keyBy('id')
             ->all();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadUserDeptHistoryRow(int $historyId): ?array
+    {
+        $record = DB::table('user_dept_history')
+            ->select($this->support->selectColumns('user_dept_history', [
+                'id',
+                'user_id',
+                'from_dept_id',
+                'to_dept_id',
+                'transfer_date',
+                'decision_number',
+                'reason',
+                'created_at',
+            ]))
+            ->where('id', $historyId)
+            ->first();
+
+        return $record !== null ? (array) $record : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadSerializedUserDeptHistoryRow(int $historyId): ?array
+    {
+        $record = $this->loadUserDeptHistoryRow($historyId);
+        if ($record === null) {
+            return null;
+        }
+
+        $serialized = $this->serializeUserDeptHistoryRows(collect([(object) $record]))->first();
+
+        return is_array($serialized) ? $serialized : null;
+    }
+
+    private function departmentExists(int $departmentId): bool
+    {
+        return $this->support->hasTable('departments')
+            && DB::table('departments')->where('id', $departmentId)->exists();
+    }
+
+    private function resolveEmployeeDepartmentId(int $userId): ?int
+    {
+        $userTable = $this->resolveEmployeeTable();
+        if ($userTable === null) {
+            return null;
+        }
+
+        $departmentColumn = $this->support->hasColumn($userTable, 'department_id')
+            ? 'department_id'
+            : ($this->support->hasColumn($userTable, 'dept_id') ? 'dept_id' : null);
+
+        if ($departmentColumn === null) {
+            return null;
+        }
+
+        return $this->support->parseNullableInt(
+            DB::table($userTable)
+                ->where('id', $userId)
+                ->value($departmentColumn)
+        );
+    }
+
+    private function syncTransferUserDepartment(int $userId, ?int $fallbackDepartmentId = null): void
+    {
+        $userTable = $this->resolveEmployeeTable();
+        if ($userTable === null) {
+            return;
+        }
+
+        $departmentColumn = $this->support->hasColumn($userTable, 'department_id')
+            ? 'department_id'
+            : ($this->support->hasColumn($userTable, 'dept_id') ? 'dept_id' : null);
+
+        if ($departmentColumn === null) {
+            return;
+        }
+
+        $latestDepartmentId = $this->support->parseNullableInt(
+            DB::table('user_dept_history')
+                ->where('user_id', $userId)
+                ->orderByDesc('transfer_date')
+                ->orderByDesc('id')
+                ->value('to_dept_id')
+        );
+
+        $targetDepartmentId = $latestDepartmentId ?? $fallbackDepartmentId;
+        if ($targetDepartmentId === null || ! $this->departmentExists($targetDepartmentId)) {
+            return;
+        }
+
+        $payload = [$departmentColumn => $targetDepartmentId];
+        if ($this->support->hasColumn($userTable, 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table($userTable)
+            ->where('id', $userId)
+            ->update($payload);
     }
 
     private function resolveEmployeeTable(): ?string

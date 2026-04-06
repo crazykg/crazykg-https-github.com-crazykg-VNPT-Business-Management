@@ -127,6 +127,10 @@ export interface FormInputProps {
   type?: React.HTMLInputTypeAttribute;
   min?: string;
   max?: string;
+  className?: string;
+  labelClassName?: string;
+  inputClassName?: string;
+  errorClassName?: string;
 }
 
 export const FormInput: React.FC<FormInputProps> = ({
@@ -140,9 +144,13 @@ export const FormInput: React.FC<FormInputProps> = ({
   type = 'text',
   min,
   max,
+  className,
+  labelClassName,
+  inputClassName,
+  errorClassName,
 }) => (
-  <div className="flex flex-col gap-1">
-    <label className="text-xs font-semibold text-neutral">
+  <div className={`flex flex-col gap-1 ${className || ''}`}>
+    <label className={labelClassName || 'text-xs font-semibold text-neutral'}>
       {label} {required && <span className="text-error">*</span>}
     </label>
     <input
@@ -155,8 +163,8 @@ export const FormInput: React.FC<FormInputProps> = ({
       lang={type === 'date' ? 'vi-VN' : undefined}
       min={type === 'date' ? (min || DATE_INPUT_MIN) : undefined}
       max={type === 'date' ? (max || DATE_INPUT_MAX) : undefined}
-      className={`w-full h-8 px-3 rounded border bg-white text-xs text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none transition-all placeholder:text-slate-400 ${disabled ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : error ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
+      className={`w-full border bg-white text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none transition-all placeholder:text-slate-400 ${inputClassName || 'h-8 px-3 rounded text-xs'} ${disabled ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : error ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
     />
-    {error && <p className="text-[11px] text-error mt-0.5">{error}</p>}
+    {error && <p className={errorClassName || 'text-[11px] text-error mt-0.5'}>{error}</p>}
   </div>
 );
