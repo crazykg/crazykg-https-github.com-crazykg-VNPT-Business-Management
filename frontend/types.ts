@@ -1727,6 +1727,9 @@ export interface Project {
   project_code: string;
   project_name: string;
   customer_id: string | number | null;
+  department_id?: string | number | null;
+  department_name?: string | null;
+  department_code?: string | null;
   opportunity_id?: string | number | null;
   start_date?: string | null;
   expected_end_date?: string | null;

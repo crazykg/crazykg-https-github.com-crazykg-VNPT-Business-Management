@@ -106,11 +106,15 @@ class ProjectDomainService
     {
         $query = Project::query()
             ->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
+            ->when($this->support->hasColumn('projects', 'department_id') && $this->support->hasTable('departments'), function ($q): void {
+                $q->with(['department' => fn ($dq) => $dq->select(['id', 'department_code', 'department_name'])]);
+            })
             ->select($this->support->selectColumns('projects', [
                 'id',
                 'project_code',
                 'project_name',
                 'customer_id',
+                'department_id',
                 'opportunity_id',
                 'investment_mode',
                 'start_date',
@@ -161,6 +165,21 @@ class ProjectDomainService
         $customerId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'customer_id'));
         if ($customerId !== null && $this->support->hasColumn('projects', 'customer_id')) {
             $query->where('projects.customer_id', $customerId);
+        }
+
+        $departmentId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'department_id'));
+        if ($departmentId !== null && $this->support->hasColumn('projects', 'department_id')) {
+            $query->where('projects.department_id', $departmentId);
+        }
+
+        $startDateFrom = trim((string) ($this->support->readFilterParam($request, 'start_date_from', '') ?? ''));
+        if ($startDateFrom !== '' && $this->support->hasColumn('projects', 'start_date')) {
+            $query->whereDate('projects.start_date', '>=', $startDateFrom);
+        }
+
+        $startDateTo = trim((string) ($this->support->readFilterParam($request, 'start_date_to', '') ?? ''));
+        if ($startDateTo !== '' && $this->support->hasColumn('projects', 'start_date')) {
+            $query->whereDate('projects.start_date', '<=', $startDateTo);
         }
 
         $this->applyReadScope($request, $query);

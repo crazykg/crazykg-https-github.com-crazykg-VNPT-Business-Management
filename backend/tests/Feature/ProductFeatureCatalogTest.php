@@ -339,6 +339,110 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame(1, DB::table('product_features')->whereNull('deleted_at')->count());
     }
 
+    public function test_it_returns_only_the_latest_catalog_audit_logs_in_descending_order(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 13,
+            'uuid' => 'user-13',
+            'user_code' => 'U013',
+            'username' => 'auditor',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Vu Thi F',
+            'email' => 'auditor@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $baseTime = now()->subMinutes(10);
+
+        for ($i = 1; $i <= 130; $i++) {
+            DB::table('audit_logs')->insert([
+                'id' => $i,
+                'uuid' => sprintf('audit-%03d', $i),
+                'event' => 'UPDATE',
+                'auditable_type' => 'product_feature_catalogs',
+                'auditable_id' => $i % 2 === 0 ? 1 : 2,
+                'old_values' => json_encode([
+                    'groups' => [],
+                    'blob' => str_repeat('old', 256),
+                ], JSON_UNESCAPED_UNICODE),
+                'new_values' => json_encode([
+                    'change_summary' => [
+                        'entries' => [
+                            ['message' => sprintf('Audit event %d', $i)],
+                        ],
+                    ],
+                    'blob' => str_repeat('new', 256),
+                ], JSON_UNESCAPED_UNICODE),
+                'url' => '/api/v5/products/1/feature-catalog',
+                'ip_address' => '127.0.0.1',
+                'user_agent' => str_repeat('Mozilla/5.0 ', 32),
+                'created_at' => $baseTime->copy()->addSeconds($i),
+                'created_by' => 13,
+            ]);
+        }
+
+        $response = $this->getJson('/api/v5/products/1/feature-catalog');
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(100, 'data.audit_logs')
+            ->assertJsonPath('data.audit_logs.0.id', 130)
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.entries.0.message', 'Audit event 130')
+            ->assertJsonPath('data.audit_logs.99.id', 31);
+    }
+
+    public function test_it_rejects_deleting_a_persisted_group_even_when_it_has_no_child_features(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 12,
+            'uuid' => 'user-12',
+            'user_code' => 'U012',
+            'username' => 'tester5',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Hoang Thi E',
+            'email' => 'tester5@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan ly danh muc',
+                    'features' => [],
+                ],
+                [
+                    'group_name' => 'Bao cao thong ke',
+                    'features' => [],
+                ],
+            ],
+        ])->assertOk();
+
+        $remainingGroupId = (int) DB::table('product_feature_groups')
+            ->where('group_name', 'Bao cao thong ke')
+            ->value('id');
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'id' => $remainingGroupId,
+                    'group_name' => 'Bao cao thong ke',
+                    'features' => [],
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['groups']);
+
+        $messages = $response->json('errors.groups') ?? [];
+        $this->assertNotEmpty($messages);
+        $this->assertStringContainsString('đã phát sinh dữ liệu danh mục chức năng', $messages[0]);
+        $this->assertSame(2, DB::table('product_feature_groups')->whereNull('deleted_at')->count());
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('audit_logs');

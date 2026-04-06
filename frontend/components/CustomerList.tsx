@@ -31,6 +31,7 @@ interface CustomerListProps {
 type CustomerSortDirection = 'asc' | 'desc';
 type CustomerSortKey = keyof Customer;
 type CustomerSortConfig = { key: CustomerSortKey; direction: CustomerSortDirection };
+type CustomerCompactViewMode = 'grid' | 'list';
 type HealthcareBreakdownKey = keyof CustomerAggregateKpis['healthcareBreakdown'];
 type HealthcareFacilityFilterValue =
   | 'PUBLIC_HOSPITAL'
@@ -95,6 +96,15 @@ const HEALTHCARE_BREAKDOWN_FILTER_MAP: Record<HealthcareBreakdownKey, Healthcare
   other: 'OTHER',
 };
 
+const CUSTOMER_VIEW_MODE_OPTIONS: Array<{
+  value: CustomerCompactViewMode;
+  label: string;
+  icon: string;
+}> = [
+  { value: 'grid', label: 'Lưới', icon: 'grid_view' },
+  { value: 'list', label: 'Danh sách', icon: 'view_list' },
+];
+
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
   onOpenModal,
@@ -116,6 +126,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [compactViewMode, setCompactViewMode] = useState<CustomerCompactViewMode>('grid');
   const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
   const [selectedHealthcareFacilityType, setSelectedHealthcareFacilityType] = useState<HealthcareFacilityFilterValue | null>(null);
 
@@ -568,6 +579,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       )?.label || 'Khác'
     )
     : null;
+  const isGridView = compactViewMode === 'grid';
 
   return (
     <div className="p-3 pb-6 space-y-3">
@@ -798,7 +810,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               />
             </div>
 
-            <div className="relative 2xl:hidden w-full">
+            <div className="relative w-full">
               <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
               <select
                 id="customer-list-sort"
@@ -813,7 +825,35 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>swap_vert</span>
             </div>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div
+                className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5"
+                role="group"
+                aria-label="Chế độ hiển thị khách hàng"
+                data-testid="customer-view-mode-toggle"
+              >
+                {CUSTOMER_VIEW_MODE_OPTIONS.map((option) => {
+                  const isActive = compactViewMode === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setCompactViewMode(option.value)}
+                      aria-pressed={isActive}
+                      data-testid={`customer-view-mode-${option.value}`}
+                      className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? 'bg-white text-primary shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{option.icon}</span>
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
               {hasActiveFilters ? (
                 <button
                   onClick={resetFilters}
@@ -855,117 +895,129 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           <div className="px-3 py-8 text-center text-xs text-slate-500">Đang tải dữ liệu...</div>
         ) : currentData.length > 0 ? (
           <>
-            {/* Responsive cards (mobile) */}
-            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 2xl:hidden">
-              {currentData.map((item) => (
-                <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã khách hàng</p>
-                      <div className="mt-1">{renderCustomerCode(item, true)}</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {renderDetailButton(item, true)}
-                      {renderActionButtons(item)}
-                    </div>
-                  </div>
+            <div
+              data-testid="customer-grid-view"
+              className={isGridView ? 'block' : 'hidden'}
+            >
+              <div
+                data-testid="customer-responsive-list"
+                className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2"
+              >
+                {currentData.map((item) => (
+                  <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1 space-y-2.5">
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã khách hàng</p>
+                          <div className="min-w-0 flex-1">{renderCustomerCode(item, true)}</div>
+                        </div>
 
-                  <div className="mt-2.5 space-y-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên khách hàng</p>
-                      <p className="mt-0.5 break-words text-xs font-bold leading-5 text-slate-900">{item.customer_name}</p>
-                    </div>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên khách hàng</p>
+                          <p className="min-w-0 flex-1 break-words text-sm font-bold leading-6 text-slate-900">{item.customer_name}</p>
+                        </div>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhóm</p>
-                        <div className="mt-0.5">{renderCustomerGroup(item, true)}</div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã số thuế</p>
-                        <p className="mt-0.5 font-mono text-xs font-medium text-slate-700">{item.tax_code || '--'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
-                        <p className="mt-0.5 text-xs font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
-                      </div>
-                    </div>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhóm</p>
+                          <div className="min-w-0 flex-1">{renderCustomerGroup(item, true)}</div>
+                        </div>
 
-                    <div className="rounded border border-slate-100 bg-slate-50 p-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Địa chỉ</p>
-                      <p className="mt-0.5 break-words text-xs leading-5 text-slate-600">{item.address || '--'}</p>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã số thuế</p>
+                          <p className="min-w-0 flex-1 font-mono text-xs font-medium text-slate-700">{item.tax_code || '--'}</p>
+                        </div>
+
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
+                          <p className="min-w-0 flex-1 text-xs font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
+                        </div>
+
+                        <div className="flex items-start gap-3">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Địa chỉ</p>
+                          <p className="min-w-0 flex-1 break-words text-xs leading-5 text-slate-600">{item.address || '--'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                        {renderDetailButton(item, true)}
+                        {renderActionButtons(item)}
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))}
+              </div>
             </div>
 
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto 2xl:block">
-              <table
-                data-testid="customer-desktop-table"
-                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1160px]' : 'min-w-[1080px]'}`}
-              >
-                <thead className="border-y border-slate-200 bg-slate-50/90">
-                  <tr>
-                    {[
-                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[136px] min-w-[136px]' },
-                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[240px] min-w-[240px]' },
-                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[180px] min-w-[180px]' },
-                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[136px] min-w-[136px]' },
-                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[220px] min-w-[220px]' },
-                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[104px] min-w-[104px]' },
-                    ].map((col) => (
-                      <th
-                        key={col.key}
-                        className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
-                        onClick={() => handleSort(col.key as keyof Customer)}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className="text-deep-teal">{col.label}</span>
-                          {renderSortIcon(col.key as keyof Customer)}
-                        </div>
-                      </th>
-                    ))}
-                    {showActionColumn ? (
-                      <th className="sticky right-[48px] w-[72px] min-w-[72px] bg-slate-50/95 px-2.5 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                        Thao tác
-                      </th>
-                    ) : null}
-                    <th className="sticky right-0 w-[48px] min-w-[48px] bg-slate-50/95 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                      360
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {currentData.map((item) => (
-                    <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
-                      <td className="px-3 py-2 align-middle text-xs font-mono font-bold text-slate-500">
-                        {renderCustomerCode(item)}
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
-                        <div className="max-w-[212px] whitespace-normal break-words leading-5">{item.customer_name}</div>
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600">
-                        {renderCustomerGroup(item)}
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
-                        <div className="max-w-[190px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+            <div
+              data-testid="customer-list-view"
+              className={isGridView ? 'hidden' : 'block'}
+            >
+              <div className="overflow-x-auto" data-testid="customer-list-table-wrapper">
+                <table
+                  data-testid="customer-desktop-table"
+                  className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1160px]' : 'min-w-[1080px]'}`}
+                >
+                  <thead className="border-y border-slate-200 bg-slate-50/90">
+                    <tr>
+                      {[
+                        { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                        { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[240px] min-w-[240px]' },
+                        { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[180px] min-w-[180px]' },
+                        { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                        { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[220px] min-w-[220px]' },
+                        { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[104px] min-w-[104px]' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          onClick={() => handleSort(col.key as keyof Customer)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="text-deep-teal">{col.label}</span>
+                            {renderSortIcon(col.key as keyof Customer)}
+                          </div>
+                        </th>
+                      ))}
                       {showActionColumn ? (
-                        <td className="sticky right-[48px] bg-white px-2.5 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                          {renderActionButtons(item)}
-                        </td>
+                        <th className="sticky right-[48px] w-[72px] min-w-[72px] bg-slate-50/95 px-2.5 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                          Thao tác
+                        </th>
                       ) : null}
-                      <td className="sticky right-0 bg-white px-2.5 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                        {renderDetailButton(item, true)}
-                      </td>
+                      <th className="sticky right-0 w-[48px] min-w-[48px] bg-slate-50/95 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                        360
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {currentData.map((item) => (
+                      <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
+                        <td className="px-3 py-2 align-middle text-xs font-mono font-bold text-slate-500">
+                          {renderCustomerCode(item)}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
+                          <div className="max-w-[212px] whitespace-normal break-words leading-5">{item.customer_name}</div>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600">
+                          {renderCustomerGroup(item)}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
+                          <div className="max-w-[190px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                        {showActionColumn ? (
+                          <td className="sticky right-[48px] bg-white px-2.5 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                            {renderActionButtons(item)}
+                          </td>
+                        ) : null}
+                        <td className="sticky right-0 bg-white px-2.5 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                          {renderDetailButton(item, true)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         ) : (

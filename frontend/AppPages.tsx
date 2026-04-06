@@ -602,6 +602,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
         <ProjectList
           projects={projectsPageRows}
           customers={customers}
+          departments={departments}
           projectTypes={projectTypes}
           onOpenModal={handleOpenModal}
           onCreateContract={handleCreateContractFromProject}

@@ -480,6 +480,16 @@ class V5DomainSupportService
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
         }
 
+        // Flatten department info for frontend convenience
+        if (isset($data['department']) && is_array($data['department'])) {
+            $data['department_name'] = (string) ($data['department']['department_name'] ?? '');
+            $data['department_code'] = (string) ($data['department']['department_code'] ?? '');
+        } else {
+            $data['department_name'] = $data['department_name'] ?? null;
+            $data['department_code'] = $data['department_code'] ?? null;
+        }
+        unset($data['department']);
+
         return $data;
     }
 

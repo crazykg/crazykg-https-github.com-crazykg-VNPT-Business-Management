@@ -122,6 +122,8 @@ const FEATURE_STATUS_OPTIONS = [
   { value: 'INACTIVE', label: 'Tạm ngưng' },
 ] as const;
 
+const PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT = 1024;
+
 const FEATURE_IMPORT_HEADERS = [
   'STT nhóm',
   'Tên nhóm/phân hệ',
@@ -213,6 +215,11 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
 const toOptionalNumber = (value: unknown): number | null => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+};
+
+const isPersistedCatalogRecord = (value: unknown): boolean => {
+  const numeric = toOptionalNumber(value);
+  return numeric !== null && numeric > 0;
 };
 
 const extractCatalogAuditSummary = (log: AuditLog): CatalogAuditSummary | null => {
@@ -915,7 +922,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   onClose,
   onNotify,
 }) => {
-  const [activeTab, setActiveTab] = useState<'editor' | 'list'>('editor');
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT : window.innerWidth
+  );
+  const [activeTab, setActiveTab] = useState<'editor' | 'list'>(() =>
+    typeof window === 'undefined' || window.innerWidth >= PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT ? 'editor' : 'list'
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [catalog, setCatalog] = useState<ProductFeatureCatalog | null>(null);
@@ -931,7 +943,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const [editingFeatureKeys, setEditingFeatureKeys] = useState<string[]>([]);
   const [featureEditorDraft, setFeatureEditorDraft] = useState<FeatureEditorDraft | null>(null);
   const [featureEditorError, setFeatureEditorError] = useState('');
-  const [initialSignature, setInitialSignature] = useState('[]');
+  const [initialSignature, setInitialSignature] = useState(() => buildCatalogSignature([]));
   const [pendingAuditContext, setPendingAuditContext] = useState<CatalogAuditContext | null>(null);
   const [isListLoading, setIsListLoading] = useState(false);
   const [isListLoadingMore, setIsListLoadingMore] = useState(false);
@@ -942,8 +954,32 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const featureEditorNameInputRef = useRef<HTMLInputElement>(null);
   const importMenuButtonRef = useRef<HTMLButtonElement>(null);
   const canUsePortal = typeof document !== 'undefined';
+  const showEditorTab = viewportWidth >= PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT;
 
   useEscKey(() => setShowImportMenu(false), showImportMenu);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (showEditorTab || activeTab !== 'editor') {
+      return;
+    }
+
+    setActiveTab('list');
+  }, [activeTab, showEditorTab]);
 
   const syncImportMenuPlacement = useCallback(() => {
     if (!showImportMenu || !importMenuButtonRef.current) {
@@ -1170,14 +1206,16 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   useEffect(() => {
-    setActiveTab('editor');
+    setActiveTab(
+      typeof window === 'undefined' || window.innerWidth >= PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT ? 'editor' : 'list'
+    );
     setCatalog(null);
     setDraftGroups([]);
     setErrorMessage('');
     setSelectedGroupFilter('ALL');
     setFeatureSearchKeyword('');
     setEditingFeatureKeys([]);
-    setInitialSignature('[]');
+    setInitialSignature(buildCatalogSignature([]));
     setPendingAuditContext(null);
     setIsLoading(true);
     setIsListLoading(false);
@@ -1334,6 +1372,15 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
   const removeGroup = (groupId: string | number) => {
     const targetGroup = draftGroups.find((group) => String(group.id) === String(groupId));
+    if (targetGroup && isPersistedCatalogRecord(targetGroup.id)) {
+      onNotify?.(
+        'error',
+        'Không thể xóa nhóm',
+        `Nhóm "${toText(targetGroup.group_name) || 'Chưa đặt tên'}" đã phát sinh dữ liệu danh mục chức năng. Không thể xóa nhóm đã lưu.`
+      );
+      return;
+    }
+
     if (targetGroup && (targetGroup.features || []).length > 0) {
       onNotify?.(
         'error',
@@ -1715,11 +1762,16 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     </>
   ) : null;
 
+  const modalTitleSegments = [toText(productSummary.product_code), toText(productSummary.product_name)].filter(Boolean);
+  const modalTitle = modalTitleSegments.length > 0
+    ? `Danh mục chức năng: ${modalTitleSegments.join(' - ')}`
+    : 'Danh mục chức năng';
+
   return (
     <>
       <ModalWrapper
         onClose={requestClose}
-        title={`Danh mục chức năng: ${productSummary.product_name}`}
+        title={modalTitle}
         icon="fact_check"
         width="max-w-[92vw]"
         heightClass="h-[calc(100vh-32px)]"
@@ -1779,23 +1831,32 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         <div className={activeTab === 'list' ? 'flex min-h-0 flex-1 flex-col gap-3' : 'space-y-3'}>
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 bg-white px-3">
-                <div className="flex items-center gap-1 overflow-x-auto">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('editor')}
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
-                      activeTab === 'editor'
-                        ? 'border-primary text-primary'
-                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit_note</span>
-                    Cập nhật danh mục
-                  </button>
+                <div
+                  data-testid="catalog-tab-switcher"
+                  className={showEditorTab
+                    ? 'grid grid-cols-2 gap-1 sm:flex sm:items-center sm:gap-1 sm:overflow-x-auto'
+                    : 'flex items-center justify-center'}
+                >
+                  {showEditorTab ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('editor')}
+                      className={`flex min-w-0 items-center justify-center gap-1.5 border-b-2 px-2 py-2 text-center text-xs font-semibold leading-tight transition-colors sm:whitespace-nowrap sm:px-3 ${
+                        activeTab === 'editor'
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit_note</span>
+                      Cập nhật danh mục
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setActiveTab('list')}
-                    className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${
+                    className={`flex min-w-0 items-center justify-center gap-1.5 border-b-2 px-2 py-2 text-center text-xs font-semibold leading-tight transition-colors sm:whitespace-nowrap sm:px-3 ${
+                      showEditorTab ? '' : 'w-full'
+                    } ${
                       activeTab === 'list'
                         ? 'border-primary text-primary'
                         : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
@@ -1856,7 +1917,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {canManage && (
+                  {canManage && showEditorTab && (
                     <button
                       type="button"
                       onClick={addGroup}
@@ -1889,16 +1950,19 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     onScroll={handleListScroll}
                     data-testid="feature-list-scroll"
                   >
-                    <table className="min-w-[1080px] w-full border-collapse bg-white text-left">
+                    <table
+                      data-testid="feature-list-table"
+                      className="w-full table-fixed border-collapse bg-white text-left lg:min-w-[1080px]"
+                    >
                       <thead className="sticky top-0 z-10 bg-white">
                         <tr>
-                          <th className="w-[72px] border border-slate-900 px-2 py-3 text-center font-serif text-[1rem] font-bold text-slate-950">
+                          <th className="w-[64px] border border-slate-900 px-1.5 py-2 text-center font-serif text-[0.92rem] font-bold text-slate-950 sm:w-[72px] sm:px-2 sm:py-3 sm:text-[1rem]">
                             STT
                           </th>
-                          <th className="w-[32%] border border-slate-900 px-3 py-3 text-center font-serif text-[1rem] font-bold text-slate-950">
+                          <th className="w-[42%] border border-slate-900 px-2 py-2 text-center font-serif text-[0.92rem] font-bold text-slate-950 sm:px-3 sm:py-3 sm:text-[1rem] lg:w-[32%]">
                             Tên phân hệ/chức năng
                           </th>
-                          <th className="border border-slate-900 px-3 py-3 text-center font-serif text-[1rem] font-bold text-slate-950">
+                          <th className="border border-slate-900 px-2 py-2 text-center font-serif text-[0.92rem] font-bold text-slate-950 sm:px-3 sm:py-3 sm:text-[1rem]">
                             Mô tả chi tiết tính năng
                           </th>
                         </tr>
@@ -1908,13 +1972,13 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           if (row.isGroup) {
                             return (
                             <tr key={row.key} className="bg-white align-middle">
-                              <td className="border border-slate-900 px-2 py-2.5 text-center font-serif text-[1.08rem] font-bold text-slate-950">
+                              <td className="border border-slate-900 px-1.5 py-2 text-center align-top font-serif text-[0.98rem] font-bold text-slate-950 sm:px-2 sm:py-2.5 sm:text-[1.08rem]">
                                   {row.stt}
                               </td>
-                                <td className="border border-slate-900 px-3 py-2.5 text-left font-serif text-[1.08rem] font-bold leading-[1.35] text-slate-950 align-middle">
+                                <td className="border border-slate-900 px-2 py-2 text-left align-top font-serif text-[1rem] font-bold leading-[1.35] text-slate-950 break-words [overflow-wrap:anywhere] sm:px-3 sm:py-2.5 sm:text-[1.08rem]">
                                   {row.name}
                                 </td>
-                                <td className="border border-slate-900 px-3 py-2.5 font-serif text-[0.98rem] leading-[1.45] text-slate-950 whitespace-pre-line">
+                                <td className="border border-slate-900 px-2 py-2 align-top font-serif text-[0.88rem] leading-[1.5] text-slate-950 whitespace-pre-line break-words [overflow-wrap:anywhere] sm:px-3 sm:py-2.5 sm:text-[0.98rem]">
                                   {toText(row.detail) === 'Danh sách chức năng thuộc phân hệ này.' ? '' : row.detail}
                                 </td>
                               </tr>
@@ -1923,13 +1987,13 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
                           return (
                             <tr key={row.key} className="bg-white align-middle">
-                              <td className="border border-slate-900 px-2 py-2.5 text-center font-serif text-[1rem] font-normal text-slate-950">
+                              <td className="border border-slate-900 px-1.5 py-2 text-center align-top font-serif text-[0.9rem] font-normal text-slate-950 sm:px-2 sm:py-2.5 sm:text-[1rem]">
                                 {row.stt}
                               </td>
-                              <td className="border border-slate-900 px-3 py-2.5 text-left font-serif text-[1rem] font-medium leading-[1.4] text-slate-950 align-middle">
+                              <td className="border border-slate-900 px-2 py-2 text-left align-top font-serif text-[0.95rem] font-medium leading-[1.45] text-slate-950 break-words [overflow-wrap:anywhere] sm:px-3 sm:py-2.5 sm:text-[1rem]">
                                 {row.name}
                               </td>
-                              <td className="border border-slate-900 px-3 py-2.5 font-serif text-[0.98rem] font-normal leading-[1.45] text-slate-950 whitespace-pre-line">
+                              <td className="border border-slate-900 px-2 py-2 align-top font-serif text-[0.84rem] font-normal leading-[1.55] text-slate-950 whitespace-pre-line break-words [overflow-wrap:anywhere] sm:px-3 sm:py-2.5 sm:text-[0.98rem]">
                                 {row.detail}
                               </td>
                             </tr>
@@ -1986,93 +2050,102 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredDraftGroups.map((group, groupIndex) => (
-                  <div key={String(group.id)} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-200 bg-white px-3 py-2">
-                      <div className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
-                        <div className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-end">
-                          <div className="w-20 shrink-0">
-                            <label className="mb-1 block text-xs font-semibold text-neutral">
-                              STT
-                            </label>
-                            <div className="flex h-8 items-center justify-center rounded border border-slate-200 bg-slate-50 px-3 text-center text-xs font-semibold text-slate-700">
-                              {toRomanLabel(group.display_order || groupIndex + 1)}
+                {filteredDraftGroups.map((group, groupIndex) => {
+                  const isPersistedGroup = isPersistedCatalogRecord(group.id);
+                  const hasChildFeatures = (groupFeatureCountMap[String(group.id)] || 0) > 0;
+                  const deleteGroupTitle = isPersistedGroup
+                    ? 'Dữ liệu đã phát sinh. Không thể xóa nhóm đã lưu.'
+                    : hasChildFeatures
+                      ? 'Hãy xóa hết chức năng con trước khi xóa nhóm.'
+                      : 'Xóa nhóm';
+
+                  return (
+                    <div key={String(group.id)} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 bg-white px-3 py-2">
+                        <div className="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+                          <div className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-end">
+                            <div className="w-20 shrink-0">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">
+                                STT
+                              </label>
+                              <div className="flex h-8 items-center justify-center rounded border border-slate-200 bg-slate-50 px-3 text-center text-xs font-semibold text-slate-700">
+                                {toRomanLabel(group.display_order || groupIndex + 1)}
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1 xl:max-w-[1000px]">
+                              <label className="mb-1 block text-xs font-semibold text-neutral">Tên phân hệ / nhóm chức năng</label>
+                              <input
+                                value={group.group_name}
+                                onChange={(event) =>
+                                  updateGroup(group.id, (current) =>
+                                    createDraftGroup({
+                                      ...current,
+                                      group_name: event.target.value,
+                                    })
+                                  )
+                                }
+                                disabled={!canManage}
+                                className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-50 disabled:text-slate-500"
+                                placeholder="Ví dụ: Quản trị hệ thống"
+                                title={group.group_name}
+                              />
                             </div>
                           </div>
-                          <div className="min-w-0 flex-1 xl:max-w-[1000px]">
-                            <label className="mb-1 block text-xs font-semibold text-neutral">Tên phân hệ / nhóm chức năng</label>
-                            <input
-                              value={group.group_name}
-                              onChange={(event) =>
-                                updateGroup(group.id, (current) =>
-                                  createDraftGroup({
-                                    ...current,
-                                    group_name: event.target.value,
-                                  })
-                                )
-                              }
-                              disabled={!canManage}
-                              className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-50 disabled:text-slate-500"
-                              placeholder="Ví dụ: Quản trị hệ thống"
-                              title={group.group_name}
-                            />
+
+                          <div className="flex flex-nowrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => moveGroup(group.id, 'up')}
+                              disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === 1}
+                              className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              title="Đưa nhóm lên trên"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_upward</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveGroup(group.id, 'down')}
+                              disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === draftGroups.length}
+                              className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              title="Đưa nhóm xuống dưới"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_downward</span>
+                            </button>
+                            {canManage && (
+                              <button
+                                type="button"
+                                onClick={() => addFeature(group.id)}
+                                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>playlist_add</span>
+                                Thêm chức năng
+                              </button>
+                            )}
+                            {canManage && (
+                              <button
+                                type="button"
+                                onClick={() => removeGroup(group.id)}
+                                disabled={isPersistedGroup || hasChildFeatures}
+                                title={deleteGroupTitle}
+                                className="inline-flex items-center gap-1.5 rounded border border-error/30 bg-error/10 px-2.5 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                                Xóa nhóm
+                              </button>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex flex-nowrap items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => moveGroup(group.id, 'up')}
-                            disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === 1}
-                            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            title="Đưa nhóm lên trên"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_upward</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveGroup(group.id, 'down')}
-                            disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === draftGroups.length}
-                            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            title="Đưa nhóm xuống dưới"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_downward</span>
-                          </button>
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={() => addFeature(group.id)}
-                              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>playlist_add</span>
-                              Thêm chức năng
-                            </button>
-                          )}
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={() => removeGroup(group.id)}
-                              disabled={(groupFeatureCountMap[String(group.id)] || 0) > 0}
-                              title={(groupFeatureCountMap[String(group.id)] || 0) > 0 ? 'Hãy xóa hết chức năng con trước khi xóa nhóm.' : 'Xóa nhóm'}
-                              className="inline-flex items-center gap-1.5 rounded border border-error/30 bg-error/10 px-2.5 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                              Xóa nhóm
-                            </button>
-                          )}
-                        </div>
                       </div>
 
-                    </div>
-
-                    <div className="divide-y divide-slate-100">
-                      <div className="bg-slate-50 px-3 py-1.5">
-                        <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                          <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>checklist</span>
-                          Danh sách chức năng thuộc nhóm
+                      <div className="divide-y divide-slate-100">
+                        <div className="bg-slate-50 px-3 py-1.5">
+                          <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>checklist</span>
+                            Danh sách chức năng thuộc nhóm
+                          </div>
                         </div>
-                      </div>
-                      {(group.features || []).length > 0 ? (
+                        {(group.features || []).length > 0 ? (
                         group.features.map((feature, featureIndex) => {
                           const featureEditing = isFeatureEditing(group.id, feature.id);
                           return (
@@ -2210,14 +2283,15 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             </div>
                           </div>
                         )})
-                      ) : (
-                        <div className="px-3 py-4 text-xs text-slate-500">
-                          Phân hệ này chưa có chức năng nào. {canManage ? 'Bạn có thể bấm "Thêm chức năng" để bổ sung.' : ''}
-                        </div>
-                      )}
+                        ) : (
+                          <div className="px-3 py-4 text-xs text-slate-500">
+                            Phân hệ này chưa có chức năng nào. {canManage ? 'Bạn có thể bấm "Thêm chức năng" để bổ sung.' : ''}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 

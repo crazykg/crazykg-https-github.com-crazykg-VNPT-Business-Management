@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEscKey } from '../hooks/useEscKey';
 import { Product, Business, Vendor, ModalType, Customer, Attachment } from '../types';
@@ -63,8 +63,11 @@ type ProductStatusFilter = 'ACTIVE' | 'INACTIVE';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
-const PRODUCT_TABLE_MIN_WIDTH = 1872;
-const PRODUCT_TABLE_LAYOUT_BREAKPOINT = 1440;
+const PRODUCT_TABLE_MIN_WIDTH = 1636;
+const PRODUCT_DESKTOP_VIEWPORT_BREAKPOINT = 1280;
+const PRODUCT_HEADER_LAYOUT_BREAKPOINT = 1280;
+const PRODUCT_FILTER_LAYOUT_BREAKPOINT = 1040;
+const PRODUCT_TABLE_LAYOUT_BREAKPOINT = 1200;
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
   status: 'products_status',
@@ -185,97 +188,97 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     key: 'stt',
     label: 'STT',
     sortable: false,
-    colStyle: { width: 56, minWidth: 56 },
-    headerClassName: 'w-[56px] min-w-[56px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[56px] min-w-[56px] whitespace-nowrap px-3 py-2 align-middle text-xs font-semibold text-slate-500',
+    colStyle: { width: 48, minWidth: 48 },
+    headerClassName: 'w-[48px] min-w-[48px] whitespace-nowrap px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[48px] min-w-[48px] whitespace-nowrap px-2.5 py-1.5 align-middle text-xs font-semibold text-slate-500',
   },
   {
     key: 'product_code',
     label: 'Mã SP',
     sortable: true,
-    colStyle: { width: 140, minWidth: 140 },
-    headerClassName: 'w-[140px] min-w-[140px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[140px] min-w-[140px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs font-semibold leading-5 text-slate-700',
+    colStyle: { width: 112, minWidth: 112 },
+    headerClassName: 'w-[112px] min-w-[112px] whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[112px] min-w-[112px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs font-semibold leading-5 text-slate-700',
   },
   {
     key: 'package_name',
     label: 'Gói cước',
     sortable: true,
-    colStyle: { width: 168, minWidth: 168 },
-    headerClassName: 'w-[168px] min-w-[168px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[168px] min-w-[168px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 144, minWidth: 144 },
+    headerClassName: 'w-[144px] min-w-[144px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[144px] min-w-[144px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'description',
     label: 'Mô tả gói cước',
     sortable: true,
-    colStyle: { width: 320, minWidth: 320 },
-    headerClassName: 'w-[320px] min-w-[320px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[320px] min-w-[320px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 200, minWidth: 200 },
+    headerClassName: 'w-[200px] min-w-[200px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'standard_price',
     label: 'Đơn giá',
     sortable: true,
-    colStyle: { width: 152, minWidth: 152 },
-    headerClassName: 'w-[152px] min-w-[152px] whitespace-nowrap pl-3 pr-5 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[152px] min-w-[152px] whitespace-nowrap pl-3 pr-5 py-2 text-right align-middle text-xs font-bold text-slate-900',
-  },
-  {
-    key: 'service_group',
-    label: 'Nhóm dịch vụ',
-    sortable: true,
-    colStyle: { width: 128, minWidth: 128 },
-    headerClassName: 'w-[128px] min-w-[128px] whitespace-nowrap pl-5 pr-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[128px] min-w-[128px] whitespace-nowrap pl-5 pr-3 py-2 align-middle text-xs',
+    colStyle: { width: 136, minWidth: 136 },
+    headerClassName: 'w-[136px] min-w-[136px] whitespace-nowrap pl-3 pr-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[136px] min-w-[136px] whitespace-nowrap pl-3 pr-4 py-1.5 text-right align-middle text-xs font-bold text-slate-900',
   },
   {
     key: 'product_name',
     label: 'Tên sản phẩm',
     sortable: true,
     colStyle: { width: 240, minWidth: 240 },
-    headerClassName: 'w-[240px] min-w-[240px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[240px] min-w-[240px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs font-semibold leading-5 text-slate-900',
+    headerClassName: 'w-[240px] min-w-[240px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[240px] min-w-[240px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs font-semibold leading-5 text-slate-900',
+  },
+  {
+    key: 'service_group',
+    label: 'Nhóm dịch vụ',
+    sortable: true,
+    colStyle: { width: 112, minWidth: 112 },
+    headerClassName: 'w-[112px] min-w-[112px] whitespace-nowrap pl-4 pr-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[112px] min-w-[112px] whitespace-nowrap pl-4 pr-3 py-1.5 align-middle text-xs',
   },
   {
     key: 'domain_id',
     label: 'Lĩnh vực KD',
     sortable: true,
-    colStyle: { width: 180, minWidth: 180 },
-    headerClassName: 'w-[180px] min-w-[180px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[180px] min-w-[180px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 144, minWidth: 144 },
+    headerClassName: 'w-[144px] min-w-[144px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[144px] min-w-[144px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'vendor_id',
     label: 'Nhà cung cấp',
     sortable: true,
-    colStyle: { width: 200, minWidth: 200 },
-    headerClassName: 'w-[200px] min-w-[200px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 168, minWidth: 168 },
+    headerClassName: 'w-[168px] min-w-[168px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[168px] min-w-[168px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'unit',
     label: 'Đơn vị tính',
     sortable: true,
-    colStyle: { width: 120, minWidth: 120 },
-    headerClassName: 'w-[120px] min-w-[120px] px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[120px] min-w-[120px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-2 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 96, minWidth: 96 },
+    headerClassName: 'w-[96px] min-w-[96px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[96px] min-w-[96px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'is_active',
     label: 'Trạng thái',
     sortable: true,
-    colStyle: { width: 140, minWidth: 140 },
-    headerClassName: 'w-[140px] min-w-[140px] whitespace-nowrap px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[140px] min-w-[140px] whitespace-nowrap px-3 py-2 align-middle text-xs',
+    colStyle: { width: 116, minWidth: 116 },
+    headerClassName: 'w-[116px] min-w-[116px] whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[116px] min-w-[116px] whitespace-nowrap px-3 py-1.5 align-middle text-xs',
   },
   {
     key: 'actions',
     label: 'Thao tác',
     sortable: false,
-    colStyle: { width: 96, minWidth: 96 },
-    headerClassName: 'w-[96px] min-w-[96px] whitespace-nowrap px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[96px] min-w-[96px] whitespace-nowrap px-3 py-2 align-middle text-right',
+    colStyle: { width: 120, minWidth: 120 },
+    headerClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-2.5 py-1.5 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'w-[120px] min-w-[120px] whitespace-nowrap px-2.5 py-1.5 align-middle text-right',
   },
 ];
 
@@ -335,6 +338,9 @@ export const ProductList: React.FC<ProductListProps> = ({
     initialQueryState.sortConfig
   );
   const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? PRODUCT_DESKTOP_VIEWPORT_BREAKPOINT : window.innerWidth
+  );
+  const [contentWidth, setContentWidth] = useState(() =>
     typeof window === 'undefined' ? PRODUCT_TABLE_LAYOUT_BREAKPOINT : window.innerWidth
   );
   const activeView = useMemo(() => getProductModuleViewFromPathname(location.pathname), [location.pathname]);
@@ -342,6 +348,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCompactKpiPanel, setShowCompactKpiPanel] = useState(false);
   const [expandedCompactCardIds, setExpandedCompactCardIds] = useState<string[]>([]);
+  const layoutHostRef = useRef<HTMLDivElement | null>(null);
   // Swipe-to-action: track which card is swiped open
   const [swipedCardId, setSwipedCardId] = useState<string | null>(null);
   const swipeTouchStartX = React.useRef<number>(0);
@@ -363,11 +370,41 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     const handleResize = () => {
       setViewportWidth(window.innerWidth);
+      if (layoutHostRef.current) {
+        setContentWidth(Math.round(layoutHostRef.current.getBoundingClientRect().width));
+      }
     };
 
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !layoutHostRef.current) {
+      return;
+    }
+
+    const node = layoutHostRef.current;
+    const syncContentWidth = () => {
+      setContentWidth(Math.round(node.getBoundingClientRect().width));
+    };
+
+    syncContentWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      syncContentWidth();
+    });
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
     };
   }, []);
 
@@ -380,7 +417,10 @@ export const ProductList: React.FC<ProductListProps> = ({
   }, []);
 
   const showActionColumn = true;
-  const isDesktopCatalogLayout = viewportWidth >= PRODUCT_TABLE_LAYOUT_BREAKPOINT;
+  const isDesktopViewport = viewportWidth >= PRODUCT_DESKTOP_VIEWPORT_BREAKPOINT;
+  const isDesktopCatalogLayout = isDesktopViewport && contentWidth >= PRODUCT_TABLE_LAYOUT_BREAKPOINT;
+  const isWideDesktopHeaderLayout = isDesktopViewport && contentWidth >= PRODUCT_HEADER_LAYOUT_BREAKPOINT;
+  const isWideDesktopFilterLayout = isDesktopViewport && contentWidth >= PRODUCT_FILTER_LAYOUT_BREAKPOINT;
   const isCompactKpiLayout = viewportWidth < 1024;
   const isPhoneWidth = viewportWidth < 640;
   const hasActiveFilters = searchTerm.trim() !== '' || statusFilter !== 'ACTIVE' || domainFilterId !== '' || serviceGroupFilterId !== '';
@@ -453,8 +493,65 @@ export const ProductList: React.FC<ProductListProps> = ({
     [showActionColumn]
   );
 
-  const getColumnConfig = (key: ProductTableColumnKey): ProductTableColumn =>
-    BASE_PRODUCT_TABLE_COLUMNS.find((column) => column.key === key) || BASE_PRODUCT_TABLE_COLUMNS[0];
+  const renderDesktopTableCell = (column: ProductTableColumn, item: Product, stt: number) => {
+    const isActive = item.is_active !== false;
+    const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+
+    switch (column.key) {
+      case 'stt':
+        return <td className={column.cellClassName}>{stt}</td>;
+      case 'product_code':
+        return <td className={column.cellClassName}>{item.product_code}</td>;
+      case 'product_name':
+        return <td className={column.cellClassName}>{item.product_name}</td>;
+      case 'service_group':
+        return (
+          <td className={column.cellClassName}>
+            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
+              {getProductServiceGroupShortLabel(item.service_group)}
+            </span>
+          </td>
+        );
+      case 'package_name':
+        return <td className={column.cellClassName}>{getProductPackageSearchLabel(item)}</td>;
+      case 'description':
+        return <td className={column.cellClassName}>{String(item.description || '').trim() || '—'}</td>;
+      case 'standard_price':
+        return <td className={column.cellClassName}>{formatVnd(item.standard_price, { suffix: false })}</td>;
+      case 'domain_id':
+        return <td className={column.cellClassName}>{getDomainName(item.domain_id)}</td>;
+      case 'vendor_id':
+        return (
+          <td className={column.cellClassName}>
+            <div className="whitespace-normal break-words" title={getVendorName(item.vendor_id)}>
+              {getVendorName(item.vendor_id)}
+            </div>
+          </td>
+        );
+      case 'unit':
+        return <td className={column.cellClassName}>{formatProductUnitForDisplay(item.unit)}</td>;
+      case 'is_active':
+        return (
+          <td className={column.cellClassName}>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+              isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
+            </span>
+          </td>
+        );
+      case 'actions':
+        return (
+          <td className={`${column.cellClassName} sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.06)]`}>
+            <div className="flex justify-end gap-0.5">
+              {renderProductActionButtons(item)}
+            </div>
+          </td>
+        );
+      default:
+        return <td className={column.cellClassName}>—</td>;
+    }
+  };
 
   const activeCount = useMemo(
     () => (products || []).filter((product) => product.is_active !== false).length,
@@ -904,36 +1001,36 @@ export const ProductList: React.FC<ProductListProps> = ({
     <>
       <button
         onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
-        className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-secondary/30 hover:bg-slate-100 hover:text-secondary"
+        className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-secondary/30 hover:bg-slate-100 hover:text-secondary"
         title="Danh mục chức năng"
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>fact_check</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
       </button>
       {canEdit && (
         <button
           onClick={() => onOpenModal('PRODUCT_TARGET_SEGMENT', item)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-tertiary/30 hover:bg-slate-100 hover:text-tertiary"
+          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-tertiary/30 hover:bg-slate-100 hover:text-tertiary"
           title="Cấu hình đề xuất bán hàng"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>target</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>target</span>
         </button>
       )}
       {canEdit && (
         <button
           onClick={() => onOpenModal('EDIT_PRODUCT', item)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/30 hover:bg-slate-100 hover:text-primary"
+          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/30 hover:bg-slate-100 hover:text-primary"
           title="Chỉnh sửa"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
         </button>
       )}
       {canDelete && (
         <button
           onClick={() => onOpenModal('DELETE_PRODUCT', item)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-error/20 hover:bg-red-50 hover:text-error"
+          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-error/20 hover:bg-red-50 hover:text-error"
           title="Xóa"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
         </button>
       )}
     </>
@@ -956,7 +1053,8 @@ export const ProductList: React.FC<ProductListProps> = ({
         {isEmptyData && canEdit && (
           <button
             onClick={() => onOpenModal('ADD_PRODUCT')}
-            className="mt-2 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+            className="mt-2 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+            style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
             Thêm sản phẩm
@@ -976,26 +1074,27 @@ export const ProductList: React.FC<ProductListProps> = ({
   );
 
   return (
-    <div className="p-3 pb-6">
+    <div ref={layoutHostRef} className="min-w-0 p-3 pb-6">
 
       {/* ── Page header with tabs ── */}
-      <div data-testid="products-toolbar" className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        {/* Title row — CTA nằm cùng hàng trên mobile/tablet */}
-        <div className="flex items-center justify-between gap-2 xl:justify-start">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>inventory_2</span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-deep-teal leading-tight">Sản phẩm / Dịch vụ</h2>
-              {!isCompactKpiLayout && (
-                <p className="text-[11px] text-slate-400 leading-tight">Danh mục sản phẩm và báo giá</p>
-              )}
-            </div>
+      <div
+        data-testid="products-toolbar"
+        className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between"
+      >
+        {/* Title row */}
+        <div className="flex items-center gap-2 xl:shrink-0">
+          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>inventory_2</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">Sản phẩm / Dịch vụ</h2>
+            {!isCompactKpiLayout && (
+              <p className="text-[11px] text-slate-400 leading-tight">Danh mục sản phẩm và báo giá</p>
+            )}
           </div>
         </div>
-        {/* Tab switcher + toolbar */}
-        <div className="flex w-full flex-col gap-2 xl:w-auto xl:items-end">
+        {/* Tab switcher + toolbar — single row on xl: */}
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:gap-2">
           {/* View tabs */}
           <div className="grid w-full grid-cols-2 items-center gap-0.5 rounded border border-slate-200 bg-slate-50 p-0.5 sm:inline-flex sm:w-auto">
             {[
@@ -1031,17 +1130,17 @@ export const ProductList: React.FC<ProductListProps> = ({
           </div>
 
           {activeView === 'catalog' && !isCompactKpiLayout && (
-            <div className="flex w-full items-center justify-between gap-2 xl:w-auto xl:justify-end">
-              {/* Secondary actions — gọn 2-col trên mobile */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Secondary actions */}
               <div
                 data-testid="products-primary-actions"
-                className="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-wrap md:items-center md:gap-2"
+                className="flex flex-wrap items-center gap-2"
               >
                 {canImport && (
                   <div className="relative">
                     <button
                       onClick={() => setShowImportMenu(!showImportMenu)}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
+                      className="inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                     >
                       <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
                       Nhập
@@ -1074,7 +1173,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                 <div className="relative">
                   <button
                     onClick={() => setShowExportMenu(!showExportMenu)}
-                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                   >
                     <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>download</span>
                     Xuất
@@ -1098,10 +1197,10 @@ export const ProductList: React.FC<ProductListProps> = ({
                   )}
                 </div>
 
-                {!isCompactKpiLayout && canUploadDocument && (
+                {canUploadDocument && (
                   <button
                     onClick={() => onOpenModal('UPLOAD_PRODUCT_DOCUMENT')}
-                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 md:w-auto"
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                   >
                     <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload_file</span>
                     Upload tài liệu
@@ -1110,10 +1209,11 @@ export const ProductList: React.FC<ProductListProps> = ({
 
               </div>
 
-              {!isCompactKpiLayout && canEdit && (
+              {canEdit && (
                 <button
                   onClick={() => onOpenModal('ADD_PRODUCT')}
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50 md:w-auto"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 hover:bg-deep-teal"
+                  style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                   Thêm sản phẩm
@@ -1135,7 +1235,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         <>
       {/* ── KPI strip ── */}
       {!isCompactKpiLayout && (
-        <div data-testid="products-kpi-grid" className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <div data-testid="products-kpi-grid" className="mb-3 grid grid-cols-2 gap-3 xl:grid-cols-5">
           {summaryCards.map((item) => (
             <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between">
@@ -1164,7 +1264,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                 }`}
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <span className={`text-xs font-semibold ${isSelected ? 'text-primary' : 'text-neutral'}`}>{item.label}</span>
+                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-primary' : 'text-neutral'}`}>{item.label}</span>
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${item.badgeClassName}`}>
                     {item.code.replace('GROUP_', '')}
                   </span>
@@ -1181,8 +1281,11 @@ export const ProductList: React.FC<ProductListProps> = ({
       {/* ── Filter toolbar + Table ── */}
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/90 px-3 py-2 backdrop-blur-sm xl:static xl:bg-slate-50/70 xl:backdrop-blur-none">
-          <div data-testid="products-filter-toolbar" className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.2fr)_minmax(0,1fr)]">
-            <div className="min-w-0 md:col-span-2 xl:col-span-1">
+          <div
+            data-testid="products-filter-toolbar"
+            className={`grid grid-cols-1 gap-2 md:grid-cols-2 ${isWideDesktopFilterLayout ? 'xl:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.4fr)]' : ''}`}
+          >
+            <div className={`min-w-0 md:col-span-2 ${isWideDesktopFilterLayout ? 'xl:col-span-1' : ''}`}>
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
@@ -1195,8 +1298,10 @@ export const ProductList: React.FC<ProductListProps> = ({
               </div>
             </div>
 
-            <div className="md:col-span-2 xl:col-span-1">
-            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 xl:grid-cols-[200px_220px_220px_auto]">
+            <div className={`md:col-span-2 ${isWideDesktopFilterLayout ? 'xl:col-span-1' : ''}`}>
+              <div
+                className={`grid grid-cols-1 items-start gap-2 sm:grid-cols-2 ${isWideDesktopFilterLayout ? 'xl:grid-cols-[160px_190px_190px_auto]' : ''}`}
+              >
                 <div className="w-full">
                   <SearchableSelect
                     label=""
@@ -1324,47 +1429,14 @@ export const ProductList: React.FC<ProductListProps> = ({
               <tbody className="divide-y divide-slate-200">
                 {currentData.map((item, index) => {
                   const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
-                  const isActive = item.is_active !== false;
-                  const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
 
                   return (
                     <tr key={String(item.id || item.product_code)} className="transition-colors hover:bg-slate-50/80">
-                      <td className={getColumnConfig('stt').cellClassName}>{stt}</td>
-                      <td className={getColumnConfig('product_code').cellClassName}>{item.product_code}</td>
-                      <td className={getColumnConfig('package_name').cellClassName}>
-                        {getProductPackageSearchLabel(item)}
-                      </td>
-                      <td className={getColumnConfig('description').cellClassName}>
-                        {String(item.description || '').trim() || '—'}
-                      </td>
-                      <td className={getColumnConfig('standard_price').cellClassName}>{formatVnd(item.standard_price, { suffix: false })}</td>
-                      <td className={getColumnConfig('service_group').cellClassName}>
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceGroupMeta.badgeClassName}`}>
-                          {getProductServiceGroupShortLabel(item.service_group)}
-                        </span>
-                      </td>
-                      <td className={getColumnConfig('product_name').cellClassName}>{item.product_name}</td>
-                      <td className={getColumnConfig('domain_id').cellClassName}>{getDomainName(item.domain_id)}</td>
-                      <td className={getColumnConfig('vendor_id').cellClassName}>
-                        <div className="whitespace-normal break-words" title={getVendorName(item.vendor_id)}>
-                          {getVendorName(item.vendor_id)}
-                        </div>
-                      </td>
-                      <td className={getColumnConfig('unit').cellClassName}>{formatProductUnitForDisplay(item.unit)}</td>
-                      <td className={getColumnConfig('is_active').cellClassName}>
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                        }`}>
-                          {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
-                        </span>
-                      </td>
-                      {showActionColumn && (
-                        <td className={`${getColumnConfig('actions').cellClassName} sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.06)]`}>
-                          <div className="flex justify-end gap-1">
-                            {renderProductActionButtons(item)}
-                          </div>
-                        </td>
-                      )}
+                      {visibleTableColumns.map((column) => (
+                        <React.Fragment key={`${String(item.id || item.product_code)}-${column.key}`}>
+                          {renderDesktopTableCell(column, item, stt)}
+                        </React.Fragment>
+                      ))}
                     </tr>
                   );
                 })}
@@ -1447,7 +1519,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                             <span className="text-[10px] font-semibold text-neutral">Mã:</span>{' '}
                             <span className="text-[13px] font-semibold text-deep-teal">{item.product_code}</span>
                           </p>
-                          <span className={`inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-semibold ${serviceGroupMeta.badgeClassName}`}>
+                          <span className={`inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
                             {getProductServiceGroupShortLabel(item.service_group)}
                           </span>
                         </div>

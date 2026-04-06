@@ -766,6 +766,16 @@ class ProductFeatureCatalogDomainService
             return;
         }
 
+        $errors = [];
+        foreach ($groupIdsMarkedForDeletion as $groupId) {
+            $groupRecord = (array) ($existingGroups->get((string) $groupId) ?? []);
+            $groupName = trim((string) ($groupRecord['group_name'] ?? ''));
+            $errors['groups'][] = sprintf(
+                'Nhóm "%s" đã phát sinh dữ liệu danh mục chức năng. Không thể xóa nhóm đã lưu.',
+                $groupName !== '' ? $groupName : ('#' . $groupId)
+            );
+        }
+
         $childCountByGroup = $existingFeatures
             ->filter(function (mixed $feature) use ($groupIdsMarkedForDeletion): bool {
                 $groupId = (int) (((array) $feature)['group_id'] ?? 0);
@@ -775,7 +785,6 @@ class ProductFeatureCatalogDomainService
             ->groupBy(fn (mixed $feature): int => (int) (((array) $feature)['group_id'] ?? 0))
             ->map(fn (Collection $features): int => $features->count());
 
-        $errors = [];
         foreach ($groupIdsMarkedForDeletion as $groupId) {
             $childCount = (int) ($childCountByGroup->get($groupId) ?? 0);
             if ($childCount <= 0) {
@@ -915,7 +924,33 @@ class ProductFeatureCatalogDomainService
             return [];
         }
 
-        return DB::table('audit_logs')
+        $auditLogIdColumns = $this->support->selectColumns('audit_logs', [
+            'id',
+            'created_at',
+        ]);
+        if (! in_array('id', $auditLogIdColumns, true)) {
+            return [];
+        }
+
+        // Fetch the latest ids first so MySQL does not sort large JSON payload columns in memory.
+        $auditLogIds = DB::table('audit_logs')
+            ->select($auditLogIdColumns)
+            ->where('auditable_type', self::CATALOG_AUDIT_TYPE)
+            ->whereIn('auditable_id', $productIds)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(100)
+            ->pluck('id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        if ($auditLogIds === []) {
+            return [];
+        }
+
+        $auditLogsById = DB::table('audit_logs')
             ->select($this->support->selectColumns('audit_logs', [
                 'id',
                 'uuid',
@@ -930,11 +965,7 @@ class ProductFeatureCatalogDomainService
                 'created_at',
                 'created_by',
             ]))
-            ->where('auditable_type', self::CATALOG_AUDIT_TYPE)
-            ->whereIn('auditable_id', $productIds)
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->limit(100)
+            ->whereIn('id', $auditLogIds)
             ->get()
             ->map(function (object $record): array {
                 $row = (array) $record;
@@ -947,6 +978,11 @@ class ProductFeatureCatalogDomainService
 
                 return $row;
             })
+            ->keyBy(fn (array $row): int => (int) ($row['id'] ?? 0));
+
+        return collect($auditLogIds)
+            ->map(fn (int $id): ?array => $auditLogsById->get($id))
+            ->filter(fn (?array $row): bool => $row !== null)
             ->values()
             ->all();
     }

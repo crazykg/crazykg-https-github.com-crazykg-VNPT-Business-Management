@@ -20,10 +20,12 @@ export interface SearchableSelectProps {
   placeholder?: string;
   searchPlaceholder?: string;
   label?: string;
+  labelClassName?: string;
   error?: string;
   required?: boolean;
   disabled?: boolean;
   compact?: boolean;
+  size?: 'sm';
   className?: string;
   triggerClassName?: string;
   dropdownClassName?: string;
@@ -51,10 +53,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   placeholder,
   searchPlaceholder = 'Tìm kiếm...',
   label,
+  labelClassName,
   error,
   required,
   disabled,
   compact = false,
+  size,
   className,
   triggerClassName,
   dropdownClassName,
@@ -419,7 +423,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   return (
     <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[110]' : 'z-10'} ${className || ''}`} ref={wrapperRef}>
       {label ? (
-        <label className="block text-sm font-semibold text-slate-700">
+        <label className={labelClassName || 'block text-sm font-semibold text-slate-700'}>
           {label} {required ? <span className="text-red-500">*</span> : null}
         </label>
       ) : null}
@@ -428,7 +432,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         tabIndex={disabled ? -1 : 0}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        className={`w-full ${compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
+        className={`w-full ${size === 'sm' ? 'h-8 px-3 rounded' : compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
           disabled
             ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200'
             : error
@@ -478,7 +482,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }}
       >
         <span
-          className={`text-[15px] min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900 font-medium' : 'text-slate-400'}`}
+          className={`${size === 'sm' ? 'text-xs' : 'text-[15px]'} min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900 font-medium' : 'text-slate-400'}`}
           title={String(currentLabel || placeholder || 'Chọn...')}
         >
           {currentLabel || placeholder || 'Chọn...'}
@@ -499,6 +503,7 @@ export interface SearchableMultiSelectProps {
   placeholder?: string;
   searchPlaceholder?: string;
   label?: string;
+  labelClassName?: string;
   error?: string;
   required?: boolean;
   disabled?: boolean;
@@ -513,6 +518,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   placeholder,
   searchPlaceholder = 'Tìm kiếm...',
   label,
+  labelClassName,
   error,
   required,
   disabled,
@@ -734,7 +740,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   return (
     <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[90]' : 'z-10'}`} ref={wrapperRef}>
       {label ? (
-        <label className="block text-sm font-semibold text-slate-700">
+        <label className={labelClassName || 'block text-sm font-semibold text-slate-700'}>
           {label} {required ? <span className="text-red-500">*</span> : null}
         </label>
       ) : null}
@@ -781,9 +787,11 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   );
 };
 
-export const FormSelect = ({ label, value, onChange, options, disabled, required, error }: any) => (
+export const FormSelect = ({ label, labelClassName, size, value, onChange, options, disabled, required, error }: any) => (
   <SearchableSelect
     label={label}
+    labelClassName={labelClassName}
+    size={size}
     required={required}
     value={String(value || '')}
     disabled={disabled}

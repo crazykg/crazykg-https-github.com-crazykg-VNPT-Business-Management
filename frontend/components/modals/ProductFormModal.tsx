@@ -15,11 +15,11 @@ import { FormInput, ModalWrapper } from './shared';
 
 const VIETNAMESE_DIGIT_WORDS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
 const VIETNAMESE_LARGE_UNITS = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
-const PRODUCT_FORM_LABEL_CLASS_NAME = 'text-sm font-semibold text-slate-700';
-const PRODUCT_FORM_TEXT_INPUT_CLASS_NAME = 'h-[46px] rounded-lg px-4 text-[15px] leading-6';
-const PRODUCT_FORM_HELPER_TEXT_CLASS_NAME = 'text-[13px] leading-5 text-slate-500';
-const PRODUCT_FORM_ERROR_TEXT_CLASS_NAME = 'mt-0.5 text-xs text-red-500';
-const PRODUCT_FORM_TEXTAREA_CLASS_NAME = 'min-h-[156px] rounded-xl px-4 py-3 text-[15px] leading-6';
+const PRODUCT_FORM_LABEL_CLASS_NAME = 'text-xs font-semibold text-neutral';
+const PRODUCT_FORM_TEXT_INPUT_CLASS_NAME = 'h-8 rounded px-3 text-xs leading-5';
+const PRODUCT_FORM_HELPER_TEXT_CLASS_NAME = 'text-[11px] leading-5 text-slate-400';
+const PRODUCT_FORM_ERROR_TEXT_CLASS_NAME = 'mt-0.5 text-[11px] text-error';
+const PRODUCT_FORM_TEXTAREA_CLASS_NAME = 'min-h-[100px] rounded px-3 py-2 text-xs leading-5';
 
 export type ProductFormField =
   | 'service_group'
@@ -495,15 +495,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       width="max-w-5xl"
       disableClose={isSubmitting || isUploadingAttachments}
     >
-      <div className="space-y-5 bg-slate-50/70 p-5 md:p-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="mb-4">
-            <p className="text-sm font-semibold text-slate-900">Phân loại</p>
+      <div className="space-y-3 bg-slate-50/70 p-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-3">
+            <p className="text-xs font-bold text-slate-700">Phân loại</p>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div data-product-field="service_group">
               <SearchableSelect
                 label="Nhóm dịch vụ"
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                size="sm"
                 required
                 options={serviceGroupOptions}
                 value={String(formData.service_group || DEFAULT_PRODUCT_SERVICE_GROUP)}
@@ -518,6 +520,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <div data-product-field="is_active">
               <FormSelect
                 label="Trạng thái"
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                size="sm"
                 value={formData.is_active === false ? '0' : '1'}
                 onChange={(event: any) => setFormData({ ...formData, is_active: String(event.target.value) !== '0' })}
                 options={[
@@ -529,8 +533,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div data-product-field="product_code">
               <FormInput
                 label="Mã sản phẩm"
@@ -563,7 +567,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 errorClassName={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}
               />
             </div>
-            <div data-product-field="package_name" className="md:col-span-2">
+            <div data-product-field="package_name" className="lg:col-span-2">
               <FormInput
                 label="Gói cước"
                 value={String(formData.package_name || '')}
@@ -581,11 +585,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div data-product-field="domain_id">
               <SearchableSelect
                 label="Lĩnh vực kinh doanh"
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                size="sm"
                 required
                 options={businessOptions}
                 value={String(formData.domain_id || '')}
@@ -600,6 +606,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <div data-product-field="vendor_id">
               <SearchableSelect
                 label="Nhà cung cấp"
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                size="sm"
                 required
                 options={vendorOptions}
                 value={String(formData.vendor_id || '')}
@@ -614,6 +622,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <div data-product-field="unit" className="flex flex-col gap-1.5">
               <SearchableSelect
                 label="Đơn vị tính"
+                labelClassName={PRODUCT_FORM_LABEL_CLASS_NAME}
+                size="sm"
                 options={unitOptions}
                 value={String(formData.unit ?? '')}
                 onChange={(value) => {
@@ -628,8 +638,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <label className={PRODUCT_FORM_LABEL_CLASS_NAME}>
                 Giá tiêu chuẩn (VNĐ)
                 {isStandardPriceLocked ? (
-                  <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700">
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
+                  <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-tertiary">
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>lock</span>
                     Đã khóa
                   </span>
                 ) : null}
@@ -646,7 +656,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 }}
                 disabled={isSubmitting || isUploadingAttachments || isStandardPriceLocked}
                 placeholder="0"
-                className={`w-full border ${isStandardPriceLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${PRODUCT_FORM_TEXT_INPUT_CLASS_NAME} outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:focus:border-slate-300 disabled:focus:ring-0 ${errors.standard_price ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+                className={`w-full border ${isStandardPriceLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${PRODUCT_FORM_TEXT_INPUT_CLASS_NAME} outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:focus:border-slate-300 disabled:focus:ring-0 ${errors.standard_price ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
               />
               <p className={PRODUCT_FORM_HELPER_TEXT_CLASS_NAME}>
                 {standardPriceHelperText}
@@ -656,8 +666,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="space-y-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="space-y-3">
             <div data-product-field="description" className="flex flex-col gap-1.5">
               <label className={PRODUCT_FORM_LABEL_CLASS_NAME}>Mô tả</label>
               <textarea
@@ -668,12 +678,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 }}
                 placeholder="Mô tả sản phẩm/dịch vụ"
                 rows={3}
-                className={`w-full border bg-white ${PRODUCT_FORM_TEXTAREA_CLASS_NAME} text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.description ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+                className={`w-full border bg-white ${PRODUCT_FORM_TEXTAREA_CLASS_NAME} text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 ${errors.description ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
               />
               {errors.description ? <p className={PRODUCT_FORM_ERROR_TEXT_CLASS_NAME}>{errors.description}</p> : null}
             </div>
 
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-3">
               <AttachmentManager
                 attachments={formData.attachments || []}
                 onUpload={handleUploadAttachment}
@@ -689,20 +699,21 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
       </div>
-      <div className="flex justify-end gap-3 border-t border-slate-100 bg-white px-5 py-4 flex-shrink-0">
+      <div className="flex justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3 flex-shrink-0">
         <button
           onClick={onClose}
           disabled={isSubmitting || isUploadingAttachments}
-          className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Hủy
         </button>
         <button
           onClick={handleSubmit}
           disabled={isSubmitting || isUploadingAttachments}
-          className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-md shadow-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors text-white shadow-sm disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
         >
-          <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+          <span className={`material-symbols-outlined ${isSubmitting ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
             {isSubmitting ? 'progress_activity' : 'check'}
           </span>
           {isSubmitting ? 'Đang lưu...' : type === 'ADD' ? 'Thêm sản phẩm' : 'Lưu thay đổi'}

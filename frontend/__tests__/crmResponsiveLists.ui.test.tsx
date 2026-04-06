@@ -70,10 +70,10 @@ describe('CRM responsive list screens', () => {
     expect(desktopTable).toHaveClass('table-fixed');
 
     const longCustomerName = 'Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM';
-    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('max-w-[248px]', 'whitespace-normal', 'break-words', 'leading-5');
+    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
 
     const longAddress = 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile';
-    expect(within(desktopTable).getByText(longAddress)).toHaveClass('max-w-[230px]', 'whitespace-normal', 'break-words', 'leading-5');
+    expect(within(desktopTable).getByText(longAddress)).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
     expect(within(desktopTable).getByText('Y tế')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Bệnh viện (Công lập)')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Chính quyền')).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe('CRM responsive list screens', () => {
     expect(within(desktopTable).getByText(longCustomerName).closest('td')).toHaveClass('align-middle');
 
     const responsiveList = screen.getByTestId('customer-responsive-list');
-    expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2', 'lg:hidden');
+    expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2');
     expect(screen.queryByRole('heading', { name: 'Danh sách khách hàng' })).not.toBeInTheDocument();
 
     const groupFilterButton = screen.getByRole('button', { name: 'Nhóm khách hàng' });
@@ -98,8 +98,38 @@ describe('CRM responsive list screens', () => {
     expect(cards[0]).toHaveTextContent('Y tế');
     expect(cards[0]).toHaveTextContent('Bệnh viện (Công lập)');
     expect(cards[0]).toHaveTextContent('Tự sinh');
+    expect(within(cards[0]).getByText('Mã khách hàng').parentElement).toHaveClass('flex', 'items-start');
+    expect(within(cards[0]).getByText('Mã số thuế').parentElement).toHaveClass('flex', 'items-start');
+    expect(within(cards[0]).getByText('Ngày tạo').parentElement).toHaveClass('flex', 'items-start');
     expect(cards[1]).toHaveTextContent('Zeta Trung tâm y tế');
     expect(cards[1]).toHaveTextContent('Chính quyền');
+  });
+
+  it('switches between grid cards and list view from the new display toggle', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerList
+        customers={customers}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('customer-grid-view')).toHaveClass('block');
+    expect(screen.getByTestId('customer-list-view')).toHaveClass('hidden');
+
+    await user.click(screen.getByTestId('customer-view-mode-list'));
+
+    expect(screen.getByTestId('customer-grid-view')).toHaveClass('hidden');
+    expect(screen.getByTestId('customer-list-view')).toHaveClass('block');
+
+    const listTableWrapper = screen.getByTestId('customer-list-table-wrapper');
+    const listTable = within(listTableWrapper).getByTestId('customer-desktop-table');
+    expect(listTableWrapper).toHaveClass('overflow-x-auto');
+    expect(listTable).toHaveTextContent('Mã khách hàng');
+    expect(listTable).toHaveTextContent('Tên khách hàng');
+    expect(listTable).toHaveTextContent('Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM');
+    expect(listTable).toHaveTextContent('Zeta Trung tâm y tế');
   });
 
   it('shows healthcare KPI breakdown when the healthcare card is clicked', async () => {
