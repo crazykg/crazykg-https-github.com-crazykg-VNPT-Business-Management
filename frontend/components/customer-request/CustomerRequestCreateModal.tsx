@@ -7,7 +7,8 @@
  *   Right (flex-[2]): Hướng xử lý + Estimate + Workflow selection
  */
 import React, { useEffect, useState } from 'react';
-import { ModalWrapper } from '../Modals';
+import { ModalWrapper } from '../modals';
+import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';

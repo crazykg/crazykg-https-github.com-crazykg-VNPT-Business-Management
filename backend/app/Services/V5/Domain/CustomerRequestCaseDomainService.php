@@ -1422,7 +1422,6 @@ class CustomerRequestCaseDomainService
             'created_by_name' => $case['created_by_name'] ?? null,
             'updated_at' => $case['updated_at'] ?? null,
             'created_at' => $case['created_at'] ?? null,
-            'test' => 'đây là test',
         ];
     }
 

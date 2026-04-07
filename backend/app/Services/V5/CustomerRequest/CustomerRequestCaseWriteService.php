@@ -4,6 +4,7 @@ namespace App\Services\V5\CustomerRequest;
 
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
+use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseTransitionEvaluator;
@@ -683,7 +684,7 @@ class CustomerRequestCaseWriteService
         $tableName = (string) ($definition['table_name'] ?? 'customer_request_cases');
 
         $handlerUserId = $this->support->parseNullableInt($source['handler_user_id'] ?? null);
-        if ($handlerUserId !== null) {
+        if ($handlerUserId !== null && ! array_key_exists('to_user_id', $source)) {
             $source['to_user_id'] = $handlerUserId;
         }
 
@@ -762,6 +763,8 @@ class CustomerRequestCaseWriteService
      */
     private function applyStatusDefaults(array $definition, array &$normalized, ?CustomerRequestCase $case, ?int $actorId): void
     {
+        $statusCode = (string) ($definition['status_code'] ?? '');
+
         $normalized['received_at'] = $this->readQueryService->normalizeDateTime($normalized['received_at'] ?? null)
             ?? $this->readQueryService->normalizeDateTime($case?->received_at)
             ?? now()->format('Y-m-d H:i:s');

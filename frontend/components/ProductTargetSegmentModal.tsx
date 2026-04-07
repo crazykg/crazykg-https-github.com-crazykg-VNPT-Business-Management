@@ -14,7 +14,7 @@ import {
   CUSTOMER_SECTOR_OPTIONS,
   HEALTHCARE_FACILITY_TYPE_OPTIONS,
 } from '../utils/customerClassification';
-import { ModalWrapper } from './Modals';
+import { ModalWrapper } from './modals';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 type NotifyFn = (type: 'success' | 'error', title: string, message: string) => void;
@@ -415,7 +415,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                       className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white shadow-sm mt-4"
                       style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                     >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                      <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
                       Thêm phân khúc đầu tiên
                     </button>
                   ) : null}
@@ -461,7 +461,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 title="Xóa phân khúc"
                                 className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-error/20 text-error hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                                <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                                 Xóa
                               </button>
                             ) : null}
@@ -654,7 +654,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                     disabled={disableEditing || !tableAvailable}
                     className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                    <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
                     Thêm phân khúc
                   </button>
                 ) : null}
@@ -676,7 +676,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                     className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white hover:bg-deep-teal shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>save</span>
+                    <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>save</span>
                     {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
                   </button>
                 ) : null}

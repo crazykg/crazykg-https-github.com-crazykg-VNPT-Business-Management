@@ -167,6 +167,19 @@ const setViewportWidth = (width: number) => {
   window.dispatchEvent(new Event('resize'));
 };
 
+const buildRect = (width: number): DOMRect =>
+  ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: 40,
+    width,
+    height: 40,
+    toJSON: () => '',
+  }) as DOMRect;
+
 const renderProductList = (
   props: React.ComponentProps<typeof ProductList>,
   route = '/products',
@@ -205,6 +218,7 @@ describe('ProductList UI', () => {
       meta: { page: 1, per_page: 8, total: 0, total_pages: 0 },
     });
     quotationApiSpies.createProductQuotation.mockResolvedValue(buildDraftResponse());
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => buildRect(window.innerWidth || 1600));
   });
 
   it('filters by service group and syncs the filter to the URL', async () => {
@@ -386,10 +400,10 @@ describe('ProductList UI', () => {
     });
 
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
-    expect(screen.getByRole('columnheader', { name: /Mô tả gói cước/i })).toHaveClass('w-[320px]', 'min-w-[320px]');
-    expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[128px]', 'min-w-[128px]');
-    expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[140px]', 'min-w-[140px]');
-    expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[152px]', 'min-w-[152px]');
+    expect(screen.getByRole('columnheader', { name: /Mô tả gói cước/i })).toHaveClass('w-[200px]', 'min-w-[200px]');
+    expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[112px]', 'min-w-[112px]');
+    expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[112px]', 'min-w-[112px]');
+    expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[136px]', 'min-w-[136px]');
   });
 
   it('keeps responsive scaffolding for the toolbar, KPI strip and filter bar', () => {
@@ -404,7 +418,7 @@ describe('ProductList UI', () => {
     });
 
     expect(screen.getByTestId('products-toolbar')).toHaveClass('flex-col', 'xl:flex-row');
-    expect(screen.getByTestId('products-kpi-grid')).toHaveClass('grid-cols-1', 'sm:grid-cols-2', 'lg:grid-cols-3', '2xl:grid-cols-5');
+    expect(screen.getByTestId('products-kpi-grid')).toHaveClass('grid-cols-2', 'xl:grid-cols-5');
     expect(screen.getByTestId('products-filter-toolbar')).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-2');
   });
 
@@ -501,8 +515,8 @@ describe('ProductList UI', () => {
     expect(screen.getByTestId('product-catalog-card-list')).toBeInTheDocument();
   });
 
-  it.each([1366, 834, 390])(
-    'renders the compact catalog card layout for laptop, tablet and phone widths (%ipx)',
+  it.each([834, 390])(
+    'renders the compact catalog card layout for tablet and phone widths (%ipx)',
     (viewportWidth) => {
       renderProductList(
         {
@@ -651,8 +665,8 @@ describe('ProductList UI', () => {
       'Gói cước',
       'Mô tả gói cước',
       'Đơn giá',
-      'Nhóm dịch vụ',
       'Tên sản phẩm',
+      'Nhóm dịch vụ',
       'Lĩnh vực KD',
       'Nhà cung cấp',
       'Đơn vị tính',
@@ -777,7 +791,7 @@ describe('ProductList UI', () => {
       expect(screen.getByRole('button', { name: /Báo giá/i })).toBeInTheDocument();
     });
     await user.click(screen.getByRole('button', { name: /Báo giá/i }));
-    await user.click(screen.getByRole('button', { name: /Mở báo giá cũ/i }));
+    await user.click(screen.getByRole('button', { name: /Chọn báo giá/i }));
     await user.click(await screen.findByRole('button', { name: /Bệnh viện Đa khoa Cần Thơ/i }));
     await user.click(screen.getByRole('button', { name: /Cấu hình báo giá/i }));
 
@@ -807,9 +821,12 @@ describe('ProductList UI', () => {
     });
     await user.click(screen.getByRole('button', { name: /Báo giá/i }));
 
-    expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toHaveTextContent('Mở báo giá cũ');
+    expect(screen.getByText('Mở báo giá cũ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Chọn báo giá/i })).toBeInTheDocument();
     expect(quotationApiSpies.fetchProductQuotation).not.toHaveBeenCalled();
-    expect(screen.getByText('Form trắng')).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) => element?.textContent === 'Bấm Thêm mới để bắt đầu')
+    ).toBeInTheDocument();
   });
 
   it('opens quote view from the real /products/quote route and keeps legacy products_view out of the URL', async () => {
@@ -825,7 +842,7 @@ describe('ProductList UI', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Mở báo giá cũ/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Chọn báo giá/i })).toBeInTheDocument();
     });
 
     expect(window.location.pathname).toBe('/products/quote');

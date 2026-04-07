@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Building2, IdCard, Mail, ShieldCheck } from 'lucide-react';
 import type { Department, Employee, EmployeePartyProfile } from '../types';
 import { SearchableSelect } from './SearchableSelect';
-import { ModalWrapper } from './Modals';
+import { ModalWrapper } from './modals';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { getEmployeeCode, resolvePositionName } from '../utils/employeeDisplay';
 

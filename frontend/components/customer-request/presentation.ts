@@ -83,6 +83,7 @@ export type CustomerRequestPrimaryActionMeta = {
 
 const STATUS_UI_ALIAS_MAP: Record<string, string> = {
   dispatched: 'new_intake',
+  pm_missing_customer_info_review: 'waiting_customer_feedback',
 };
 
 const readUiMetaString = (
