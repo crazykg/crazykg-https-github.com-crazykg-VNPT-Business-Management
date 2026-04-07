@@ -52,6 +52,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   isLoading = false,
   onQueryChange,
 }: ProjectListProps) => {
+  const normalizeDepartmentToken = (value: unknown): string =>
+    String(value ?? '')
+      .replace(/[Đđ]/g, 'd')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '')
+      .trim()
+      .toUpperCase();
+
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -181,15 +190,34 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     []
   );
 
+  const projectDepartmentFilterSource = useMemo(() => {
+    const rootDepartment = (departments || []).find((department) => {
+      const codeToken = normalizeDepartmentToken(department.dept_code);
+      const nameToken = normalizeDepartmentToken(department.dept_name);
+      return codeToken === 'BGDVT' || nameToken === 'BANGIAMDOCVIENTHONG';
+    });
+
+    if (!rootDepartment) {
+      return [];
+    }
+
+    return (departments || [])
+      .filter((department) => String(department.parent_id ?? '') === String(rootDepartment.id))
+      .filter((department) => normalizeDepartmentToken(department.dept_code) !== 'PKT')
+      .sort((left, right) =>
+        `${left.dept_code} ${left.dept_name}`.localeCompare(`${right.dept_code} ${right.dept_name}`, 'vi')
+      );
+  }, [departments]);
+
   const departmentFilterOptions = useMemo(
     () => [
       { value: '', label: 'Tất cả phòng ban' },
-      ...(departments || []).map((dept) => ({
+      ...projectDepartmentFilterSource.map((dept) => ({
         value: String(dept.id),
         label: `${dept.dept_code} - ${dept.dept_name}`,
       })),
     ],
-    [departments]
+    [projectDepartmentFilterSource]
   );
 
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredProjects.length;

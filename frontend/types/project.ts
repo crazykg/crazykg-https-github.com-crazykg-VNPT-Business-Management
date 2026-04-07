@@ -84,6 +84,11 @@ export interface Project {
   project_name: string;
   customer_id: string | number | null;
   opportunity_id?: string | number | null;
+  implementation_user_id?: string | number | null;
+  implementation_user_code?: string | null;
+  implementation_full_name?: string | null;
+  implementation_unit_code?: string | null;
+  implementation_unit_name?: string | null;
   start_date?: string | null;
   expected_end_date?: string | null;
   actual_end_date?: string | null;
@@ -109,6 +114,9 @@ export interface ProcedureTemplate {
   description?: string | null;
   is_active: boolean;
   phases?: string[];
+  steps_count?: number;
+  procedures_count?: number;
+  can_delete?: boolean;
 }
 
 export interface ProcedureTemplateStep {

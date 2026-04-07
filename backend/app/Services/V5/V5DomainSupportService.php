@@ -470,7 +470,13 @@ class V5DomainSupportService
      */
     public function serializeProject(Project $project): array
     {
-        $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
+        $relations = [
+            'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+        ];
+        if ($this->hasTable('project_implementation_units')) {
+            $relations['implementationUnit'] = fn ($query) => $query;
+        }
+        $project->loadMissing($relations);
         $data = $project->toArray();
 
         $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'TRIAL'));
@@ -489,6 +495,21 @@ class V5DomainSupportService
             $data['department_code'] = $data['department_code'] ?? null;
         }
         unset($data['department']);
+
+        if (isset($data['implementation_unit']) && is_array($data['implementation_unit'])) {
+            $data['implementation_user_id'] = $this->parseNullableInt($data['implementation_unit']['implementation_user_id'] ?? null);
+            $data['implementation_user_code'] = $this->normalizeNullableString($data['implementation_unit']['implementation_user_code'] ?? null);
+            $data['implementation_full_name'] = $this->normalizeNullableString($data['implementation_unit']['implementation_full_name'] ?? null);
+            $data['implementation_unit_code'] = $this->normalizeNullableString($data['implementation_unit']['implementation_unit_code'] ?? null);
+            $data['implementation_unit_name'] = $this->normalizeNullableString($data['implementation_unit']['implementation_unit_name'] ?? null);
+        } else {
+            $data['implementation_user_id'] = $data['implementation_user_id'] ?? null;
+            $data['implementation_user_code'] = $data['implementation_user_code'] ?? null;
+            $data['implementation_full_name'] = $data['implementation_full_name'] ?? null;
+            $data['implementation_unit_code'] = $data['implementation_unit_code'] ?? null;
+            $data['implementation_unit_name'] = $data['implementation_unit_name'] ?? null;
+        }
+        unset($data['implementation_unit']);
 
         return $data;
     }

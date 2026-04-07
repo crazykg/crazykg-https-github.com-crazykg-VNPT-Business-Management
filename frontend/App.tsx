@@ -936,6 +936,22 @@ const App: React.FC = () => {
     }
   }, [addToast, refreshProductsData, removeProductCache]);
 
+  const handleDeleteProject = React.useCallback(async (project: Project) => {
+    setIsSaving(true);
+    try {
+      await deleteProject(project.id);
+      await refreshProjectsData();
+      setSelectedProject(null);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Đã xóa dự án.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xóa dự án.';
+      addToast('error', 'Xóa thất bại', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, refreshProjectsData]);
+
   const handleSavePartyProfile = React.useCallback(async (payload: Partial<EmployeePartyProfile>) => {
     setIsSaving(true);
     try {
@@ -1272,6 +1288,7 @@ const App: React.FC = () => {
           await Promise.all([
             fetchBackblazeB2IntegrationSettings().then((data) => setBackblazeB2Settings(data)).catch(() => {}),
             fetchGoogleDriveIntegrationSettings().then((data) => setGoogleDriveSettings(data)).catch(() => {}),
+            fetchEmailSmtpIntegrationSettings().then((data) => setEmailSmtpSettings(data)).catch(() => {}),
             fetchContractExpiryAlertSettings().then((data) => setContractExpiryAlertSettings(data)).catch(() => {}),
             fetchContractPaymentAlertSettings().then((data) => setContractPaymentAlertSettings(data)).catch(() => {}),
           ]);
@@ -1733,7 +1750,7 @@ const App: React.FC = () => {
         {modalType === 'DELETE_CUS_PERSONNEL' && selectedCusPersonnel && <DeleteCusPersonnelModal data={selectedCusPersonnel} onClose={() => setModalType(null)} onConfirm={async () => { const success = await handleDeleteCusPersonnel(selectedCusPersonnel); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
         {modalType === 'ADD_PROJECT' && <ProjectFormModal type="ADD" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProject({ ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setModalType(null); }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
         {modalType === 'EDIT_PROJECT' && <ProjectFormModal type="EDIT" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProject) { const updated = await updateProject(selectedProject.id, { ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setSelectedProject(updated); addToast('success', 'Thành công', 'Cập nhật dự án thành công.'); } }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
-        {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteProject(selectedProject.id); await refreshProjectsData(); setModalType(null); }); }} />}
+        {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteProject(selectedProject); }} />}
         {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={false} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createContract(d); await refreshContractsData(); setModalType(null); }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
         {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={isContractDetailLoading} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedContract) { await updateContract(selectedContract.id, d); await refreshContractsData(); setModalType(null); } }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
         {modalType === 'DELETE_CONTRACT' && selectedContract && <DeleteContractModal data={selectedContract} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteContract(selectedContract.id); await refreshContractsData(); setModalType(null); }); }} />}

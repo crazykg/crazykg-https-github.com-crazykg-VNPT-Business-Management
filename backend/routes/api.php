@@ -429,6 +429,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.read');
         Route::get('/projects/raci-assignments', [ProjectController::class, 'raciAssignments'])
             ->middleware('permission:projects.read');
+        Route::get('/projects/implementation-unit-options', [ProjectController::class, 'implementationUnitOptions'])
+            ->middleware('permission:projects.read');
         Route::get('/projects/{id}', [ProjectController::class, 'show'])
             ->middleware('permission:projects.read');
         Route::get('/project-items', [ProjectController::class, 'projectItems'])
@@ -457,8 +459,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::put('/project-procedure-templates/{id}', [ProjectProcedureController::class, 'updateTemplate'])
             ->middleware('permission:projects.write');
+        Route::delete('/project-procedure-templates/{id}', [ProjectProcedureController::class, 'deleteTemplate'])
+            ->middleware('permission:projects.write');
         Route::get('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'templateSteps'])
             ->middleware('permission:projects.read');
+        Route::delete('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'deleteTemplateSteps'])
+            ->middleware('permission:projects.write');
         Route::post('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'storeTemplateStep'])
             ->middleware('permission:projects.write');
         Route::put('/project-procedure-templates/{templateId}/steps/{stepId}', [ProjectProcedureController::class, 'updateTemplateStep'])

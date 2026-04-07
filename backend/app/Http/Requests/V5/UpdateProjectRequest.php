@@ -30,6 +30,7 @@ class UpdateProjectRequest extends V5FormRequest
             'expected_end_date' => ['sometimes', 'nullable', 'date'],
             'actual_end_date' => ['sometimes', 'nullable', 'date'],
             'payment_cycle' => ['sometimes', 'nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
+            'implementation_user_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],

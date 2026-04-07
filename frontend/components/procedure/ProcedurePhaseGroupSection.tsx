@@ -373,12 +373,11 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[1190px]">
+        <table className="w-full text-left border-collapse min-w-[1140px]">
           <thead className="bg-white border-b border-slate-100">
             <tr>
               <th className="px-1 py-2 w-10" title="Xếp thứ tự" />
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px]">TT</th>
-              <th className="px-1 py-2 text-[10px] font-bold text-slate-400 uppercase w-[44px] text-center">A</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase">Trình tự công việc</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>

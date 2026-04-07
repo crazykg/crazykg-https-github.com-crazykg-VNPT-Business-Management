@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { EmployeeFormModal } from '../components/modals';
@@ -89,5 +89,28 @@ describe('EmployeeFormModal', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       user_code: 'VNPT999999',
     }));
+  });
+
+  it('uses consistent field sizing for text inputs and selects', () => {
+    render(
+      <EmployeeFormModal
+        type="ADD"
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Mã nhân viên')).toHaveClass('text-sm');
+    expect(screen.getByText('Email')).toHaveClass('text-sm');
+    expect(screen.getByPlaceholderText('VNPT022327 / CTV091020')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+    expect(screen.getByPlaceholderText('nguyenvana')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+    expect(screen.getByPlaceholderText('email@vnpt.vn')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+
+    const departmentField = screen.getByText('Phòng ban tham chiếu', { selector: 'label' }).closest('div');
+    const positionField = screen.getByText('Chức vụ', { selector: 'label' }).closest('div');
+
+    expect(within(departmentField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
+    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
   });
 });

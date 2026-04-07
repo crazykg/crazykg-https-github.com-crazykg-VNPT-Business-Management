@@ -6,6 +6,7 @@ import { ProjectFormModal } from '../components/modals';
 import type { Customer, ProcedureTemplate, Product, Project } from '../types';
 
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
+const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -17,6 +18,8 @@ fetchProcedureTemplatesMock.mockResolvedValue([
   },
 ] as ProcedureTemplate[]);
 
+fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
+
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
   deleteUploadedDocumentAttachment: vi.fn(),
@@ -24,6 +27,18 @@ vi.mock('../services/v5Api', () => ({
   uploadFeedbackAttachment: vi.fn(),
   deleteUploadedFeedbackAttachment: vi.fn(),
 }));
+
+vi.mock('../services/api/projectApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/projectApi')>(
+    '../services/api/projectApi'
+  );
+
+  return {
+    ...actual,
+    fetchProjectImplementationUnitOptions:
+      fetchProjectImplementationUnitOptionsMock,
+  };
+});
 
 describe('Project product search dropdown', () => {
   it('searches products by code, name, unit, and price while showing a 4-column dropdown', async () => {
@@ -93,6 +108,8 @@ describe('Project product search dropdown', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /Chọn sản phẩm/i }));
+
+    expect(screen.getAllByRole('button', { name: /Chọn sản phẩm/i })).toHaveLength(1);
 
     const dropdownHeader = screen.getByText('Mã SP').closest('div');
     expect(dropdownHeader).not.toBeNull();

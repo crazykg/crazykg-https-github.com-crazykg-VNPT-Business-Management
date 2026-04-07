@@ -37,6 +37,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
   onClose,
   onSave,
 }) => {
+  const fieldLabelClassName = 'text-xs font-semibold text-slate-700';
+  const fieldInputClassName = 'h-8 rounded px-3 text-xs leading-4';
+
   const resolveDeptId = (value: unknown): string => {
     const raw = String(value ?? '').trim();
     if (!raw) return '';
@@ -165,9 +168,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
       onClose={onClose}
       title={type === 'ADD' ? 'Thêm mới Luân chuyển' : 'Cập nhật Luân chuyển'}
       icon="history_edu"
-      width="max-w-lg"
+      width="max-w-md"
     >
-      <div className="space-y-5 p-6">
+      <div className="space-y-3 p-3">
         {type === 'EDIT' ? (
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-slate-700">
@@ -178,13 +181,14 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
               type="text"
               value={transferCodeDisplay}
               disabled
-              className="h-11 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-4 text-slate-500"
+              className="h-8 w-full cursor-not-allowed rounded border border-slate-200 bg-slate-100 px-3 text-xs text-slate-500"
             />
           </div>
         ) : null}
 
         <SearchableSelect
           label="Nhân sự"
+          labelClassName={fieldLabelClassName}
           required
           options={employeeOptions}
           value={formData.userId || ''}
@@ -195,18 +199,19 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         />
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Từ đơn vị</label>
+          <label className={fieldLabelClassName}>Từ đơn vị</label>
           <input
             type="text"
             value={fromDeptLabel}
             disabled
-            className="h-11 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-4 text-slate-500"
+            className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-500`}
             placeholder="Tự động điền..."
           />
         </div>
 
         <SearchableSelect
           label="Đến đơn vị"
+          labelClassName={fieldLabelClassName}
           required
           options={toDepartmentOptions}
           value={formData.toDeptId || ''}
@@ -217,6 +222,8 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 
         <FormInput
           label="Ngày luân chuyển"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           type="date"
           value={formData.transferDate}
           onChange={(e: any) => handleChange('transferDate', e.target.value)}
@@ -226,15 +233,17 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 
         <FormInput
           label="Số quyết định"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           value={formData.decisionNumber || ''}
           onChange={(e: any) => handleChange('decisionNumber', e.target.value)}
           placeholder="Nhập số quyết định..."
         />
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Lý do / Ghi chú</label>
+          <label className={fieldLabelClassName}>Lý do / Ghi chú</label>
           <textarea
-            className="min-h-[100px] w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+            className="min-h-[72px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
             value={formData.reason}
             onChange={(e) => handleChange('reason', e.target.value)}
             placeholder="Nhập lý do điều chuyển..."
@@ -242,10 +251,10 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-        <button onClick={onClose} className="rounded-lg border border-slate-300 px-5 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-100">Hủy</button>
-        <button onClick={handleSubmit} className="flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-deep-teal">
-          <span className="material-symbols-outlined text-lg">check</span>
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-3 py-2.5">
+        <button onClick={onClose} className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100">Hủy</button>
+        <button onClick={handleSubmit} className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal">
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check</span>
           {type === 'ADD' ? 'Lưu & Cập nhật' : 'Cập nhật'}
         </button>
       </div>

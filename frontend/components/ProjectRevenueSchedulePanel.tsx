@@ -60,82 +60,104 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
 
   if (!projectId) {
     return (
-      <div className="text-sm text-gray-500 py-6 text-center">
+      <div className="rounded border border-slate-200 bg-slate-50 px-4 py-8 text-center text-xs text-slate-400">
         Vui lòng lưu dự án trước khi quản lý phân kỳ doanh thu.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header + generate button */}
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-gray-700">Phân kỳ doanh thu dự kiến</h4>
+    <div className="space-y-3">
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Phân kỳ doanh thu dự kiến
+          {schedules.length > 0 && (
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 normal-case tracking-normal">
+              {schedules.length} kỳ
+            </span>
+          )}
+        </h3>
         <button
           type="button"
           onClick={handleGenerate}
           disabled={isGenerating || !canGenerate}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-primary text-white hover:bg-deep-teal shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title={
             !canGenerate
               ? 'Cần có: Chu kỳ thanh toán, ngày bắt đầu, ngày kết thúc, và hạng mục dự án'
               : 'Tạo phân kỳ tự động từ giá trị hạng mục'
           }
         >
-          <span className="material-symbols-outlined text-sm">auto_awesome</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>auto_awesome</span>
           {isGenerating ? 'Đang tạo...' : 'Tạo phân kỳ tự động'}
         </button>
       </div>
 
+      {/* ── Warning ── */}
       {!canGenerate && (
-        <div className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-          <span className="material-symbols-outlined text-sm align-middle mr-1">info</span>
-          Để tạo phân kỳ tự động, cần cập nhật: Chu kỳ thanh toán, Ngày bắt đầu, Ngày kết thúc dự kiến, và ít nhất 1 hạng mục.
+        <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <span className="material-symbols-outlined mt-0.5 shrink-0" style={{ fontSize: 13 }}>info</span>
+          <span>Để tạo phân kỳ tự động, cần cập nhật: <strong>Chu kỳ thanh toán</strong>, <strong>Ngày bắt đầu</strong>, <strong>Ngày kết thúc dự kiến</strong>, và ít nhất 1 hạng mục.</span>
         </div>
       )}
 
-      {/* Table */}
+      {/* ── Content ── */}
       {isLoading ? (
-        <div className="text-sm text-gray-400 py-4 text-center">Đang tải...</div>
+        <div className="rounded border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-400">
+          Đang tải...
+        </div>
       ) : schedules.length === 0 ? (
-        <div className="text-sm text-gray-400 py-6 text-center border border-dashed border-gray-200 rounded-lg">
-          Chưa có phân kỳ doanh thu. Bấm "Tạo phân kỳ tự động" để bắt đầu.
+        <div className="rounded border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-xs text-slate-400">
+          Chưa có phân kỳ doanh thu. Bấm <strong className="text-slate-600">Tạo phân kỳ tự động</strong> để bắt đầu.
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wider">
-                  <th className="py-2 px-3 w-12">Kỳ</th>
-                  <th className="py-2 px-3">Ngày dự kiến</th>
-                  <th className="py-2 px-3 text-right">Số tiền dự kiến</th>
-                  <th className="py-2 px-3">Ghi chú</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schedules.map((s) => (
-                  <tr key={s.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-2 px-3 text-gray-600">{s.cycle_number}</td>
-                    <td className="py-2 px-3 text-gray-700">
-                      {s.expected_date ? formatDateDdMmYyyy(s.expected_date) : '—'}
-                    </td>
-                    <td className="py-2 px-3 text-right font-medium text-gray-800">
-                      {formatCurrencyVnd(s.expected_amount)}
-                    </td>
-                    <td className="py-2 px-3 text-gray-500 text-xs">{s.notes ?? ''}</td>
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-[480px] w-full table-fixed border-collapse text-left">
+                <colgroup>
+                  <col style={{ width: 52 }} />
+                  <col style={{ width: 140 }} />
+                  <col />
+                  <col />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    {['Kỳ', 'Ngày dự kiến', 'Số tiền dự kiến', 'Ghi chú'].map((label, i) => (
+                      <th
+                        key={label}
+                        className={`sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm${i >= 2 ? ' text-right' : ''}`}
+                      >
+                        {label}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {schedules.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50">
+                      <td className="px-2 py-1.5 text-xs font-semibold text-slate-500">{s.cycle_number}</td>
+                      <td className="px-2 py-1.5 text-xs text-slate-700">
+                        {s.expected_date ? formatDateDdMmYyyy(s.expected_date) : '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-xs font-semibold text-slate-900">
+                        {formatCurrencyVnd(s.expected_amount)}
+                      </td>
+                      <td className="px-2 py-1.5 text-xs text-slate-400">{s.notes ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Summary */}
+          {/* ── Summary ── */}
           <div className="flex justify-end">
-            <div className="bg-gray-50 rounded-lg px-4 py-2 text-sm">
-              <span className="text-gray-500">Tổng phân kỳ:</span>{' '}
-              <span className="font-semibold text-gray-800">{formatCurrencyVnd(totalExpected)}</span>
-              <span className="text-gray-400 ml-2">({schedules.length} kỳ)</span>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+              <span className="text-slate-400">Tổng phân kỳ:</span>{' '}
+              <span className="font-black text-deep-teal">{formatCurrencyVnd(totalExpected)}</span>
+              <span className="ml-2 text-slate-400">({schedules.length} kỳ)</span>
             </div>
           </div>
         </>

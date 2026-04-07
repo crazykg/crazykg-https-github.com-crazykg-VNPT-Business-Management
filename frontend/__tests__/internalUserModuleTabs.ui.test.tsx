@@ -66,6 +66,22 @@ describe('InternalUserModuleTabs', () => {
     expect(screen.getAllByText(/^Đảng viên$/i).length).toBeGreaterThan(1);
   });
 
+  it('keeps the module metrics and sub tabs inline in three columns for compact screens', () => {
+    render(
+      <InternalUserModuleTabs
+        employees={employees}
+        departments={departments}
+        partyProfiles={[]}
+        onOpenModal={vi.fn()}
+        activeSubTab="dashboard"
+        onSubTabChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('internal-user-module-signals')).toHaveClass('grid-cols-3');
+    expect(screen.getByTestId('internal-user-module-tabs-grid')).toHaveClass('grid-cols-3');
+  });
+
   it('hides legacy dashboard section copy and renames the VPN KPI', () => {
     render(
       <InternalUserModuleTabs

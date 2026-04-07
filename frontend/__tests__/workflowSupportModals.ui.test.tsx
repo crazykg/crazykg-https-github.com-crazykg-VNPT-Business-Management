@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -103,6 +103,29 @@ describe('Workflow support modals', () => {
     await user.click(destinationTrigger as HTMLElement);
     expect(screen.getByRole('button', { name: /^Trung tam Kinh doanh$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /PKT - Phong Ke toan/i })).toBeInTheDocument();
+  });
+
+  it('keeps transfer modal inputs and selects visually consistent', () => {
+    render(
+      <UserDeptHistoryFormModal
+        type="ADD"
+        employees={employees}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    const employeeField = screen.getByText('Nhân sự', { selector: 'label' }).closest('div');
+    const destinationField = screen.getByText('Đến đơn vị', { selector: 'label' }).closest('div');
+
+    expect(screen.getByText('Nhân sự', { selector: 'label' })).toHaveClass('text-sm');
+    expect(screen.getByText('Ngày luân chuyển', { selector: 'label' })).toHaveClass('text-sm');
+    expect(within(employeeField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
+    expect(within(destinationField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
+    expect(screen.getByDisplayValue('2026-04-07')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+    expect(screen.getByPlaceholderText('Nhập số quyết định...')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+    expect(screen.getByPlaceholderText('Tự động điền...')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
   });
 
   it('renders feedback form and view modals through Modals re-export', () => {

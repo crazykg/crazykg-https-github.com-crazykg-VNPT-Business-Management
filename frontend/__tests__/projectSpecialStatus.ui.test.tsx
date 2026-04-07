@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectFormModal } from '../components/modals';
 import { ProjectList } from '../components/ProjectList';
-import type { Customer, ProcedureTemplate, Project } from '../types';
+import type { Customer, Department, ProcedureTemplate, Project } from '../types';
 
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
+const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -18,6 +19,8 @@ fetchProcedureTemplatesMock.mockResolvedValue([
   },
 ] as ProcedureTemplate[]);
 
+fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
+
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
   deleteUploadedDocumentAttachment: vi.fn(),
@@ -25,6 +28,18 @@ vi.mock('../services/v5Api', () => ({
   uploadFeedbackAttachment: vi.fn(),
   deleteUploadedFeedbackAttachment: vi.fn(),
 }));
+
+vi.mock('../services/api/projectApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/projectApi')>(
+    '../services/api/projectApi'
+  );
+
+  return {
+    ...actual,
+    fetchProjectImplementationUnitOptions:
+      fetchProjectImplementationUnitOptionsMock,
+  };
+});
 
 describe('Project special statuses UI', () => {
   it('requires a reason for TAM_NGUNG and clears the textarea when switching back to a regular status', async () => {
@@ -48,8 +63,8 @@ describe('Project special statuses UI', () => {
     );
 
     const statusLabel = screen.getByText('Trạng thái');
-    expect(statusLabel).toHaveClass('block', 'text-sm', 'font-semibold', 'text-slate-700', 'mb-2');
-    expect(statusLabel).not.toHaveClass('uppercase', 'text-xs');
+    expect(statusLabel).toHaveClass('block', 'text-xs', 'font-semibold', 'text-neutral', 'mb-1');
+    expect(statusLabel).not.toHaveClass('uppercase');
 
     const getStatusTrigger = () =>
       within(screen.getByText('Trạng thái').closest('.col-span-1') as HTMLElement).getByRole('button');
@@ -146,6 +161,83 @@ describe('Project special statuses UI', () => {
 
     expect(screen.getByText('Du an huy')).toBeInTheDocument();
     expect(screen.queryByText('Du an tam ngung')).not.toBeInTheDocument();
+  });
+
+  it('limits the department filter to direct children of BGĐVT and excludes PKT', async () => {
+    const user = userEvent.setup();
+    const departments: Department[] = [
+      {
+        id: 1,
+        dept_code: 'BGĐVT',
+        dept_name: 'Ban giám đốc Viễn Thông',
+        parent_id: null,
+        dept_path: 'BGĐVT',
+        is_active: true,
+      },
+      {
+        id: 2,
+        dept_code: 'TTH',
+        dept_name: 'Tổ tổng hợp',
+        parent_id: 1,
+        dept_path: 'BGĐVT/TTH',
+        is_active: true,
+      },
+      {
+        id: 3,
+        dept_code: 'TTKDGP',
+        dept_name: 'Trung tâm Kinh doanh Giải pháp',
+        parent_id: 1,
+        dept_path: 'BGĐVT/TTKDGP',
+        is_active: true,
+      },
+      {
+        id: 4,
+        dept_code: 'PKT',
+        dept_name: 'Phòng Kế toán',
+        parent_id: 1,
+        dept_path: 'BGĐVT/PKT',
+        is_active: true,
+      },
+      {
+        id: 5,
+        dept_code: 'PGP2',
+        dept_name: 'Phòng giải pháp 2',
+        parent_id: 3,
+        dept_path: 'BGĐVT/TTKDGP/PGP2',
+        is_active: true,
+      },
+    ];
+
+    render(
+      <ProjectList
+        projects={[]}
+        customers={[]}
+        departments={departments}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Tất cả phòng ban' }));
+    const searchInput = screen.getByRole('textbox', { name: 'Tìm kiếm...' });
+
+    await user.type(searchInput, 'TTH');
+    expect(screen.getByRole('button', { name: /TTH - Tổ tổng hợp/ })).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'TTKDGP');
+    expect(screen.getByRole('button', { name: /TTKDGP - Trung tâm Kinh doanh Giải pháp/ })).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'PKT');
+    expect(screen.queryByRole('button', { name: /PKT - Phòng Kế toán/ })).not.toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'PGP2');
+    expect(screen.queryByRole('button', { name: /PGP2 - Phòng giải pháp 2/ })).not.toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'BGĐVT');
+    expect(screen.queryByRole('button', { name: /BGĐVT - Ban giám đốc Viễn Thông/ })).not.toBeInTheDocument();
   });
 
   it('hides repeated customer details in the project name and customer columns', () => {

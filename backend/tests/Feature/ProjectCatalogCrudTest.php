@@ -186,8 +186,114 @@ class ProjectCatalogCrudTest extends TestCase
             ->assertJsonPath('data.0.project_name', 'Du an B');
     }
 
+    public function test_it_blocks_project_delete_when_related_records_exist(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 1,
+            'customer_code' => 'C001',
+            'customer_name' => 'Khach hang A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 1,
+            'project_code' => 'PA-001',
+            'project_name' => 'Du an A',
+            'customer_id' => 1,
+            'investment_mode' => 'DAU_TU',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('contracts')->insert([
+            'id' => 1,
+            'contract_code' => 'HD-001',
+            'project_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('project_procedures')->insert([
+            'id' => 1,
+            'project_id' => 1,
+            'procedure_name' => 'Quy trinh A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('raci_assignments')->insert([
+            'id' => 1,
+            'entity_type' => 'project',
+            'entity_id' => 1,
+            'user_id' => 99,
+            'raci_role' => 'R',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->deleteJson('/api/v5/projects/1');
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('data.references.0.table', 'project_procedures')
+            ->assertJsonPath('data.references.1.table', 'contracts')
+            ->assertJsonPath('data.references.2.table', 'raci_assignments');
+
+        $this->assertStringContainsString('quy trình dự án', (string) $response->json('message'));
+        $this->assertStringContainsString('hợp đồng', (string) $response->json('message'));
+        $this->assertStringContainsString('phân công RACI', (string) $response->json('message'));
+        $this->assertDatabaseHas('projects', [
+            'id' => 1,
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_it_soft_deletes_project_when_no_related_records_exist(): void
+    {
+        $user = new InternalUser();
+        $user->id = 1;
+        $user->username = 'admin';
+        $this->actingAs($user);
+        $this->partialMock(UserAccessService::class, function ($mock): void {
+            $mock->shouldReceive('isAdmin')->andReturn(true);
+        });
+
+        DB::table('customers')->insert([
+            'id' => 1,
+            'customer_code' => 'C001',
+            'customer_name' => 'Khach hang A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 1,
+            'project_code' => 'PA-001',
+            'project_name' => 'Du an A',
+            'customer_id' => 1,
+            'investment_mode' => 'DAU_TU',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->deleteJson('/api/v5/projects/1');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('message', 'Project deleted.');
+
+        $this->assertDatabaseMissing('projects', [
+            'id' => 1,
+            'deleted_at' => null,
+        ]);
+    }
+
     private function setUpSchema(): void
     {
+        Schema::dropIfExists('raci_assignments');
+        Schema::dropIfExists('contracts');
+        Schema::dropIfExists('project_procedures');
         Schema::dropIfExists('project_items');
         Schema::dropIfExists('products');
         Schema::dropIfExists('projects');
@@ -221,6 +327,35 @@ class ProjectCatalogCrudTest extends TestCase
             $table->string('project_name', 255)->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->string('investment_mode', 100)->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('project_procedures', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('project_id')->nullable();
+            $table->string('procedure_name', 255)->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('contracts', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('contract_code', 100)->nullable();
+            $table->unsignedBigInteger('project_id')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('raci_assignments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('entity_type', 50);
+            $table->unsignedBigInteger('entity_id');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('raci_role', 10)->nullable();
             $table->timestamp('deleted_at')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();

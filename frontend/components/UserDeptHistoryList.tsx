@@ -107,7 +107,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3">
+      <div className="bg-white px-3 py-2 rounded border border-slate-200 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
           <input
@@ -126,40 +126,40 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LC</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày luân chuyển</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LC</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày luân chuyển</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {currentData.length > 0 ? (
                 currentData.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className="font-mono font-medium text-primary text-xs">{normalizeTransferCode(item.id)}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <div className="font-medium text-slate-900 text-xs">{getEmployeeLabel(item)}</div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
+                    <td className="px-3 py-2 text-slate-600 text-xs">
                       {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary">
                         {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
+                    <td className="px-3 py-2 text-slate-600 text-xs">
                       {formatDateDdMmYyyy(item.transferDate)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
                       {item.reason}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => onOpenModal('EDIT_USER_DEPT_HISTORY', item)}
@@ -181,7 +181,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
                     <div className="flex flex-col items-center gap-2">
                       <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>history_edu</span>
                       <p className="text-xs">Không tìm thấy dữ liệu luân chuyển nào.</p>
@@ -195,7 +195,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <p className="text-xs text-slate-400">
               Hiển thị <span className="font-bold text-slate-900">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalItems)}</span> trong tổng số <span className="font-bold text-slate-900">{totalItems}</span> bản ghi
             </p>

@@ -579,6 +579,15 @@ describe('App CRUD data refresh audit', () => {
       expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(initialProjectItemCalls);
     });
 
+    const afterCreateProjectPageCalls = fetchProjectsPageMock.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Mở xóa dự án' }));
+    await user.click(await screen.findByRole('button', { name: 'Xóa dự án mock' }));
+    await waitFor(() => {
+      expect(deleteProjectMock).toHaveBeenCalledWith('project-1');
+      expect(fetchProjectsPageMock.mock.calls.length).toBeGreaterThan(afterCreateProjectPageCalls);
+    });
+
     await user.click(screen.getByRole('button', { name: 'Mở thêm tài liệu' }));
     await user.click(await screen.findByRole('button', { name: 'Lưu tài liệu mock' }));
     await waitFor(() => {
@@ -589,6 +598,24 @@ describe('App CRUD data refresh audit', () => {
     await user.click(await screen.findByRole('button', { name: 'Lưu góp ý mock' }));
     await waitFor(() => {
       expect(fetchFeedbacksPageMock.mock.calls.length).toBeGreaterThan(initialFeedbackPageCalls);
+    });
+  });
+
+  it('shows an error toast when project delete is rejected', async () => {
+    const user = userEvent.setup();
+    deleteProjectMock.mockRejectedValueOnce(new Error('Không thể xóa dự án vì đang có dữ liệu liên quan.'));
+
+    renderApp();
+
+    await screen.findByRole('button', { name: 'Mở xóa dự án' });
+
+    await user.click(screen.getByRole('button', { name: 'Mở xóa dự án' }));
+    await user.click(await screen.findByRole('button', { name: 'Xóa dự án mock' }));
+
+    await waitFor(() => {
+      expect(deleteProjectMock).toHaveBeenCalledWith('project-1');
+      expect(screen.getByText('Xóa thất bại')).toBeInTheDocument();
+      expect(screen.getByText('Không thể xóa dự án vì đang có dữ liệu liên quan.')).toBeInTheDocument();
     });
   });
 

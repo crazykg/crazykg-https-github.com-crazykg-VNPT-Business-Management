@@ -419,6 +419,7 @@ export const updateEmailSmtpIntegrationSettings = async (
       smtp_port: payload.smtp_port,
       smtp_encryption: payload.smtp_encryption,
       smtp_username: normalizeNullableText(payload.smtp_username),
+      smtp_recipient_emails: normalizeNullableText(payload.smtp_recipient_emails),
       smtp_password: normalizeNullableText(payload.smtp_password),
       clear_smtp_password: Boolean(payload.clear_smtp_password),
       smtp_from_address: normalizeNullableText(payload.smtp_from_address),

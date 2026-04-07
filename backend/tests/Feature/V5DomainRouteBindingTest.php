@@ -173,6 +173,7 @@ class V5DomainRouteBindingTest extends TestCase
 
             ['GET', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@index', 'permission:projects.read'],
             ['GET', 'api/v5/projects/raci-assignments', 'App\Http\Controllers\Api\V5\ProjectController@raciAssignments', 'permission:projects.read'],
+            ['GET', 'api/v5/projects/implementation-unit-options', 'App\Http\Controllers\Api\V5\ProjectController@implementationUnitOptions', 'permission:projects.read'],
             ['GET', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@show', 'permission:projects.read'],
             ['GET', 'api/v5/project-items', 'App\Http\Controllers\Api\V5\ProjectController@projectItems', 'permission:projects.read'],
             ['GET', 'api/v5/project_items', 'App\Http\Controllers\Api\V5\ProjectController@projectItems', 'permission:projects.read'],
