@@ -102,11 +102,28 @@ return new class extends Migration
         if (! $this->indexExists($table, $indexName)) {
             return;
         }
+
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement(sprintf('DROP INDEX `%s`', $indexName));
+
+            return;
+        }
+
         DB::statement(sprintf('DROP INDEX `%s` ON `%s`', $indexName, $table));
     }
 
     private function indexExists(string $table, string $indexName): bool
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (DB::select("PRAGMA index_list('{$table}')") as $row) {
+                if (($row->name ?? null) === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         $database = DB::getDatabaseName();
         if (! is_string($database) || $database === '') {
             return false;
