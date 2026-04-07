@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { UserDeptHistory, Employee, Department, ModalType } from '../types';
+import { PaginationControls } from './PaginationControls';
 import { getEmployeeCode, getEmployeeLabel as formatEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { findUserDeptHistoryDepartment, getUserDeptHistoryDepartmentLabel } from '../utils/userDeptHistoryDepartmentDisplay';
@@ -16,7 +17,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 }: UserDeptHistoryListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const normalizeTransferCode = (value: unknown): string => {
     const raw = String(value ?? '').trim().toUpperCase();
@@ -71,12 +72,14 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   // Filter Data
   const filteredHistory = useMemo(() => {
+    const normalizedSearch = searchTerm.toLowerCase().trim();
+
     return (history || []).filter(item => {
       const transferCode = normalizeTransferCode(item.id).toLowerCase();
       const empName = getEmployeeLabel(item).toLowerCase();
       const matchesSearch = 
-        transferCode.includes(searchTerm.toLowerCase()) || 
-        empName.includes(searchTerm.toLowerCase());
+        transferCode.includes(normalizedSearch) || 
+        empName.includes(normalizedSearch);
       
       return matchesSearch;
     });
@@ -84,10 +87,17 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   // Pagination
   const totalItems = filteredHistory.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const currentData = filteredHistory.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
 
   return (
@@ -115,7 +125,10 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
             placeholder="Tìm kiếm theo mã LC, tên nhân viên..."
             className="w-full h-8 pl-8 pr-3 rounded border border-slate-300 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none transition-all text-xs"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
           />
         </div>
       </div>
@@ -193,43 +206,18 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-            <p className="text-xs text-slate-400">
-              Hiển thị <span className="font-bold text-slate-900">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalItems)}</span> trong tổng số <span className="font-bold text-slate-900">{totalItems}</span> bản ghi
-            </p>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 border border-slate-200 rounded hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_left</span>
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
-                .map((page, idx, arr) => (
-                  <React.Fragment key={page}>
-                    {idx > 0 && page > arr[idx - 1] + 1 && <span className="px-1.5 text-slate-400 text-xs">...</span>}
-                    <button
-                      onClick={() => setCurrentPage(page)}
-                      className={`w-8 h-8 rounded text-xs font-medium transition-colors ${currentPage === page ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {page}
-                    </button>
-                  </React.Fragment>
-              ))}
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-1.5 border border-slate-200 rounded hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationControls
+          currentPage={currentPage}
+          totalItems={totalItems}
+          rowsPerPage={rowsPerPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          onRowsPerPageChange={(rows) => {
+            setRowsPerPage(rows);
+            setCurrentPage(1);
+          }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+        />
       </div>
     </div>
   );
