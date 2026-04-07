@@ -8,7 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        $isMysql = DB::getDriverName() === 'mysql';
+
+        if ($isMysql) {
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        }
 
         try {
             Schema::dropIfExists('programming_request_worklogs');
@@ -17,7 +21,9 @@ return new class extends Migration
             Schema::dropIfExists('support_request_history');
             Schema::dropIfExists('support_requests');
         } finally {
-            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+            if ($isMysql) {
+                DB::statement('SET FOREIGN_KEY_CHECKS=1');
+            }
         }
     }
 

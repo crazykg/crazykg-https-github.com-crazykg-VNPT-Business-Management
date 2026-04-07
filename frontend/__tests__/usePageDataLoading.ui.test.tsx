@@ -24,6 +24,7 @@ const cloneDefaults = () => ({
   employeesPage: { ...FILTER_DEFAULTS.employeesPage, filters: { ...(FILTER_DEFAULTS.employeesPage.filters || {}) } },
   partyProfilesPage: { ...FILTER_DEFAULTS.partyProfilesPage, filters: { ...(FILTER_DEFAULTS.partyProfilesPage.filters || {}) } },
   customersPage: { ...FILTER_DEFAULTS.customersPage, filters: { ...(FILTER_DEFAULTS.customersPage.filters || {}) } },
+  productsPage: { ...FILTER_DEFAULTS.productsPage, filters: { ...(FILTER_DEFAULTS.productsPage.filters || {}) } },
   projectsPage: { ...FILTER_DEFAULTS.projectsPage, filters: { ...(FILTER_DEFAULTS.projectsPage.filters || {}) } },
   contractsPage: { ...FILTER_DEFAULTS.contractsPage, filters: { ...(FILTER_DEFAULTS.contractsPage.filters || {}) } },
   documentsPage: { ...FILTER_DEFAULTS.documentsPage, filters: { ...(FILTER_DEFAULTS.documentsPage.filters || {}) } },

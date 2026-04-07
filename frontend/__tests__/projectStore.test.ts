@@ -39,16 +39,12 @@ const buildProject = (overrides: Partial<Project> = {}): Project => ({
   id: 1,
   project_code: 'DA-001',
   project_name: 'Dự án HIS',
-  project_type_code: null,
   customer_id: 10,
-  pm_user_id: 5,
+  implementation_user_id: 5,
   start_date: '2026-03-01',
-  end_date: '2026-12-31',
-  status: 'ACTIVE',
-  created_at: '2026-03-01 00:00:00',
-  updated_at: '2026-03-31 00:00:00',
-  created_by: 1,
-  updated_by: 1,
+  expected_end_date: '2026-12-31',
+  status: 'CHUAN_BI',
+  investment_mode: 'DAU_TU',
   ...overrides,
 });
 
@@ -58,7 +54,7 @@ const buildProjectItem = (overrides: Partial<ProjectItemMaster> = {}): ProjectIt
   product_id: 100,
   quantity: 5,
   unit_price: 1000000,
-  description: 'Server',
+  display_name: 'Server',
   created_at: '2026-03-01 00:00:00',
   updated_at: '2026-03-31 00:00:00',
   ...overrides,
@@ -131,7 +127,7 @@ describe('projectStore', () => {
     expect(useProjectStore.getState().projectItems).toEqual(items);
   });
 
-  it('creates a new project and reloads items if sync_items is set', async () => {
+  it('creates a new project and reloads items', async () => {
     const notifier = vi.fn();
     const newProject = buildProject({ id: 10, project_name: 'Dự án Mới' });
     const items = [buildProjectItem({ project_id: 10 })];
@@ -150,24 +146,27 @@ describe('projectStore', () => {
           project_code: newProject.project_code,
           project_name: newProject.project_name,
           customer_id: newProject.customer_id,
-          sync_items: true,
         },
+        syncItems: true,
       });
     });
 
-    expect(createProjectMock).toHaveBeenCalled();
+    expect(createProjectMock).toHaveBeenCalledWith(expect.objectContaining({
+      project_code: newProject.project_code,
+      sync_items: true,
+      sync_raci: true,
+    }));
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Thêm mới dự án thành công!'
+      'Tạo mới dự án thành công.'
     );
 
-    // Verify that project items were reloaded
     expect(fetchProjectItemsMock).toHaveBeenCalled();
     expect(useProjectStore.getState().projectItems).toEqual(items);
   });
 
-  it('creates a new project and reloads items if sync_raci is set', async () => {
+  it('allows overriding sync flags while still refreshing project items', async () => {
     const notifier = vi.fn();
     const newProject = buildProject({ id: 11 });
     const items = [buildProjectItem({ project_id: 11 })];
@@ -185,36 +184,18 @@ describe('projectStore', () => {
         data: {
           project_code: newProject.project_code,
           project_name: newProject.project_name,
-          sync_raci: true,
         },
+        syncItems: false,
+        syncRaci: false,
       });
     });
 
+    expect(createProjectMock).toHaveBeenCalledWith(expect.objectContaining({
+      sync_items: false,
+      sync_raci: false,
+    }));
     expect(fetchProjectItemsMock).toHaveBeenCalled();
     expect(useProjectStore.getState().projectItems).toEqual(items);
-  });
-
-  it('creates project without sync params (skips item reload)', async () => {
-    const notifier = vi.fn();
-    const newProject = buildProject({ id: 12 });
-
-    useProjectStore.getState().setNotifier(notifier);
-    createProjectMock.mockResolvedValue(newProject);
-    fetchProjectsPageMock.mockResolvedValue({
-      data: [newProject],
-      meta: buildMeta({ total: 1, total_pages: 1 }),
-    });
-
-    await act(async () => {
-      await useProjectStore.getState().saveProject({
-        data: {
-          project_name: newProject.project_name,
-        },
-      });
-    });
-
-    // Item reload should NOT happen if sync params not set
-    expect(fetchProjectItemsMock).not.toHaveBeenCalled();
   });
 
   it('updates an existing project with sync_items', async () => {
@@ -241,19 +222,20 @@ describe('projectStore', () => {
         id: 5,
         data: {
           project_name: updatedProject.project_name,
-          sync_items: true,
         },
+        syncItems: true,
       });
     });
 
     expect(updateProjectMock).toHaveBeenCalledWith(5, expect.objectContaining({
       project_name: updatedProject.project_name,
       sync_items: true,
+      sync_raci: true,
     }));
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Cập nhật dự án thành công!'
+      'Cập nhật dự án thành công.'
     );
     expect(useProjectStore.getState().projectItems).toEqual(items);
   });
@@ -279,7 +261,7 @@ describe('projectStore', () => {
 
     expect(result).toBe(true);
     expect(deleteProjectApiMock).toHaveBeenCalledWith(7);
-    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Đã xóa dự án.');
+    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Xóa dự án thành công.');
     expect(useProjectStore.getState().projectsPageRows).not.toContain(project);
   });
 
@@ -296,11 +278,7 @@ describe('projectStore', () => {
 
     expect(result).toBe(false);
     expect(useProjectStore.getState().error).toBe('Delete failed');
-    expect(notifier).toHaveBeenCalledWith(
-      'error',
-      'Xóa thất bại',
-      expect.stringContaining('Không thể xóa dự án')
-    );
+    expect(notifier).toHaveBeenCalledWith('error', 'Xóa thất bại', 'Delete failed');
   });
 
   it('loads full project list', async () => {

@@ -12,7 +12,7 @@ import type {
   ProjectStatus,
 } from '../types';
 
-const PROJECT_STATUS_ORDER: ProjectStatus[] = [
+export const DEFAULT_PROJECT_STATUS_ORDER: ProjectStatus[] = [
   'CHUAN_BI',
   'CHUAN_BI_DAU_TU',
   'THUC_HIEN_DAU_TU',
@@ -23,6 +23,36 @@ const PROJECT_STATUS_ORDER: ProjectStatus[] = [
 ];
 
 const CONTRACT_STATUS_ORDER: ContractStatus[] = ['DRAFT', 'SIGNED', 'RENEWED'];
+
+const normalizeProjectStatus = (value: unknown): ProjectStatus =>
+  String(value ?? '').trim().toUpperCase();
+
+const buildProjectStatusOrder = (
+  projects: Project[],
+  configuredStatusOrder?: ProjectStatus[]
+): ProjectStatus[] => {
+  const orderedStatuses: ProjectStatus[] = [];
+  const seenStatuses = new Set<string>();
+
+  const pushStatus = (value: unknown): void => {
+    const normalized = normalizeProjectStatus(value);
+    if (!normalized || seenStatuses.has(normalized)) {
+      return;
+    }
+
+    seenStatuses.add(normalized);
+    orderedStatuses.push(normalized);
+  };
+
+  (configuredStatusOrder && configuredStatusOrder.length > 0
+    ? configuredStatusOrder
+    : DEFAULT_PROJECT_STATUS_ORDER
+  ).forEach(pushStatus);
+
+  (projects || []).forEach((project) => pushStatus(project.status));
+
+  return orderedStatuses;
+};
 
 export const EMPTY_CONTRACT_AGGREGATE_KPIS: ContractAggregateKpis = {
   draftCount: 0,
@@ -151,7 +181,8 @@ export function calculateDashboardStats(
   contracts: Contract[],
   paymentSchedules: PaymentSchedule[],
   projects: Project[],
-  customers: Customer[]
+  customers: Customer[],
+  configuredProjectStatusOrder?: ProjectStatus[]
 ): DashboardStats {
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -192,9 +223,11 @@ export function calculateDashboardStats(
 
   const monthlyRevenueComparison = calculateMonthlyRevenueComparison(paymentSchedules, currentYear, currentMonth);
 
-  const projectStatusCounts = PROJECT_STATUS_ORDER.map((status) => ({
+  const projectStatusOrder = buildProjectStatusOrder(projects, configuredProjectStatusOrder);
+
+  const projectStatusCounts = projectStatusOrder.map((status) => ({
     status,
-    count: (projects || []).filter((project) => project.status === status).length,
+    count: (projects || []).filter((project) => normalizeProjectStatus(project.status) === status).length,
   }));
 
   const totalExpectedRevenue = (paymentSchedules || [])

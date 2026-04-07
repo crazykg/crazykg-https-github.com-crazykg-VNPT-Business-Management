@@ -230,7 +230,7 @@ export interface GoogleDriveIntegrationSettings {
   impersonate_user?: string | null;
   file_prefix?: string | null;
   has_service_account_json: boolean;
-  source?: 'DB' | 'ENV';
+  source?: 'DB' | 'DEFAULT';
   last_tested_at?: string | null;
   last_test_status?: 'SUCCESS' | 'FAILED' | null;
   last_test_message?: string | null;
@@ -259,7 +259,7 @@ export interface BackblazeB2IntegrationSettings {
   file_prefix?: string | null;
   has_secret_access_key: boolean;
   secret_access_key_preview?: string | null;
-  source?: 'DB' | 'ENV';
+  source?: 'DB' | 'DEFAULT';
   last_tested_at?: string | null;
   last_test_status?: 'SUCCESS' | 'FAILED' | null;
   last_test_message?: string | null;
@@ -516,6 +516,7 @@ export interface Employee {
   job_title_raw?: string | null;
   job_title_vi?: string | null;
   date_of_birth?: string | null;
+  leave_date?: string | null;
   gender?: Gender | null;
   ip_address?: string | null;
   vpn_status?: VpnStatus | null;

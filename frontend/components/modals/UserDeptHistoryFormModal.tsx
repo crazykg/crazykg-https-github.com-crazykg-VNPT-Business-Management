@@ -37,7 +37,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
   onClose,
   onSave,
 }) => {
-  const fieldLabelClassName = 'text-xs font-semibold text-slate-700';
+  const fieldLabelClassName = 'text-xs font-semibold text-slate-500';
   const fieldInputClassName = 'h-8 rounded px-3 text-xs leading-4';
 
   const resolveDeptId = (value: unknown): string => {
@@ -170,18 +170,15 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
       icon="history_edu"
       width="max-w-md"
     >
-      <div className="space-y-3 p-3">
+      <div className="space-y-2 p-3">
         {type === 'EDIT' ? (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-slate-700">
-              Mã luân chuyển
-              <span className="text-red-500"> *</span>
-            </label>
+          <div className="flex flex-col gap-1">
+            <label className={fieldLabelClassName}>Mã luân chuyển</label>
             <input
               type="text"
               value={transferCodeDisplay}
               disabled
-              className="h-8 w-full cursor-not-allowed rounded border border-slate-200 bg-slate-100 px-3 text-xs text-slate-500"
+              className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400`}
             />
           </div>
         ) : null}
@@ -198,13 +195,13 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
           disabled={type === 'EDIT'}
         />
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClassName}>Từ đơn vị</label>
           <input
             type="text"
             value={fromDeptLabel}
             disabled
-            className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-500`}
+            className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400`}
             placeholder="Tự động điền..."
           />
         </div>
@@ -240,10 +237,10 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
           placeholder="Nhập số quyết định..."
         />
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClassName}>Lý do / Ghi chú</label>
           <textarea
-            className="min-h-[72px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
+            className="min-h-[80px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
             value={formData.reason}
             onChange={(e) => handleChange('reason', e.target.value)}
             placeholder="Nhập lý do điều chuyển..."

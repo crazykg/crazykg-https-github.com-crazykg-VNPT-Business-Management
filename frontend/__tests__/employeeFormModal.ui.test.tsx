@@ -59,7 +59,7 @@ describe('EmployeeFormModal', () => {
     await user.click(screen.getByRole('button', { name: 'Reset mật khẩu' }));
     expect(onResetPassword).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: 'Cập nhật' }));
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
 
     expect(screen.getByText('Nhân sự bắt buộc thuộc một phòng ban.')).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
@@ -84,10 +84,48 @@ describe('EmployeeFormModal', () => {
 
     await user.clear(employeeCodeInput);
     await user.type(employeeCodeInput, 'VNPT999999');
-    await user.click(screen.getByRole('button', { name: 'Cập nhật' }));
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       user_code: 'VNPT999999',
+    }));
+  });
+
+  it('shows leave date only for inactive status and requires it before saving', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    render(
+      <EmployeeFormModal
+        type="EDIT"
+        data={employeeForEdit}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    expect(screen.queryByText('Ngày nghỉ việc')).not.toBeInTheDocument();
+
+    const statusField = screen.getByText('Trạng thái', { selector: 'label' }).closest('div');
+    expect(statusField).not.toBeNull();
+    await user.click(within(statusField as HTMLElement).getByRole('button'));
+    await user.click(screen.getByRole('button', { name: 'Nghỉ việc' }));
+
+    expect(screen.getByText('Ngày nghỉ việc')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
+    expect(screen.getByText('Ngày nghỉ việc là bắt buộc khi chọn trạng thái Nghỉ việc.')).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    const leaveDateField = screen.getByText('Ngày nghỉ việc', { selector: 'label' }).closest('div');
+    expect(leaveDateField).not.toBeNull();
+    await user.type(within(leaveDateField as HTMLElement).getByRole('textbox'), '07/04/2026');
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'INACTIVE',
+      leave_date: '2026-04-07',
     }));
   });
 
@@ -101,16 +139,22 @@ describe('EmployeeFormModal', () => {
       />
     );
 
-    expect(screen.getByText('Mã nhân viên')).toHaveClass('text-sm');
-    expect(screen.getByText('Email')).toHaveClass('text-sm');
-    expect(screen.getByPlaceholderText('VNPT022327 / CTV091020')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
-    expect(screen.getByPlaceholderText('nguyenvana')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
-    expect(screen.getByPlaceholderText('email@vnpt.vn')).toHaveClass('h-[46px]', 'rounded-lg', 'text-[15px]', 'leading-6');
+    expect(screen.getByText('Mã nhân viên')).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByText('Email')).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByPlaceholderText('VNPT022327 / CTV091020')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
+    expect(screen.getByPlaceholderText('nguyenvana')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
+    expect(screen.getByPlaceholderText('email@vnpt.vn')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
 
     const departmentField = screen.getByText('Phòng ban tham chiếu', { selector: 'label' }).closest('div');
     const positionField = screen.getByText('Chức vụ', { selector: 'label' }).closest('div');
+    const genderField = screen.getByText('Giới tính', { selector: 'label' }).closest('div');
+    const vpnField = screen.getByText('Trạng thái VPN', { selector: 'label' }).closest('div');
+    const statusField = screen.getByText('Trạng thái', { selector: 'label' }).closest('div');
 
-    expect(within(departmentField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
-    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-[46px]', 'rounded-lg');
+    expect(within(departmentField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(genderField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(vpnField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
   });
 });

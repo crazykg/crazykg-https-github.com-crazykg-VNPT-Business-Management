@@ -70,6 +70,7 @@ return new class extends Migration
         $start = new \DateTimeImmutable("{$year}-01-01");
         $end   = new \DateTimeImmutable("{$year}-12-31");
         $current = $start;
+        $timestamp = now();
 
         $rows = [];
 
@@ -99,8 +100,8 @@ return new class extends Migration
                 'is_holiday'   => $isHoliday,
                 'holiday_name' => $holidayName,
                 'note'         => null,
-                'created_at'   => DB::raw('NOW()'),
-                'updated_at'   => DB::raw('NOW()'),
+                'created_at'   => $timestamp,
+                'updated_at'   => $timestamp,
                 'created_by'   => null,
                 'updated_by'   => null,
             ];

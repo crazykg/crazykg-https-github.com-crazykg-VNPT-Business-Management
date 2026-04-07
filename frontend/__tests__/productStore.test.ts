@@ -37,12 +37,12 @@ const buildProduct = (overrides: Partial<Product> = {}): Product => ({
   id: 1,
   product_code: 'SP-001',
   product_name: 'Server',
-  category_id: 10,
-  unit_id: 1,
+  domain_id: 10,
+  vendor_id: 1,
+  standard_price: 10000000,
+  unit: 'Gói',
   description: 'High-performance server',
-  list_price: 10000000,
-  cost_price: 8000000,
-  status: 'ACTIVE',
+  is_active: true,
   created_at: '2026-03-01 00:00:00',
   updated_at: '2026-03-31 00:00:00',
   created_by: 1,
@@ -115,8 +115,9 @@ describe('productStore', () => {
       result = await useProductStore.getState().saveProduct({
         data: {
           product_name: newProduct.product_name,
-          category_id: newProduct.category_id,
-          list_price: newProduct.list_price,
+          domain_id: newProduct.domain_id,
+          vendor_id: newProduct.vendor_id,
+          standard_price: newProduct.standard_price,
         },
       });
     });
@@ -126,7 +127,7 @@ describe('productStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Thêm mới sản phẩm thành công!'
+      'Tạo mới sản phẩm thành công.'
     );
     expect(useProductStore.getState().productsPageRows).toContain(newProduct);
   });
@@ -159,7 +160,7 @@ describe('productStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Cập nhật sản phẩm thành công!'
+      'Cập nhật sản phẩm thành công.'
     );
   });
 
@@ -184,7 +185,7 @@ describe('productStore', () => {
 
     expect(result).toBe(true);
     expect(deleteProductApiMock).toHaveBeenCalledWith(7);
-    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Đã xóa sản phẩm.');
+    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Xóa sản phẩm thành công.');
     expect(useProductStore.getState().productsPageRows).not.toContain(product);
   });
 
@@ -201,11 +202,7 @@ describe('productStore', () => {
 
     expect(result).toBe(false);
     expect(useProductStore.getState().error).toBe('Delete failed');
-    expect(notifier).toHaveBeenCalledWith(
-      'error',
-      'Xóa thất bại',
-      expect.stringContaining('Không thể xóa sản phẩm')
-    );
+    expect(notifier).toHaveBeenCalledWith('error', 'Xóa thất bại', 'Delete failed');
   });
 
   it('loads full product list', async () => {

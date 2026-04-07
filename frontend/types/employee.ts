@@ -21,6 +21,7 @@ export interface Employee {
   job_title_raw?: string | null;
   job_title_vi?: string | null;
   date_of_birth?: string | null;
+  leave_date?: string | null;
   gender?: Gender | null;
   ip_address?: string | null;
   vpn_status?: VpnStatus | null;

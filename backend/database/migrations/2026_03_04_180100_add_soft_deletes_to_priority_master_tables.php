@@ -70,11 +70,27 @@ return new class extends Migration
             return;
         }
 
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement(sprintf('DROP INDEX %s', $indexName));
+
+            return;
+        }
+
         DB::statement(sprintf('DROP INDEX %s ON %s', $indexName, $table));
     }
 
     private function indexExists(string $table, string $indexName): bool
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (DB::select("PRAGMA index_list('{$table}')") as $row) {
+                if (($row->name ?? null) === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         $database = DB::getDatabaseName();
         $record = DB::table('information_schema.statistics')
             ->where('table_schema', $database)
@@ -85,4 +101,3 @@ return new class extends Migration
         return $record !== null;
     }
 };
-

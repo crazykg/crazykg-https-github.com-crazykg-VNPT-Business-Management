@@ -78,6 +78,7 @@ const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unk
     phone: normalizedPhone,
     mobile: normalizedPhone,
     status: normalizeEmployeeStatus(payload.status),
+    leave_date: normalizeNullableText(payload.leave_date),
     department_id: (payload.department_id ?? payload.department ?? null) as string | number | null,
     position_id: (payload.position_id ?? null) as string | number | null,
   };
@@ -130,6 +131,7 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
     status: payload.status || 'ACTIVE',
     job_title_raw: normalizeNullableText(payload.job_title_raw),
     date_of_birth: normalizeNullableText(payload.date_of_birth),
+    leave_date: normalizeNullableText(payload.leave_date),
     gender: normalizeNullableText(payload.gender),
     vpn_status: normalizeNullableText(payload.vpn_status) || 'NO',
     ip_address: normalizeNullableText(payload.ip_address),
@@ -196,6 +198,13 @@ const buildEmployeeBulkImportRequestPayload = (payload: Partial<Employee>) => {
     const dateOfBirth = normalizeNullableText(payload.date_of_birth);
     if (dateOfBirth) {
       requestPayload.date_of_birth = dateOfBirth;
+    }
+  }
+
+  if (hasOwn(payload, 'leave_date')) {
+    const leaveDate = normalizeNullableText(payload.leave_date);
+    if (leaveDate) {
+      requestPayload.leave_date = leaveDate;
     }
   }
 
@@ -351,6 +360,7 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
       status: payload.status,
       job_title_raw: normalizeNullableText(payload.job_title_raw),
       date_of_birth: normalizeNullableText(payload.date_of_birth),
+      leave_date: normalizeNullableText(payload.leave_date),
       gender: normalizeNullableText(payload.gender),
       vpn_status: normalizeNullableText(payload.vpn_status),
       ip_address: normalizeNullableText(payload.ip_address),

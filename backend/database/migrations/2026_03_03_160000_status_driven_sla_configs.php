@@ -109,6 +109,16 @@ return new class extends Migration
 
     private function indexExists(string $indexName): bool
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (DB::select("PRAGMA index_list('" . self::TABLE . "')") as $row) {
+                if (($row->name ?? null) === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         $database = DB::getDatabaseName();
         if (! is_string($database) || $database === '') {
             return false;
@@ -121,4 +131,3 @@ return new class extends Migration
             ->exists();
     }
 };
-

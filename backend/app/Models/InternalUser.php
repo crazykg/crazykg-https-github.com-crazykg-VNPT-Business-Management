@@ -26,6 +26,7 @@ class InternalUser extends Authenticatable
         'position_id',
         'job_title_raw',
         'date_of_birth',
+        'leave_date',
         'gender',
         'vpn_status',
         'ip_address',

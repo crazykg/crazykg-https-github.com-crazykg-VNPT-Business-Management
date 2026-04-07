@@ -17,7 +17,9 @@ return new class extends Migration
         DB::statement("UPDATE `projects` SET `status` = 'CANCELLED' WHERE UPPER(`status`) IN ('SUSPENDED','TERMINATED','EXPIRED')");
         DB::statement("UPDATE `projects` SET `status` = 'TRIAL' WHERE `status` NOT IN ('TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED')");
 
-        DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` ENUM('TRIAL','ONGOING','WARRANTY','COMPLETED','CANCELLED') NOT NULL DEFAULT 'TRIAL'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` ENUM('TRIAL','ONGOING','WARRANTY','COMPLETED','CANCELLED') NOT NULL DEFAULT 'TRIAL'");
+        }
     }
 
     public function down(): void
@@ -29,6 +31,8 @@ return new class extends Migration
         DB::statement("UPDATE `projects` SET `status` = 'COMPLETED' WHERE UPPER(`status`) = 'WARRANTY'");
         DB::statement("UPDATE `projects` SET `status` = 'PLANNING' WHERE `status` NOT IN ('PLANNING', 'ONGOING', 'TRIAL', 'COMPLETED', 'CANCELLED')");
 
-        DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` ENUM('PLANNING','ONGOING','TRIAL','COMPLETED','CANCELLED') NOT NULL DEFAULT 'PLANNING'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` ENUM('PLANNING','ONGOING','TRIAL','COMPLETED','CANCELLED') NOT NULL DEFAULT 'PLANNING'");
+        }
     }
 };

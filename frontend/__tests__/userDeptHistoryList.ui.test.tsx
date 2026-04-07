@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { UserDeptHistoryList } from '../components/UserDeptHistoryList';
 import type { Department, Employee, UserDeptHistory } from '../types';
@@ -111,5 +112,33 @@ describe('UserDeptHistoryList', () => {
     expect(screen.queryByText('KTVH - Ky thuat van hanh')).not.toBeInTheDocument();
     expect(screen.getAllByText('VNPT Cai Rang').length).toBeGreaterThan(0);
     expect(screen.getByText('05/04/2026')).toBeInTheDocument();
+  });
+
+  it('renders shared pagination controls and switches pages', async () => {
+    const user = userEvent.setup();
+    const paginatedHistory = Array.from({ length: 12 }, (_, index) => ({
+      ...history[0],
+      id: `LC${index + 1}`,
+      reason: `Lý do ${index + 1}`,
+      transferDate: `2026-04-${String((index % 9) + 1).padStart(2, '0')}`,
+    }));
+
+    render(
+      <UserDeptHistoryList
+        history={paginatedHistory}
+        employees={employees}
+        departments={departments}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Dòng/trang')).toBeInTheDocument();
+    expect(screen.getByText('Lý do 1')).toBeInTheDocument();
+    expect(screen.queryByText('Lý do 11')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '2' }));
+
+    expect(screen.getByText('Lý do 11')).toBeInTheDocument();
+    expect(screen.queryByText('Lý do 1')).not.toBeInTheDocument();
   });
 });
