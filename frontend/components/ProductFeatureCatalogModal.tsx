@@ -16,7 +16,7 @@ import {
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { isoDateStamp } from '../utils/exportUtils';
 import { useEscKey } from '../hooks/useEscKey';
-import { ModalWrapper, ImportModal } from './Modals';
+import { ModalWrapper, ImportModal } from './modals';
 import type { ImportPayload } from './modals/projectImportTypes';
 import { SearchableSelect } from './SearchableSelect';
 

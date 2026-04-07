@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Contract, Customer, Receipt } from '../../types';
 import type { PaymentMethod } from '../../types';
 import { useCreateReceipt, useUpdateReceipt } from '../../shared/hooks/useFeeCollection';
-import { ModalWrapper } from '../Modals';
+import { ModalWrapper } from '../modals';
 
 interface ReceiptModalProps {
   receipt: Receipt | null;
