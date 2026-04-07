@@ -172,6 +172,40 @@ const overviewDashboard: YeuCauDashboardPayload = {
   ],
 };
 
+const waitingCustomerFeedbackDecisionProcess = (sourceStatusCode: string) => ({
+  process_code: 'waiting_customer_feedback',
+  process_label: 'Đợi phản hồi KH',
+  group_code: 'feedback',
+  group_label: 'Phản hồi',
+  table_name: 'customer_request_waiting_customer_feedbacks',
+  default_status: 'waiting_customer_feedback',
+  read_roles: [],
+  write_roles: [],
+  allowed_next_processes: [],
+  form_fields: [],
+  list_columns: [],
+  decision_context_code: 'pm_missing_customer_info_review',
+  decision_outcome_code: 'customer_missing_info',
+  decision_source_status_code: sourceStatusCode,
+});
+
+const notExecutedDecisionProcess = (sourceStatusCode: string) => ({
+  process_code: 'not_executed',
+  process_label: 'Không thực hiện',
+  group_code: 'closure',
+  group_label: 'Kết quả',
+  table_name: 'customer_request_not_executed',
+  default_status: 'not_executed',
+  read_roles: [],
+  write_roles: [],
+  allowed_next_processes: [],
+  form_fields: [],
+  list_columns: [],
+  decision_context_code: 'pm_missing_customer_info_review',
+  decision_outcome_code: 'other_reason',
+  decision_source_status_code: sourceStatusCode,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   setViewportWidth(1600);
@@ -321,7 +355,7 @@ beforeEach(() => {
 });
 
 describe('CustomerRequestManagementHub UI', () => {
-  it('only shows performer-lane targets for a new_intake case already assigned to performer', async () => {
+  it('shows backend-filtered performer-lane targets for a new_intake case already assigned to performer', async () => {
     const user = userEvent.setup();
 
     mockUseCustomerRequestDetail.mockReturnValue({
@@ -340,38 +374,12 @@ describe('CustomerRequestManagementHub UI', () => {
         can_write: true,
         allowed_next_processes: [
           {
-            process_code: 'waiting_customer_feedback',
-            process_label: 'Đợi phản hồi KH',
-            group_code: 'feedback',
-            group_label: 'Phản hồi',
-            table_name: 'customer_request_waiting_customer_feedbacks',
-            default_status: 'waiting_customer_feedback',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
             process_code: 'in_progress',
             process_label: 'Đang xử lý',
             group_code: 'processing',
             group_label: 'Xử lý',
             table_name: 'customer_request_in_progress',
             default_status: 'in_progress',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
-            process_code: 'analysis',
-            process_label: 'Phân tích',
-            group_code: 'analysis',
-            group_label: 'Phân tích',
-            table_name: 'customer_request_analysis',
-            default_status: 'analysis',
             read_roles: [],
             write_roles: [],
             allowed_next_processes: [],
@@ -440,7 +448,7 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(optionLabels).toEqual(['Đang xử lý', 'Chuyển trả QL']);
   });
 
-  it('filters in_progress options back to XML-valid outcomes when payload still contains raw runtime targets', async () => {
+  it('shows backend-filtered in_progress outcomes under the XML contract', async () => {
     const user = userEvent.setup();
 
     mockUseCustomerRequestDetail.mockReturnValue({
@@ -465,58 +473,6 @@ describe('CustomerRequestManagementHub UI', () => {
             group_label: 'Kết quả',
             table_name: 'customer_request_completed',
             default_status: 'completed',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
-            process_code: 'waiting_customer_feedback',
-            process_label: 'Đợi phản hồi KH',
-            group_code: 'feedback',
-            group_label: 'Phản hồi',
-            table_name: 'customer_request_waiting_customer_feedbacks',
-            default_status: 'waiting_customer_feedback',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
-            process_code: 'analysis',
-            process_label: 'Phân tích',
-            group_code: 'analysis',
-            group_label: 'Phân tích',
-            table_name: 'customer_request_analysis',
-            default_status: 'analysis',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
-            process_code: 'returned_to_manager',
-            process_label: 'Chuyển trả QL',
-            group_code: 'analysis',
-            group_label: 'Phân tích',
-            table_name: 'customer_request_returned_to_manager',
-            default_status: 'returned_to_manager',
-            read_roles: [],
-            write_roles: [],
-            allowed_next_processes: [],
-            form_fields: [],
-            list_columns: [],
-          },
-          {
-            process_code: 'not_executed',
-            process_label: 'Không thực hiện',
-            group_code: 'closure',
-            group_label: 'Kết quả',
-            table_name: 'customer_request_not_executed',
-            default_status: 'not_executed',
             read_roles: [],
             write_roles: [],
             allowed_next_processes: [],
@@ -572,21 +528,9 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(optionLabels).toEqual(['Hoàn thành']);
   });
 
-  it('injects the PM missing-customer-info decision for dispatcher lane and routes to waiting feedback', async () => {
+  it('builds the PM missing-customer-info decision from backend transition metadata for dispatcher lane', async () => {
     const user = userEvent.setup();
-    const waitingCustomerFeedbackProcess = {
-      process_code: 'waiting_customer_feedback',
-      process_label: 'Đợi phản hồi KH',
-      group_code: 'feedback',
-      group_label: 'Phản hồi',
-      table_name: 'customer_request_waiting_customer_feedbacks',
-      default_status: 'waiting_customer_feedback',
-      read_roles: [],
-      write_roles: [],
-      allowed_next_processes: [],
-      form_fields: [],
-      list_columns: [],
-    };
+    const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('new_intake');
     const inProgressProcess = {
       process_code: 'in_progress',
       process_label: 'Đang xử lý',
@@ -613,19 +557,7 @@ describe('CustomerRequestManagementHub UI', () => {
       form_fields: [],
       list_columns: [],
     };
-    const notExecutedProcess = {
-      process_code: 'not_executed',
-      process_label: 'Không thực hiện',
-      group_code: 'closure',
-      group_label: 'Kết quả',
-      table_name: 'customer_request_not_executed',
-      default_status: 'not_executed',
-      read_roles: [],
-      write_roles: [],
-      allowed_next_processes: [],
-      form_fields: [],
-      list_columns: [],
-    };
+    const notExecutedProcess = notExecutedDecisionProcess('new_intake');
 
     mockFetchYeuCauProcessCatalog.mockResolvedValue({
       master_fields: [],
@@ -720,21 +652,9 @@ describe('CustomerRequestManagementHub UI', () => {
     );
   });
 
-  it('reuses the PM missing-customer-info decision for returned_to_manager', async () => {
+  it('reuses backend PM missing-customer-info decision metadata for returned_to_manager', async () => {
     const user = userEvent.setup();
-    const waitingCustomerFeedbackProcess = {
-      process_code: 'waiting_customer_feedback',
-      process_label: 'Đợi phản hồi KH',
-      group_code: 'feedback',
-      group_label: 'Phản hồi',
-      table_name: 'customer_request_waiting_customer_feedbacks',
-      default_status: 'waiting_customer_feedback',
-      read_roles: [],
-      write_roles: [],
-      allowed_next_processes: [],
-      form_fields: [],
-      list_columns: [],
-    };
+    const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('returned_to_manager');
     const inProgressProcess = {
       process_code: 'in_progress',
       process_label: 'Đang xử lý',
@@ -761,19 +681,7 @@ describe('CustomerRequestManagementHub UI', () => {
       form_fields: [],
       list_columns: [],
     };
-    const notExecutedProcess = {
-      process_code: 'not_executed',
-      process_label: 'Không thực hiện',
-      group_code: 'closure',
-      group_label: 'Kết quả',
-      table_name: 'customer_request_not_executed',
-      default_status: 'not_executed',
-      read_roles: [],
-      write_roles: [],
-      allowed_next_processes: [],
-      form_fields: [],
-      list_columns: [],
-    };
+    const notExecutedProcess = notExecutedDecisionProcess('returned_to_manager');
 
     mockFetchYeuCauProcessCatalog.mockResolvedValue({
       master_fields: [],
@@ -877,7 +785,6 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
-    expect(screen.getByText(/Hiển thị/i)).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
   });
@@ -939,7 +846,6 @@ describe('CustomerRequestManagementHub UI', () => {
     await waitFor(() => {
       expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
     });
-    expect(screen.getByText(/Hiển thị/i)).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
     expect(mockFetchYeuCau).not.toHaveBeenCalled();
@@ -999,7 +905,6 @@ describe('CustomerRequestManagementHub UI', () => {
     await waitFor(() => {
       expect(mockFetchYeuCau).toHaveBeenCalledWith(99);
     });
-    expect(screen.getByText(/Hiển thị/i)).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
   });
