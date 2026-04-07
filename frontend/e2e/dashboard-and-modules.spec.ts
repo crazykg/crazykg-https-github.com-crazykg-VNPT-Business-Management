@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
-const commonMockSetup = async (page) => {
-  await page.route('**/api/v5/**', async (route) => {
+const commonMockSetup = async (page: Page) => {
+  await page.route('**/api/v5/**', async (route: Route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
 
