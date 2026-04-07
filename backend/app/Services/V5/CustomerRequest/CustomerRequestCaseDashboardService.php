@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\CustomerRequest;
 
+use App\Services\V5\CacheService;
 use App\Support\Auth\UserAccessService;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
@@ -11,9 +12,14 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerRequestCaseDashboardService
 {
+    private const CACHE_TAG = 'customer-request-cases';
+
+    private const CACHE_TTL = 120;
+
     public function __construct(
         private readonly CustomerRequestCaseReadQueryService $readQuery,
         private readonly UserAccessService $userAccess,
+        private readonly CacheService $cache,
     ) {}
 
     public function dashboardCreator(Request $request, callable $serializeCaseRow): JsonResponse
@@ -179,8 +185,41 @@ class CustomerRequestCaseDashboardService
         }
 
         $actorId = $this->readQuery->resolveActorId($request);
-        $query = DB::table('customer_request_cases as crc')
-            ->whereNull('crc.deleted_at');
+        $payload = $this->cache->rememberTagged(
+            [self::CACHE_TAG],
+            $this->buildDashboardCacheKey('overview', $request, $actorId),
+            self::CACHE_TTL,
+            fn (): array => [
+                'data' => $this->buildDashboardPayload(
+                    'overview',
+                    $this->loadDashboardRows($request, $actorId, $this->readQuery->normalizeNullableString($request->query('my_role'))),
+                    $serializeCaseRow
+                ),
+            ],
+        );
+
+        return response()->json($payload);
+    }
+
+    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow): JsonResponse
+    {
+        if (($missing = $this->readQuery->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $actorId = $this->readQuery->resolveActorId($request);
+        return response()->json([
+            'data' => $this->buildDashboardPayload(
+                $role,
+                $this->loadDashboardRows($request, $actorId, $role),
+                $serializeCaseRow
+            ),
+        ]);
+    }
+
+    private function loadDashboardRows(Request $request, ?int $actorId, ?string $role): \Illuminate\Support\Collection
+    {
+        $query = $this->readQuery->baseCaseQuery($actorId);
 
         $statusCode = $this->readQuery->normalizeNullableString($request->query('status_code'));
         if ($statusCode !== null) {
@@ -204,9 +243,8 @@ class CustomerRequestCaseDashboardService
             }
         }
 
-        $myRole = $this->readQuery->normalizeNullableString($request->query('my_role'));
-        if ($actorId !== null && $myRole !== null) {
-            match ($myRole) {
+        if ($actorId !== null && $role !== null) {
+            match ($role) {
                 'creator' => $query->where('crc.created_by', $actorId),
                 'dispatcher' => $query->where(function (QueryBuilder $builder) use ($actorId): void {
                     $builder
@@ -220,141 +258,19 @@ class CustomerRequestCaseDashboardService
             };
         }
 
-        if ($actorId !== null && ! $this->userAccess->isAdmin($actorId)) {
-            $projectIds = $this->readQuery->projectIdsForUserByRaciRoles($actorId);
-            $query->where(function (QueryBuilder $builder) use ($actorId, $projectIds): void {
-                $builder
-                    ->where('crc.created_by', $actorId)
-                    ->orWhere('crc.received_by_user_id', $actorId)
-                    ->orWhere('crc.dispatcher_user_id', $actorId)
-                    ->orWhere('crc.performer_user_id', $actorId);
-
-                if ($projectIds !== []) {
-                    $builder->orWhereIn('crc.project_id', $projectIds);
-                }
-            });
-        }
-
-        $statusCounts = (clone $query)
-            ->select(['crc.current_status_code', DB::raw('COUNT(*) as count')])
-            ->groupBy('crc.current_status_code')
-            ->orderBy('crc.current_status_code')
-            ->get()
-            ->map(fn (object $row): array => [
-                'status_code' => (string) ($row->current_status_code ?? ''),
-                'count' => (int) ($row->count ?? 0),
-            ])
-            ->all();
-
-        return response()->json([
-            'data' => [
-                'role' => 'overview',
-                'summary' => [
-                    'total_cases' => (int) (clone $query)->count(),
-                    'status_counts' => $statusCounts,
-                    'alert_counts' => [
-                        'over_estimate' => 0,
-                        'missing_estimate' => 0,
-                        'sla_risk' => 0,
-                    ],
-                ],
-                'top_customers' => [],
-                'top_projects' => [],
-                'top_performers' => [],
-                'attention_cases' => [],
-            ],
-        ]);
+        return $query
+            ->orderByDesc('crc.updated_at')
+            ->orderByDesc('crc.id')
+            ->get();
     }
 
-    private function dashboardByRole(Request $request, string $role, callable $serializeCaseRow): JsonResponse
+    private function buildDashboardCacheKey(string $role, Request $request, ?int $actorId): string
     {
-        if (($missing = $this->readQuery->missingTablesResponse()) !== null) {
-            return $missing;
-        }
-
-        $actorId = $this->readQuery->resolveActorId($request);
-        $query = DB::table('customer_request_cases as crc')
-            ->whereNull('crc.deleted_at');
-
-        $statusCode = $this->readQuery->normalizeNullableString($request->query('status_code'));
-        if ($statusCode !== null) {
-            $query->where('crc.current_status_code', $statusCode);
-        }
-
-        foreach ([
-            'customer_id',
-            'project_id',
-            'project_item_id',
-            'support_service_group_id',
-            'dispatcher_user_id',
-            'performer_user_id',
-            'created_by',
-            'received_by_user_id',
-            'priority',
-        ] as $column) {
-            $value = $request->query($column);
-            if ($value !== null && $value !== '') {
-                $query->where("crc.{$column}", $value);
-            }
-        }
-
-        if ($actorId !== null) {
-            match ($role) {
-                'creator' => $query->where('crc.created_by', $actorId),
-                'dispatcher' => $query->where(function (QueryBuilder $builder) use ($actorId): void {
-                    $builder
-                        ->where('crc.dispatcher_user_id', $actorId)
-                        ->orWhere('crc.received_by_user_id', $actorId);
-                }),
-                'performer' => $query->where('crc.performer_user_id', $actorId),
-                default => null,
-            };
-        }
-
-        if ($actorId !== null && ! $this->userAccess->isAdmin($actorId)) {
-            $projectIds = $this->readQuery->projectIdsForUserByRaciRoles($actorId);
-            $query->where(function (QueryBuilder $builder) use ($actorId, $projectIds): void {
-                $builder
-                    ->where('crc.created_by', $actorId)
-                    ->orWhere('crc.received_by_user_id', $actorId)
-                    ->orWhere('crc.dispatcher_user_id', $actorId)
-                    ->orWhere('crc.performer_user_id', $actorId);
-
-                if ($projectIds !== []) {
-                    $builder->orWhereIn('crc.project_id', $projectIds);
-                }
-            });
-        }
-
-        $statusCounts = (clone $query)
-            ->select(['crc.current_status_code', DB::raw('COUNT(*) as count')])
-            ->groupBy('crc.current_status_code')
-            ->orderBy('crc.current_status_code')
-            ->get()
-            ->map(fn (object $row): array => [
-                'status_code' => (string) ($row->current_status_code ?? ''),
-                'count' => (int) ($row->count ?? 0),
-            ])
-            ->all();
-
-        return response()->json([
-            'data' => [
-                'role' => $role,
-                'summary' => [
-                    'total_cases' => (int) (clone $query)->count(),
-                    'status_counts' => $statusCounts,
-                    'alert_counts' => [
-                        'over_estimate' => 0,
-                        'missing_estimate' => 0,
-                        'sla_risk' => 0,
-                    ],
-                ],
-                'top_customers' => [],
-                'top_projects' => [],
-                'top_performers' => [],
-                'attention_cases' => [],
-            ],
-        ]);
+        return 'dashboard:'.md5(json_encode([
+            'role' => $role,
+            'actor_id' => $actorId,
+            'query' => $request->query(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: $role);
     }
 
     private function buildDashboardPayload(string $role, \Illuminate\Support\Collection $rows, callable $serializeCaseRow): array
@@ -444,7 +360,10 @@ class CustomerRequestCaseDashboardService
                     'count' => $group->count(),
                 ];
             })
-            ->sortByDesc('count')
+            ->sortBy([
+                ['count', 'desc'],
+                ['customer_id', 'asc'],
+            ])
             ->take(5)
             ->values()
             ->all();
@@ -464,7 +383,10 @@ class CustomerRequestCaseDashboardService
                     'count' => $group->count(),
                 ];
             })
-            ->sortByDesc('count')
+            ->sortBy([
+                ['count', 'desc'],
+                ['project_id', 'asc'],
+            ])
             ->take(5)
             ->values()
             ->all();
@@ -484,7 +406,10 @@ class CustomerRequestCaseDashboardService
                     'count' => $group->count(),
                 ];
             })
-            ->sortByDesc('count')
+            ->sortBy([
+                ['count', 'desc'],
+                ['performer_user_id', 'asc'],
+            ])
             ->take(5)
             ->values()
             ->all();

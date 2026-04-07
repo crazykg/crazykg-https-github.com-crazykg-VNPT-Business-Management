@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\CustomerRequest;
 
+use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Support\Facades\DB;
 
@@ -88,7 +89,7 @@ class CustomerRequestCaseMetadataService
             }
         }
 
-        return $this->masterFieldsCache[$cacheKey] = [];
+        return $this->masterFieldsCache[$cacheKey] = CustomerRequestCaseRegistry::masterFields();
     }
 
     /**

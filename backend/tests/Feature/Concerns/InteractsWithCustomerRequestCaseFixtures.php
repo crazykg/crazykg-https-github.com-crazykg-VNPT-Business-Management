@@ -305,6 +305,21 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
         $alignInProgressTransitionsMigration->up();
+
+        $assignedToReceiverMigration = require base_path('database/migrations/2026_03_29_094312_create_customer_request_assigned_to_receiver_table.php');
+        $assignedToReceiverMigration->up();
+
+        $receiverInProgressMigration = require base_path('database/migrations/2026_03_29_141628_create_customer_request_receiver_in_progress_table.php');
+        $receiverInProgressMigration->up();
+
+        $addHandlerFieldMigration = require base_path('database/migrations/2026_03_30_220000_add_handler_field_to_customer_request_status_catalogs.php');
+        $addHandlerFieldMigration->up();
+
+        $backfillCurrentHandlerMigration = require base_path('database/migrations/2026_03_30_223000_add_nguoi_xu_ly_id_to_customer_request_cases_table.php');
+        $backfillCurrentHandlerMigration->up();
+
+        $extendWorkflowMetadataSchemaMigration = require base_path('database/migrations/2026_03_31_120000_extend_crc_workflow_metadata_schema.php');
+        $extendWorkflowMetadataSchemaMigration->up();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
@@ -312,6 +327,21 @@ trait InteractsWithCustomerRequestCaseFixtures
         Schema::disableForeignKeyConstraints();
 
         // V4 teardown (reverse order)
+        $extendWorkflowMetadataSchemaMigration = require base_path('database/migrations/2026_03_31_120000_extend_crc_workflow_metadata_schema.php');
+        $extendWorkflowMetadataSchemaMigration->down();
+
+        $backfillCurrentHandlerMigration = require base_path('database/migrations/2026_03_30_223000_add_nguoi_xu_ly_id_to_customer_request_cases_table.php');
+        $backfillCurrentHandlerMigration->down();
+
+        $addHandlerFieldMigration = require base_path('database/migrations/2026_03_30_220000_add_handler_field_to_customer_request_status_catalogs.php');
+        $addHandlerFieldMigration->down();
+
+        $receiverInProgressMigration = require base_path('database/migrations/2026_03_29_141628_create_customer_request_receiver_in_progress_table.php');
+        $receiverInProgressMigration->down();
+
+        $assignedToReceiverMigration = require base_path('database/migrations/2026_03_29_094312_create_customer_request_assigned_to_receiver_table.php');
+        $assignedToReceiverMigration->down();
+
         $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
         $alignInProgressTransitionsMigration->down();
 
