@@ -27,8 +27,17 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
   onResetPassword,
   isResettingPassword = false,
 }: EmployeeFormModalProps) => {
-  const fieldLabelClassName = 'text-sm font-semibold text-slate-700';
-  const fieldInputClassName = 'h-[46px] rounded-lg px-3 text-[15px] leading-6';
+  const fieldLabelClassName = 'text-xs font-semibold text-neutral';
+  const fieldInputClassName = 'h-8 rounded px-3 text-xs leading-5';
+
+  const formatFormDateValue = (value: string | null | undefined): string => {
+    const normalized = normalizeDateInputToIso(String(value || ''));
+    if (!normalized) {
+      return '';
+    }
+    const formatted = formatDateDdMmYyyy(normalized);
+    return formatted === '--' ? '' : formatted;
+  };
 
   const normalizeEmployeeStatusValue = (status: unknown): EmployeeStatus => {
     const normalized = String(status || '').trim().toUpperCase();
@@ -46,14 +55,8 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
     phone_number: data?.phone_number || data?.phone || data?.mobile || '',
     email: data?.email || '',
     job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
-    date_of_birth: (() => {
-      const normalized = normalizeDateInputToIso(String(data?.date_of_birth || ''));
-      if (!normalized) {
-        return '';
-      }
-      const formatted = formatDateDdMmYyyy(normalized);
-      return formatted === '--' ? '' : formatted;
-    })(),
+    date_of_birth: formatFormDateValue(data?.date_of_birth || ''),
+    leave_date: formatFormDateValue(data?.leave_date || ''),
     gender: data?.gender || null,
     vpn_status: data?.vpn_status || 'NO',
     ip_address: data?.ip_address || '',
@@ -61,7 +64,8 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
-  const [formErrors, setFormErrors] = useState<{ department_id?: string; date_of_birth?: string }>({});
+  const [formErrors, setFormErrors] = useState<{ department_id?: string; date_of_birth?: string; leave_date?: string }>({});
+  const isInactiveStatus = formData.status === 'INACTIVE';
 
   const positionOptions = useMemo(() => {
     const options = [
@@ -82,7 +86,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
 
   return (
     <ModalWrapper onClose={onClose} title={type === 'ADD' ? 'Thêm mới nhân sự' : 'Cập nhật nhân sự'} icon="person_add" width="max-w-2xl">
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
         <FormInput
           label="Mã nhân viên"
           labelClassName={fieldLabelClassName}
@@ -106,6 +110,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         <FormSelect
           label="Phòng ban tham chiếu"
           labelClassName={fieldLabelClassName}
+          size="sm"
           value={String(formData.department_id || '')}
           onChange={(e: any) => {
             setFormData({ ...formData, department_id: e.target.value });
@@ -117,7 +122,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
           required
           error={formErrors.department_id}
         />
-        <FormSelect label="Chức vụ" labelClassName={fieldLabelClassName} value={String(formData.position_id || '')} onChange={(e: any) => setFormData({ ...formData, position_id: e.target.value })} options={positionOptions} required />
+        <FormSelect label="Chức vụ" labelClassName={fieldLabelClassName} size="sm" value={String(formData.position_id || '')} onChange={(e: any) => setFormData({ ...formData, position_id: e.target.value })} options={positionOptions} required />
         <FormInput label="Chức danh" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.job_title_raw} onChange={(e: any) => setFormData({ ...formData, job_title_raw: e.target.value })} placeholder="Chuyên viên kinh doanh" />
         <FormInput
           label="Ngày sinh"
@@ -137,6 +142,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         <FormSelect
           label="Giới tính"
           labelClassName={fieldLabelClassName}
+          size="sm"
           value={formData.gender || ''}
           onChange={(e: any) => setFormData({ ...formData, gender: e.target.value || null })}
           options={[
@@ -149,6 +155,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         <FormSelect
           label="Trạng thái VPN"
           labelClassName={fieldLabelClassName}
+          size="sm"
           value={formData.vpn_status || 'NO'}
           onChange={(e: any) => setFormData({ ...formData, vpn_status: e.target.value })}
           options={[
@@ -166,23 +173,53 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
           disabled={type === 'EDIT'}
         />
 
-        <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
+        <div className="col-span-1 lg:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
           <FormSelect
             label="Trạng thái"
             labelClassName={fieldLabelClassName}
+            size="sm"
             value={formData.status}
-            onChange={(e: any) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e: any) => {
+              const nextStatus = normalizeEmployeeStatusValue(e.target.value);
+              setFormData((prev) => ({
+                ...prev,
+                status: nextStatus,
+                leave_date: nextStatus === 'INACTIVE' ? prev.leave_date || '' : '',
+              }));
+              if (formErrors.leave_date) {
+                setFormErrors((prev) => ({ ...prev, leave_date: undefined }));
+              }
+            }}
             options={[
               { value: 'ACTIVE', label: 'Hoạt động' },
-              { value: 'INACTIVE', label: 'Không hoạt động' },
+              { value: 'INACTIVE', label: 'Nghỉ việc' },
               { value: 'SUSPENDED', label: 'Luân chuyển' },
             ]}
           />
-          <div></div>
+          {isInactiveStatus ? (
+            <FormInput
+              label="Ngày nghỉ việc"
+              labelClassName={fieldLabelClassName}
+              inputClassName={fieldInputClassName}
+              type="text"
+              value={String(formData.leave_date || '')}
+              onChange={(e: any) => {
+                setFormData({ ...formData, leave_date: e.target.value || '' });
+                if (formErrors.leave_date) {
+                  setFormErrors((prev) => ({ ...prev, leave_date: undefined }));
+                }
+              }}
+              placeholder="dd/mm/yyyy"
+              required
+              error={formErrors.leave_date}
+            />
+          ) : (
+            <div></div>
+          )}
         </div>
       </div>
-      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100">Hủy</button>
+      <div className="flex items-center justify-end gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-shrink-0">
+        <button onClick={onClose} className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Hủy</button>
         {type === 'EDIT' && onResetPassword ? (
           <button
             type="button"
@@ -190,14 +227,14 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
               void onResetPassword();
             }}
             disabled={isResettingPassword}
-            className="px-4 py-2 rounded-lg border border-amber-300 text-amber-800 font-medium hover:bg-amber-50 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-tertiary/30 text-tertiary bg-white hover:bg-tertiary/5 disabled:opacity-50"
           >
             {isResettingPassword ? 'Đang reset...' : 'Reset mật khẩu'}
           </button>
         ) : null}
         <button
           onClick={() => {
-            const nextErrors: { department_id?: string; date_of_birth?: string } = {};
+            const nextErrors: { department_id?: string; date_of_birth?: string; leave_date?: string } = {};
 
             if (!String(formData.department_id || '').trim()) {
               nextErrors.department_id = 'Nhân sự bắt buộc thuộc một phòng ban.';
@@ -210,6 +247,15 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
               nextErrors.date_of_birth = AGE_RANGE_ERROR_MESSAGE;
             }
 
+            const normalizedLeaveDate = isInactiveStatus
+              ? normalizeDateInputToIso(String(formData.leave_date || ''))
+              : null;
+            if (isInactiveStatus && !String(formData.leave_date || '').trim()) {
+              nextErrors.leave_date = 'Ngày nghỉ việc là bắt buộc khi chọn trạng thái Nghỉ việc.';
+            } else if (isInactiveStatus && !normalizedLeaveDate) {
+              nextErrors.leave_date = 'Ngày nghỉ việc không hợp lệ (dd/mm/yyyy hoặc yyyy-mm-dd).';
+            }
+
             if (Object.keys(nextErrors).length > 0) {
               setFormErrors(nextErrors);
               return;
@@ -218,11 +264,14 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
             onSave({
               ...formData,
               date_of_birth: normalizedDateOfBirth,
+              leave_date: normalizedLeaveDate,
               phone_number: String(formData.phone_number || '').trim() || null,
             });
           }}
-          className="px-6 py-2 rounded-lg bg-primary text-white font-medium hover:bg-deep-teal shadow-lg shadow-primary/20"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl text-white shadow-sm transition-colors disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
         >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
           {type === 'ADD' ? 'Lưu' : 'Cập nhật'}
         </button>
       </div>

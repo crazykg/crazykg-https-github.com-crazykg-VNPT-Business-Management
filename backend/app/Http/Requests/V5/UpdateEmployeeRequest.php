@@ -29,6 +29,7 @@ class UpdateEmployeeRequest extends V5FormRequest
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
             'date_of_birth' => ['sometimes', 'nullable', 'date'],
+            'leave_date' => ['sometimes', 'nullable', 'date'],
             'phone_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],

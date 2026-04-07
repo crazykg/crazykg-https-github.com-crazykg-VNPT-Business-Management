@@ -182,7 +182,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     () => [
       { value: '', label: 'Trạng thái' },
       { value: 'ACTIVE', label: 'Hoạt động' },
-      { value: 'INACTIVE', label: 'Không hoạt động' },
+      { value: 'INACTIVE', label: 'Nghỉ việc' },
       { value: 'SUSPENDED', label: 'Luân chuyển' },
     ],
     []
@@ -435,7 +435,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     const normalizedStatus = normalizeEmployeeStatus(status);
     if (normalizedStatus === 'ACTIVE') return 'Hoạt động';
     if (normalizedStatus === 'SUSPENDED') return 'Luân chuyển';
-    return 'Không hoạt động';
+    return 'Nghỉ việc';
   };
 
   const handleDownloadTemplate = () => {

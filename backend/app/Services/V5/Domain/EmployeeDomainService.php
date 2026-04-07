@@ -130,6 +130,7 @@ class EmployeeDomainService
                 'position_id',
                 'job_title_raw',
                 'date_of_birth',
+                'leave_date',
                 'gender',
                 'vpn_status',
                 'ip_address',
@@ -284,6 +285,7 @@ class EmployeeDomainService
             'position_id' => ['nullable', 'integer'],
             'job_title_raw' => ['nullable', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date'],
+            'leave_date' => ['nullable', 'date'],
             'phone_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:50'],
             'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
@@ -321,6 +323,14 @@ class EmployeeDomainService
             ], 422);
         }
 
+        $requestedStatus = strtoupper(trim((string) ($validated['status'] ?? 'ACTIVE')));
+        $requestedLeaveDate = $this->normalizeEmployeeLeaveDate($validated['leave_date'] ?? null);
+        if ($requestedStatus === 'INACTIVE' && $requestedLeaveDate === null) {
+            return $this->employeeLeaveDateRequiredResponse();
+        }
+        $resolvedStatus = $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE'));
+        $effectiveLeaveDate = $this->resolveEmployeeLeaveDateForPersistence($resolvedStatus, $requestedLeaveDate);
+
         $departmentId = $this->support->parseNullableInt($validated['department_id'] ?? null);
         if ($departmentId === null || ! Department::query()->whereKey($departmentId)->exists()) {
             return response()->json(['message' => 'department_id is invalid.'], 422);
@@ -339,7 +349,7 @@ class EmployeeDomainService
             $normalizedPhone = $this->support->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
             $this->support->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
         }
-        $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) ($validated['status'] ?? 'ACTIVE')));
+        $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $resolvedStatus);
         $this->support->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
 
         $positionRaw = $validated['position_id'] ?? null;
@@ -356,6 +366,7 @@ class EmployeeDomainService
         if (array_key_exists('date_of_birth', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'date_of_birth', $validated['date_of_birth']);
         }
+        $this->support->setAttributeIfColumn($employee, $employeeTable, 'leave_date', $effectiveLeaveDate);
         if (array_key_exists('gender', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'gender', $validated['gender']);
         }
@@ -535,7 +546,7 @@ class EmployeeDomainService
     {
         $normalized = [];
 
-        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'ip_address'] as $field) {
+        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'leave_date', 'ip_address'] as $field) {
             if (! array_key_exists($field, $payload)) {
                 continue;
             }
@@ -671,6 +682,7 @@ class EmployeeDomainService
             'position_id' => ['sometimes', 'nullable', 'integer'],
             'job_title_raw' => ['sometimes', 'nullable', 'string', 'max:255'],
             'date_of_birth' => ['sometimes', 'nullable', 'date'],
+            'leave_date' => ['sometimes', 'nullable', 'date'],
             'phone_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
@@ -706,6 +718,21 @@ class EmployeeDomainService
                 ],
             ], 422);
         }
+
+        $requestedStatus = array_key_exists('status', $validated)
+            ? strtoupper(trim((string) $validated['status']))
+            : null;
+        $currentLeaveDate = $this->normalizeEmployeeLeaveDate($employee->getAttribute('leave_date'));
+        $requestedLeaveDate = array_key_exists('leave_date', $validated)
+            ? $this->normalizeEmployeeLeaveDate($validated['leave_date'])
+            : $currentLeaveDate;
+        if ($requestedStatus === 'INACTIVE' && $requestedLeaveDate === null) {
+            return $this->employeeLeaveDateRequiredResponse();
+        }
+        $resolvedStatus = array_key_exists('status', $validated)
+            ? $this->toEmployeeStorageStatus((string) $validated['status'])
+            : $this->toEmployeeStorageStatus((string) ($employee->getAttribute('status') ?? 'ACTIVE'));
+        $effectiveLeaveDate = $this->resolveEmployeeLeaveDateForPersistence($resolvedStatus, $requestedLeaveDate);
 
         if (array_key_exists('department_id', $validated)) {
             $departmentId = $this->support->parseNullableInt($validated['department_id']);
@@ -743,7 +770,7 @@ class EmployeeDomainService
             $this->support->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
         }
         if (array_key_exists('status', $validated)) {
-            $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $this->toEmployeeStorageStatus((string) $validated['status']));
+            $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $resolvedStatus);
         }
         if (array_key_exists('position_id', $validated)) {
             $positionRaw = $validated['position_id'];
@@ -761,6 +788,7 @@ class EmployeeDomainService
         if (array_key_exists('date_of_birth', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'date_of_birth', $validated['date_of_birth']);
         }
+        $this->support->setAttributeIfColumn($employee, $employeeTable, 'leave_date', $effectiveLeaveDate);
         if (array_key_exists('gender', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'gender', $validated['gender']);
         }
@@ -1145,6 +1173,32 @@ class EmployeeDomainService
             'SUSPENDED', 'TRANSFERRED' => 'SUSPENDED',
             default => 'ACTIVE',
         };
+    }
+
+    private function normalizeEmployeeLeaveDate(mixed $leaveDate): ?string
+    {
+        return $this->support->normalizeNullableString($leaveDate);
+    }
+
+    private function resolveEmployeeLeaveDateForPersistence(string $resolvedStatus, mixed $leaveDate): ?string
+    {
+        if ($resolvedStatus !== 'INACTIVE') {
+            return null;
+        }
+
+        return $this->normalizeEmployeeLeaveDate($leaveDate);
+    }
+
+    private function employeeLeaveDateRequiredResponse(): JsonResponse
+    {
+        $message = 'Ngày nghỉ việc là bắt buộc khi chọn trạng thái Nghỉ việc.';
+
+        return response()->json([
+            'message' => $message,
+            'errors' => [
+                'leave_date' => [$message],
+            ],
+        ], 422);
     }
 
     private function isOutOfAllowedEmployeeAgeRange(mixed $dateOfBirth): bool

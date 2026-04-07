@@ -517,6 +517,7 @@ export interface Employee {
   job_title_vi?: string | null;
   date_of_birth?: string | null;
   gender?: Gender | null;
+  leave_date?: string | null;
   ip_address?: string | null;
   vpn_status?: VpnStatus | null;
   department_id: string | number | null;

@@ -28,6 +28,7 @@ class StoreEmployeeRequest extends V5FormRequest
             'position_id' => ['nullable', 'integer'],
             'job_title_raw' => ['nullable', 'string', 'max:255'],
             'date_of_birth' => ['nullable', 'date'],
+            'leave_date' => ['nullable', 'date'],
             'phone_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:50'],
             'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
