@@ -10,9 +10,7 @@ const fetchEmployeesPageMock = vi.hoisted(() => vi.fn());
 const createEmployeeWithProvisioningMock = vi.hoisted(() => vi.fn());
 const updateEmployeeMock = vi.hoisted(() => vi.fn());
 const deleteEmployeeApiMock = vi.hoisted(() => vi.fn());
-const resetEmployeePasswordMock = vi.hoisted(() => vi.fn());
 const isRequestCanceledErrorMock = vi.hoisted(() => vi.fn(() => false));
-const getEmployeeLabelMock = vi.hoisted(() => vi.fn((e: Employee) => e.full_name));
 
 vi.mock('../services/api/employeeApi', () => ({
   fetchEmployees: fetchEmployeesMock,
@@ -20,7 +18,6 @@ vi.mock('../services/api/employeeApi', () => ({
   createEmployeeWithProvisioning: createEmployeeWithProvisioningMock,
   updateEmployee: updateEmployeeMock,
   deleteEmployee: deleteEmployeeApiMock,
-  resetEmployeePassword: resetEmployeePasswordMock,
 }));
 
 vi.mock('../services/v5Api', async () => {
@@ -31,10 +28,6 @@ vi.mock('../services/v5Api', async () => {
   };
 });
 
-vi.mock('../utils/employeeDisplay', () => ({
-  getEmployeeLabel: getEmployeeLabelMock,
-}));
-
 const buildMeta = (overrides: Partial<PaginationMeta> = {}): PaginationMeta => ({
   ...DEFAULT_PAGINATION_META,
   ...overrides,
@@ -42,19 +35,19 @@ const buildMeta = (overrides: Partial<PaginationMeta> = {}): PaginationMeta => (
 
 const buildEmployee = (overrides: Partial<Employee> = {}): Employee => ({
   id: 1,
+  uuid: 'employee-1',
+  user_code: 'NV001',
   username: 'user001',
   full_name: 'Nguyễn Văn A',
   email: 'a@example.com',
   phone: '0901234567',
+  phone_number: '0901234567',
   department_id: 10,
-  position: 'Developer',
-  start_date: '2026-01-01',
-  end_date: null,
+  position_id: 2,
+  position_name: 'Developer',
+  date_of_birth: '1990-01-01',
+  leave_date: null,
   status: 'ACTIVE',
-  created_at: '2026-03-01 00:00:00',
-  updated_at: '2026-03-31 00:00:00',
-  created_by: 1,
-  updated_by: 1,
   ...overrides,
 });
 
@@ -73,11 +66,9 @@ const resetEmployeeStore = () => {
     isEmployeesLoading: false,
     isEmployeesPageLoading: false,
     isSaving: false,
-    isPasswordResetting: false,
     error: null,
     notifier: null,
     tempPassword: null,
-    tempPasswordEmployeeLabel: null,
   });
 };
 
@@ -86,7 +77,6 @@ describe('employeeStore', () => {
     vi.clearAllMocks();
     resetEmployeeStore();
     useFilterStore.getState().resetTabFilter('employeesPage');
-    getEmployeeLabelMock.mockImplementation((e: Employee) => e.full_name);
   });
 
   it('loads paginated employees and persists the latest filter query', async () => {
@@ -149,12 +139,10 @@ describe('employeeStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Thêm mới nhân sự thành công!'
+      'Tạo mới nhân viên thành công.'
     );
 
-    // Check provisioning state
     expect(useEmployeeStore.getState().tempPassword).toBe(provisioning.temporary_password);
-    expect(useEmployeeStore.getState().tempPasswordEmployeeLabel).toBe(newEmployee.full_name);
   });
 
   it('creates employee without provisioning (no temp password exposed)', async () => {
@@ -179,7 +167,6 @@ describe('employeeStore', () => {
     });
 
     expect(useEmployeeStore.getState().tempPassword).toBe(null);
-    expect(useEmployeeStore.getState().tempPasswordEmployeeLabel).toBe(null);
   });
 
   it('updates an existing employee without provisioning', async () => {
@@ -210,7 +197,7 @@ describe('employeeStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Cập nhật nhân sự thành công!'
+      'Cập nhật nhân viên thành công.'
     );
   });
 
@@ -235,66 +222,13 @@ describe('employeeStore', () => {
 
     expect(result).toBe(true);
     expect(deleteEmployeeApiMock).toHaveBeenCalledWith(7);
-    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Đã xóa nhân sự.');
+    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Xóa nhân viên thành công.');
     expect(useEmployeeStore.getState().employeesPageRows).not.toContain(employee);
-  });
-
-  it('resets employee password and exposes temp password', async () => {
-    const notifier = vi.fn();
-    const employee = buildEmployee({ id: 8 });
-    const newProvisioning = buildProvisioning({ temporary_password: 'NewPass456!' });
-
-    useEmployeeStore.getState().setNotifier(notifier);
-    useEmployeeStore.setState({
-      employees: [employee],
-      employeesPageRows: [employee],
-    });
-    getEmployeeLabelMock.mockReturnValue(employee.full_name);
-
-    resetEmployeePasswordMock.mockResolvedValue({
-      employee,
-      provisioning: newProvisioning,
-    });
-
-    const result = await act(async () => {
-      return await useEmployeeStore.getState().resetEmployeePassword(8);
-    });
-
-    expect(result).toBe(true);
-    expect(resetEmployeePasswordMock).toHaveBeenCalledWith(8);
-    expect(notifier).toHaveBeenCalledWith(
-      'success',
-      'Thành công',
-      'Đặt lại mật khẩu thành công!'
-    );
-    expect(useEmployeeStore.getState().tempPassword).toBe(newProvisioning.temporary_password);
-    expect(useEmployeeStore.getState().tempPasswordEmployeeLabel).toBe(employee.full_name);
-  });
-
-  it('handles password reset error gracefully', async () => {
-    const notifier = vi.fn();
-    const resetError = new Error('Password reset failed');
-
-    useEmployeeStore.getState().setNotifier(notifier);
-    resetEmployeePasswordMock.mockRejectedValue(resetError);
-
-    const result = await act(async () => {
-      return await useEmployeeStore.getState().resetEmployeePassword(99);
-    });
-
-    expect(result).toBe(false);
-    expect(useEmployeeStore.getState().error).toBe('Password reset failed');
-    expect(notifier).toHaveBeenCalledWith(
-      'error',
-      'Đặt lại thất bại',
-      expect.stringContaining('Không thể đặt lại mật khẩu')
-    );
   });
 
   it('clears temp password state', async () => {
     useEmployeeStore.setState({
       tempPassword: 'SomePass123!',
-      tempPasswordEmployeeLabel: 'John Doe',
     });
 
     expect(useEmployeeStore.getState().tempPassword).not.toBe(null);
@@ -304,7 +238,6 @@ describe('employeeStore', () => {
     });
 
     expect(useEmployeeStore.getState().tempPassword).toBe(null);
-    expect(useEmployeeStore.getState().tempPasswordEmployeeLabel).toBe(null);
   });
 
   it('loads full employee list', async () => {
@@ -335,10 +268,6 @@ describe('employeeStore', () => {
 
     expect(result).toBe(false);
     expect(useEmployeeStore.getState().error).toBe('Delete failed');
-    expect(notifier).toHaveBeenCalledWith(
-      'error',
-      'Xóa thất bại',
-      expect.stringContaining('Không thể xóa nhân sự')
-    );
+    expect(notifier).toHaveBeenCalledWith('error', 'Xóa thất bại', 'Delete failed');
   });
 });
