@@ -137,7 +137,7 @@ const makeRequest = (partial?: Partial<YeuCau>): YeuCau =>
     summary: partial?.summary ?? 'Yêu cầu hỗ trợ',
     trang_thai: partial?.trang_thai ?? 'new_intake',
     current_status_code: partial?.current_status_code ?? 'new_intake',
-    current_status_name_vi: partial?.current_status_name_vi ?? 'Mới tiếp nhận',
+    current_status_name_vi: partial?.current_status_name_vi ?? 'Tiếp nhận',
     warning_level: partial?.warning_level ?? 'missing',
     khach_hang_name: partial?.khach_hang_name ?? 'Bệnh viện Sản',
     customer_name: partial?.customer_name ?? 'Bệnh viện Sản',
@@ -188,7 +188,7 @@ beforeEach(() => {
       request_code: 'CRC-202603-0099',
       current_status_code: 'returned_to_manager',
       trang_thai: 'returned_to_manager',
-      current_status_name_vi: 'Chuyển trả QL',
+      current_status_name_vi: 'Giao PM/Trả YC cho PM',
       tieu_de: 'Case mở từ attention fallback',
       summary: 'Case mở từ attention fallback',
     })
@@ -332,7 +332,7 @@ describe('CustomerRequestManagementHub UI', () => {
           request_code: 'CRC-202603-0011',
           trang_thai: 'new_intake',
           current_status_code: 'new_intake',
-          current_status_name_vi: 'Mới tiếp nhận',
+          current_status_name_vi: 'Tiếp nhận',
           performer_user_id: 3,
           performer_name: 'Người xử lý',
           dispatch_route: 'self_handle',
@@ -341,7 +341,7 @@ describe('CustomerRequestManagementHub UI', () => {
         allowed_next_processes: [
           {
             process_code: 'waiting_customer_feedback',
-            process_label: 'Đợi phản hồi KH',
+            process_label: 'Chờ khách hàng cung cấp thông tin',
             group_code: 'feedback',
             group_label: 'Phản hồi',
             table_name: 'customer_request_waiting_customer_feedbacks',
@@ -353,12 +353,12 @@ describe('CustomerRequestManagementHub UI', () => {
             list_columns: [],
           },
           {
-            process_code: 'in_progress',
-            process_label: 'Đang xử lý',
+            process_code: 'assigned_to_receiver',
+            process_label: 'Giao R thực hiện',
             group_code: 'processing',
             group_label: 'Xử lý',
-            table_name: 'customer_request_in_progress',
-            default_status: 'in_progress',
+            table_name: 'customer_request_assigned_to_receiver',
+            default_status: 'assigned_to_receiver',
             read_roles: [],
             write_roles: [],
             allowed_next_processes: [],
@@ -367,7 +367,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'analysis',
-            process_label: 'Phân tích',
+            process_label: 'Chuyển BA Phân tích',
             group_code: 'analysis',
             group_label: 'Phân tích',
             table_name: 'customer_request_analysis',
@@ -380,7 +380,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'returned_to_manager',
-            process_label: 'Chuyển trả QL',
+            process_label: 'Giao PM/Trả YC cho PM',
             group_code: 'analysis',
             group_label: 'Phân tích',
             table_name: 'customer_request_returned_to_manager',
@@ -437,7 +437,7 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Đang xử lý', 'Chuyển trả QL']);
+    expect(optionLabels).toEqual(['Giao R thực hiện', 'Giao PM/Trả YC cho PM']);
   });
 
   it('filters in_progress options back to XML-valid outcomes when payload still contains raw runtime targets', async () => {
@@ -451,7 +451,7 @@ describe('CustomerRequestManagementHub UI', () => {
           request_code: 'CRC-202603-0016',
           trang_thai: 'in_progress',
           current_status_code: 'in_progress',
-          current_status_name_vi: 'Đang xử lý',
+          current_status_name_vi: 'R Đang thực hiện',
           performer_user_id: 3,
           performer_name: 'Người xử lý',
           dispatch_route: 'self_handle',
@@ -473,7 +473,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'waiting_customer_feedback',
-            process_label: 'Đợi phản hồi KH',
+            process_label: 'Chờ khách hàng cung cấp thông tin',
             group_code: 'feedback',
             group_label: 'Phản hồi',
             table_name: 'customer_request_waiting_customer_feedbacks',
@@ -486,7 +486,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'analysis',
-            process_label: 'Phân tích',
+            process_label: 'Chuyển BA Phân tích',
             group_code: 'analysis',
             group_label: 'Phân tích',
             table_name: 'customer_request_analysis',
@@ -499,7 +499,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'returned_to_manager',
-            process_label: 'Chuyển trả QL',
+            process_label: 'Giao PM/Trả YC cho PM',
             group_code: 'analysis',
             group_label: 'Phân tích',
             table_name: 'customer_request_returned_to_manager',
@@ -512,7 +512,7 @@ describe('CustomerRequestManagementHub UI', () => {
           },
           {
             process_code: 'not_executed',
-            process_label: 'Không thực hiện',
+            process_label: 'Không tiếp nhận',
             group_code: 'closure',
             group_label: 'Kết quả',
             table_name: 'customer_request_not_executed',
@@ -569,14 +569,14 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Hoàn thành']);
+    expect(optionLabels).toEqual(['Hoàn thành', 'Giao PM/Trả YC cho PM']);
   });
 
-  it('injects the PM missing-customer-info decision for dispatcher lane and routes to waiting feedback', async () => {
+  it('shows workflow-A dispatcher targets for new_intake dispatcher lane', async () => {
     const user = userEvent.setup();
     const waitingCustomerFeedbackProcess = {
       process_code: 'waiting_customer_feedback',
-      process_label: 'Đợi phản hồi KH',
+      process_label: 'Chờ khách hàng cung cấp thông tin',
       group_code: 'feedback',
       group_label: 'Phản hồi',
       table_name: 'customer_request_waiting_customer_feedbacks',
@@ -587,13 +587,13 @@ describe('CustomerRequestManagementHub UI', () => {
       form_fields: [],
       list_columns: [],
     };
-    const inProgressProcess = {
-      process_code: 'in_progress',
-      process_label: 'Đang xử lý',
+    const assignedToReceiverProcess = {
+      process_code: 'assigned_to_receiver',
+      process_label: 'Giao R thực hiện',
       group_code: 'processing',
       group_label: 'Xử lý',
-      table_name: 'customer_request_in_progress',
-      default_status: 'in_progress',
+      table_name: 'customer_request_assigned_to_receiver',
+      default_status: 'assigned_to_receiver',
       read_roles: [],
       write_roles: [],
       allowed_next_processes: [],
@@ -602,7 +602,7 @@ describe('CustomerRequestManagementHub UI', () => {
     };
     const analysisProcess = {
       process_code: 'analysis',
-      process_label: 'Phân tích',
+      process_label: 'Chuyển BA Phân tích',
       group_code: 'analysis',
       group_label: 'Phân tích',
       table_name: 'customer_request_analysis',
@@ -615,7 +615,7 @@ describe('CustomerRequestManagementHub UI', () => {
     };
     const notExecutedProcess = {
       process_code: 'not_executed',
-      process_label: 'Không thực hiện',
+      process_label: 'Không tiếp nhận',
       group_code: 'closure',
       group_label: 'Kết quả',
       table_name: 'customer_request_not_executed',
@@ -633,7 +633,7 @@ describe('CustomerRequestManagementHub UI', () => {
         {
           group_code: 'intake',
           group_label: 'Tiếp nhận',
-          processes: [waitingCustomerFeedbackProcess, inProgressProcess, analysisProcess, notExecutedProcess],
+          processes: [waitingCustomerFeedbackProcess, assignedToReceiverProcess, analysisProcess, notExecutedProcess],
         },
       ],
     });
@@ -646,7 +646,7 @@ describe('CustomerRequestManagementHub UI', () => {
           request_code: 'CRC-202603-0012',
           trang_thai: 'new_intake',
           current_status_code: 'new_intake',
-          current_status_name_vi: 'Mới tiếp nhận',
+          current_status_name_vi: 'Tiếp nhận',
           performer_user_id: null,
           performer_name: null,
           dispatcher_user_id: 5,
@@ -656,7 +656,7 @@ describe('CustomerRequestManagementHub UI', () => {
         can_write: true,
         allowed_next_processes: [
           waitingCustomerFeedbackProcess,
-          inProgressProcess,
+          assignedToReceiverProcess,
           analysisProcess,
           notExecutedProcess,
         ],
@@ -704,27 +704,14 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['PM đánh giá thiếu TT KH', 'Đang xử lý', 'Phân tích']);
-
-    await user.click(screen.getByRole('button', { name: /Đánh giá →/i }));
-    expect(screen.getByRole('dialog', { name: /PM đánh giá thiếu thông tin khách hàng/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Có, khách hàng đang thiếu thông tin/i }));
-
-    expect(mockOpenTransitionModal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetProcessMeta: expect.objectContaining({
-          process_code: 'waiting_customer_feedback',
-        }),
-      })
-    );
+    expect(optionLabels).toEqual(['Giao R thực hiện']);
   });
 
   it('reuses the PM missing-customer-info decision for returned_to_manager', async () => {
     const user = userEvent.setup();
     const waitingCustomerFeedbackProcess = {
       process_code: 'waiting_customer_feedback',
-      process_label: 'Đợi phản hồi KH',
+      process_label: 'Chờ khách hàng cung cấp thông tin',
       group_code: 'feedback',
       group_label: 'Phản hồi',
       table_name: 'customer_request_waiting_customer_feedbacks',
@@ -735,13 +722,13 @@ describe('CustomerRequestManagementHub UI', () => {
       form_fields: [],
       list_columns: [],
     };
-    const inProgressProcess = {
-      process_code: 'in_progress',
-      process_label: 'Đang xử lý',
+    const assignedToReceiverProcess = {
+      process_code: 'assigned_to_receiver',
+      process_label: 'Giao R thực hiện',
       group_code: 'processing',
       group_label: 'Xử lý',
-      table_name: 'customer_request_in_progress',
-      default_status: 'in_progress',
+      table_name: 'customer_request_assigned_to_receiver',
+      default_status: 'assigned_to_receiver',
       read_roles: [],
       write_roles: [],
       allowed_next_processes: [],
@@ -750,7 +737,7 @@ describe('CustomerRequestManagementHub UI', () => {
     };
     const analysisProcess = {
       process_code: 'analysis',
-      process_label: 'Phân tích',
+      process_label: 'Chuyển BA Phân tích',
       group_code: 'analysis',
       group_label: 'Phân tích',
       table_name: 'customer_request_analysis',
@@ -763,7 +750,7 @@ describe('CustomerRequestManagementHub UI', () => {
     };
     const notExecutedProcess = {
       process_code: 'not_executed',
-      process_label: 'Không thực hiện',
+      process_label: 'Không tiếp nhận',
       group_code: 'closure',
       group_label: 'Kết quả',
       table_name: 'customer_request_not_executed',
@@ -781,7 +768,7 @@ describe('CustomerRequestManagementHub UI', () => {
         {
           group_code: 'analysis',
           group_label: 'Phân tích',
-          processes: [waitingCustomerFeedbackProcess, inProgressProcess, analysisProcess, notExecutedProcess],
+          processes: [waitingCustomerFeedbackProcess, assignedToReceiverProcess, analysisProcess, notExecutedProcess],
         },
       ],
     });
@@ -794,7 +781,7 @@ describe('CustomerRequestManagementHub UI', () => {
           request_code: 'CRC-202603-0013',
           trang_thai: 'returned_to_manager',
           current_status_code: 'returned_to_manager',
-          current_status_name_vi: 'Chuyển trả QL',
+          current_status_name_vi: 'Giao PM/Trả YC cho PM',
           dispatcher_user_id: 5,
           dispatcher_name: 'PM điều phối',
           performer_user_id: 3,
@@ -803,7 +790,7 @@ describe('CustomerRequestManagementHub UI', () => {
         can_write: true,
         allowed_next_processes: [
           waitingCustomerFeedbackProcess,
-          inProgressProcess,
+          assignedToReceiverProcess,
           analysisProcess,
           notExecutedProcess,
         ],
@@ -852,7 +839,7 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['PM đánh giá thiếu TT KH', 'Đang xử lý', 'Phân tích']);
+    expect(optionLabels).toEqual(['PM đánh giá thiếu TT KH', 'Giao R thực hiện', 'Chuyển BA Phân tích']);
 
     await user.click(screen.getByRole('button', { name: /Đánh giá →/i }));
     expect(screen.getByRole('dialog', { name: /PM đánh giá thiếu thông tin khách hàng/i })).toBeInTheDocument();
@@ -908,7 +895,7 @@ describe('CustomerRequestManagementHub UI', () => {
               request_code: 'CRC-202603-0099',
               current_status_code: 'returned_to_manager',
               trang_thai: 'returned_to_manager',
-              current_status_name_vi: 'Chuyển trả QL',
+              current_status_name_vi: 'Giao PM/Trả YC cho PM',
               tieu_de: 'Case attention không có trong trang list',
               summary: 'Case attention không có trong trang list',
             }),

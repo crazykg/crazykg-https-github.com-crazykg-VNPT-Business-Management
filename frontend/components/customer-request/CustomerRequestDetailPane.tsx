@@ -16,15 +16,12 @@ import type { SupportServiceGroup } from '../../types/support';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
-import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { CustomerRequestEstimatePanel } from './CustomerRequestEstimatePanel';
 import { CustomerRequestHoursPanel } from './CustomerRequestHoursPanel';
-import type { CustomerRequestCreateFlowDraft } from './createFlow';
 import {
   type DispatcherQuickAction,
-  isPmMissingCustomerInfoDecisionProcessCode,
   type PerformerQuickAction,
   SUPPORT_TASK_STATUS_OPTIONS,
   formatHoursValue,
@@ -67,6 +64,7 @@ type CustomerRequestDetailPaneProps = {
   editorProcessMeta: YeuCauProcessMeta | null | undefined;
   processDraft: Record<string, unknown>;
   onProcessDraftChange: (fieldName: string, value: unknown) => void;
+  onSaveStatusDetail: () => void;
   customers: Customer[];
   employees: Employee[];
   customerPersonnel: CustomerPersonnel[];
@@ -74,9 +72,6 @@ type CustomerRequestDetailPaneProps = {
   availableProjectItems: ProjectItemMaster[];
   selectedProjectItem: ProjectItemMaster | null;
   selectedCustomerId: string;
-  currentUserName: string;
-  createFlowDraft: CustomerRequestCreateFlowDraft;
-  onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
   activeTaskTab: CustomerRequestTaskSource;
   onActiveTaskTabChange: (tab: CustomerRequestTaskSource) => void;
   onAddTaskRow: () => void;
@@ -154,6 +149,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   editorProcessMeta,
   processDraft,
   onProcessDraftChange,
+  onSaveStatusDetail,
   customers,
   employees,
   customerPersonnel,
@@ -161,9 +157,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   availableProjectItems,
   selectedProjectItem,
   selectedCustomerId,
-  currentUserName,
-  createFlowDraft,
-  onCreateFlowDraftChange,
   activeTaskTab,
   onActiveTaskTabChange,
   onAddTaskRow,
@@ -249,29 +242,19 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
-  const transitionCtaLabel = isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)
-    ? 'Đánh giá →'
-    : 'Chuyển →';
+  const transitionCtaLabel = 'Chuyển →';
   const quickStats = [
     { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
     { label: 'Tệp', value: formAttachments.length },
     { label: 'Dòng thời gian', value: timeline.length },
     { label: 'Nhật ký', value: caseWorklogs.length },
   ];
+
+  const visibleRelatedSummaryItems = relatedSummaryItems.filter((item) => item.label !== 'Người xử lý');
   const selectedCustomerName =
     customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
     || selectedProjectItem?.customer_name
     || '';
-  const createDirectionLabel = createFlowDraft.handlingMode === 'self_handle' ? 'Tự xử lý' : 'Chuyển PM';
-  const createDirectionUserId =
-    createFlowDraft.handlingMode === 'self_handle'
-      ? createFlowDraft.performerUserId
-      : createFlowDraft.dispatcherUserId;
-  const createDirectionUserName =
-    employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.full_name
-    || employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.username
-    || (createFlowDraft.handlingMode === 'self_handle' ? currentUserName : '')
-    || '--';
 
   const actionFlagItems = [
     { key: 'can_write', label: 'Có thể cập nhật', active: Boolean(actionFlags.can_write) },
@@ -329,15 +312,25 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </button>
           ) : null}
           {canEditActiveForm ? (
-            <button
-              type="button"
-              onClick={onAddTaskRow}
-              disabled={isSaving}
-              className="group inline-flex items-center gap-1.5 rounded-xl bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-all hover:bg-primary/20 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">add</span>
-              {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onSaveStatusDetail}
+                disabled={isSaving}
+                className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+              </button>
+              <button
+                type="button"
+                onClick={onAddTaskRow}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3.5 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+              </button>
+            </>
           ) : null}
         </div>
       </div>
@@ -412,7 +405,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     Task tham chiếu #{index + 1}
                   </p>
                   <SearchableSelect
-                    value={task.task_code || (task.id != null ? String(task.id) : '')}
+                    value={task.task_code}
                     options={taskReferenceOptions}
                     onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
                     onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -646,7 +639,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   const renderDetailOverviewTab = () => (
-    <div className="min-w-0">
+    <div className="grid min-w-0 gap-5">
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -768,28 +761,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         Báo KH
                       </button>
                     ) : null}
-                    {dispatcherQuickActions.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowDispatcherActionModal(true)}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">conversion_path</span>
-                        Điều phối nhanh
-                      </button>
-                    ) : null}
-                    {performerQuickActions.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowPerformerActionModal(true)}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">bolt</span>
-                        Xử lý nhanh
-                      </button>
-                    ) : null}
                     <span className="material-symbols-outlined text-[18px] text-slate-300">arrow_forward</span>
                     <select
                       value={transitionStatusCode}
@@ -902,46 +873,47 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
           {editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
             <div className="mt-6 border-t border-slate-100 pt-6">
-              <div className="mb-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
+                <button
+                  type="button"
+                  onClick={onSaveStatusDetail}
+                  disabled={!canEditActiveForm || isSaving}
+                  className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+                </button>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {editorProcessMeta.form_fields
-                  .filter((field) => ![
-                    editorProcessMeta.process_code === 'assigned_to_receiver' ? 'receiver_user_id' : null,
-                    editorProcessMeta.process_code === 'pending_dispatch' ? 'dispatcher_user_id' : null,
-                  ].filter(Boolean).includes(field.name))
-                  .map((field) => (
-                    <ProcessFieldInput
-                      key={field.name}
-                      field={field}
-                      value={processDraft[field.name]}
-                      customers={customers}
-                      employees={employees}
-                      customerPersonnel={customerPersonnel}
-                      supportServiceGroups={supportServiceGroups}
-                      projectItems={availableProjectItems}
-                      selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                      disabled={!canEditActiveForm || isSaving}
-                      onChange={onProcessDraftChange}
-                    />
-                  ))}
+                {[
+                  { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
+                  { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
+                  { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
+                  { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
+                  { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+                  { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+                  { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
+                ].map((field) => (
+                  <ProcessFieldInput
+                    key={field.name}
+                    field={field}
+                    value={processDraft[field.name]}
+                    customers={customers}
+                    employees={employees}
+                    customerPersonnel={customerPersonnel}
+                    supportServiceGroups={supportServiceGroups}
+                    projectItems={availableProjectItems}
+                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                    disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                    onChange={onProcessDraftChange}
+                  />
+                ))}
               </div>
             </div>
           ) : null}
 
           {isCreateMode ? (
             <>
-              <CustomerRequestCreateFlowPanel
-                draft={createFlowDraft}
-                employees={employees}
-                currentUserName={currentUserName}
-                selectedProjectItem={selectedProjectItem}
-                selectedCustomerName={selectedCustomerName}
-                onChange={onCreateFlowDraftChange}
-                disabled={!canEditActiveForm || isSaving}
-              />
-
               <div className="mt-6 border-t border-slate-100 pt-6">
                 <div className="mb-4">
                   <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Đính kèm nhanh</h4>
@@ -959,7 +931,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <div className="rounded-2xl border border-slate-200 p-4">
             <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
             <div className="mt-4 space-y-3">
-              {relatedSummaryItems.map((item) => (
+              {visibleRelatedSummaryItems.map((item) => (
                 <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
@@ -973,22 +945,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <div className="rounded-2xl border border-slate-200 p-4">
               <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Kế hoạch khi tạo</h4>
               <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate ban đầu</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">
-                    {createFlowDraft.initialEstimatedHours.trim() ? `${createFlowDraft.initialEstimatedHours.trim()}h` : '--'}
-                  </p>
-                  {createFlowDraft.estimateNote.trim() ? (
-                    <p className="mt-1 text-xs text-slate-500">{createFlowDraft.estimateNote.trim()}</p>
-                  ) : null}
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Hướng xử lý</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{createDirectionLabel}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {createFlowDraft.handlingMode === 'self_handle' ? 'Người xử lý' : 'PM điều phối'}: {createDirectionUserName}
-                  </p>
-                </div>
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngữ cảnh đã chọn</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">

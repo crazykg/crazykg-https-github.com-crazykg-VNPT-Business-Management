@@ -8,40 +8,31 @@
  */
 import React, { useEffect, useState } from 'react';
 import { ModalWrapper } from '../Modals';
-import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
-import type { Attachment, YeuCauProcessField } from '../../types/customerRequest';
-import type { Customer, CustomerPersonnel } from '../../types/customer';
-import type { Employee } from '../../types/employee';
-import type { ProjectItemMaster } from '../../types/project';
-import type { SupportServiceGroup } from '../../types/support';
-import type { CustomerRequestCreateFlowDraft } from './createFlow';
-import {
-  fetchWorkflowDefinitions,
-  type WorkflowDefinition,
-} from '../../services/api/customerRequestApi';
+import type {
+  Attachment,
+  Customer,
+  CustomerPersonnel,
+  Employee,
+  ProjectItemMaster,
+  SupportServiceGroup,
+  YeuCauProcessField,
+} from '../../types';
 
 type CustomerRequestCreateModalProps = {
   /* master form fields */
   masterFields: YeuCauProcessField[];
   masterDraft: Record<string, unknown>;
   onMasterFieldChange: (field: string, value: unknown) => void;
-  /* create flow (est. + direction) */
-  createFlowDraft: CustomerRequestCreateFlowDraft;
-  onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
-  /* workflow selection */
-  workflowDefinitionId?: number | null;
-  onWorkflowDefinitionIdChange?: (id: number | null) => void;
   /* lookup data */
   customers: Customer[];
   employees: Employee[];
   customerPersonnel: CustomerPersonnel[];
   supportServiceGroups: SupportServiceGroup[];
   projectItems: ProjectItemMaster[];
-  currentUserName: string;
   /* attachments */
   formAttachments: Attachment[];
   onUploadAttachment: (file: File) => Promise<void>;
@@ -76,14 +67,11 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   masterFields,
   masterDraft,
   onMasterFieldChange,
-  createFlowDraft,
-  onCreateFlowDraftChange,
   customers,
   employees,
   customerPersonnel,
   supportServiceGroups,
   projectItems,
-  currentUserName,
   formAttachments,
   onUploadAttachment,
   onDeleteAttachment,
@@ -150,10 +138,6 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   const selectedCustomerId = String(masterDraft.customer_id ?? '');
   const selectedProjectItem =
     projectItems.find((p) => String(p.id) === String(masterDraft.project_item_id ?? '')) ?? null;
-  const selectedCustomerName =
-    customers.find((c) => String(c.id) === selectedCustomerId)?.customer_name
-    ?? selectedProjectItem?.customer_name
-    ?? '';
 
   /* ── Tên field động cho auto-select cascade ────────────────────── */
   const personnelFieldName = masterFields.find((f) => f.type === 'customer_personnel_select')?.name ?? null;
@@ -334,7 +318,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                     Task tham chiếu #{idx + 1}
                   </p>
                   <SearchableSelect
-                    value={task.task_code || (task.id != null ? String(task.id) : '')}
+                    value={task.task_code}
                     options={taskReferenceOptions}
                     onChange={(v) => onUpdateReferenceTaskRow(task.local_id, v)}
                     searchTerm={taskReferenceSearchTerm}
@@ -413,9 +397,8 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       onClose={onClose}
     >
       {/* 2-column body */}
-      <div className="flex min-h-0 gap-0 overflow-y-auto">
-        {/* ── LEFT: Thông tin yêu cầu + Task ───────────────────── */}
-        <div className="min-w-0 flex-[3] space-y-4 border-r border-slate-100 px-6 py-4">
+      <div className="flex min-h-0 overflow-y-auto">
+        <div className="min-w-0 w-full space-y-4 px-6 py-4">
           {masterFields.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
               <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
@@ -464,31 +447,6 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           {renderAttachmentSection()}
         </div>
 
-        {/* ── RIGHT: Workflow selection ────────────────────── */}
-        <div className="w-[340px] flex-none space-y-4 px-5 py-4">
-          {/* Workflow selection */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-            <h4 className="mb-2 text-sm font-semibold text-slate-700">Luồng xử lý</h4>
-            <select
-              value={workflowDefinitionId || ''}
-              onChange={(e) => onWorkflowDefinitionIdChange?.(Number(e.target.value) || null)}
-              disabled={isSaving || isLoadingWorkflows}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
-            >
-              <option value="">-- Chọn luồng --</option>
-              {workflows.map((workflow) => (
-                <option
-                  key={workflow.id}
-                  value={workflow.id}
-                  disabled={!workflow.is_active}
-                >
-                  {workflow.name} {workflow.is_default ? '(Default)' : ''}
-                  {!workflow.is_active ? ' (Inactive)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────── */}

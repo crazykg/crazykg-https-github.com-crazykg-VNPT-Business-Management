@@ -16,8 +16,6 @@ import type {
 import type { DraftState } from '../helpers';
 import {
   buildDraftFromFields,
-  createEmptyIt360TaskRow,
-  createEmptyReferenceTaskRow,
   splitCustomerRequestTaskRows,
 } from '../helpers';
 import type { It360TaskFormRow, ReferenceTaskFormRow } from '../presentation';

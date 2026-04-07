@@ -20,6 +20,8 @@ class CustomerRequestCaseSearchApiTest extends TestCase
 
     public function test_search_respects_scope_and_matches_project_customer_and_request_code(): void
     {
+        $expectedRequestCode = sprintf('CRC-%s-0001', now()->format('Ym'));
+
         $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
             'master_payload' => [
                 'summary' => 'Tra cứu dự án SOC',
@@ -35,10 +37,10 @@ class CustomerRequestCaseSearchApiTest extends TestCase
                 'updated_at' => now(),
             ]);
 
-        $this->getJson('/api/v5/customer-request-cases/search?q=CRC-202603-0001&updated_by=3')
+        $this->getJson('/api/v5/customer-request-cases/search?q='.$expectedRequestCode.'&updated_by=3')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.request_code', 'CRC-202603-0001');
+            ->assertJsonPath('data.0.request_code', $expectedRequestCode);
 
         $this->getJson('/api/v5/customer-request-cases/search?q=Dự án SOC&updated_by=3')
             ->assertOk()
@@ -50,7 +52,7 @@ class CustomerRequestCaseSearchApiTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.customer_name', 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang');
 
-        $this->getJson('/api/v5/customer-request-cases/search?q=CRC-202603-0001&updated_by=4')
+        $this->getJson('/api/v5/customer-request-cases/search?q='.$expectedRequestCode.'&updated_by=4')
             ->assertOk()
             ->assertJsonCount(0, 'data');
     }

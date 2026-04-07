@@ -29,6 +29,30 @@ class CustomerRequestCaseDomainService
 
     private const PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON = 'other_reason';
 
+    /**
+     * @var array<string, array{group_code:string,group_label:string}>
+     */
+    private array $statusGroups = [
+        'new_intake' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'assigned_to_receiver' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'waiting_customer_feedback' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'analysis' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'analysis_completed' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'analysis_suspended' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'returned_to_manager' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding_in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding_suspended' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_transfer' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_task_created' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_suspended' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'completed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'customer_notified' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'not_executed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+    ];
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly UserAccessService $userAccess,
@@ -841,7 +865,39 @@ class CustomerRequestCaseDomainService
      */
     private function serializeStatusMeta(array $definition): array
     {
-        return $definition;
+        $statusCode = (string) $definition['status_code'];
+        $group = $this->statusGroups[$statusCode] ?? ['group_code' => 'statuses', 'group_label' => 'Trạng thái'];
+
+        return [
+            'status_code' => $statusCode,
+            'status_name_vi' => (string) $definition['status_name_vi'],
+            'process_code' => $statusCode,
+            'process_label' => (string) $definition['status_name_vi'],
+            'group_code' => $group['group_code'],
+            'group_label' => $group['group_label'],
+            'table_name' => (string) $definition['table_name'],
+            'default_status' => $statusCode,
+            'read_roles' => [],
+            'write_roles' => [],
+            'allowed_next_processes' => array_map(
+                static fn (array $row): string => (string) $row['to_status_code'],
+                $this->allowedTransitionRows($statusCode, 'forward')
+            ),
+            'allowed_previous_processes' => array_map(
+                static fn (array $row): string => (string) $row['to_status_code'],
+                $this->allowedTransitionRows($statusCode, 'backward')
+            ),
+            'list_columns' => array_values($definition['list_columns'] ?? []),
+            'form_fields' => [
+                ['name' => 'received_at', 'label' => 'Ngày bắt đầu', 'type' => 'datetime', 'required' => false],
+                ['name' => 'completed_at', 'label' => 'Ngày kết thúc', 'type' => 'datetime', 'required' => false],
+                ['name' => 'extended_at', 'label' => 'Ngày gia hạn', 'type' => 'datetime', 'required' => false],
+                ['name' => 'progress_percent', 'label' => 'Tiến độ phần trăm', 'type' => 'number', 'required' => false],
+                ['name' => 'from_user_id', 'label' => 'Người chuyển', 'type' => 'user_select', 'required' => false],
+                ['name' => 'to_user_id', 'label' => 'Người nhận', 'type' => 'user_select', 'required' => false],
+                ['name' => 'notes', 'label' => 'Ghi chú', 'type' => 'textarea', 'required' => false],
+            ],
+        ];
     }
 
     /**
@@ -933,12 +989,18 @@ class CustomerRequestCaseDomainService
         string $statusCode,
         ?string $direction = null
     ): array {
-        return $this->transitionEvaluator->filterAllowedTransitionsForCase(
-            $case,
-            $statusCode,
-            $this->allowedTransitionRows($statusCode, $direction),
-            $direction
-        );
+        $rows = $this->allowedTransitionRows($statusCode, $direction);
+
+        if ($direction !== 'forward') {
+            return $rows;
+        }
+
+        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
+        if ($allowedTargets === null) {
+            return $rows;
+        }
+
+        return $this->alignTransitionRowsWithWorkflowTargets($rows, $statusCode, $allowedTargets);
     }
 
     /**
@@ -946,7 +1008,54 @@ class CustomerRequestCaseDomainService
      */
     private function resolveXmlAlignedAllowedTargets(?CustomerRequestCase $case, string $statusCode): ?array
     {
-        return null;
+        return CustomerRequestCaseRegistry::workflowaAllowedTargets($this->normalizeWorkflowStatusCode($statusCode));
+    }
+
+    private function normalizeWorkflowStatusCode(string $statusCode): string
+    {
+        return match ($statusCode) {
+            'pending_dispatch', 'dispatched' => 'new_intake',
+            default => $statusCode,
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<int, string> $allowedTargets
+     * @return array<int, array<string, mixed>>
+     */
+    private function alignTransitionRowsWithWorkflowTargets(array $rows, string $fromStatusCode, array $allowedTargets): array
+    {
+        $rowsByTarget = [];
+        foreach ($rows as $row) {
+            $toStatusCode = (string) ($row['to_status_code'] ?? '');
+            if ($toStatusCode === '') {
+                continue;
+            }
+
+            $rowsByTarget[$toStatusCode] = $row;
+        }
+
+        $aligned = [];
+        foreach ($allowedTargets as $index => $toStatusCode) {
+            $existing = $rowsByTarget[$toStatusCode] ?? null;
+            if ($existing !== null) {
+                $aligned[] = $existing;
+                continue;
+            }
+
+            $aligned[] = [
+                'from_status_code' => $fromStatusCode,
+                'to_status_code' => $toStatusCode,
+                'direction' => 'forward',
+                'is_default' => $index === 0,
+                'is_active' => 1,
+                'sort_order' => ($index + 1) * 10,
+                'notes' => 'WorkflowA fallback target injection',
+            ];
+        }
+
+        return $aligned;
     }
 
     private function isTransitionAllowedForCase(
@@ -997,6 +1106,7 @@ class CustomerRequestCaseDomainService
     {
         $decisionContextCode = $this->normalizeNullableString($row->decision_context_code ?? null);
         $decisionOutcomeCode = $this->normalizeNullableString($row->decision_outcome_code ?? null);
+        [$fromUserId, $fromUserName, $ownerUserId, $ownerName] = $this->resolveTimelineTransferSnapshot($row);
 
         return [
             'id' => (int) $row->id,
@@ -1026,9 +1136,52 @@ class CustomerRequestCaseDomainService
             'nguoi_thay_doi_id' => $this->support->parseNullableInt($row->created_by ?? null),
             'nguoi_thay_doi_name' => $this->normalizeNullableString($row->changed_by_name ?? null),
             'nguoi_thay_doi_code' => $this->normalizeNullableString($row->changed_by_code ?? null),
+            'nguoi_chuyen_id' => $fromUserId,
+            'nguoi_chuyen_name' => $fromUserName,
+            'nguoi_xu_ly_id' => $ownerUserId,
+            'nguoi_xu_ly_name' => $ownerName,
             'ly_do' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
             'thay_doi_luc' => $this->normalizeNullableString($row->entered_at ?? null) ?? $this->normalizeNullableString($row->created_at ?? null),
         ];
+    }
+
+    /**
+     * @return array{0:int|null,1:string|null,2:int|null,3:string|null}
+     */
+    private function resolveTimelineTransferSnapshot(object $row): array
+    {
+        $statusTable = $this->normalizeNullableString($row->status_table ?? null);
+        $statusRowId = $this->support->parseNullableInt($row->status_row_id ?? null);
+
+        if ($statusTable === null || $statusRowId === null || ! $this->support->hasTable($statusTable)) {
+            return [null, null, null, null];
+        }
+
+        $statusRow = DB::table($statusTable)
+            ->where('id', $statusRowId)
+            ->first();
+
+        if ($statusRow === null) {
+            return [null, null, null, null];
+        }
+
+        $fromUserId = $this->support->parseNullableInt($statusRow->from_user_id ?? null);
+        $ownerUserId = $this->support->parseNullableInt($statusRow->to_user_id ?? null)
+            ?? $this->support->parseNullableInt($statusRow->performer_user_id ?? null);
+
+        if (! $this->support->hasTable('internal_users')) {
+            return [$fromUserId, null, $ownerUserId, null];
+        }
+
+        $fromUserName = $fromUserId === null
+            ? null
+            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $fromUserId)->value('full_name'));
+
+        $ownerName = $ownerUserId === null
+            ? null
+            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $ownerUserId)->value('full_name'));
+
+        return [$fromUserId, $fromUserName, $ownerUserId, $ownerName];
     }
 
     private function resolveDecisionReasonLabel(?string $contextCode, ?string $outcomeCode): ?string
@@ -1230,41 +1383,46 @@ class CustomerRequestCaseDomainService
 
     private function serializeSimpleCaseRow(object|array $row): array
     {
-        $record = is_object($row) ? (array) $row : $row;
+        $case = $this->serializeCaseRow($row);
 
         return [
-            'id' => (int) ($record['id'] ?? 0),
-            'request_code' => (string) ($record['request_code'] ?? ''),
-            'ma_yc' => (string) ($record['request_code'] ?? ''),
-            'summary' => (string) ($record['summary'] ?? ''),
-            'tieu_de' => (string) ($record['summary'] ?? ''),
-            'current_status_code' => (string) ($record['current_status_code'] ?? null),
-            'current_status_name_vi' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
-            'current_process_label' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
-            'trang_thai' => (string) ($record['current_status_code'] ?? null),
-            'tien_trinh_hien_tai' => (string) ($record['current_status_code'] ?? null),
-            'priority' => (int) ($record['priority'] ?? 2),
-            'do_uu_tien' => (int) ($record['priority'] ?? 2),
-            'project_name' => $this->normalizeNullableString($record['project_name'] ?? null),
-            'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
-            'khach_hang_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
-            'received_by_name' => $this->normalizeNullableString($record['received_by_name'] ?? null),
-            'dispatcher_name' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
-            'performer_name' => $this->normalizeNullableString($record['performer_name'] ?? null),
-            'current_entered_at' => $this->normalizeNullableString($record['current_entered_at'] ?? null),
-            'current_exited_at' => $this->normalizeNullableString($record['current_exited_at'] ?? null),
-            'previous_status_instance_id' => $this->support->parseNullableInt($record['previous_status_instance_id'] ?? null),
-            'next_status_instance_id' => $this->support->parseNullableInt($record['next_status_instance_id'] ?? null),
-            'current_started_at' => $this->normalizeNullableString($record['current_started_at'] ?? null),
-            'current_expected_completed_at' => $this->normalizeNullableString($record['current_expected_completed_at'] ?? null),
-            'current_completed_at' => $this->normalizeNullableString($record['current_completed_at'] ?? null),
-            'current_status_notes' => $this->normalizeNullableString($record['current_status_notes'] ?? null),
-            'current_progress_percent' => (int) ($record['current_progress_percent'] ?? 0),
-            'nguoi_xu_ly_id' => $this->support->parseNullableInt($record['nguoi_xu_ly_id'] ?? null),
-            'nguoi_xu_ly_name' => $this->normalizeNullableString($record['nguoi_xu_ly_name'] ?? null),
-            'created_by_name' => $this->normalizeNullableString($record['created_by_name'] ?? null),
-            'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
-            'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
+            'id' => $case['id'] ?? 0,
+            'request_code' => $case['request_code'] ?? '',
+            'ma_yc' => $case['ma_yc'] ?? ($case['request_code'] ?? ''),
+            'summary' => $case['summary'] ?? '',
+            'tieu_de' => $case['tieu_de'] ?? ($case['summary'] ?? ''),
+            'current_status_code' => $case['current_status_code'] ?? null,
+            'current_status_name_vi' => $case['current_status_name_vi'] ?? null,
+            'current_process_label' => $case['current_process_label'] ?? null,
+            'trang_thai' => $case['trang_thai'] ?? null,
+            'tien_trinh_hien_tai' => $case['tien_trinh_hien_tai'] ?? null,
+            'priority' => $case['priority'] ?? 2,
+            'do_uu_tien' => $case['do_uu_tien'] ?? ($case['priority'] ?? 2),
+            'project_name' => $case['project_name'] ?? null,
+            'customer_name' => $case['customer_name'] ?? null,
+            'khach_hang_name' => $case['khach_hang_name'] ?? ($case['customer_name'] ?? null),
+            'received_by_name' => $case['received_by_name'] ?? null,
+            'dispatcher_name' => $case['dispatcher_name'] ?? null,
+            'performer_name' => $case['performer_name'] ?? null,
+            'receiver_user_id' => $case['receiver_user_id'] ?? null,
+            'receiver_name' => $case['receiver_name'] ?? null,
+            'from_user_id_name' => $case['from_user_id_name'] ?? null,
+            'to_user_id_name' => $case['to_user_id_name'] ?? null,
+            'current_entered_at' => $case['current_entered_at'] ?? null,
+            'current_exited_at' => $case['current_exited_at'] ?? null,
+            'previous_status_instance_id' => $case['previous_status_instance_id'] ?? null,
+            'next_status_instance_id' => $case['next_status_instance_id'] ?? null,
+            'current_started_at' => $case['current_started_at'] ?? null,
+            'current_expected_completed_at' => $case['current_expected_completed_at'] ?? null,
+            'current_completed_at' => $case['current_completed_at'] ?? null,
+            'current_status_notes' => $case['current_status_notes'] ?? null,
+            'current_progress_percent' => $case['current_progress_percent'] ?? 0,
+            'nguoi_xu_ly_id' => $case['nguoi_xu_ly_id'] ?? null,
+            'nguoi_xu_ly_name' => $case['nguoi_xu_ly_name'] ?? null,
+            'created_by_name' => $case['created_by_name'] ?? null,
+            'updated_at' => $case['updated_at'] ?? null,
+            'created_at' => $case['created_at'] ?? null,
+            'test' => 'đây là test',
         ];
     }
 

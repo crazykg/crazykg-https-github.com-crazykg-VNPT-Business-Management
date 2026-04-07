@@ -77,6 +77,7 @@ import { normalizeImportToken, normalizeImportDate, isProductDeleteDependencyErr
 import { normalizeQuerySignature } from './utils/queryUtils';
 import { canOpenModal, hasPermission, isImportSupportedModule } from './utils/authorization';
 import { fetchEmployeePartyProfilesPage, upsertEmployeePartyProfile } from './services/api/employeeApi';
+import { useContractStore } from './shared/stores';
 
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
@@ -256,6 +257,7 @@ const App: React.FC = () => {
   const pageQueryInFlightSignatureRef = React.useRef<Record<string, string>>({});
   const pageQueryDebounceRef = React.useRef<Record<string, number>>({});
   const recentTabDataLoadRef = React.useRef<Map<string, number>>(new Map());
+  const backgroundLoadTimersRef = React.useRef<number[]>([]);
   const employeesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const partyProfilesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
@@ -292,6 +294,7 @@ const App: React.FC = () => {
     handleDeleteCusPersonnel,
   } = useCustomerPersonnel(addToast);
   const { handleImportCustomerPersonnel } = useImportCustomerPersonnel();
+  const saveContract = useContractStore((state) => state.saveContract);
 
   // Navigation helpers
   const getRoutePathFromTabId = React.useCallback((tabId: string): string => {
@@ -740,6 +743,69 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const loadDepartments = React.useCallback(async () => {
+    try {
+      const rows = await fetchDepartments();
+      setDepartments(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadEmployees = React.useCallback(async () => {
+    try {
+      const rows = await fetchEmployees();
+      setEmployees(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadCustomers = React.useCallback(async () => {
+    try {
+      const rows = await fetchCustomers();
+      setCustomers(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProjects = React.useCallback(async () => {
+    try {
+      const rows = await fetchProjects();
+      setProjects(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProjectItems = React.useCallback(async () => {
+    try {
+      const rows = await fetchProjectItems();
+      setProjectItems(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadContracts = React.useCallback(async () => {
+    try {
+      const rows = await fetchContracts();
+      setContracts(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadPaymentSchedules = React.useCallback(async (contractId?: string | number) => {
+    try {
+      const rows = await fetchPaymentSchedules(contractId);
+      setPaymentSchedules(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
   const refreshDepartmentsData = React.useCallback(async () => {
     await Promise.all([
       fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
@@ -1106,6 +1172,443 @@ const App: React.FC = () => {
     loadPartyProfilesPage,
     refreshCustomersData,
     refreshProductsData,
+  ]);
+
+  const syncUpdatedCustomerState = React.useCallback((updatedCustomer: Customer) => {
+    setSelectedCustomer(updatedCustomer);
+    setCustomers((previous) =>
+      previous.map((item) => (String(item.id) === String(updatedCustomer.id) ? updatedCustomer : item))
+    );
+    setCustomersPageRows((previous) =>
+      previous.map((item) => (String(item.id) === String(updatedCustomer.id) ? updatedCustomer : item))
+    );
+  }, []);
+
+  const syncCreatedCustomerState = React.useCallback((createdCustomer: Customer) => {
+    setCustomers((previous) => [
+      createdCustomer,
+      ...previous.filter((item) => String(item.id) !== String(createdCustomer.id)),
+    ]);
+    setCustomersPageRows((previous) => [
+      createdCustomer,
+      ...previous.filter((item) => String(item.id) !== String(createdCustomer.id)),
+    ]);
+  }, []);
+
+  const handleCreateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
+    const created = await saveContract({ data: payload });
+    if (created) {
+      setModalType(null);
+    }
+  }, [saveContract, setModalType]);
+
+  const handleUpdateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
+    if (!selectedContract) {
+      return;
+    }
+
+    const updated = await saveContract({
+      id: selectedContract.id,
+      data: payload,
+      previousStatus: selectedContract.status,
+    });
+    if (updated) {
+      setSelectedContract(updated);
+      setModalType(null);
+    }
+  }, [saveContract, selectedContract, setModalType, setSelectedContract]);
+
+  const handleCreateCustomerSave = React.useCallback(async (payload: Partial<Customer>) => {
+    setIsSaving(true);
+    try {
+      const created = await createCustomer(payload);
+      syncCreatedCustomerState(created);
+      await loadCustomersPage();
+      addToast('success', 'Thành công', 'Thêm mới khách hàng thành công.');
+      setModalType(null);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo khách hàng.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, loadCustomersPage, syncCreatedCustomerState]);
+
+  const handleUpdateCustomerSave = React.useCallback(async (payload: Partial<Customer>) => {
+    if (!selectedCustomer) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateCustomer(selectedCustomer.id, payload);
+      syncUpdatedCustomerState(updated);
+      await loadCustomersPage();
+      addToast('success', 'Thành công', 'Cập nhật khách hàng thành công.');
+      setModalType(null);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật khách hàng.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, loadCustomersPage, selectedCustomer, syncUpdatedCustomerState]);
+
+  const buildProjectMutationPayload = React.useCallback((data: Partial<Project>) => ({
+    ...data,
+    sync_items: Array.isArray(data.items),
+    sync_raci: Array.isArray(data.raci),
+  }), []);
+
+  const handleCreateProjectSave = React.useCallback(async (data: Partial<Project>) => {
+    setIsSaving(true);
+    try {
+      const created = await withAsyncTimeout(
+        createProject(buildProjectMutationPayload(data)),
+        PROJECT_SAVE_TIMEOUT_MS,
+        'Không thể tạo dự án (quá thời gian phản hồi). Vui lòng thử lại.'
+      );
+      setProjects((previous) => [
+        created,
+        ...previous.filter((project) => String(project.id) !== String(created.id)),
+      ]);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Tạo dự án thành công.');
+      void loadProjectItems();
+      void loadProjectsPage();
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo dự án.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, buildProjectMutationPayload, loadProjectItems, loadProjectsPage]);
+
+  const handleEditProjectSave = React.useCallback(async (data: Partial<Project>) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await withAsyncTimeout(
+        updateProject(selectedProject.id, buildProjectMutationPayload(data)),
+        PROJECT_SAVE_TIMEOUT_MS,
+        'Không thể cập nhật dự án (quá thời gian phản hồi). Vui lòng thử lại.'
+      );
+      setProjects((previous) => {
+        const exists = previous.some((project) => String(project.id) === String(updated.id));
+        if (!exists) {
+          return [updated, ...previous];
+        }
+
+        return previous.map((project) =>
+          String(project.id) === String(updated.id) ? updated : project
+        );
+      });
+      setProjectsPageRows((previous) =>
+        previous.map((project) => (String(project.id) === String(updated.id) ? updated : project))
+      );
+      setSelectedProject(updated);
+      addToast('success', 'Thành công', 'Cập nhật dự án thành công.');
+      void loadProjectItems();
+      void loadProjectsPage();
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật dự án.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, buildProjectMutationPayload, loadProjectItems, loadProjectsPage, selectedProject]);
+
+  const handleSaveContractExpiryAlertSettings = React.useCallback(async (payload: { warning_days: number }) => {
+    await updateContractExpiryAlertSettings(payload);
+    await loadContractsPage();
+  }, [loadContractsPage]);
+
+  const handleSaveContractPaymentAlertSettings = React.useCallback(async (payload: { warning_days: number }) => {
+    await updateContractPaymentAlertSettings(payload);
+    await loadContractsPage();
+  }, [loadContractsPage]);
+
+  const handleGenerateContractSchedules = React.useCallback(async (
+    contractId: string | number,
+    options?: GenerateContractPaymentsPayload,
+  ) => {
+    await generateContractPayments(contractId, options);
+  }, []);
+
+  const handleRefreshContractSchedules = React.useCallback(async (contractId: string | number) => {
+    await loadPaymentSchedules(contractId);
+  }, [loadPaymentSchedules]);
+
+  const handleConfirmContractPayment = React.useCallback(async (
+    scheduleId: string | number,
+    payload: PaymentScheduleConfirmationPayload,
+  ) => {
+    await updatePaymentSchedule(scheduleId, payload);
+  }, []);
+
+  const clearBackgroundLoadTimers = React.useCallback(() => {
+    backgroundLoadTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    backgroundLoadTimersRef.current = [];
+  }, []);
+
+  const scheduleBackgroundLoads = React.useCallback((task: () => Promise<void> | void, delayMs = 120) => {
+    const timerId = window.setTimeout(() => {
+      backgroundLoadTimersRef.current = backgroundLoadTimersRef.current.filter((id) => id !== timerId);
+      void Promise.resolve(task());
+    }, delayMs);
+    backgroundLoadTimersRef.current.push(timerId);
+  }, []);
+
+  React.useEffect(() => () => {
+    clearBackgroundLoadTimers();
+  }, [clearBackgroundLoadTimers]);
+
+  const loadUserDeptHistoryData = React.useCallback(async () => {
+    try {
+      const rows = await fetchUserDeptHistory();
+      setUserDeptHistory(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadBusinessesData = React.useCallback(async () => {
+    try {
+      const rows = await fetchBusinesses();
+      setBusinesses(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadVendorsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchVendors();
+      setVendors(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProductsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchProducts();
+      setProducts(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadCustomerPersonnelData = React.useCallback(async () => {
+    try {
+      const rows = await fetchCustomerPersonnel();
+      setCusPersonnel(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadRemindersData = React.useCallback(async () => {
+    try {
+      const rows = await fetchReminders();
+      setReminders(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadInternalUserModuleData = React.useCallback(async () => {
+    await loadDepartments();
+    if (activeInternalUserSubTab === 'list') {
+      await loadEmployeesPage();
+      return;
+    }
+    if (activeInternalUserSubTab === 'party') {
+      await Promise.all([
+        loadEmployees(),
+        loadPartyProfilesPage(),
+      ]);
+      return;
+    }
+    await loadEmployees();
+  }, [activeInternalUserSubTab, loadDepartments, loadEmployees, loadEmployeesPage, loadPartyProfilesPage]);
+
+  const loadProjectsModuleData = React.useCallback(async () => {
+    await loadProjectsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadEmployees(),
+      loadDepartments(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDepartments, loadEmployees, loadProjectItems, loadProductsData, loadProjectsPage, scheduleBackgroundLoads]);
+
+  const loadContractsModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadContractsPage(),
+      loadContracts(),
+      loadPaymentSchedules(),
+    ]);
+    scheduleBackgroundLoads(() => Promise.all([
+      loadProjects(),
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadBusinessesData(),
+    ]).then(() => undefined));
+  }, [loadBusinessesData, loadContracts, loadContractsPage, loadCustomers, loadPaymentSchedules, loadProductsData, loadProjectItems, loadProjects, scheduleBackgroundLoads]);
+
+  const loadDocumentsModuleData = React.useCallback(async () => {
+    await loadDocumentsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProjects(),
+      loadProductsData(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDocumentsPage, loadProductsData, loadProjects, scheduleBackgroundLoads]);
+
+  const loadCustomerRequestManagementModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadCustomers(),
+      loadCustomerPersonnelData(),
+      loadEmployees(),
+    ]);
+  }, [loadCustomerPersonnelData, loadCustomers, loadEmployees]);
+
+  const loadSupportMasterManagementModuleData = React.useCallback(async () => {
+    scheduleBackgroundLoads(() => loadCustomers());
+  }, [loadCustomers, scheduleBackgroundLoads]);
+
+  const loadAuditLogsModuleData = React.useCallback(async () => {
+    await loadAuditLogsPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadAuditLogsPage, loadEmployees, scheduleBackgroundLoads]);
+
+  const loadUserFeedbackModuleData = React.useCallback(async () => {
+    await loadFeedbacksPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadEmployees, loadFeedbacksPage, scheduleBackgroundLoads]);
+
+  const moduleDataLoaders = React.useMemo<ModuleDataLoaderRegistry>(() => ({
+    dashboard: async () => {
+      await Promise.all([
+        loadContracts(),
+        loadPaymentSchedules(),
+        loadProjects(),
+        loadCustomers(),
+      ]);
+    },
+    internal_user_dashboard: loadInternalUserModuleData,
+    internal_user_list: loadInternalUserModuleData,
+    internal_user_party_members: loadInternalUserModuleData,
+    departments: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    user_dept_history: async () => {
+      await Promise.all([
+        loadUserDeptHistoryData(),
+        loadEmployees(),
+        loadDepartments(),
+      ]);
+    },
+    businesses: async () => {
+      await Promise.all([
+        loadBusinessesData(),
+        loadProductsData(),
+      ]);
+    },
+    vendors: loadVendorsData,
+    products: async () => {
+      await Promise.all([
+        loadProductsData(),
+        loadBusinessesData(),
+        loadVendorsData(),
+        loadCustomers(),
+      ]);
+    },
+    clients: async () => {
+      await Promise.all([
+        loadCustomers(),
+        loadCustomersPage(),
+      ]);
+    },
+    cus_personnel: async () => {
+      await Promise.all([
+        loadCustomerPersonnelData(),
+        loadCustomers(),
+      ]);
+    },
+    projects: loadProjectsModuleData,
+    contracts: loadContractsModuleData,
+    documents: loadDocumentsModuleData,
+    reminders: async () => {
+      await Promise.all([
+        loadRemindersData(),
+        loadEmployees(),
+      ]);
+    },
+    customer_request_management: loadCustomerRequestManagementModuleData,
+    support_master_management: loadSupportMasterManagementModuleData,
+    procedure_template_config: async () => {},
+    department_weekly_schedule_management: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    audit_logs: loadAuditLogsModuleData,
+    user_feedback: loadUserFeedbackModuleData,
+    access_control: async () => {
+      await loadDepartments();
+    },
+  }), [
+    loadAuditLogsModuleData,
+    loadBusinessesData,
+    loadContracts,
+    loadContractsModuleData,
+    loadCustomers,
+    loadCustomersPage,
+    loadCustomerPersonnelData,
+    loadCustomerRequestManagementModuleData,
+    loadDepartments,
+    loadDocumentsModuleData,
+    loadEmployees,
+    loadFeedbacksPage,
+    loadInternalUserModuleData,
+    loadPaymentSchedules,
+    loadProductsData,
+    loadProjects,
+    loadProjectsModuleData,
+    loadRemindersData,
+    loadSupportMasterManagementModuleData,
+    loadUserDeptHistoryData,
+    loadUserFeedbackModuleData,
+    loadVendorsData,
   ]);
 
   // Load data by activeTab - MUST be after load*Page functions

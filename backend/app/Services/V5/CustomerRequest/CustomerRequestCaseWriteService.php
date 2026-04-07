@@ -682,7 +682,12 @@ class CustomerRequestCaseWriteService
         $formFields = array_values($definition['form_fields'] ?? []);
         $tableName = (string) ($definition['table_name'] ?? 'customer_request_cases');
 
-        if ($case !== null && (string) $case->current_status_code === $statusCode) {
+        $handlerUserId = $this->support->parseNullableInt($source['handler_user_id'] ?? null);
+        if ($handlerUserId !== null) {
+            $source['to_user_id'] = $handlerUserId;
+        }
+
+        if ($case !== null && (string) $case->current_status_code === (string) $definition['status_code']) {
             $currentInstance = $this->currentStatusInstance($case);
             if ($currentInstance !== null) {
                 $existingRow = $this->readModelService->loadStatusRow($tableName, $currentInstance->status_row_id);
@@ -757,72 +762,23 @@ class CustomerRequestCaseWriteService
      */
     private function applyStatusDefaults(array $definition, array &$normalized, ?CustomerRequestCase $case, ?int $actorId): void
     {
-        $statusCode = (string) ($definition['status_code'] ?? '');
-        $workflowDefinitionId = $this->support->parseNullableInt($definition['workflow_definition_id'] ?? ($case?->workflow_definition_id ?? null));
-        $handlerField = $this->metadataService->resolveHandlerField($statusCode, $workflowDefinitionId);
+        $normalized['received_at'] = $this->readQueryService->normalizeDateTime($normalized['received_at'] ?? null)
+            ?? $this->readQueryService->normalizeDateTime($case?->received_at)
+            ?? now()->format('Y-m-d H:i:s');
+        $normalized['completed_at'] = $this->readQueryService->normalizeDateTime($normalized['completed_at'] ?? null);
+        $normalized['extended_at'] = $this->readQueryService->normalizeDateTime($normalized['extended_at'] ?? null);
 
-        if ($handlerField !== null && array_key_exists('handler_user_id', $normalized) && ! array_key_exists($handlerField, $normalized)) {
-            $normalized[$handlerField] = $this->support->parseNullableInt($normalized['handler_user_id']);
-        }
-        unset($normalized['handler_user_id']);
+        $progress = $this->support->parseNullableInt($normalized['progress_percent'] ?? null);
+        $normalized['progress_percent'] = $progress === null ? 0 : max(0, min(100, $progress));
 
-        if ($handlerField !== null) {
-            $normalized[$handlerField] = $this->resolveHandlerFieldDefaultValue($statusCode, $handlerField, $normalized, $case, $actorId);
-        }
+        $normalized['from_user_id'] = $this->support->parseNullableInt($normalized['from_user_id'] ?? null)
+            ?? $actorId;
+        $normalized['to_user_id'] = $this->support->parseNullableInt($normalized['to_user_id'] ?? null);
 
-        switch ($statusCode) {
-            case 'new_intake':
-                $normalized['received_at'] = $this->readQueryService->normalizeDateTime($case?->received_at)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'assigned_to_receiver':
-                $normalized['accepted_at'] = $this->readQueryService->normalizeDateTime($normalized['accepted_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'pending_dispatch':
-                $normalized['dispatched_at'] = $this->readQueryService->normalizeDateTime($normalized['dispatched_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'receiver_in_progress':
-                $normalized['started_at'] = $this->readQueryService->normalizeDateTime($normalized['started_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                $normalized['progress_percent'] = max(0, min(100, (int) ($normalized['progress_percent'] ?? 0)));
-                break;
-            case 'waiting_customer_feedback':
-                $normalized['feedback_requested_at'] = $this->readQueryService->normalizeDateTime($normalized['feedback_requested_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'in_progress':
-                $normalized['started_at'] = $this->readQueryService->normalizeDateTime($normalized['started_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                $normalized['progress_percent'] = max(0, min(100, (int) ($normalized['progress_percent'] ?? 0)));
-                break;
-            case 'not_executed':
-                $normalized['decision_at'] = $this->readQueryService->normalizeDateTime($normalized['decision_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'completed':
-                $normalized['completed_at'] = $this->readQueryService->normalizeDateTime($normalized['completed_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'customer_notified':
-                $normalized['notified_at'] = $this->readQueryService->normalizeDateTime($normalized['notified_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'returned_to_manager':
-                $normalized['returned_at'] = $this->readQueryService->normalizeDateTime($normalized['returned_at'] ?? null)
-                    ?? now()->format('Y-m-d H:i:s');
-                break;
-            case 'coding':
-                if (($normalized['coding_phase'] ?? null) === null) {
-                    $normalized['coding_phase'] = 'coding';
-                }
-                break;
-            case 'dms_transfer':
-                if (($normalized['dms_phase'] ?? null) === null) {
-                    $normalized['dms_phase'] = 'exchange';
-                }
-                break;
+        $normalized['notes'] = $this->normalizeNullableString($normalized['notes'] ?? null);
+
+        if (in_array($statusCode, ['completed', 'customer_notified'], true) && $normalized['completed_at'] === null) {
+            $normalized['completed_at'] = now()->format('Y-m-d H:i:s');
         }
     }
 
@@ -846,7 +802,11 @@ class CustomerRequestCaseWriteService
                 ?? $actorId,
             'receiver_in_progress' => $this->support->parseNullableInt($case?->performer_user_id) ?? $actorId,
             'in_progress', 'analysis' => $this->support->parseNullableInt($case?->received_by_user_id) ?? $actorId,
-            'not_executed', 'returned_to_manager' => $actorId,
+            'not_executed' => $actorId,
+            'returned_to_manager' => $this->support->parseNullableInt($normalized['to_user_id'] ?? null)
+                ?? $this->support->parseNullableInt($case?->performer_user_id)
+                ?? $this->support->parseNullableInt($case?->nguoi_xu_ly_id)
+                ?? $actorId,
             'completed' => $this->support->parseNullableInt($case?->received_by_user_id) ?? $actorId,
             'customer_notified' => $this->resolveNotificationHandlerUserId($case, $actorId),
             'coding' => $this->support->parseNullableInt($case?->performer_user_id) ?? $actorId,
@@ -1470,12 +1430,69 @@ class CustomerRequestCaseWriteService
      */
     private function allowedTransitionRowsForCase(CustomerRequestCase $case, string $statusCode): array
     {
-        return $this->transitionEvaluator->filterAllowedTransitionsForCase(
-            $case,
-            $statusCode,
-            $this->allowedTransitionRows($statusCode, $case->workflow_definition_id),
-            'forward'
-        );
+        $rows = $this->allowedTransitionRows($statusCode);
+        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
+
+        if ($allowedTargets === null) {
+            return $rows;
+        }
+
+        return $this->alignTransitionRowsWithWorkflowTargets($rows, $statusCode, $allowedTargets);
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function resolveXmlAlignedAllowedTargets(CustomerRequestCase $case, string $statusCode): ?array
+    {
+        return CustomerRequestCaseRegistry::workflowaAllowedTargets($this->normalizeWorkflowStatusCode($statusCode));
+    }
+
+    private function normalizeWorkflowStatusCode(string $statusCode): string
+    {
+        return match ($statusCode) {
+            'pending_dispatch', 'dispatched' => 'new_intake',
+            default => $statusCode,
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<int, string> $allowedTargets
+     * @return array<int, array<string, mixed>>
+     */
+    private function alignTransitionRowsWithWorkflowTargets(array $rows, string $fromStatusCode, array $allowedTargets): array
+    {
+        $rowsByTarget = [];
+        foreach ($rows as $row) {
+            $toStatusCode = (string) ($row['to_status_code'] ?? '');
+            if ($toStatusCode === '') {
+                continue;
+            }
+
+            $rowsByTarget[$toStatusCode] = $row;
+        }
+
+        $aligned = [];
+        foreach ($allowedTargets as $index => $toStatusCode) {
+            $existing = $rowsByTarget[$toStatusCode] ?? null;
+            if ($existing !== null) {
+                $aligned[] = $existing;
+                continue;
+            }
+
+            $aligned[] = [
+                'from_status_code' => $fromStatusCode,
+                'to_status_code' => $toStatusCode,
+                'direction' => 'forward',
+                'is_default' => $index === 0,
+                'is_active' => 1,
+                'sort_order' => ($index + 1) * 10,
+                'notes' => 'WorkflowA fallback target injection',
+            ];
+        }
+
+        return $aligned;
     }
 
     /**
@@ -1509,6 +1526,33 @@ class CustomerRequestCaseWriteService
         return [$derived, $errors];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDecisionMetadataForTransition(
+        CustomerRequestCase $case,
+        string $fromStatusCode,
+        string $toStatusCode
+    ): array {
+        if (! in_array($toStatusCode, ['waiting_customer_feedback', 'not_executed'], true)) {
+            return [];
+        }
+
+        $applies = $fromStatusCode === 'returned_to_manager'
+            || $fromStatusCode === 'new_intake';
+
+        if (! $applies) {
+            return [];
+        }
+
+        return [
+            'decision_context_code' => self::PM_MISSING_CUSTOMER_INFO_DECISION_CONTEXT_CODE,
+            'decision_outcome_code' => $toStatusCode === 'waiting_customer_feedback'
+                ? self::PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO
+                : self::PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON,
+            'decision_source_status_code' => $fromStatusCode,
+        ];
+    }
 
     private function extractDecisionInput(Request $request, array $statusSource, string $field): ?string
     {
@@ -1575,16 +1619,12 @@ class CustomerRequestCaseWriteService
 
     private function resolveStatusEnteredAt(string $statusCode, array $statusPayload, CustomerRequestCase $case): string
     {
-        $candidates = match ($statusCode) {
-            'new_intake' => [$statusPayload['received_at'] ?? null, $case->received_at, $case->created_at],
-            'waiting_customer_feedback' => [$statusPayload['feedback_requested_at'] ?? null, $case->received_at],
-            'in_progress' => [$statusPayload['started_at'] ?? null, $case->received_at],
-            'not_executed' => [$statusPayload['decision_at'] ?? null, now()],
-            'completed' => [$statusPayload['completed_at'] ?? null, now()],
-            'customer_notified' => [$statusPayload['notified_at'] ?? null, now()],
-            'returned_to_manager' => [$statusPayload['returned_at'] ?? null, now()],
-            default => [now()],
-        };
+        $candidates = [
+            $statusPayload['received_at'] ?? null,
+            $case->received_at,
+            $case->created_at,
+            now(),
+        ];
 
         foreach ($candidates as $candidate) {
             $normalized = $this->readQueryService->normalizeDateTime($candidate);

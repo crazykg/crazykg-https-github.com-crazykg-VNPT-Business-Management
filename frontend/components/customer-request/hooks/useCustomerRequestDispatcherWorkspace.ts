@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import {
@@ -38,7 +39,7 @@ export const useCustomerRequestDispatcherWorkspace = ({
   }, [dataVersion, dispatcherQuery.refetch, enabled]);
 
   useEffect(() => {
-    if (!dispatcherQuery.error) {
+    if (!dispatcherQuery.error || isRequestCanceledError(dispatcherQuery.error)) {
       return;
     }
 

@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Employee, ProjectItemMaster } from '../types';
 import { CustomerRequestDetailPane } from '../components/customer-request/CustomerRequestDetailPane';
-import { buildInitialCreateFlowDraft } from '../components/customer-request/createFlow';
 
 const employees: Employee[] = [
   {
@@ -59,9 +58,6 @@ describe('CustomerRequestDetailPane UI', () => {
         availableProjectItems={[selectedProjectItem]}
         selectedProjectItem={selectedProjectItem}
         selectedCustomerId="20"
-        currentUserName="Nguyễn A"
-        createFlowDraft={buildInitialCreateFlowDraft(7)}
-        onCreateFlowDraftChange={vi.fn()}
         activeTaskTab="IT360"
         onActiveTaskTabChange={vi.fn()}
         onAddTaskRow={vi.fn()}
@@ -104,7 +100,6 @@ describe('CustomerRequestDetailPane UI', () => {
       />
     );
 
-    expect(screen.getByText('Khởi tạo xử lý')).toBeInTheDocument();
     expect(screen.getByText('Đính kèm nhanh')).toBeInTheDocument();
     expect(screen.getByText('Kế hoạch khi tạo')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Task\/Ref/i })).toBeInTheDocument();
@@ -185,9 +180,6 @@ describe('CustomerRequestDetailPane UI', () => {
         availableProjectItems={[selectedProjectItem]}
         selectedProjectItem={selectedProjectItem}
         selectedCustomerId="20"
-        currentUserName="Nguyễn A"
-        createFlowDraft={buildInitialCreateFlowDraft(7)}
-        onCreateFlowDraftChange={vi.fn()}
         activeTaskTab="IT360"
         onActiveTaskTabChange={vi.fn()}
         onAddTaskRow={vi.fn()}

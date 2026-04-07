@@ -79,9 +79,9 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
         }
     }
 
-    public function test_new_intake_can_transition_directly_to_pm_review_outcomes(): void
+    public function test_new_intake_only_allows_workflowa_entry_targets(): void
     {
-        foreach (['not_executed', 'analysis', 'waiting_customer_feedback'] as $statusCode) {
+        foreach (['assigned_to_receiver', 'returned_to_manager'] as $statusCode) {
             $caseId = $this->createCase();
 
             $this->transition($caseId, $statusCode)->assertOk();
@@ -103,6 +103,9 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
         $this->assertSame(3, (int) $row->performer_user_id);
         $this->assertSame('new_intake', $row->current_status_code);
 
+        $this->transition($caseId, 'assigned_to_receiver')->assertOk();
+        $this->assertStatus($caseId, 'assigned_to_receiver');
+
         $this->transition($caseId, 'in_progress')->assertOk();
         $this->assertStatus($caseId, 'in_progress');
     }
@@ -122,7 +125,9 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_analysis_to_coding_flow(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
 
         $this->transition($caseId, 'coding', [
             'developer_user_id' => 3,
@@ -138,7 +143,9 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_analysis_to_dms_transfer_flow(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
 
         $this->transition($caseId, 'dms_transfer')->assertOk();
         $this->assertStatus($caseId, 'dms_transfer');
@@ -152,8 +159,11 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_coding_to_completed(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
         $this->transition($caseId, 'coding')->assertOk();
+        $this->transition($caseId, 'coding_in_progress')->assertOk();
 
         $this->transition($caseId, 'completed')->assertOk();
         $this->assertStatus($caseId, 'completed');
@@ -162,8 +172,12 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_dms_transfer_to_completed(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
         $this->transition($caseId, 'dms_transfer')->assertOk();
+        $this->transition($caseId, 'dms_task_created')->assertOk();
+        $this->transition($caseId, 'dms_in_progress')->assertOk();
 
         $this->transition($caseId, 'completed')->assertOk();
         $this->assertStatus($caseId, 'completed');
@@ -172,22 +186,28 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_backward_transitions(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
         $this->transition($caseId, 'coding')->assertOk();
-        $this->transition($caseId, 'analysis')->assertOk();
-        $this->assertStatus($caseId, 'analysis');
+        $this->transition($caseId, 'analysis')->assertUnprocessable();
+        $this->assertStatus($caseId, 'coding');
 
         $caseId2 = $this->createCase();
+        $this->transition($caseId2, 'returned_to_manager')->assertOk();
         $this->transition($caseId2, 'analysis')->assertOk();
+        $this->transition($caseId2, 'analysis_completed')->assertOk();
         $this->transition($caseId2, 'dms_transfer')->assertOk();
-        $this->transition($caseId2, 'analysis')->assertOk();
-        $this->assertStatus($caseId2, 'analysis');
+        $this->transition($caseId2, 'analysis')->assertUnprocessable();
+        $this->assertStatus($caseId2, 'dms_transfer');
     }
 
     public function test_sub_status_update_coding_phase(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
         $this->transition($caseId, 'coding')->assertOk();
 
         foreach (['coding_done', 'upcode_pending', 'upcode_deployed'] as $phase) {
@@ -208,7 +228,9 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
     public function test_sub_status_update_dms_phase(): void
     {
         $caseId = $this->createCase();
+        $this->transition($caseId, 'returned_to_manager')->assertOk();
         $this->transition($caseId, 'analysis')->assertOk();
+        $this->transition($caseId, 'analysis_completed')->assertOk();
         $this->transition($caseId, 'dms_transfer')->assertOk();
 
         foreach (['task_created', 'in_progress', 'completed'] as $phase) {
@@ -256,9 +278,14 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
             $this->assertContains($code, $statuses, "Status catalog missing: {$code}");
         }
 
-        foreach (['pending_dispatch', 'dispatched'] as $code) {
-            $this->assertNotContains($code, $statuses, "Legacy status should be hidden: {$code}");
-        }
+        $this->assertContains('assigned_to_receiver', $statuses, 'Status catalog missing: assigned_to_receiver');
+        $this->assertContains('analysis_completed', $statuses, 'Status catalog missing: analysis_completed');
+        $this->assertContains('analysis_suspended', $statuses, 'Status catalog missing: analysis_suspended');
+        $this->assertContains('coding_in_progress', $statuses, 'Status catalog missing: coding_in_progress');
+        $this->assertContains('coding_suspended', $statuses, 'Status catalog missing: coding_suspended');
+        $this->assertContains('dms_task_created', $statuses, 'Status catalog missing: dms_task_created');
+        $this->assertContains('dms_in_progress', $statuses, 'Status catalog missing: dms_in_progress');
+        $this->assertContains('dms_suspended', $statuses, 'Status catalog missing: dms_suspended');
     }
 
     public function test_status_transitions_do_not_expose_legacy_intake_statuses(): void
@@ -269,11 +296,16 @@ class CustomerRequestCaseWorkflowV4Test extends TestCase
             ->map(static fn (array $row): string => ($row['from_status_code'] ?? '').'->'.($row['to_status_code'] ?? ''))
             ->all();
 
-        $this->assertContains('new_intake->analysis', $pairs);
-        $this->assertContains('new_intake->waiting_customer_feedback', $pairs);
-        $this->assertContains('new_intake->not_executed', $pairs);
-        $this->assertContains('new_intake->in_progress', $pairs);
+        $this->assertContains('new_intake->assigned_to_receiver', $pairs);
         $this->assertContains('new_intake->returned_to_manager', $pairs);
+        $this->assertContains('assigned_to_receiver->in_progress', $pairs);
+        $this->assertContains('analysis->analysis_completed', $pairs);
+        $this->assertContains('analysis->analysis_suspended', $pairs);
+        $this->assertContains('coding->coding_in_progress', $pairs);
+        $this->assertContains('coding_in_progress->coding_suspended', $pairs);
+        $this->assertContains('dms_transfer->dms_task_created', $pairs);
+        $this->assertContains('dms_task_created->dms_in_progress', $pairs);
+        $this->assertContains('dms_in_progress->dms_suspended', $pairs);
 
         foreach ($pairs as $pair) {
             $this->assertStringNotContainsString('pending_dispatch', $pair);

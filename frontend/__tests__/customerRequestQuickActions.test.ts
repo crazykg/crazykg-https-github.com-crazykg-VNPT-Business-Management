@@ -47,6 +47,7 @@ describe('customer request quick actions', () => {
     expect(actions.find((action) => action.id === 'assign_performer')?.payloadOverrides).toEqual({
       performer_user_id: '',
     });
+    expect(actions.find((action) => action.id === 'assign_performer')?.targetStatusCode).toBe('in_progress');
   });
 
   it('collapses PM missing-customer-info outcomes into one dispatcher action', () => {
@@ -79,6 +80,8 @@ describe('customer request quick actions', () => {
       transitionOptions: [
         makeProcess('in_progress'),
         makeProcess('analysis'),
+        makeProcess('analysis_completed'),
+        makeProcess('analysis_suspended'),
         makeProcess('completed'),
         makeProcess('returned_to_manager'),
         makeProcess('customer_notified'),
@@ -96,11 +99,12 @@ describe('customer request quick actions', () => {
     expect(actions.find((action) => action.id === 'take_task')?.payloadOverrides).toEqual({
       performer_user_id: '88',
     });
-    expect(actions.find((action) => action.id === 'complete_task')?.payloadOverrides).toEqual({
-      completed_by_user_id: '88',
-    });
-    expect(actions.find((action) => action.id === 'return_to_manager')?.payloadOverrides).toEqual({
-      returned_by_user_id: '88',
+    expect(actions.find((action) => action.id === 'take_task')?.targetStatusCode).toBe('in_progress');
+    expect(actions.find((action) => action.id === 'analysis_task')?.targetStatusCode).toBe('analysis');
+    expect(actions.find((action) => action.id === 'complete_task')?.targetStatusCode).toBe('analysis_completed');
+    expect(actions.find((action) => action.id === 'return_to_manager')?.targetStatusCode).toBe('analysis_suspended');
+    expect(actions.find((action) => action.id === 'notify_customer')?.payloadOverrides).toEqual({
+      notified_by_user_id: '88',
     });
   });
 

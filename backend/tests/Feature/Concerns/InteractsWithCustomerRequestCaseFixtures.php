@@ -305,11 +305,31 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
         $alignInProgressTransitionsMigration->up();
+
+        $alignWorkflowAAndFixedFieldsMigration = require base_path('database/migrations/2026_04_06_160000_align_workflowa_and_fixed_status_fields.php');
+        $alignWorkflowAAndFixedFieldsMigration->up();
+
+        $createAdditionalWorkflowStatusTablesMigration = require base_path('database/migrations/2026_04_06_171000_create_crc_workflowa_additional_status_tables.php');
+        $createAdditionalWorkflowStatusTablesMigration->up();
+
+        $realignWorkflowRuntimeMigration = require base_path('database/migrations/2026_04_06_183000_realign_workflowa_transition_graph_runtime.php');
+        $realignWorkflowRuntimeMigration->up();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
     {
         Schema::disableForeignKeyConstraints();
+
+        $realignWorkflowRuntimeMigration = require base_path('database/migrations/2026_04_06_183000_realign_workflowa_transition_graph_runtime.php');
+        $realignWorkflowRuntimeMigration->down();
+
+        $createAdditionalWorkflowStatusTablesMigration = require base_path('database/migrations/2026_04_06_171000_create_crc_workflowa_additional_status_tables.php');
+        $createAdditionalWorkflowStatusTablesMigration->down();
+
+        $alignWorkflowAAndFixedFieldsMigration = require base_path('database/migrations/2026_04_06_160000_align_workflowa_and_fixed_status_fields.php');
+        $alignWorkflowAAndFixedFieldsMigration->down();
+
+        // V4 teardown (reverse order)
 
         // V4 teardown (reverse order)
         $alignInProgressTransitionsMigration = require base_path('database/migrations/2026_03_25_100000_align_in_progress_transitions_with_xml.php');
