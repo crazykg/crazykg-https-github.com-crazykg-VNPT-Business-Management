@@ -3,12 +3,14 @@
 namespace App\Services\V5\Domain;
 
 use App\Models\Product;
+use App\Services\V5\IntegrationSettings\EmailSmtpIntegrationService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -25,6 +27,7 @@ class ProductFeatureCatalogDomainService
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
         private readonly CustomerInsightService $insightService,
+        private readonly EmailSmtpIntegrationService $emailSmtp,
     ) {}
 
     public function show(Request $request, int $productId): JsonResponse
@@ -223,6 +226,8 @@ class ProductFeatureCatalogDomainService
                 $oldAuditPayload,
                 $newAuditPayload
             );
+
+            $this->sendCatalogAuditNotification($request, $product, $catalogScope, $changeSummary);
         }
 
         foreach ($catalogProductIds as $catalogProductId) {
@@ -1190,6 +1195,390 @@ class ProductFeatureCatalogDomainService
             'updated_at' => $record['updated_at'] ?? null,
             'updated_by' => $record['updated_by'] ?? null,
         ];
+    }
+
+    private function sendCatalogAuditNotification(
+        Request $request,
+        Product $product,
+        array $catalogScope,
+        array $changeSummary
+    ): void {
+        $recipients = collect(config('audit.product_feature_catalog_notification_recipients', []))
+            ->map(fn (mixed $email): string => strtolower(trim((string) $email)))
+            ->filter(fn (string $email): bool => $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($recipients === []) {
+            return;
+        }
+
+        $actor = $request->user();
+        $actorName = trim((string) ($actor?->full_name ?? $actor?->username ?? 'Không rõ'));
+        $actorUsername = trim((string) ($actor?->username ?? ''));
+        $actorDisplay = $actorUsername !== ''
+            ? sprintf('%s (%s)', $actorName, $actorUsername)
+            : $actorName;
+        $performedAt = now()->format('d/m/Y H:i:s');
+
+        $result = $this->emailSmtp->sendHtmlEmail(
+            $recipients,
+            $this->buildCatalogAuditEmailSubject($product, $changeSummary),
+            $this->buildCatalogAuditEmailLines($request, $product, $catalogScope, $changeSummary, $performedAt, $actorDisplay),
+            $this->buildCatalogAuditEmailHtml($request, $product, $catalogScope, $changeSummary, $performedAt, $actorDisplay)
+        );
+
+        if (($result['success'] ?? false) === true) {
+            return;
+        }
+
+        Log::warning('product_feature_catalog.audit_email_failed', [
+            'product_id' => $product->getKey(),
+            'product_code' => $product->product_code ?? null,
+            'recipients' => $recipients,
+            'message' => $result['message'] ?? 'Unknown mail error.',
+        ]);
+    }
+
+    private function buildCatalogAuditEmailSubject(Product $product, array $changeSummary): string
+    {
+        $source = strtoupper(trim((string) ($changeSummary['source'] ?? 'FORM')));
+        $sourceLabel = $source === 'IMPORT' ? 'Import' : 'Cập nhật';
+        $productCode = trim((string) ($product->product_code ?? ''));
+        $productName = trim((string) ($product->product_name ?? ''));
+        $productLabel = $productCode !== ''
+            ? $productCode
+            : ($productName !== '' ? $productName : sprintf('Product #%s', (string) $product->getKey()));
+
+        return sprintf('[VNPT Business] %s danh mục chức năng - %s', $sourceLabel, $productLabel);
+    }
+
+    private function buildCatalogAuditEmailLines(
+        Request $request,
+        Product $product,
+        array $catalogScope,
+        array $changeSummary,
+        string $performedAt,
+        string $actorDisplay
+    ): array {
+        $source = strtoupper(trim((string) ($changeSummary['source'] ?? 'FORM')));
+        $sourceLabel = $source === 'IMPORT' ? 'Import file' : 'Nhập tay trên giao diện';
+        $packageCount = max(1, (int) ($catalogScope['package_count'] ?? 1));
+        $entries = is_array($changeSummary['entries'] ?? null) ? $changeSummary['entries'] : [];
+        $visibleEntries = array_slice($entries, 0, 20);
+        $remainingEntryCount = max(0, count($entries) - count($visibleEntries));
+        $counts = is_array($changeSummary['counts'] ?? null) ? $changeSummary['counts'] : [];
+
+        $messageLines = [
+            'Hệ thống vừa ghi nhận một lần lưu danh mục chức năng.',
+            '',
+            'Sản phẩm: ' . trim((string) ($product->product_name ?? '')),
+            'Mã sản phẩm: ' . trim((string) ($product->product_code ?? '')),
+            'Gói triển khai cùng catalog: ' . $packageCount,
+            'Người thực hiện: ' . $actorDisplay,
+            'Thời gian: ' . $performedAt,
+            'Nguồn thao tác: ' . $sourceLabel,
+            'URL: ' . $request->fullUrl(),
+            'IP: ' . (string) ($request->ip() ?? 'Không rõ'),
+            '',
+            'Tổng quan thay đổi:',
+            '- Phân hệ tạo mới: ' . (int) ($counts['groups_created'] ?? 0),
+            '- Phân hệ cập nhật: ' . (int) ($counts['groups_updated'] ?? 0),
+            '- Phân hệ xóa: ' . (int) ($counts['groups_deleted'] ?? 0),
+            '- Chức năng tạo mới: ' . (int) ($counts['features_created'] ?? 0),
+            '- Chức năng cập nhật: ' . (int) ($counts['features_updated'] ?? 0),
+            '- Chức năng xóa: ' . (int) ($counts['features_deleted'] ?? 0),
+        ];
+
+        $import = is_array($changeSummary['import'] ?? null) ? $changeSummary['import'] : null;
+        if ($import !== null) {
+            $messageLines[] = '';
+            $messageLines[] = 'Thông tin import:';
+            $messageLines[] = '- File: ' . trim((string) ($import['file_name'] ?? 'Không rõ'));
+            $messageLines[] = '- Sheet: ' . trim((string) ($import['sheet_name'] ?? 'Không rõ'));
+            $messageLines[] = '- Số dòng: ' . (int) ($import['row_count'] ?? 0);
+            $messageLines[] = '- Số phân hệ: ' . (int) ($import['group_count'] ?? 0);
+            $messageLines[] = '- Số chức năng: ' . (int) ($import['feature_count'] ?? 0);
+        }
+
+        if ($visibleEntries !== []) {
+            $messageLines[] = '';
+            $messageLines[] = 'Chi tiết thay đổi:';
+
+            foreach ($visibleEntries as $entry) {
+                $messageLines[] = '- ' . trim((string) ($entry['message'] ?? 'Thay đổi không rõ'));
+
+                $fieldChanges = is_array($entry['field_changes'] ?? null) ? $entry['field_changes'] : [];
+                foreach ($fieldChanges as $change) {
+                    $messageLines[] = sprintf(
+                        '  + %s: %s -> %s',
+                        trim((string) ($change['label'] ?? 'Trường')),
+                        trim((string) ($change['from'] ?? '—')),
+                        trim((string) ($change['to'] ?? '—'))
+                    );
+                }
+            }
+
+            if ($remainingEntryCount > 0) {
+                $messageLines[] = sprintf('... và còn %d thay đổi khác trong hệ thống.', $remainingEntryCount);
+            }
+        }
+
+        $messageLines[] = '';
+        $messageLines[] = 'Bạn có thể mở màn hình Danh mục chức năng để xem lịch sử thay đổi chi tiết.';
+
+        return $messageLines;
+    }
+
+    private function buildCatalogAuditEmailHtml(
+        Request $request,
+        Product $product,
+        array $catalogScope,
+        array $changeSummary,
+        string $performedAt,
+        string $actorDisplay
+    ): string {
+        $source = strtoupper(trim((string) ($changeSummary['source'] ?? 'FORM')));
+        $sourceLabel = $source === 'IMPORT' ? 'Import file' : 'Nhập tay trên giao diện';
+        $packageCount = max(1, (int) ($catalogScope['package_count'] ?? 1));
+        $productName = trim((string) ($product->product_name ?? ''));
+        $productCode = trim((string) ($product->product_code ?? ''));
+        $counts = is_array($changeSummary['counts'] ?? null) ? $changeSummary['counts'] : [];
+        $entries = is_array($changeSummary['entries'] ?? null) ? $changeSummary['entries'] : [];
+        $visibleEntries = array_slice($entries, 0, 20);
+        $remainingEntryCount = max(0, count($entries) - count($visibleEntries));
+        $import = is_array($changeSummary['import'] ?? null) ? $changeSummary['import'] : null;
+        $url = trim((string) $request->fullUrl());
+
+        $infoRows = [
+            ['label' => 'Sản phẩm', 'value' => $productName !== '' ? $productName : '—'],
+            ['label' => 'Mã sản phẩm', 'value' => $productCode !== '' ? $productCode : '—'],
+            ['label' => 'Gói triển khai cùng catalog', 'value' => (string) $packageCount],
+            ['label' => 'Người thực hiện', 'value' => $actorDisplay],
+            ['label' => 'Thời gian', 'value' => $performedAt],
+            ['label' => 'Nguồn thao tác', 'value' => $sourceLabel],
+            [
+                'label' => 'URL',
+                'value' => $url !== ''
+                    ? '<a href="' . $this->escapeCatalogAuditHtml($url) . '" style="color:#0b4f93;text-decoration:none;">'
+                        . $this->escapeCatalogAuditHtml($url)
+                        . '</a>'
+                    : '—',
+                'is_html' => $url !== '',
+            ],
+            ['label' => 'IP', 'value' => (string) ($request->ip() ?? 'Không rõ')],
+        ];
+
+        $summaryRows = [
+            ['label' => 'Phân hệ tạo mới', 'value' => (string) (int) ($counts['groups_created'] ?? 0)],
+            ['label' => 'Phân hệ cập nhật', 'value' => (string) (int) ($counts['groups_updated'] ?? 0)],
+            ['label' => 'Phân hệ xóa', 'value' => (string) (int) ($counts['groups_deleted'] ?? 0)],
+            ['label' => 'Chức năng tạo mới', 'value' => (string) (int) ($counts['features_created'] ?? 0)],
+            ['label' => 'Chức năng cập nhật', 'value' => (string) (int) ($counts['features_updated'] ?? 0)],
+            ['label' => 'Chức năng xóa', 'value' => (string) (int) ($counts['features_deleted'] ?? 0)],
+        ];
+
+        $html = [
+            '<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>',
+            '<body style="margin:0;padding:24px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">',
+            '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:1100px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:16px;">',
+            '<tr><td style="padding:28px 32px 16px 32px;">',
+            '<div style="font-size:24px;font-weight:700;color:#0b4f93;">Thông báo cập nhật danh mục chức năng</div>',
+            '<div style="margin-top:8px;font-size:14px;line-height:1.6;color:#4b5563;">Hệ thống vừa ghi nhận một lần lưu danh mục chức năng. Bạn có thể mở màn hình Danh mục chức năng để xem lịch sử thay đổi chi tiết.</div>',
+            '</td></tr>',
+            '<tr><td style="padding:0 32px 24px 32px;">',
+            '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Thông tin thao tác</div>',
+            $this->renderCatalogAuditKeyValueTableHtml($infoRows),
+            '</td></tr>',
+            '<tr><td style="padding:0 32px 24px 32px;">',
+            '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Tổng quan thay đổi</div>',
+            $this->renderCatalogAuditKeyValueTableHtml($summaryRows),
+            '</td></tr>',
+        ];
+
+        if ($import !== null) {
+            $importRows = [
+                ['label' => 'File import', 'value' => trim((string) ($import['file_name'] ?? 'Không rõ'))],
+                ['label' => 'Sheet import', 'value' => trim((string) ($import['sheet_name'] ?? 'Không rõ'))],
+                ['label' => 'Số dòng', 'value' => (string) (int) ($import['row_count'] ?? 0)],
+                ['label' => 'Số phân hệ', 'value' => (string) (int) ($import['group_count'] ?? 0)],
+                ['label' => 'Số chức năng', 'value' => (string) (int) ($import['feature_count'] ?? 0)],
+            ];
+
+            $html[] = '<tr><td style="padding:0 32px 24px 32px;">';
+            $html[] = '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Thông tin import</div>';
+            $html[] = $this->renderCatalogAuditKeyValueTableHtml($importRows);
+            $html[] = '</td></tr>';
+        }
+
+        $html[] = '<tr><td style="padding:0 32px 32px 32px;">';
+        $html[] = '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Nội dung thay đổi</div>';
+        $html[] = '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;border:1px solid #dbe4f0;">';
+        $html[] = '<thead><tr>';
+        $html[] = '<th align="left" style="width:38%;padding:14px 16px;background:#f8fbff;border:1px solid #dbe4f0;font-size:13px;font-weight:700;color:#0f172a;">Nội dung cũ</th>';
+        $html[] = '<th align="left" style="width:38%;padding:14px 16px;background:#f8fbff;border:1px solid #dbe4f0;font-size:13px;font-weight:700;color:#0f172a;">Nội dung đã cập nhật</th>';
+        $html[] = '<th align="left" style="width:24%;padding:14px 16px;background:#f8fbff;border:1px solid #dbe4f0;font-size:13px;font-weight:700;color:#0f172a;">Người cập nhật, ngày giờ cập nhật</th>';
+        $html[] = '</tr></thead><tbody>';
+        $html[] = $this->buildCatalogAuditEmailChangeRowsHtml($visibleEntries, $actorDisplay, $performedAt);
+
+        if ($remainingEntryCount > 0) {
+            $html[] = '<tr>';
+            $html[] = '<td colspan="3" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;color:#4b5563;background:#fafcff;">';
+            $html[] = $this->escapeCatalogAuditHtml(sprintf('Còn %d thay đổi khác trong hệ thống. Vui lòng mở màn hình Danh mục chức năng để xem đầy đủ.', $remainingEntryCount));
+            $html[] = '</td></tr>';
+        }
+
+        if ($visibleEntries === []) {
+            $html[] = '<tr><td colspan="3" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;color:#4b5563;">Không có thay đổi chi tiết để hiển thị.</td></tr>';
+        }
+
+        $html[] = '</tbody></table>';
+        $html[] = '</td></tr>';
+        $html[] = '</table></body></html>';
+
+        return implode('', $html);
+    }
+
+    private function renderCatalogAuditKeyValueTableHtml(array $rows): string
+    {
+        $html = ['<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;border:1px solid #dbe4f0;">'];
+
+        foreach ($rows as $row) {
+            $value = (string) ($row['value'] ?? '—');
+            $html[] = '<tr>';
+            $html[] = '<td style="width:32%;padding:12px 16px;border:1px solid #dbe4f0;background:#f8fbff;font-size:13px;font-weight:600;color:#374151;">'
+                . $this->escapeCatalogAuditHtml((string) ($row['label'] ?? 'Thông tin'))
+                . '</td>';
+            $html[] = '<td style="padding:12px 16px;border:1px solid #dbe4f0;font-size:13px;line-height:1.6;color:#111827;">'
+                . (($row['is_html'] ?? false) ? $value : $this->formatCatalogAuditHtmlValue($value))
+                . '</td>';
+            $html[] = '</tr>';
+        }
+
+        $html[] = '</table>';
+
+        return implode('', $html);
+    }
+
+    private function buildCatalogAuditEmailChangeRowsHtml(array $entries, string $actorDisplay, string $performedAt): string
+    {
+        $rows = [];
+
+        foreach ($entries as $entry) {
+            $message = trim((string) ($entry['message'] ?? 'Thay đổi không rõ'));
+            $action = strtoupper(trim((string) ($entry['action'] ?? 'UPDATE')));
+            $fieldChanges = is_array($entry['field_changes'] ?? null) ? $entry['field_changes'] : [];
+
+            if ($fieldChanges !== []) {
+                foreach ($fieldChanges as $change) {
+                    $rows[] = $this->renderCatalogAuditEmailChangeRowHtml(
+                        $this->buildCatalogAuditFieldChangeCellHtml($message, $change, true),
+                        $this->buildCatalogAuditFieldChangeCellHtml($message, $change, false),
+                        $actorDisplay,
+                        $performedAt
+                    );
+                }
+
+                continue;
+            }
+
+            $rows[] = $this->renderCatalogAuditEmailChangeRowHtml(
+                $this->buildCatalogAuditActionCellHtml($message, $action, true),
+                $this->buildCatalogAuditActionCellHtml($message, $action, false),
+                $actorDisplay,
+                $performedAt
+            );
+        }
+
+        return implode('', $rows);
+    }
+
+    private function renderCatalogAuditEmailChangeRowHtml(
+        string $beforeHtml,
+        string $afterHtml,
+        string $actorDisplay,
+        string $performedAt
+    ): string {
+        return implode('', [
+            '<tr>',
+            '<td valign="top" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;line-height:1.7;color:#111827;">',
+            $beforeHtml,
+            '</td>',
+            '<td valign="top" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;line-height:1.7;color:#111827;">',
+            $afterHtml,
+            '</td>',
+            '<td valign="top" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;line-height:1.7;color:#111827;background:#fcfdff;">',
+            '<div style="font-weight:600;color:#0f172a;">', $this->escapeCatalogAuditHtml($actorDisplay), '</div>',
+            '<div style="margin-top:6px;color:#4b5563;">', $this->escapeCatalogAuditHtml($performedAt), '</div>',
+            '</td>',
+            '</tr>',
+        ]);
+    }
+
+    private function buildCatalogAuditFieldChangeCellHtml(string $message, array $change, bool $isBefore): string
+    {
+        $fieldLabel = trim((string) ($change['label'] ?? 'Trường thay đổi'));
+        $value = trim((string) ($change[$isBefore ? 'from' : 'to'] ?? '—'));
+
+        return implode('', [
+            '<div style="font-size:12px;font-weight:700;color:#0b4f93;text-transform:uppercase;letter-spacing:0.04em;">',
+            $this->escapeCatalogAuditHtml($fieldLabel),
+            '</div>',
+            '<div style="margin-top:6px;font-size:13px;font-weight:600;color:#111827;">',
+            $this->escapeCatalogAuditHtml($message),
+            '</div>',
+            '<div style="margin-top:10px;font-size:12px;color:#6b7280;">',
+            $this->escapeCatalogAuditHtml($isBefore ? 'Giá trị cũ' : 'Giá trị đã cập nhật'),
+            '</div>',
+            '<div style="margin-top:4px;color:#111827;white-space:normal;">',
+            $this->formatCatalogAuditHtmlValue($value),
+            '</div>',
+        ]);
+    }
+
+    private function buildCatalogAuditActionCellHtml(string $message, string $action, bool $isBefore): string
+    {
+        if ($action === 'CREATE') {
+            $title = $isBefore ? 'Trước cập nhật' : 'Sau cập nhật';
+            $content = $isBefore ? 'Chưa có dữ liệu trước đó.' : $message;
+
+            return $this->buildCatalogAuditSimpleCellHtml($title, $content);
+        }
+
+        if ($action === 'DELETE') {
+            $title = $isBefore ? 'Trước cập nhật' : 'Sau cập nhật';
+            $content = $isBefore ? $message : 'Dữ liệu đã bị xóa khỏi danh mục chức năng.';
+
+            return $this->buildCatalogAuditSimpleCellHtml($title, $content);
+        }
+
+        return $this->buildCatalogAuditSimpleCellHtml(
+            $isBefore ? 'Trước cập nhật' : 'Sau cập nhật',
+            $message
+        );
+    }
+
+    private function buildCatalogAuditSimpleCellHtml(string $title, string $content): string
+    {
+        return implode('', [
+            '<div style="font-size:12px;font-weight:700;color:#0b4f93;text-transform:uppercase;letter-spacing:0.04em;">',
+            $this->escapeCatalogAuditHtml($title),
+            '</div>',
+            '<div style="margin-top:8px;font-size:13px;color:#111827;line-height:1.7;">',
+            $this->formatCatalogAuditHtmlValue($content),
+            '</div>',
+        ]);
+    }
+
+    private function formatCatalogAuditHtmlValue(string $value): string
+    {
+        return nl2br($this->escapeCatalogAuditHtml($value), false);
+    }
+
+    private function escapeCatalogAuditHtml(mixed $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     private function extractGroupAuditRecord(array $record): array

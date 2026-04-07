@@ -5,6 +5,7 @@ namespace App\Services\V5\Domain;
 use App\Models\Customer;
 use App\Models\InternalUser;
 use App\Models\Project;
+use App\Models\ProjectImplementationUnit;
 use App\Services\V5\CacheService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -68,6 +69,24 @@ class ProjectDomainService
     private const RACI_ROLES = ['R', 'A', 'C', 'I'];
 
     /**
+     * @var array<int, array{table:string,column:string,label:string}>
+     */
+    private const PROJECT_DELETE_REFERENCE_SOURCES = [
+        ['table' => 'project_items', 'column' => 'project_id', 'label' => 'hạng mục dự án'],
+        ['table' => 'project_procedures', 'column' => 'project_id', 'label' => 'quy trình dự án'],
+        ['table' => 'project_revenue_schedules', 'column' => 'project_id', 'label' => 'kế hoạch doanh thu dự án'],
+        ['table' => 'project_implementation_units', 'column' => 'project_id', 'label' => 'đơn vị triển khai'],
+        ['table' => 'contracts', 'column' => 'project_id', 'label' => 'hợp đồng'],
+        ['table' => 'payment_schedules', 'column' => 'project_id', 'label' => 'kỳ thanh toán'],
+        ['table' => 'customer_request_cases', 'column' => 'project_id', 'label' => 'yêu cầu khách hàng'],
+        ['table' => 'customer_requests', 'column' => 'project_id', 'label' => 'phiếu yêu cầu khách hàng'],
+        ['table' => 'support_requests', 'column' => 'project_id', 'label' => 'yêu cầu hỗ trợ'],
+        ['table' => 'documents', 'column' => 'project_id', 'label' => 'hồ sơ tài liệu'],
+        ['table' => 'invoices', 'column' => 'project_id', 'label' => 'hóa đơn'],
+        ['table' => 'monthly_hours_snapshots', 'column' => 'project_id', 'label' => 'bản chụp giờ công'],
+    ];
+
+    /**
      * @var array<int, string>|null
      */
     private ?array $supportedProjectInvestmentModes = null;
@@ -108,6 +127,9 @@ class ProjectDomainService
             ->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ->when($this->support->hasColumn('projects', 'department_id') && $this->support->hasTable('departments'), function ($q): void {
                 $q->with(['department' => fn ($dq) => $dq->select(['id', 'department_code', 'department_name'])]);
+            })
+            ->when($this->support->hasTable('project_implementation_units'), function ($q): void {
+                $q->with('implementationUnit');
             })
             ->select($this->support->selectColumns('projects', [
                 'id',
@@ -244,6 +266,9 @@ class ProjectDomainService
 
         $query = Project::query()
             ->with(['customer' => fn ($builder) => $builder->select($this->support->customerRelationColumns())])
+            ->when($this->support->hasTable('project_implementation_units'), function ($builder): void {
+                $builder->with('implementationUnit');
+            })
             ->whereKey($id);
 
         $this->applyReadScope($request, $query);
@@ -285,6 +310,78 @@ class ProjectDomainService
         ]);
     }
 
+    public function implementationUnitOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('internal_users')) {
+            return $this->support->missingTable('internal_users');
+        }
+        if (! $this->support->hasTable('departments')) {
+            return $this->support->missingTable('departments');
+        }
+
+        $userId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        if ($userId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        $allowedDepartmentIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
+
+        $query = DB::table('internal_users as signer')
+            ->join('departments as dept', 'dept.id', '=', 'signer.department_id');
+
+        if ($this->support->hasColumn('internal_users', 'deleted_at')) {
+            $query->whereNull('signer.deleted_at');
+        }
+        if ($this->support->hasColumn('departments', 'deleted_at')) {
+            $query->whereNull('dept.deleted_at');
+        }
+        if ($allowedDepartmentIds !== null) {
+            $query->whereIn('signer.department_id', $allowedDepartmentIds);
+        }
+
+        $selects = [];
+        $selects[] = $this->support->hasColumn('internal_users', 'id')
+            ? 'signer.id as id'
+            : DB::raw('NULL as id');
+        $selects[] = $this->support->hasColumn('internal_users', 'user_code')
+            ? 'signer.user_code as user_code'
+            : DB::raw('NULL as user_code');
+        $selects[] = $this->support->hasColumn('internal_users', 'full_name')
+            ? 'signer.full_name as full_name'
+            : DB::raw('NULL as full_name');
+        $selects[] = $this->support->hasColumn('internal_users', 'department_id')
+            ? 'signer.department_id as department_id'
+            : DB::raw('NULL as department_id');
+        $selects[] = $this->support->hasColumn('departments', 'dept_code')
+            ? 'dept.dept_code as dept_code'
+            : DB::raw('NULL as dept_code');
+        $selects[] = $this->support->hasColumn('departments', 'dept_name')
+            ? 'dept.dept_name as dept_name'
+            : DB::raw('NULL as dept_name');
+
+        $rows = $query
+            ->select($selects)
+            ->orderBy('dept.dept_name')
+            ->orderBy('signer.full_name')
+            ->get()
+            ->map(function (object $row): array {
+                return [
+                    'id' => $this->support->parseNullableInt($row->id ?? null),
+                    'user_code' => $this->support->normalizeNullableString($row->user_code ?? null),
+                    'full_name' => $this->support->normalizeNullableString($row->full_name ?? null),
+                    'department_id' => $this->support->parseNullableInt($row->department_id ?? null),
+                    'dept_code' => $this->support->normalizeNullableString($row->dept_code ?? null),
+                    'dept_name' => $this->support->normalizeNullableString($row->dept_name ?? null),
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['id'] !== null && $row['department_id'] !== null)
+            ->values();
+
+        return response()->json([
+            'data' => $rows,
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('projects')) {
@@ -302,6 +399,7 @@ class ProjectDomainService
             'expected_end_date' => ['nullable', 'date'],
             'actual_end_date' => ['nullable', 'date'],
             'payment_cycle' => ['nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
+            'implementation_user_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -352,6 +450,14 @@ class ProjectDomainService
             return response()->json(['message' => 'customer_id is invalid.'], 422);
         }
 
+        $implementationUnitContext = $this->resolveProjectImplementationUnitContext(
+            $request,
+            $validated['implementation_user_id'] ?? null
+        );
+        if ($implementationUnitContext instanceof JsonResponse) {
+            return $implementationUnitContext;
+        }
+
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $scopeError = $this->accessAudit->authorizeMutationByScope(
             $request,
@@ -381,7 +487,8 @@ class ProjectDomainService
             $resolvedItems,
             $syncRaci,
             $resolvedRaci,
-            $actorId
+            $actorId,
+            $implementationUnitContext
         ): void {
             $this->support->setAttributeIfColumn($project, 'projects', 'project_code', $validated['project_code']);
             $this->support->setAttributeIfColumn($project, 'projects', 'project_name', $validated['project_name']);
@@ -429,6 +536,8 @@ class ProjectDomainService
             if ($syncRaci) {
                 $this->syncProjectRaci((int) $project->getKey(), $resolvedRaci, $actorId);
             }
+
+            $this->syncProjectImplementationUnit((int) $project->getKey(), $implementationUnitContext, $actorId);
         });
 
         $freshProject = Project::query()->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])->findOrFail($project->getKey());
@@ -471,6 +580,7 @@ class ProjectDomainService
             'expected_end_date' => ['sometimes', 'nullable', 'date'],
             'actual_end_date' => ['sometimes', 'nullable', 'date'],
             'payment_cycle' => ['sometimes', 'nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
+            'implementation_user_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],
@@ -576,8 +686,19 @@ class ProjectDomainService
         $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
         $resolvedItems = $syncItems ? $this->resolveProjectItemsPayload($validated['items'] ?? []) : [];
         $resolvedRaci = $syncRaci ? $this->resolveProjectRaciPayload($validated['raci'] ?? []) : [];
+        $shouldSyncImplementationUnit = array_key_exists('implementation_user_id', $validated);
+        $implementationUnitContext = null;
+        if ($shouldSyncImplementationUnit) {
+            $implementationUnitContext = $this->resolveProjectImplementationUnitContext(
+                $request,
+                $validated['implementation_user_id']
+            );
+            if ($implementationUnitContext instanceof JsonResponse) {
+                return $implementationUnitContext;
+            }
+        }
 
-        DB::transaction(function () use ($project, $syncItems, $resolvedItems, $syncRaci, $resolvedRaci, $actorId): void {
+        DB::transaction(function () use ($project, $syncItems, $resolvedItems, $syncRaci, $resolvedRaci, $actorId, $shouldSyncImplementationUnit, $implementationUnitContext): void {
             $project->save();
 
             if ($syncItems) {
@@ -587,6 +708,10 @@ class ProjectDomainService
 
             if ($syncRaci) {
                 $this->syncProjectRaci((int) $project->getKey(), $resolvedRaci, $actorId);
+            }
+
+            if ($shouldSyncImplementationUnit) {
+                $this->syncProjectImplementationUnit((int) $project->getKey(), $implementationUnitContext, $actorId);
             }
         });
 
@@ -606,6 +731,154 @@ class ProjectDomainService
         ]);
     }
 
+    /**
+     * @return array{
+     *   implementation_user_id:int,
+     *   implementation_user_code:?string,
+     *   implementation_full_name:?string,
+     *   implementation_unit_code:?string,
+     *   implementation_unit_name:?string
+     * }|JsonResponse|null
+     */
+    private function resolveProjectImplementationUnitContext(Request $request, mixed $rawImplementationUserId): array|JsonResponse|null
+    {
+        $implementationUserId = $this->support->parseNullableInt($rawImplementationUserId);
+        if ($implementationUserId === null) {
+            return null;
+        }
+
+        if (! $this->support->hasTable('internal_users') || ! $this->support->hasTable('departments')) {
+            return response()->json([
+                'message' => 'Không thể xác định đơn vị triển khai.',
+                'errors' => [
+                    'implementation_user_id' => ['Không thể xác định đơn vị triển khai.'],
+                ],
+            ], 422);
+        }
+
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+        $allowedDepartmentIds = $actorId === null
+            ? null
+            : app(UserAccessService::class)->resolveDepartmentIdsForUser($actorId);
+
+        $query = DB::table('internal_users as signer')
+            ->join('departments as dept', 'dept.id', '=', 'signer.department_id')
+            ->where('signer.id', $implementationUserId);
+
+        if ($this->support->hasColumn('internal_users', 'deleted_at')) {
+            $query->whereNull('signer.deleted_at');
+        }
+        if ($this->support->hasColumn('departments', 'deleted_at')) {
+            $query->whereNull('dept.deleted_at');
+        }
+        if ($allowedDepartmentIds !== null) {
+            $query->whereIn('signer.department_id', $allowedDepartmentIds);
+        }
+
+        $record = $query->select([
+            $this->support->hasColumn('internal_users', 'id')
+                ? 'signer.id as id'
+                : DB::raw('NULL as id'),
+            $this->support->hasColumn('internal_users', 'user_code')
+                ? 'signer.user_code as user_code'
+                : DB::raw('NULL as user_code'),
+            $this->support->hasColumn('internal_users', 'full_name')
+                ? 'signer.full_name as full_name'
+                : DB::raw('NULL as full_name'),
+            $this->support->hasColumn('departments', 'dept_code')
+                ? 'dept.dept_code as dept_code'
+                : DB::raw('NULL as dept_code'),
+            $this->support->hasColumn('departments', 'dept_name')
+                ? 'dept.dept_name as dept_name'
+                : DB::raw('NULL as dept_name'),
+        ])->first();
+
+        if ($record === null) {
+            return response()->json([
+                'message' => 'Đơn vị triển khai không hợp lệ.',
+                'errors' => [
+                    'implementation_user_id' => ['Đơn vị triển khai không hợp lệ.'],
+                ],
+            ], 422);
+        }
+
+        $unitCode = $this->support->normalizeNullableString($record->dept_code ?? null);
+        if ($unitCode === null) {
+            return response()->json([
+                'message' => 'Người được chọn chưa có mã đơn vị hợp lệ.',
+                'errors' => [
+                    'implementation_user_id' => ['Người được chọn chưa có mã đơn vị hợp lệ.'],
+                ],
+            ], 422);
+        }
+
+        return [
+            'implementation_user_id' => $implementationUserId,
+            'implementation_user_code' => $this->support->normalizeNullableString($record->user_code ?? null),
+            'implementation_full_name' => $this->support->normalizeNullableString($record->full_name ?? null),
+            'implementation_unit_code' => $unitCode,
+            'implementation_unit_name' => $this->support->normalizeNullableString($record->dept_name ?? null),
+        ];
+    }
+
+    /**
+     * @param array{
+     *   implementation_user_id:int,
+     *   implementation_user_code:?string,
+     *   implementation_full_name:?string,
+     *   implementation_unit_code:?string,
+     *   implementation_unit_name:?string
+     * }|null $context
+     */
+    private function syncProjectImplementationUnit(int $projectId, ?array $context, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('project_implementation_units')) {
+            return;
+        }
+
+        $table = DB::table('project_implementation_units')->where('project_id', $projectId);
+
+        if ($context === null) {
+            $table->delete();
+
+            return;
+        }
+
+        $payload = $this->support->filterPayloadByTableColumns('project_implementation_units', [
+            'project_id' => $projectId,
+            'implementation_user_id' => $context['implementation_user_id'],
+            'implementation_user_code' => $context['implementation_user_code'],
+            'implementation_full_name' => $context['implementation_full_name'],
+            'implementation_unit_code' => $context['implementation_unit_code'],
+            'implementation_unit_name' => $context['implementation_unit_name'],
+            'created_by' => $actorId,
+            'updated_by' => $actorId,
+        ]);
+
+        $existing = $table->first();
+        if ($existing === null) {
+            if (array_key_exists('created_by', $payload)) {
+                $payload['created_by'] = $actorId;
+            }
+            if ($this->support->hasColumn('project_implementation_units', 'created_at')) {
+                $payload['created_at'] = now();
+            }
+            if ($this->support->hasColumn('project_implementation_units', 'updated_at')) {
+                $payload['updated_at'] = now();
+            }
+
+            DB::table('project_implementation_units')->insert($payload);
+
+            return;
+        }
+
+        if ($this->support->hasColumn('project_implementation_units', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        $table->update($payload);
+    }
+
     public function destroy(Request $request, int $id): JsonResponse
     {
         if (! $this->support->hasTable('projects')) {
@@ -613,12 +886,110 @@ class ProjectDomainService
         }
 
         $project = Project::query()->findOrFail($id);
+        $references = $this->collectProjectDeleteReferences((int) $project->getKey());
+        if ($references !== []) {
+            return response()->json([
+                'message' => $this->buildProjectDeleteReferenceMessage($references),
+                'data' => [
+                    'references' => $references,
+                ],
+            ], 422);
+        }
+
         $response = $this->accessAudit->deleteModel($request, $project, 'Project');
         if ($response->getStatusCode() < 400) {
             $this->flushListCache();
         }
 
         return $response;
+    }
+
+    /**
+     * @return array<int, array{table:string,label:string,count:int}>
+     */
+    private function collectProjectDeleteReferences(int $projectId): array
+    {
+        $references = [];
+
+        foreach (self::PROJECT_DELETE_REFERENCE_SOURCES as $source) {
+            $table = (string) ($source['table'] ?? '');
+            $column = (string) ($source['column'] ?? 'project_id');
+            $label = (string) ($source['label'] ?? $table);
+
+            if ($table === '' || ! $this->support->hasTable($table) || ! $this->support->hasColumn($table, $column)) {
+                continue;
+            }
+
+            $query = DB::table($table)->where($column, $projectId);
+            if ($this->support->hasColumn($table, 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            $count = (int) $query->count();
+            if ($count <= 0) {
+                continue;
+            }
+
+            $references[] = [
+                'table' => $table,
+                'label' => $label,
+                'count' => $count,
+            ];
+        }
+
+        $raciAssignmentCount = $this->countProjectRaciAssignments($projectId);
+        if ($raciAssignmentCount > 0) {
+            $references[] = [
+                'table' => 'raci_assignments',
+                'label' => 'phân công RACI',
+                'count' => $raciAssignmentCount,
+            ];
+        }
+
+        return $references;
+    }
+
+    private function countProjectRaciAssignments(int $projectId): int
+    {
+        if (
+            ! $this->support->hasTable('raci_assignments')
+            || ! $this->support->hasColumn('raci_assignments', 'entity_id')
+            || ! $this->support->hasColumn('raci_assignments', 'entity_type')
+        ) {
+            return 0;
+        }
+
+        $query = DB::table('raci_assignments')
+            ->where('entity_id', $projectId)
+            ->whereRaw('LOWER(entity_type) = ?', ['project']);
+
+        if ($this->support->hasColumn('raci_assignments', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return (int) $query->count();
+    }
+
+    /**
+     * @param array<int, array{table:string,label:string,count:int}> $references
+     */
+    private function buildProjectDeleteReferenceMessage(array $references): string
+    {
+        $parts = collect($references)
+            ->map(function (array $reference): string {
+                $count = max(1, (int) ($reference['count'] ?? 0));
+                $label = trim((string) ($reference['label'] ?? 'bản ghi liên quan'));
+
+                return $count.' '.$label;
+            })
+            ->values()
+            ->all();
+
+        $detail = implode(', ', $parts);
+
+        return $detail !== ''
+            ? 'Không thể xóa dự án vì đang có dữ liệu liên quan ('.$detail.'). Vui lòng gỡ các bản ghi con/tham chiếu trước khi xóa.'
+            : 'Không thể xóa dự án vì đang có dữ liệu liên quan. Vui lòng gỡ các bản ghi con/tham chiếu trước khi xóa.';
     }
 
     private function buildListCacheKey(Request $request): string

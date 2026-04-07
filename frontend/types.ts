@@ -1731,6 +1731,11 @@ export interface Project {
   department_name?: string | null;
   department_code?: string | null;
   opportunity_id?: string | number | null;
+  implementation_user_id?: string | number | null;
+  implementation_user_code?: string | null;
+  implementation_full_name?: string | null;
+  implementation_unit_code?: string | null;
+  implementation_unit_name?: string | null;
   start_date?: string | null;
   expected_end_date?: string | null;
   actual_end_date?: string | null;

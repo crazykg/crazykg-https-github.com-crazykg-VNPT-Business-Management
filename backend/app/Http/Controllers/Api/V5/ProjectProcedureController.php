@@ -48,6 +48,11 @@ class ProjectProcedureController extends V5BaseController
         return $this->templates->updateTemplate($request, $id);
     }
 
+    public function deleteTemplate(int $id): JsonResponse
+    {
+        return $this->templates->deleteTemplate($id);
+    }
+
     public function storeTemplateStep(Request $request, int $templateId): JsonResponse
     {
         return $this->templates->storeTemplateStep($request, $templateId);
@@ -61,6 +66,11 @@ class ProjectProcedureController extends V5BaseController
     public function deleteTemplateStep(int $templateId, int $stepId): JsonResponse
     {
         return $this->templates->deleteTemplateStep($templateId, $stepId);
+    }
+
+    public function deleteTemplateSteps(Request $request, int $templateId): JsonResponse
+    {
+        return $this->templates->deleteTemplateSteps($request, $templateId);
     }
 
     public function projectProcedures(int $projectId, Request $request): JsonResponse

@@ -200,7 +200,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   const [smtpFromAddress,      setSmtpFromAddress]      = useState('');
   const [smtpFromName,         setSmtpFromName]         = useState('VNPT Business');
   const [clearSmtpPassword,    setClearSmtpPassword]    = useState(false);
-  const [testRecipientEmail,   setTestRecipientEmail]   = useState('');
+  const [recipientEmails,      setRecipientEmails]      = useState('');
 
   // Alert state
   const [expiryWarningDays,  setExpiryWarningDays]  = useState('30');
@@ -278,7 +278,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     setSmtpFromName(emailSmtpSettings?.smtp_from_name || 'VNPT Business');
     setSmtpPassword('');
     setClearSmtpPassword(false);
-    setTestRecipientEmail(emailSmtpSettings?.smtp_username || '');
+    setRecipientEmails(emailSmtpSettings?.smtp_recipient_emails || emailSmtpSettings?.smtp_username || '');
   }, [emailSmtpSettings]);
 
   useEffect(() => {
@@ -335,11 +335,12 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     smtp_port:                smtpPort ? Number(smtpPort) : null,
     smtp_encryption:          smtpEncryption || 'tls',
     smtp_username:            normalizeText(smtpUsername) || null,
+    smtp_recipient_emails:    normalizeText(recipientEmails) || null,
     smtp_password:            normalizeText(smtpPassword) || null,
     clear_smtp_password:      clearSmtpPassword,
     smtp_from_address:        normalizeText(smtpFromAddress) || null,
     smtp_from_name:           normalizeText(smtpFromName) || 'VNPT Business',
-    test_recipient_email:     normalizeText(testRecipientEmail) || normalizeText(smtpUsername) || null,
+    test_recipient_email:     normalizeText(recipientEmails) || normalizeText(smtpUsername) || null,
   });
 
   const handleSaveEmailSmtp = async () => { await onSaveEmailSmtp(buildEmailSmtpPayload()); };
@@ -861,15 +862,15 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 </div>
 
                 <div className="col-span-2">
-                  <label className={LABEL}>Email nhận test</label>
+                  <label className={LABEL}>Mail nhận</label>
                   <input
-                    type="email"
-                    value={testRecipientEmail}
-                    onChange={(e) => setTestRecipientEmail(e.target.value)}
-                    placeholder={smtpUsername || "your-email@gmail.com"}
+                    type="text"
+                    value={recipientEmails}
+                    onChange={(e) => setRecipientEmails(e.target.value)}
+                    placeholder={smtpUsername || "mail1@gmail.com, mail2@gmail.com"}
                     className={INPUT}
                   />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Để trống sẽ gửi đến email SMTP username</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Có thể nhập nhiều mail, cách nhau bằng dấu phẩy. Để trống sẽ gửi tới email SMTP username.</p>
                 </div>
               </div>
 

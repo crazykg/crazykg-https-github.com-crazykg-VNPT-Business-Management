@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\InternalUser;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -191,6 +194,112 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame('HIS_ma_nhap_danh_muc.xls', $newValues['audit_context']['import_file_name'] ?? null);
         $this->assertSame('ChucNang_His', $newValues['change_summary']['import']['sheet_name'] ?? null);
         $this->assertSame(76, $newValues['change_summary']['import']['feature_count'] ?? null);
+    }
+
+    public function test_it_sends_email_notification_after_saving_feature_catalog(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 14,
+            'uuid' => 'user-14',
+            'user_code' => 'U014',
+            'username' => 'tester-mail',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Le Thi G',
+            'email' => 'tester-mail@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        DB::table('integration_settings')->insert([
+            'provider' => 'EMAIL_SMTP',
+            'is_enabled' => 1,
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_encryption' => 'tls',
+            'smtp_username' => 'no-reply@example.com',
+            'smtp_password' => Crypt::encryptString('smtp-secret'),
+            'smtp_from_address' => 'no-reply@example.com',
+            'smtp_from_name' => 'VNPT Business',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Config::set('audit.product_feature_catalog_notification_recipients', [
+            'pvro86@gmail.com',
+            'vnpthishg@gmail.com',
+        ]);
+
+        Mail::shouldReceive('html')
+            ->once()
+            ->withArgs(function (string $html, \Closure $callback): bool {
+                $this->assertStringContainsString('Thông báo cập nhật danh mục chức năng', $html);
+                $this->assertStringContainsString('Người thực hiện', $html);
+                $this->assertStringContainsString('Le Thi G (tester-mail)', $html);
+                $this->assertStringContainsString('Mã sản phẩm', $html);
+                $this->assertStringContainsString('VNPT_HIS_L2', $html);
+                $this->assertStringContainsString('Nội dung cũ', $html);
+                $this->assertStringContainsString('Nội dung đã cập nhật', $html);
+                $this->assertStringContainsString('Người cập nhật, ngày giờ cập nhật', $html);
+                $this->assertStringContainsString('Tạo phân hệ &quot;Quan tri he thong&quot;.', $html);
+                $this->assertStringContainsString('Tạo chức năng &quot;Dang nhap&quot; trong phân hệ &quot;Quan tri he thong&quot;.', $html);
+
+                $message = new class {
+                    public array $to = [];
+                    public ?string $subject = null;
+                    public ?array $from = null;
+
+                    public function to($recipients): self
+                    {
+                        $this->to = is_array($recipients) ? array_values($recipients) : [$recipients];
+
+                        return $this;
+                    }
+
+                    public function subject($subject): self
+                    {
+                        $this->subject = $subject;
+
+                        return $this;
+                    }
+
+                    public function from($address, $name = null): self
+                    {
+                        $this->from = [$address, $name];
+
+                        return $this;
+                    }
+                };
+
+                $callback($message);
+
+                $this->assertSame(['pvro86@gmail.com', 'vnpthishg@gmail.com'], $message->to);
+                $this->assertSame('[VNPT Business] Cập nhật danh mục chức năng - VNPT_HIS_L2', $message->subject);
+                $this->assertSame(['no-reply@example.com', 'VNPT Business'], $message->from);
+
+                return true;
+            });
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan tri he thong',
+                    'features' => [
+                        [
+                            'feature_name' => 'Dang nhap',
+                            'detail_description' => 'Cho phep dang nhap vao he thong',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'FORM',
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.audit_logs.0.event', 'INSERT');
     }
 
     public function test_it_shares_feature_catalog_across_packages_of_the_same_product(): void
@@ -449,6 +558,7 @@ class ProductFeatureCatalogTest extends TestCase
         Schema::dropIfExists('product_features');
         Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('products');
+        Schema::dropIfExists('integration_settings');
         Schema::dropIfExists('internal_users');
 
         Schema::create('internal_users', function (Blueprint $table): void {
@@ -521,6 +631,20 @@ class ProductFeatureCatalogTest extends TestCase
             $table->text('user_agent')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
+        });
+
+        Schema::create('integration_settings', function (Blueprint $table): void {
+            $table->string('provider', 50)->primary();
+            $table->boolean('is_enabled')->default(false);
+            $table->string('smtp_host', 255)->nullable();
+            $table->unsignedInteger('smtp_port')->nullable();
+            $table->string('smtp_encryption', 20)->nullable();
+            $table->string('smtp_username', 255)->nullable();
+            $table->text('smtp_password')->nullable();
+            $table->string('smtp_from_address', 255)->nullable();
+            $table->string('smtp_from_name', 255)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
     }
 

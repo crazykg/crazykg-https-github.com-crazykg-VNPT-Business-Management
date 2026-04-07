@@ -20,7 +20,11 @@ interface ProjectInfoTabProps {
   formData: Partial<Project>;
   getStatusReasonLabel: (status: unknown) => string;
   handleChange: (field: string, value: any) => void;
+  implementationUnitHelpText: string | null;
+  implementationUnitOptions: SearchableSelectOption[];
+  implementationUnitOptionsError: string;
   isCustomerOptionsLoading: boolean;
+  isImplementationUnitOptionsLoading: boolean;
   isPaymentCycleRequired: boolean;
   isProjectTypeOptionsLoading: boolean;
   isSpecialStatusSelected: boolean;
@@ -43,7 +47,11 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   formData,
   getStatusReasonLabel,
   handleChange,
+  implementationUnitHelpText,
+  implementationUnitOptions,
+  implementationUnitOptionsError,
   isCustomerOptionsLoading,
+  isImplementationUnitOptionsLoading,
   isPaymentCycleRequired,
   isProjectTypeOptionsLoading,
   isSpecialStatusSelected,
@@ -55,7 +63,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   type,
 }: ProjectInfoTabProps) => {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <FormInput
         label="Mã DA"
         value={formData.project_code}
@@ -75,8 +83,9 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
       />
 
       <div className="col-span-1">
-        <label className="block text-sm font-semibold text-slate-700 mb-2">Khách hàng</label>
+        <label className="block text-xs font-semibold text-neutral mb-1">Khách hàng</label>
         <SearchableSelect
+          size="sm"
           options={[
             { value: '', label: 'Chọn khách hàng...' },
             ...customers.map((customer) => ({
@@ -97,6 +106,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
       <div className="space-y-1">
         <FormSelect
           label="Loại dự án"
+          size="sm"
           value={formData.investment_mode}
           onChange={(event: any) => handleChange('investment_mode', event.target.value)}
           options={
@@ -115,12 +125,13 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
       </div>
 
       <div className="col-span-1">
-        <label className="block text-sm font-semibold text-slate-700 mb-2">
+        <label className="block text-xs font-semibold text-neutral mb-1">
           Trạng thái
         </label>
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <SearchableSelect
+              size="sm"
               value={formData.status}
               onChange={(nextValue) => handleChange('status', nextValue)}
               options={statusOptions}
@@ -133,17 +144,17 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
             <button
               type="button"
               onClick={() => onViewProcedure(data)}
-              className="shrink-0 flex items-center gap-1.5 px-3 h-11 rounded-lg text-sm font-semibold text-teal-700 border border-teal-300 bg-teal-50 hover:bg-teal-100 transition-colors whitespace-nowrap"
+              className="shrink-0 inline-flex items-center gap-1 h-8 px-2.5 rounded text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors whitespace-nowrap"
             >
-              <span className="material-symbols-outlined text-base leading-none">format_list_numbered</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>format_list_numbered</span>
               Xem thủ tục
             </button>
           ) : null}
         </div>
         {isSpecialStatusSelected ? (
-          <div className="mt-3 flex flex-col gap-1.5">
-            <label htmlFor={statusReasonFieldId} className="text-sm font-semibold text-slate-700">
-              {getStatusReasonLabel(formData.status)} <span className="text-red-500">*</span>
+          <div className="mt-2 flex flex-col gap-1">
+            <label htmlFor={statusReasonFieldId} className="text-xs font-semibold text-neutral">
+              {getStatusReasonLabel(formData.status)} <span className="text-error">*</span>
             </label>
             <textarea
               id={statusReasonFieldId}
@@ -153,31 +164,37 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               rows={3}
               maxLength={2000}
               aria-invalid={Boolean(errors.status_reason)}
-              className={`w-full rounded-xl border bg-white px-4 py-3 text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.status_reason ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'}`}
+              className={`w-full rounded border bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 ${errors.status_reason ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
             />
             {errors.status_reason ? (
-              <p className="text-xs text-red-500 mt-0.5">{errors.status_reason}</p>
+              <p className="text-[11px] text-error mt-0.5">{errors.status_reason}</p>
             ) : null}
           </div>
         ) : null}
       </div>
 
       {isPaymentCycleRequired ? (
-        <FormSelect
-          label="Chu kỳ thanh toán"
-          value={formData.payment_cycle || ''}
-          onChange={(event: any) => handleChange('payment_cycle', event.target.value || null)}
-          required
-          error={errors.payment_cycle}
-          options={[
-            { value: '', label: '--- Chọn ---' },
-            { value: 'ONCE', label: '1 lần' },
-            { value: 'MONTHLY', label: 'Hàng tháng' },
-            { value: 'QUARTERLY', label: 'Hàng quý' },
-            { value: 'HALF_YEARLY', label: '6 tháng' },
-            { value: 'YEARLY', label: 'Hàng năm' },
-          ]}
-        />
+        <div className="col-span-1">
+          <SearchableSelect
+            label="Chu kỳ thanh toán"
+            size="sm"
+            value={formData.payment_cycle || ''}
+            onChange={(value) => handleChange('payment_cycle', value || null)}
+            required
+            error={errors.payment_cycle}
+            placeholder="--- Chọn ---"
+            searchPlaceholder="Tìm chu kỳ thanh toán..."
+            usePortal
+            options={[
+              { value: '', label: '--- Chọn ---' },
+              { value: 'ONCE', label: '1 lần' },
+              { value: 'MONTHLY', label: 'Hàng tháng' },
+              { value: 'QUARTERLY', label: 'Hàng quý' },
+              { value: 'HALF_YEARLY', label: '6 tháng' },
+              { value: 'YEARLY', label: 'Hàng năm' },
+            ]}
+          />
+        </div>
       ) : null}
 
       <FormInput
@@ -208,6 +225,37 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
         error={errors.actual_end_date}
         min={actualEndDateMin}
       />
+
+      <div className="col-span-1">
+        <SearchableSelect
+          label="Đơn vị triển khai"
+          size="sm"
+          value={formData.implementation_user_id || ''}
+          onChange={(value) => handleChange('implementation_user_id', value || null)}
+          placeholder={
+            isImplementationUnitOptionsLoading
+              ? 'Đang tải đơn vị triển khai...'
+              : 'Chọn đơn vị triển khai'
+          }
+          searchPlaceholder="Tìm đơn vị triển khai..."
+          disabled={isImplementationUnitOptionsLoading}
+          options={implementationUnitOptions}
+          usePortal
+        />
+        {isImplementationUnitOptionsLoading ? (
+          <p className="mt-1 text-xs text-slate-500">
+            Đang tải danh sách đơn vị triển khai.
+          </p>
+        ) : implementationUnitOptionsError ? (
+          <p className="mt-1 text-xs text-red-500">
+            {implementationUnitOptionsError}
+          </p>
+        ) : implementationUnitHelpText ? (
+          <p className="mt-1 text-xs text-slate-500">
+            {implementationUnitHelpText}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 };
@@ -255,13 +303,13 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
       >
         <div className="flex border-b border-slate-200">
           <button
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             onClick={() => onTabSwitch('info')}
           >
             Thông tin chung
           </button>
           <button
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
               !isPersistedProject && activeTab !== 'items'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'items'
@@ -274,7 +322,7 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
             Hạng mục dự án ({itemCount})
           </button>
           <button
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
               !isPersistedProject && activeTab !== 'raci'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'raci'
@@ -287,7 +335,7 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
             Đội ngũ dự án ({raciCount})
           </button>
           <button
-            className={`px-6 py-3 text-sm font-bold border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
               !isPersistedProject && activeTab !== 'revenue_schedules'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'revenue_schedules'
@@ -302,18 +350,18 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
         </div>
 
         {!isPersistedProject ? (
-          <div className="px-6 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
+          <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
             Lưu dự án thành công để mở tab Hạng mục dự án và Đội ngũ dự án.
           </div>
         ) : null}
 
-        <div className="p-6">
+        <div className="p-4">
           {content}
-          <div className="pb-24"></div>
+          <div className="pb-20"></div>
         </div>
 
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4 absolute bottom-0 left-0 right-0 z-[60]">
-          <div className="min-h-[20px] flex-1 text-sm">
+        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 absolute bottom-0 left-0 right-0 z-[60]">
+          <div className="min-h-[18px] flex-1 text-xs">
             {saveNotice.status === 'success' ? (
               <p className="text-emerald-700 font-medium">
                 {saveNotice.message} Lần gần nhất: {new Date(saveNotice.timestamp).toLocaleTimeString('vi-VN')}.
@@ -323,20 +371,21 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
               <p className="text-rose-600 font-medium">{saveNotice.message}</p>
             ) : null}
           </div>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-2">
             <button
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               Hủy
             </button>
             <button
               onClick={() => void onSubmit()}
               disabled={isSubmitting}
-              className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-white shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
             >
-              <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+              <span className={`material-symbols-outlined ${isSubmitting ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
                 {isSubmitting ? 'progress_activity' : 'check'}
               </span>
               {isSubmitting ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}

@@ -28,6 +28,7 @@ class StoreProjectRequest extends V5FormRequest
             'expected_end_date' => ['nullable', 'date'],
             'actual_end_date' => ['nullable', 'date'],
             'payment_cycle' => ['nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
+            'implementation_user_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
             'sync_items' => ['sometimes', 'boolean'],
             'sync_raci' => ['sometimes', 'boolean'],

@@ -2,28 +2,23 @@
 
 namespace App\Services\V5\ProjectProcedure;
 
+use App\Models\ProjectProcedureStep;
 use App\Models\ProjectProcedureTemplate;
 use App\Models\ProjectProcedureTemplateStep;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class ProjectProcedureTemplateService
 {
     public function templates(): JsonResponse
     {
-        $templates = ProjectProcedureTemplate::orderBy('template_code')->get();
+        $templates = ProjectProcedureTemplate::withCount(['steps', 'procedures'])
+            ->orderBy('template_code')
+            ->get();
 
-        $templates->each(function ($tpl) {
-            $phases = ProjectProcedureTemplateStep::where('template_id', $tpl->id)
-                ->whereNotNull('phase')
-                ->orderBy('sort_order')
-                ->pluck('phase')
-                ->unique()
-                ->values()
-                ->toArray();
-            $tpl->setAttribute('phases', $phases);
-        });
+        $templates->each(fn (ProjectProcedureTemplate $template) => $this->decorateTemplate($template));
 
         return response()->json(['data' => $templates]);
     }
@@ -65,7 +60,7 @@ class ProjectProcedureTemplateService
             'updated_by'    => $request->user()?->id,
         ]);
 
-        return response()->json(['data' => $template], 201);
+        return response()->json(['data' => $this->decorateTemplate($template->fresh())], 201);
     }
 
     public function updateTemplate(Request $request, int $id): JsonResponse
@@ -103,7 +98,29 @@ class ProjectProcedureTemplateService
 
         $template->update($fillable);
 
-        return response()->json(['data' => $template->fresh()]);
+        return response()->json(['data' => $this->decorateTemplate($template->fresh())]);
+    }
+
+    public function deleteTemplate(int $id): JsonResponse
+    {
+        $template = ProjectProcedureTemplate::withCount(['steps', 'procedures'])->find($id);
+
+        if (! $template) {
+            return response()->json(['message' => 'Template not found.'], 404);
+        }
+
+        $stepsCount = (int) ($template->steps_count ?? 0);
+        $proceduresCount = (int) ($template->procedures_count ?? 0);
+
+        if ($stepsCount > 0 || $proceduresCount > 0) {
+            return response()->json([
+                'message' => 'Chỉ có thể xóa mẫu khi chưa có bước cấu hình và chưa được áp dụng cho dự án.',
+            ], 409);
+        }
+
+        $template->delete();
+
+        return response()->json(['message' => 'Deleted.'], 200);
     }
 
     public function storeTemplateStep(Request $request, int $templateId): JsonResponse
@@ -219,12 +236,176 @@ class ProjectProcedureTemplateService
             return response()->json(['message' => 'Template step not found.'], 404);
         }
 
-        ProjectProcedureTemplateStep::where('template_id', $templateId)
-            ->where('parent_step_id', $stepId)
-            ->delete();
+        $usedCount = ProjectProcedureStep::where('template_step_id', $step->id)->count();
+        if ($usedCount > 0) {
+            return response()->json([
+                'message' => "Bước này đã được áp dụng cho {$usedCount} dự án và không thể xóa.",
+            ], 409);
+        }
 
-        $step->delete();
+        $this->deleteTemplateStepTree($templateId, [$step->id]);
 
         return response()->json(['message' => 'Deleted.'], 200);
+    }
+
+    public function deleteTemplateSteps(Request $request, int $templateId): JsonResponse
+    {
+        $template = ProjectProcedureTemplate::find($templateId);
+
+        if (! $template) {
+            return response()->json(['message' => 'Template not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'step_ids' => 'required|array|min:1',
+            'step_ids.*' => 'integer|distinct',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $requestedStepIds = collect($request->input('step_ids', []))
+            ->map(static fn ($stepId) => (int) $stepId)
+            ->filter(static fn (int $stepId) => $stepId > 0)
+            ->values();
+
+        $steps = ProjectProcedureTemplateStep::where('template_id', $templateId)
+            ->whereIn('id', $requestedStepIds)
+            ->get(['id', 'parent_step_id']);
+
+        if ($steps->count() !== $requestedStepIds->count()) {
+            return response()->json(['message' => 'One or more template steps not found.'], 404);
+        }
+
+        $selectedStepIds = array_fill_keys($requestedStepIds->all(), true);
+        $rootStepIds = $steps
+            ->filter(static fn (ProjectProcedureTemplateStep $step) => ! $step->parent_step_id || ! isset($selectedStepIds[(int) $step->parent_step_id]))
+            ->pluck('id')
+            ->map(static fn ($stepId) => (int) $stepId)
+            ->values()
+            ->all();
+
+        // Guard: collect all step IDs in tree and check if any are referenced
+        $allTreeIds = $this->collectTreeIds($templateId, $rootStepIds);
+        $usedCount = ProjectProcedureStep::whereIn('template_step_id', $allTreeIds)->count();
+        if ($usedCount > 0) {
+            return response()->json([
+                'message' => "Một số bước đã được áp dụng cho {$usedCount} dự án và không thể xóa.",
+            ], 409);
+        }
+
+        $deletedStepIds = $this->deleteTemplateStepTree($templateId, $rootStepIds);
+
+        return response()->json([
+            'message' => 'Deleted.',
+            'data' => [
+                'deleted_count' => count($deletedStepIds),
+            ],
+        ], 200);
+    }
+
+    /**
+     * @param  array<int, int|string>  $rootStepIds
+     * @return array<int, int>
+     */
+    private function deleteTemplateStepTree(int $templateId, array $rootStepIds): array
+    {
+        $currentLevel = collect($rootStepIds)
+            ->map(static fn ($stepId) => (int) $stepId)
+            ->filter(static fn (int $stepId) => $stepId > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($currentLevel === []) {
+            return [];
+        }
+
+        $levels = [];
+
+        while ($currentLevel !== []) {
+            $levels[] = $currentLevel;
+            $currentLevel = ProjectProcedureTemplateStep::where('template_id', $templateId)
+                ->whereIn('parent_step_id', $currentLevel)
+                ->pluck('id')
+                ->map(static fn ($stepId) => (int) $stepId)
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $allStepIds = collect($levels)->flatten()->map(static fn ($id) => (int) $id)->unique()->values()->all();
+
+        DB::transaction(function () use ($templateId, $levels): void {
+            for ($index = count($levels) - 1; $index >= 0; $index--) {
+                ProjectProcedureTemplateStep::where('template_id', $templateId)
+                    ->whereIn('id', $levels[$index])
+                    ->delete();
+            }
+        });
+
+        return collect($levels)
+            ->flatten()
+            ->map(static fn ($stepId) => (int) $stepId)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Collect all step IDs in the tree rooted at $rootStepIds (used for reference check).
+     *
+     * @param  array<int, int>  $rootStepIds
+     * @return array<int, int>
+     */
+    private function collectTreeIds(int $templateId, array $rootStepIds): array
+    {
+        $currentLevel = collect($rootStepIds)
+            ->map(static fn ($id) => (int) $id)
+            ->filter(static fn (int $id) => $id > 0)
+            ->unique()->values()->all();
+
+        $all = $currentLevel;
+
+        while ($currentLevel !== []) {
+            $currentLevel = ProjectProcedureTemplateStep::where('template_id', $templateId)
+                ->whereIn('parent_step_id', $currentLevel)
+                ->pluck('id')
+                ->map(static fn ($id) => (int) $id)
+                ->unique()->values()->all();
+            $all = array_merge($all, $currentLevel);
+        }
+
+        return array_values(array_unique($all));
+    }
+
+    private function decorateTemplate(ProjectProcedureTemplate $template): ProjectProcedureTemplate
+    {
+        if (! array_key_exists('steps_count', $template->getAttributes())) {
+            $template->loadCount(['steps', 'procedures']);
+        }
+
+        $template->setAttribute('phases', $this->resolveTemplatePhases($template->id));
+        $template->setAttribute(
+            'can_delete',
+            ((int) ($template->steps_count ?? 0)) === 0 && ((int) ($template->procedures_count ?? 0)) === 0
+        );
+
+        return $template;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveTemplatePhases(int $templateId): array
+    {
+        return ProjectProcedureTemplateStep::where('template_id', $templateId)
+            ->whereNotNull('phase')
+            ->orderBy('sort_order')
+            ->pluck('phase')
+            ->unique()
+            ->values()
+            ->toArray();
     }
 }

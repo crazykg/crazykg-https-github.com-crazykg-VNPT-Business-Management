@@ -5,7 +5,10 @@ namespace Tests\Feature;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -149,6 +152,108 @@ class ProductQuotationPersistenceTest extends TestCase
         $this->assertNotNull($quotation);
         $this->assertSame(2, (int) $quotation->latest_version_no);
         $this->assertNotNull($quotation->last_printed_at);
+    }
+
+    public function test_it_sends_archival_email_after_print_word_confirmation_succeeds(): void
+    {
+        $this->actingAs(new GenericUser([
+            'id' => 51,
+            'username' => 'quote-printer',
+            'full_name' => 'Lê Thị H',
+        ]));
+
+        DB::table('integration_settings')->insert([
+            'provider' => 'EMAIL_SMTP',
+            'is_enabled' => 1,
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_encryption' => 'tls',
+            'smtp_username' => 'no-reply@example.com',
+            'smtp_password' => Crypt::encryptString('smtp-secret'),
+            'smtp_from_address' => 'no-reply@example.com',
+            'smtp_from_name' => 'VNPT Business',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Config::set('audit.product_quotation_print_notification_recipients', [
+            'pvro86@gmail.com',
+            'vnpthishg@gmail.com',
+        ]);
+
+        $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
+        $quotationId = (int) $createResponse->json('data.id');
+
+        Mail::shouldReceive('html')
+            ->once()
+            ->withArgs(function (string $html, \Closure $callback): bool {
+                $this->assertStringContainsString('Lưu trữ bản in báo giá', $html);
+                $this->assertStringContainsString('v1', $html);
+                $this->assertStringContainsString('Lê Thị H (quote-printer)', $html);
+                $this->assertStringContainsString('BỆNH VIỆN ĐA KHOA CẦN THƠ', $html);
+                $this->assertStringContainsString('Theo gói tiêu chuẩn', $html);
+                $this->assertStringContainsString('Bao gồm triển khai cơ bản', $html);
+
+                $message = new class {
+                    public array $to = [];
+                    public ?string $subject = null;
+                    public ?array $from = null;
+                    public array $attachments = [];
+
+                    public function to($recipients): self
+                    {
+                        $this->to = is_array($recipients) ? array_values($recipients) : [$recipients];
+
+                        return $this;
+                    }
+
+                    public function subject($subject): self
+                    {
+                        $this->subject = $subject;
+
+                        return $this;
+                    }
+
+                    public function from($address, $name = null): self
+                    {
+                        $this->from = [$address, $name];
+
+                        return $this;
+                    }
+
+                    public function attachData($data, $name, array $options = []): self
+                    {
+                        $this->attachments[] = [
+                            'data' => $data,
+                            'name' => $name,
+                            'options' => $options,
+                        ];
+
+                        return $this;
+                    }
+                };
+
+                $callback($message);
+
+                $this->assertSame(['pvro86@gmail.com', 'vnpthishg@gmail.com'], $message->to);
+                $this->assertSame('[VNPT Business] Lưu trữ bản in báo giá v1 - BỆNH VIỆN ĐA KHOA CẦN THƠ', $message->subject);
+                $this->assertSame(['no-reply@example.com', 'VNPT Business'], $message->from);
+                $this->assertCount(1, $message->attachments);
+                $this->assertStringEndsWith('.docx', $message->attachments[0]['name']);
+                $this->assertSame(
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    $message->attachments[0]['options']['mime'] ?? null
+                );
+                $this->assertIsString($message->attachments[0]['data']);
+                $this->assertNotSame('', $message->attachments[0]['data']);
+
+                return true;
+            });
+
+        $response = $this->post("/api/v5/products/quotations/{$quotationId}/print-word");
+
+        $response->assertOk();
+        $response->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }
 
     public function test_it_lists_versions_and_events_for_a_product_quotation(): void
@@ -356,6 +461,20 @@ class ProductQuotationPersistenceTest extends TestCase
             $table->string('user_agent')->nullable();
             $table->dateTime('created_at')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
+        });
+
+        Schema::create('integration_settings', function (Blueprint $table): void {
+            $table->string('provider', 50)->primary();
+            $table->boolean('is_enabled')->default(false);
+            $table->string('smtp_host', 255)->nullable();
+            $table->unsignedInteger('smtp_port')->nullable();
+            $table->string('smtp_encryption', 20)->nullable();
+            $table->string('smtp_username', 255)->nullable();
+            $table->text('smtp_password')->nullable();
+            $table->string('smtp_from_address', 255)->nullable();
+            $table->string('smtp_from_name', 255)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('product_quotations', function (Blueprint $table): void {

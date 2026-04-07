@@ -47,9 +47,9 @@ const TABS: Array<{ id: InternalUserSubTab; label: string; iconName: string; cap
 ];
 
 const moduleShellClass = 'overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl';
-const moduleSignalCardClass = 'rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-2 shadow-sm';
+const moduleSignalCardClass = 'min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 px-2 py-2 shadow-sm sm:px-2.5';
 const tabButtonBaseClass =
-  'group inline-flex w-full items-center gap-2 rounded-lg border px-2.5 py-2.5 text-left transition-colors';
+  'group inline-flex min-w-0 w-full flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-center transition-colors sm:flex-row sm:items-center sm:justify-start sm:gap-2 sm:px-2.5 sm:py-2.5 sm:text-left';
 
 export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
   employees,
@@ -120,7 +120,10 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 xl:min-w-[360px]">
+              <div
+                data-testid="internal-user-module-signals"
+                className="grid min-w-0 grid-cols-3 gap-1.5 xl:min-w-[360px]"
+              >
                 {moduleSignals.map((item) => (
                   <div
                     key={item.label}
@@ -130,16 +133,19 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-white shadow-sm ring-1 ring-slate-200">
                         {item.icon}
                       </span>
-                      {item.label}
+                      <span className="truncate">{item.label}</span>
                     </div>
-                    <p className="mt-1 text-base font-black leading-none text-deep-teal">{item.value}</p>
+                    <p className="mt-1 text-sm font-black leading-none text-deep-teal sm:text-base">{item.value}</p>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-1.5 bg-slate-50/50 px-3 py-2 md:grid-cols-3 md:px-4">
+          <div
+            data-testid="internal-user-module-tabs-grid"
+            className="grid grid-cols-3 gap-1.5 bg-slate-50/50 px-3 py-2 md:px-4"
+          >
             {visibleTabs.map((tab) => {
               const isActive = activeSubTab === tab.id;
               return (
@@ -164,8 +170,8 @@ export const InternalUserModuleTabs: React.FC<InternalUserModuleTabsProps> = ({
                       {tab.iconName}
                     </span>
                   </span>
-                  <span className="min-w-0">
-                    <span className={`block text-[15px] font-bold leading-5 ${isActive ? 'text-deep-teal' : 'text-deep-teal'}`}>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-[11px] font-bold leading-4 text-deep-teal sm:text-[15px] sm:leading-5`}>
                       {tab.label}
                     </span>
                     {tab.caption ? (

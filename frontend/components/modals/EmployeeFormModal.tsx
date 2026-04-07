@@ -27,6 +27,9 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
   onResetPassword,
   isResettingPassword = false,
 }: EmployeeFormModalProps) => {
+  const fieldLabelClassName = 'text-sm font-semibold text-slate-700';
+  const fieldInputClassName = 'h-[46px] rounded-lg px-3 text-[15px] leading-6';
+
   const normalizeEmployeeStatusValue = (status: unknown): EmployeeStatus => {
     const normalized = String(status || '').trim().toUpperCase();
     if (normalized === 'ACTIVE') return 'ACTIVE';
@@ -82,22 +85,27 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
         <FormInput
           label="Mã nhân viên"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           value={String(formData.user_code || '')}
           onChange={(e: any) => setFormData({ ...formData, user_code: e.target.value })}
           placeholder="VNPT022327 / CTV091020"
           required
         />
-        <FormInput label="Tên đăng nhập" value={formData.username} onChange={(e: any) => setFormData({ ...formData, username: e.target.value })} placeholder="nguyenvana" required />
-        <FormInput label="Họ và tên" value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} placeholder="Nguyễn Văn A" required />
+        <FormInput label="Tên đăng nhập" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.username} onChange={(e: any) => setFormData({ ...formData, username: e.target.value })} placeholder="nguyenvana" required />
+        <FormInput label="Họ và tên" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.full_name} onChange={(e: any) => setFormData({ ...formData, full_name: e.target.value })} placeholder="Nguyễn Văn A" required />
         <FormInput
           label="Số điện thoại"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           value={String(formData.phone_number || '')}
           onChange={(e: any) => setFormData({ ...formData, phone_number: e.target.value })}
           placeholder="0912345678"
         />
-        <FormInput label="Email" value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} placeholder="email@vnpt.vn" required />
+        <FormInput label="Email" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} placeholder="email@vnpt.vn" required />
         <FormSelect
           label="Phòng ban tham chiếu"
+          labelClassName={fieldLabelClassName}
           value={String(formData.department_id || '')}
           onChange={(e: any) => {
             setFormData({ ...formData, department_id: e.target.value });
@@ -109,10 +117,12 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
           required
           error={formErrors.department_id}
         />
-        <FormSelect label="Chức vụ" value={String(formData.position_id || '')} onChange={(e: any) => setFormData({ ...formData, position_id: e.target.value })} options={positionOptions} required />
-        <FormInput label="Chức danh" value={formData.job_title_raw} onChange={(e: any) => setFormData({ ...formData, job_title_raw: e.target.value })} placeholder="Chuyên viên kinh doanh" />
+        <FormSelect label="Chức vụ" labelClassName={fieldLabelClassName} value={String(formData.position_id || '')} onChange={(e: any) => setFormData({ ...formData, position_id: e.target.value })} options={positionOptions} required />
+        <FormInput label="Chức danh" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.job_title_raw} onChange={(e: any) => setFormData({ ...formData, job_title_raw: e.target.value })} placeholder="Chuyên viên kinh doanh" />
         <FormInput
           label="Ngày sinh"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           type="text"
           value={formData.date_of_birth}
           onChange={(e: any) => {
@@ -126,6 +136,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         />
         <FormSelect
           label="Giới tính"
+          labelClassName={fieldLabelClassName}
           value={formData.gender || ''}
           onChange={(e: any) => setFormData({ ...formData, gender: e.target.value || null })}
           options={[
@@ -137,6 +148,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         />
         <FormSelect
           label="Trạng thái VPN"
+          labelClassName={fieldLabelClassName}
           value={formData.vpn_status || 'NO'}
           onChange={(e: any) => setFormData({ ...formData, vpn_status: e.target.value })}
           options={[
@@ -146,6 +158,8 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         />
         <FormInput
           label="Địa chỉ IP"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           value={formData.ip_address}
           onChange={(e: any) => setFormData({ ...formData, ip_address: e.target.value })}
           placeholder="192.168.1.10"
@@ -155,6 +169,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-slate-100">
           <FormSelect
             label="Trạng thái"
+            labelClassName={fieldLabelClassName}
             value={formData.status}
             onChange={(e: any) => setFormData({ ...formData, status: e.target.value })}
             options={[

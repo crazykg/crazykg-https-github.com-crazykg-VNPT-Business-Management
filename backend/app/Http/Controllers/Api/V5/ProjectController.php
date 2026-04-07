@@ -37,6 +37,11 @@ class ProjectController extends V5BaseController
         return $this->projectService->raciAssignments($request);
     }
 
+    public function implementationUnitOptions(Request $request): JsonResponse
+    {
+        return $this->projectService->implementationUnitOptions($request);
+    }
+
     public function store(StoreProjectRequest $request): JsonResponse
     {
         return $this->projectService->store($request);

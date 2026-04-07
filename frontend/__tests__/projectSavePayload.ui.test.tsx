@@ -7,6 +7,7 @@ import type { ProcedureTemplate, Project } from '../types';
 
 const PROJECT_FORM_SUBMIT_TIMEOUT_MS = 16000;
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
+const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -18,6 +19,8 @@ fetchProcedureTemplatesMock.mockResolvedValue([
   },
 ] as ProcedureTemplate[]);
 
+fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
+
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
   deleteUploadedDocumentAttachment: vi.fn(),
@@ -25,6 +28,18 @@ vi.mock('../services/v5Api', () => ({
   uploadFeedbackAttachment: vi.fn(),
   deleteUploadedFeedbackAttachment: vi.fn(),
 }));
+
+vi.mock('../services/api/projectApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/projectApi')>(
+    '../services/api/projectApi'
+  );
+
+  return {
+    ...actual,
+    fetchProjectImplementationUnitOptions:
+      fetchProjectImplementationUnitOptionsMock,
+  };
+});
 
 const baseProjectData: Project = {
   id: 300,
@@ -159,6 +174,54 @@ describe('ProjectFormModal save payload', () => {
     const payload = onSave.mock.calls[0][0] as Partial<Project>;
     expect(payload.status).toBe('CHUAN_BI');
     expect(payload.payment_cycle).toBe('QUARTERLY');
+  });
+
+  it('includes implementation_user_id when a deployment unit is selected', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    fetchProjectImplementationUnitOptionsMock.mockResolvedValueOnce([
+      {
+        id: 88,
+        user_code: 'USR088',
+        full_name: 'Nguyen Van Trien Khai',
+        department_id: 20,
+        dept_code: 'P20',
+        dept_name: 'Phong Giai Phap 20',
+      },
+    ]);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: /Chọn đơn vị triển khai/i })
+    );
+    await user.click(
+      await screen.findByRole('button', {
+        name: /USR088 - Nguyen Van Trien Khai/i,
+      })
+    );
+    await user.click(
+      screen.getByText('Cập nhật').closest('button') as HTMLButtonElement
+    );
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.implementation_user_id).toBe('88');
   });
 
   it('blocks saving when Thuê dịch vụ CNTT có sẵn is selected without a payment cycle', async () => {

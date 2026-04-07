@@ -185,6 +185,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                         compact
                         value={item.productId}
                         options={projectProductSelectOptions}
+                        placeholder="Chọn sản phẩm"
                         onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
                         disabled={isProjectProductOptionsLoading}
                         triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
@@ -332,57 +333,73 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
   triggerProjectRaciImport,
 }) => {
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-base font-bold text-slate-700">Đội ngũ dự án (RACI)</h3>
-        <div className="flex items-center gap-2">
+    <div className="space-y-3">
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Đội ngũ dự án (RACI)
+          {formData.raci && formData.raci.length > 0 && (
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 normal-case tracking-normal">
+              {formData.raci.length} thành viên
+            </span>
+          )}
+        </h3>
+        <div className="flex items-center gap-1.5">
+          {/* Import dropdown */}
           <div className="relative" ref={raciImportMenuRef}>
             <button
               type="button"
               onClick={toggleRaciImportMenu}
               disabled={isRaciImportSaving}
-              className="text-sm flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3.5 py-2 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-sm">upload</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>upload</span>
               {isRaciImportSaving ? 'Đang nhập...' : 'Nhập'}
-              <span className="material-symbols-outlined text-sm">expand_more</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>expand_more</span>
             </button>
             {showRaciImportMenu && (
-              <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-[120] overflow-hidden">
+              <div className="absolute right-0 top-full z-[120] mt-1.5 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
                 <button
                   type="button"
                   onClick={triggerProjectRaciImport}
                   disabled={isRaciImportSaving}
-                  className="w-full text-left px-4 py-2.5 text-[15px] text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <span className="material-symbols-outlined text-sm">upload_file</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>upload_file</span>
                   Nhập dữ liệu
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadProjectRaciTemplate}
                   disabled={isRaciImportSaving}
-                  className="w-full text-left px-4 py-2.5 text-[15px] text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <span className="material-symbols-outlined text-sm">download</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
                   Tải file mẫu
                 </button>
               </div>
             )}
           </div>
-          <button onClick={handleAddRACI} className="text-sm flex items-center gap-1.5 bg-purple-50 text-purple-600 px-3.5 py-2 rounded-md hover:bg-purple-100 font-medium">
-            <span className="material-symbols-outlined text-sm">person_add</span> Thêm nhân sự
+          {/* Add button — primary CTA */}
+          <button
+            type="button"
+            onClick={handleAddRACI}
+            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-primary text-white hover:bg-deep-teal shadow-sm transition-colors"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>person_add</span>
+            Thêm nhân sự
           </button>
         </div>
       </div>
 
+      {/* ── Import summary ── */}
       {raciImportSummary && (
-        <div className="space-y-2">
-          <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+        <div className="space-y-1.5">
+          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700">
             Đã nhập {raciImportSummary.success} dòng, lỗi {raciImportSummary.failed} dòng.
           </div>
           {raciImportSummary.warnings.length > 0 && (
-            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
               {raciImportSummary.warnings.slice(0, 3).map((warning, index) => (
                 <p key={`${warning}-${index}`}>{warning}</p>
               ))}
@@ -392,7 +409,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
             </div>
           )}
           {raciImportSummary.errors.length > 0 && (
-            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            <div className="rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
               {raciImportSummary.errors.slice(0, 5).map((error, index) => (
                 <p key={`${error}-${index}`}>{error}</p>
               ))}
@@ -404,27 +421,30 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 md:p-5">
-        {(isProjectEmployeeOptionsLoading || employees.length === 0) && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            {isProjectEmployeeOptionsLoading
-              ? 'Đang tải danh sách nhân sự cho biểu mẫu dự án. Các lựa chọn RACI sẽ xuất hiện sau khi dữ liệu nạp xong.'
-              : 'Chưa tải được danh sách nhân sự cho tab này. Dữ liệu nhân sự sẽ xuất hiện sau khi màn Dự án nạp xong hoặc khi tài khoản có quyền xem nhân sự.'}
-            {isDepartmentsLoading && ' Thông tin phòng ban sẽ được cập nhật ngay sau đó.'}
-          </div>
-        )}
-        <div className="min-h-[280px] max-h-[56vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm custom-scrollbar">
-          <table className="min-w-[1040px] w-full table-fixed text-left">
-            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[37%]">Nhân sự</th>
-                <th className="px-4 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[21%]">Phòng ban</th>
-                <th className="px-5 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[19%] whitespace-nowrap">Vai trò</th>
-                <th className="px-5 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[15%] whitespace-nowrap text-center">Ngày phân công</th>
-                <th className="px-3 py-3 text-[13px] font-semibold tracking-[0.02em] text-slate-500 uppercase w-[120px] text-center whitespace-nowrap">Thao tác</th>
+      {/* ── Loading notice ── */}
+      {(isProjectEmployeeOptionsLoading || employees.length === 0) && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          {isProjectEmployeeOptionsLoading
+            ? 'Đang tải danh sách nhân sự. Các lựa chọn RACI sẽ xuất hiện sau khi dữ liệu nạp xong.'
+            : 'Chưa tải được danh sách nhân sự. Dữ liệu sẽ xuất hiện sau khi màn Dự án nạp xong hoặc khi tài khoản có quyền xem nhân sự.'}
+          {isDepartmentsLoading && ' Thông tin phòng ban sẽ cập nhật ngay sau đó.'}
+        </div>
+      )}
+
+      {/* ── Table ── */}
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="min-h-[200px] max-h-[52vh] overflow-auto">
+          <table className="min-w-[820px] w-full table-fixed text-left">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm w-[36%]">Nhân sự</th>
+                <th className="sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm w-[20%]">Phòng ban</th>
+                <th className="sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm w-[22%]">Vai trò</th>
+                <th className="sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm w-[14%] text-center">Ngày phân công</th>
+                <th className="sticky top-0 z-10 bg-slate-50/95 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 backdrop-blur-sm w-[8%] text-center">Tác vụ</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-slate-100">
               {formData.raci && formData.raci.length > 0 ? (
                 formData.raci.map((raci) => {
                   const employee = employees.find((candidate) => String(candidate.id) === String(raci.userId));
@@ -435,25 +455,25 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                     : String(employee?.department_id ?? employee?.department ?? '---');
 
                   return (
-                    <tr key={raci.id} className={duplicateRaciIds.has(raci.id) ? 'bg-red-50 ring-1 ring-inset ring-red-300' : 'hover:bg-slate-50'}>
-                      <td className="p-2">
+                    <tr key={raci.id} className={duplicateRaciIds.has(raci.id) ? 'bg-red-50 ring-1 ring-inset ring-red-300' : 'hover:bg-slate-50 align-middle'}>
+                      <td className="px-2 py-1.5">
                         <SearchableSelect
                           compact
                           value={raci.userId}
                           options={employeeOptions}
                           onChange={(value) => handleUpdateRACI(raci.id, 'userId', value)}
                           disabled={isProjectEmployeeOptionsLoading || employees.length === 0}
-                          triggerClassName="w-full border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm h-11 text-[15px]"
-                          dropdownClassName="min-w-[420px] max-w-[760px]"
+                          triggerClassName="w-full border border-slate-300 rounded focus:ring-primary focus:border-primary bg-white text-slate-900 h-[30px] text-xs px-2"
+                          dropdownClassName="min-w-[380px] max-w-[680px]"
                           usePortal
                         />
                       </td>
-                      <td className="px-4 py-2 text-[15px] text-slate-600">
-                        <span className="block truncate font-medium text-slate-700" title={departmentTitle}>{departmentLabel}</span>
+                      <td className="px-2 py-1.5">
+                        <span className="block truncate text-xs font-medium text-slate-700" title={departmentTitle}>{departmentLabel}</span>
                       </td>
-                      <td className="py-2 pl-2 pr-5">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0 ${RACI_ROLES.find((role) => role.value === raci.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
+                      <td className="px-2 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] shrink-0 ${RACI_ROLES.find((role) => role.value === raci.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
                             {raci.roleType}
                           </div>
                           <SearchableSelect
@@ -462,35 +482,38 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                             value={raci.roleType}
                             options={RACI_ROLES.map((role) => ({ value: role.value, label: role.label }))}
                             onChange={(value) => handleUpdateRACI(raci.id, 'roleType', value)}
-                            triggerClassName="flex-1 border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm h-11 text-[15px]"
-                            dropdownClassName="min-w-[240px] max-w-[360px]"
+                            triggerClassName="flex-1 border border-slate-300 rounded focus:ring-primary focus:border-primary bg-white text-slate-900 h-[30px] text-xs px-2"
+                            dropdownClassName="min-w-[200px] max-w-[320px]"
                             usePortal
                           />
                         </div>
                       </td>
-                      <td className="py-2 pl-5 pr-2">
+                      <td className="px-2 py-1.5">
                         <input
                           type="text"
-                          className="w-full min-w-[168px] h-11 text-[15px] border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-2 bg-white text-slate-900 shadow-sm px-3 text-center"
+                          className="w-full h-[30px] text-xs border border-slate-300 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary bg-white text-slate-900 px-2 text-center outline-none"
                           value={raci.assignedDate}
                           onChange={(e) => handleUpdateRACI(raci.id, 'assignedDate', e.target.value)}
                           onBlur={() => handleRaciAssignedDateBlur(raci.id)}
                           placeholder="dd/mm/yyyy"
                         />
                       </td>
-                      <td className="p-2 text-center w-[120px]">
+                      <td className="px-2 py-1.5 text-center">
                         <button
+                          type="button"
                           onClick={() => handleCopyRACI(raci.id)}
                           title="Sao chép dòng này"
-                          className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                          className="rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
                         >
-                          <span className="material-symbols-outlined text-lg">content_copy</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleRemoveRACI(raci.id)}
-                          className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                          title="Xóa"
+                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
                         >
-                          <span className="material-symbols-outlined text-lg">delete</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                         </button>
                       </td>
                     </tr>
@@ -498,7 +521,9 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-[15px]">Chưa có nhân sự nào được phân công.</td>
+                  <td colSpan={5} className="px-4 py-10 text-center text-xs text-slate-400">
+                    Chưa có nhân sự nào được phân công. Bấm <strong>Thêm nhân sự</strong> để bắt đầu.
+                  </td>
                 </tr>
               )}
             </tbody>

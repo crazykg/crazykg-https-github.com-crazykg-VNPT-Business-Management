@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Project extends Model
@@ -47,5 +48,10 @@ class Project extends Model
     public function contracts(): HasMany
     {
         return $this->hasMany(Contract::class, 'project_id');
+    }
+
+    public function implementationUnit(): HasOne
+    {
+        return $this->hasOne(ProjectImplementationUnit::class, 'project_id');
     }
 }

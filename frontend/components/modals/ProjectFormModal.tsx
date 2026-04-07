@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ContractSignerOption,
   Department,
   Employee,
   Customer,
@@ -20,6 +21,7 @@ import {
   isProjectSpecialStatus,
 } from '../../constants';
 import { getEmployeeLabel } from '../../utils/employeeDisplay';
+import { fetchProjectImplementationUnitOptions } from '../../services/api/projectApi';
 import { fetchProcedureTemplates } from '../../services/v5Api';
 import { resolveHealthcareFacilityType } from '../../utils/customerClassification';
 import { ProjectRevenueSchedulePanel } from '../ProjectRevenueSchedulePanel';
@@ -218,6 +220,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       project_code: projectData?.project_code || '',
       project_name: projectData?.project_name || '',
       customer_id: projectData?.customer_id || '',
+      implementation_user_id: projectData?.implementation_user_id || '',
+      implementation_user_code: projectData?.implementation_user_code || null,
+      implementation_full_name: projectData?.implementation_full_name || null,
+      implementation_unit_code: projectData?.implementation_unit_code || null,
+      implementation_unit_name: projectData?.implementation_unit_name || null,
       investment_mode:
         normalizeProjectInvestmentMode(projectData?.investment_mode) || 'DAU_TU',
       payment_cycle: normalizeProjectPaymentCycle(projectData?.payment_cycle),
@@ -276,10 +283,55 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [procedureTemplates, setProcedureTemplates] = useState<
     ProcedureTemplate[]
   >([]);
+  const [implementationUnitOptions, setImplementationUnitOptions] = useState<
+    ContractSignerOption[]
+  >([]);
+  const [isImplementationUnitOptionsLoading, setIsImplementationUnitOptionsLoading] =
+    useState(false);
+  const [implementationUnitOptionsError, setImplementationUnitOptionsError] =
+    useState('');
+
   useEffect(() => {
     fetchProcedureTemplates()
       .then((tmpl) => setProcedureTemplates(tmpl.filter((t) => t.is_active)))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    setIsImplementationUnitOptionsLoading(true);
+    setImplementationUnitOptionsError('');
+
+    void fetchProjectImplementationUnitOptions()
+      .then((rows) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setImplementationUnitOptions(Array.isArray(rows) ? rows : []);
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setImplementationUnitOptions([]);
+        setImplementationUnitOptionsError(
+          error instanceof Error
+            ? error.message
+            : 'Không tải được danh sách đơn vị triển khai.'
+        );
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsImplementationUnitOptionsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const statusOptions = useMemo(() => {
@@ -301,6 +353,90 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         index
     );
   }, [formData.investment_mode, procedureTemplates]);
+
+  const projectImplementationOptions = useMemo(() => {
+    const fallbackImplementationUserId = data?.implementation_user_id;
+    const fallbackOption = fallbackImplementationUserId
+      ? {
+          id: fallbackImplementationUserId,
+          user_code: data?.implementation_user_code || null,
+          full_name: data?.implementation_full_name || null,
+          department_id: data?.department_id || 0,
+          dept_code: data?.implementation_unit_code || null,
+          dept_name: data?.implementation_unit_name || null,
+        }
+      : null;
+
+    if (
+      fallbackOption
+      && !implementationUnitOptions.some(
+        (item) => String(item.id) === String(fallbackOption.id)
+      )
+    ) {
+      return [...implementationUnitOptions, fallbackOption];
+    }
+
+    return implementationUnitOptions;
+  }, [data, implementationUnitOptions]);
+
+  const implementationUnitSelectOptions = useMemo(
+    () => [
+      { value: '', label: 'Chọn đơn vị triển khai' },
+      ...projectImplementationOptions.map((option) => {
+        const userCode = String(option.user_code || '').trim();
+        const fullName = String(option.full_name || '').trim();
+        const deptCode = String(option.dept_code || '').trim();
+        const deptName = String(option.dept_name || '').trim();
+
+        return {
+          value: option.id,
+          label:
+            [userCode, fullName].filter(Boolean).join(' - ')
+            || fullName
+            || `Nhân sự #${option.id}`,
+          searchText: [userCode, fullName, deptCode, deptName]
+            .filter(Boolean)
+            .join(' ')
+            .trim(),
+        };
+      }),
+    ],
+    [projectImplementationOptions]
+  );
+
+  const selectedImplementationUnit = useMemo(() => {
+    const implementationUserId = String(formData.implementation_user_id || '').trim();
+    if (!implementationUserId) {
+      return null;
+    }
+
+    return (
+      projectImplementationOptions.find(
+        (option) => String(option.id) === implementationUserId
+      ) || null
+    );
+  }, [formData.implementation_user_id, projectImplementationOptions]);
+
+  const implementationUnitHelpText = useMemo(() => {
+    if (!selectedImplementationUnit) {
+      return null;
+    }
+
+    const segments = [
+      selectedImplementationUnit.full_name
+        ? `Người triển khai: ${selectedImplementationUnit.full_name}`
+        : null,
+      selectedImplementationUnit.dept_code
+        ? `Mã đơn vị: ${selectedImplementationUnit.dept_code}`
+        : null,
+      selectedImplementationUnit.dept_name
+        ? `Đơn vị: ${selectedImplementationUnit.dept_name}`
+        : null,
+    ].filter(Boolean);
+
+    return segments.length > 0 ? segments.join(' | ') : null;
+  }, [selectedImplementationUnit]);
+
   const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
   const isProjectProductOptionsLoading =
     isProductsLoading && products.length === 0;
@@ -504,7 +640,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   const projectProductSelectOptions = useMemo(
     () => [
-      { value: '', label: 'Chọn sản phẩm', searchText: 'chon san pham' },
       ...(products || [])
         .filter((product) => !shouldHideProjectProductForSelectedCustomer(product))
         .map((product) => {
@@ -1596,7 +1731,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         formData={formData}
         getStatusReasonLabel={getStatusReasonLabel}
         handleChange={handleChange}
+        implementationUnitHelpText={implementationUnitHelpText}
+        implementationUnitOptions={implementationUnitSelectOptions}
+        implementationUnitOptionsError={implementationUnitOptionsError}
         isCustomerOptionsLoading={isCustomerOptionsLoading}
+        isImplementationUnitOptionsLoading={isImplementationUnitOptionsLoading}
         isPaymentCycleRequired={isPaymentCycleRequired}
         isProjectTypeOptionsLoading={isProjectTypeOptionsLoading}
         isSpecialStatusSelected={isSpecialStatusSelected}

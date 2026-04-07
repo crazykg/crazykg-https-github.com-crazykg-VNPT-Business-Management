@@ -80,6 +80,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const openHighlightModeRef = useRef<'default' | 'first' | 'last'>('default');
   const canUsePortal = usePortal && typeof document !== 'undefined';
   const normalizedValue = String(value ?? '');
+  const isSmall = size === 'sm';
 
   const updateHighlightedIndex = useCallback((nextIndex: number) => {
     highlightedIndexRef.current = nextIndex;
@@ -359,7 +360,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           <input
             ref={inputRef}
             type="text"
-            className="w-full pl-9 pr-3 py-2.5 text-[15px] border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
+            className={`w-full pl-9 pr-3 border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm ${
+              isSmall ? 'py-1.5 text-xs' : 'py-2.5 text-[15px]'
+            }`}
             placeholder={searchPlaceholder}
             value={searchTerm}
             onChange={(event) => {
@@ -389,7 +392,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   optionRefs.current[index] = node;
                 }}
                 type="button"
-                className={`w-full px-3 py-2.5 text-[15px] rounded-md cursor-pointer transition-colors ${
+                className={`w-full px-3 rounded-md cursor-pointer transition-colors ${
+                  isSmall ? 'py-2 text-xs' : 'py-2.5 text-[15px]'
+                } ${
                   isSelected
                     ? opt.selectedOptionClassName || 'bg-primary/10 text-primary font-semibold'
                     : isHighlighted

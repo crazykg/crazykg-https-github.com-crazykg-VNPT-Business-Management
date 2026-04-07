@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   Attachment,
   ProjectProcedureStep,
@@ -92,21 +92,6 @@ function getUserShortLabel(user: {
   if (user.user_code) return String(user.user_code).trim();
   if (user.username) return String(user.username).trim();
   return String(user.user_id || 'TV');
-}
-
-function getUserInitials(user: {
-  full_name?: string | null;
-  user_code?: string | null;
-  username?: string | null;
-  user_id?: string | number | null;
-}): string {
-  const fullName = String(user.full_name || '').trim();
-  if (fullName) {
-    const parts = fullName.split(/\s+/).filter(Boolean);
-    return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
-  }
-  const fallback = String(user.user_code || user.username || user.user_id || 'T');
-  return fallback.slice(0, 2).toUpperCase();
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -216,7 +201,7 @@ export const StepRow = memo(function StepRow({
   step, draft, stepsInPhase,
   isEditing, isExpanded, isWlogOpen, isAttachOpen, isAddingChild, isAddingChildSubmitting, hasChildren,
   isAdmin, isRaciA, myId,
-  stepRaciEntries, raciMembers,
+  stepRaciEntries,
   wlogs, wlogInput, wlogHours, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
   editingRowDraft,
   attachList, attachLoading, attachUploading,
@@ -226,7 +211,7 @@ export const StepRow = memo(function StepRow({
   onDraftChange, onStartDateChange, onReorder, onToggleDetail,
   onStartEditRow, onCancelEditRow, onSaveEditRow, onSetEditingRowDraft,
   onDeleteStep, onOpenAttachments, onUploadFile, onDeleteAttachment,
-  onToggleWorklog, onAddWorklog, onAssignA, onUpdateIssueStatus,
+  onToggleWorklog, onAddWorklog, onUpdateIssueStatus,
   onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog,
   onSetWlogInput, onSetWlogHours, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
   onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
@@ -273,23 +258,6 @@ export const StepRow = memo(function StepRow({
     ? `Số VB: ${normalizedDocumentNumber}${documentDate ? ` · Ngày: ${formatDateValue(String(documentDate))}` : ''}`
     : 'Chưa có văn bản. Mở File để nhập thông tin văn bản.';
   const attachmentTitle = `${documentTitle} · ${attachCount} file đính kèm`;
-  const [isAssignAOpen, setIsAssignAOpen] = useState(false);
-  const assignARef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isEditing || isChild) setIsAssignAOpen(false);
-  }, [isEditing, isChild]);
-
-  useEffect(() => {
-    if (!isAssignAOpen) return undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (assignARef.current && !assignARef.current.contains(event.target as Node)) {
-        setIsAssignAOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isAssignAOpen]);
 
   const sortedStepRaciEntries = useMemo(() =>
     [...stepRaciEntries].sort((a, b) => {
@@ -299,19 +267,6 @@ export const StepRow = memo(function StepRow({
     }),
   [stepRaciEntries]);
 
-  const availableRaciMembers = useMemo(() => {
-    const seen = new Set<string>();
-    return raciMembers.filter((member) => {
-      const key = String(member.user_id);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [raciMembers]);
-  const currentAEntry = useMemo(
-    () => stepRaciEntries.find((entry) => entry.raci_role === 'A') ?? null,
-    [stepRaciEntries],
-  );
   const parentStart = startVal;
   const parentEnd = endDisplay || null;
   const parsedChildDays = Number.parseInt(newChildDays, 10);
@@ -396,81 +351,6 @@ export const StepRow = memo(function StepRow({
         {/* TT */}
         <td className="px-3 py-2 text-xs font-mono text-slate-400 text-center">
           {isChild ? <span className="text-slate-300">└</span> : step.step_number}
-        </td>
-
-        {/* A */}
-        <td className="px-1 py-2 text-center">
-          {!isChild && !isEditing ? (
-            <div ref={assignARef} className="relative flex justify-center">
-              <button
-                type="button"
-                disabled={availableRaciMembers.length === 0}
-                onClick={() => setIsAssignAOpen((prev) => !prev)}
-                data-testid={`step-a-trigger-${step.id}`}
-                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
-                  currentAEntry
-                    ? 'border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200'
-                    : availableRaciMembers.length > 0
-                      ? 'border-dashed border-slate-300 bg-white text-slate-300 hover:border-amber-400 hover:text-amber-500'
-                      : 'border-dashed border-slate-200 bg-slate-50 text-slate-200 cursor-not-allowed'
-                }`}
-                title={currentAEntry ? getUserDisplayName(currentAEntry) : 'Chọn người chịu trách nhiệm'}
-              >
-                {currentAEntry ? (
-                  <span className="text-[10px] font-bold">{getUserInitials(currentAEntry)}</span>
-                ) : (
-                  <span className="material-symbols-outlined text-[16px] leading-none">person</span>
-                )}
-              </button>
-
-              {isAssignAOpen && (
-                <div className="absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <div className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Người chịu trách nhiệm</div>
-                  <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
-                    {availableRaciMembers.map((member) => {
-                      const isSelected = currentAEntry && String(currentAEntry.user_id) === String(member.user_id);
-                      return (
-                        <button
-                          key={String(member.user_id)}
-                          type="button"
-                          data-testid={`step-a-option-${step.id}-${member.user_id}`}
-                          onClick={() => {
-                            onAssignA(step.id, member.user_id);
-                            setIsAssignAOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                            isSelected ? 'bg-amber-50 text-amber-700' : 'text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                            isSelected ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {getUserInitials(member)}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">{getUserDisplayName(member)}</span>
-                          {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {currentAEntry && (
-                    <button
-                      type="button"
-                      data-testid={`step-a-clear-${step.id}`}
-                      onClick={() => {
-                        onAssignA(step.id, currentAEntry.user_id);
-                        setIsAssignAOpen(false);
-                      }}
-                      className="mt-2 flex w-full items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50"
-                    >
-                      <span className="material-symbols-outlined text-sm">close</span>
-                      Bỏ chọn
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : null}
         </td>
 
         {/* Tên bước */}

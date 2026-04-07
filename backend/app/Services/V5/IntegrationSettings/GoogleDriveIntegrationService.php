@@ -325,44 +325,37 @@ class GoogleDriveIntegrationService
     private function resolveRuntimeConfig(): array
     {
         $row = $this->loadSettingsRow();
-        if ($row !== null) {
-            $credentials = $this->decodeServiceAccountCredentials($row['service_account_json'] ?? null);
-            $scopes = $this->support->normalizeNullableString($row['scopes'] ?? null) ?? self::DEFAULT_SCOPE;
-            $accountEmail = $this->support->normalizeNullableString($row['account_email'] ?? null);
-
-            if ($credentials === null) {
-                $credentials = $this->getServiceAccountCredentialsFromEnv();
-            }
-
-            if ($accountEmail === null && is_array($credentials) && ! empty($credentials['client_email'])) {
-                $accountEmail = (string) $credentials['client_email'];
-            }
-
+        if ($row === null) {
             return [
-                'is_enabled' => (bool) ($row['is_enabled'] ?? false),
-                'account_email' => $accountEmail,
-                'folder_id' => $this->support->normalizeNullableString($row['folder_id'] ?? null),
-                'scopes' => $scopes,
-                'impersonate_user' => $this->support->normalizeNullableString($row['impersonate_user'] ?? null),
-                'file_prefix' => $this->support->normalizeNullableString($row['file_prefix'] ?? null),
-                'credentials' => $credentials,
-                'has_credentials' => is_array($credentials),
-                'source' => 'DB',
+                'is_enabled' => false,
+                'account_email' => null,
+                'folder_id' => null,
+                'scopes' => self::DEFAULT_SCOPE,
+                'impersonate_user' => null,
+                'file_prefix' => null,
+                'credentials' => null,
+                'has_credentials' => false,
+                'source' => 'DEFAULT',
             ];
         }
 
-        $credentials = $this->getServiceAccountCredentialsFromEnv();
+        $credentials = $this->decodeServiceAccountCredentials($row['service_account_json'] ?? null);
+        $accountEmail = $this->support->normalizeNullableString($row['account_email'] ?? null);
+
+        if ($accountEmail === null && is_array($credentials) && ! empty($credentials['client_email'])) {
+            $accountEmail = (string) $credentials['client_email'];
+        }
 
         return [
-            'is_enabled' => filter_var(env('GOOGLE_DRIVE_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
-            'account_email' => is_array($credentials) ? $this->support->normalizeNullableString($credentials['client_email'] ?? null) : null,
-            'folder_id' => $this->support->normalizeNullableString(env('GOOGLE_DRIVE_FOLDER_ID')),
-            'scopes' => $this->support->normalizeNullableString(env('GOOGLE_DRIVE_SCOPES')) ?? self::DEFAULT_SCOPE,
-            'impersonate_user' => $this->support->normalizeNullableString(env('GOOGLE_DRIVE_IMPERSONATE_USER')),
-            'file_prefix' => $this->support->normalizeNullableString(env('GOOGLE_DRIVE_FILE_PREFIX')),
+            'is_enabled' => (bool) ($row['is_enabled'] ?? false),
+            'account_email' => $accountEmail,
+            'folder_id' => $this->support->normalizeNullableString($row['folder_id'] ?? null),
+            'scopes' => $this->support->normalizeNullableString($row['scopes'] ?? null) ?? self::DEFAULT_SCOPE,
+            'impersonate_user' => $this->support->normalizeNullableString($row['impersonate_user'] ?? null),
+            'file_prefix' => $this->support->normalizeNullableString($row['file_prefix'] ?? null),
             'credentials' => $credentials,
             'has_credentials' => is_array($credentials),
-            'source' => 'ENV',
+            'source' => 'DB',
         ];
     }
 
@@ -397,44 +390,6 @@ class GoogleDriveIntegrationService
             ->first();
 
         return $record !== null ? (array) $record : null;
-    }
-
-    /**
-     * @return array<string,mixed>|null
-     */
-    private function getServiceAccountCredentialsFromEnv(): ?array
-    {
-        $jsonFromEnv = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON');
-        if (is_string($jsonFromEnv) && trim($jsonFromEnv) !== '') {
-            $decoded = json_decode($jsonFromEnv, true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-
-        $base64Json = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64');
-        if (is_string($base64Json) && trim($base64Json) !== '') {
-            $decodedBase64 = base64_decode($base64Json, true);
-            if ($decodedBase64 !== false) {
-                $decoded = json_decode($decodedBase64, true);
-                if (is_array($decoded)) {
-                    return $decoded;
-                }
-            }
-        }
-
-        $jsonPath = env('GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_PATH');
-        if (is_string($jsonPath) && trim($jsonPath) !== '' && is_file($jsonPath)) {
-            $content = file_get_contents($jsonPath);
-            if (is_string($content) && trim($content) !== '') {
-                $decoded = json_decode($content, true);
-                if (is_array($decoded)) {
-                    return $decoded;
-                }
-            }
-        }
-
-        return null;
     }
 
     /**
