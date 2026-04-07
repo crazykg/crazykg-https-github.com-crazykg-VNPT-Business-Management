@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { DEFAULT_PAGINATION_META } from '../../../services/v5Api';
+import { DEFAULT_PAGINATION_META, isRequestCanceledError } from '../../../services/v5Api';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 
 type UseCustomerRequestListOptions = {
@@ -53,7 +53,7 @@ export const useCustomerRequestList = ({
   }, [dataVersion, enabled, listQuery.refetch]);
 
   useEffect(() => {
-    if (!listQuery.error) {
+    if (!listQuery.error || isRequestCanceledError(listQuery.error)) {
       return;
     }
 

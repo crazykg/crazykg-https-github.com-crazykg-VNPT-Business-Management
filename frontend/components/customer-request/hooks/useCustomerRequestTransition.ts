@@ -1,23 +1,21 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  fetchYeuCauTimeline,
   uploadDocumentAttachment,
 } from '../../../services/v5Api';
 import { useTransitionCase } from '../../../shared/hooks/useCustomerRequests';
 import { queryKeys } from '../../../shared/queryKeys';
-import { fetchYeuCauTimeline } from '../../../services/v5Api';
 import type {
   Attachment,
   ProjectRaciRow,
   YeuCauProcessDetail,
+  YeuCauProcessField,
   YeuCauProcessMeta,
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
 } from '../../../types';
 import {
-  type DraftState,
-  buildPayloadFromDraft,
-  buildTransitionDraftFromFields,
   createEmptyIt360TaskRow,
   createEmptyReferenceTaskRow,
   normalizeSupportTaskStatus,
@@ -53,6 +51,16 @@ type OpenTransitionModalOptions = {
   notes?: string;
 };
 
+export const FIXED_STATUS_FIELDS: YeuCauProcessField[] = [
+  { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime' },
+  { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime' },
+  { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime' },
+  { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number' },
+  { name: 'from_user_id', label: 'Người chuyển', type: 'user_select' },
+  { name: 'to_user_id', label: 'Người nhận', type: 'user_select' },
+  { name: 'notes', label: 'Ghi chú', type: 'textarea' },
+];
+
 const pickTransitionMetadataPayload = (
   payload: Record<string, unknown>
 ): Record<string, string> => {
@@ -72,6 +80,132 @@ const pickTransitionMetadataPayload = (
   return nextPayload;
 };
 
+const buildFixedTransitionDraft = (_actorUserId?: string | number | null): Record<string, unknown> => {
+  return {
+    received_at: '',
+    completed_at: '',
+    extended_at: '',
+    progress_percent: '',
+    from_user_id: '',
+    to_user_id: '',
+    notes: '',
+  };
+};
+
+const hasValue = (value: unknown): boolean => normalizeText(value) !== '';
+
+const isProgressPercentInvalid = (value: unknown): boolean => {
+  const normalized = normalizeText(value);
+  if (normalized === '') {
+    return false;
+  }
+
+  const numeric = Number(normalized);
+  return !Number.isFinite(numeric) || numeric < 0 || numeric > 100;
+};
+
+const isTargetUserRequired = (toStatusCode: string): boolean =>
+  [
+    'returned_to_manager',
+    'in_progress',
+    'analysis',
+    'coding',
+    'dms_transfer',
+  ].includes(toStatusCode);
+
+const isCompletedAtRequired = (toStatusCode: string): boolean =>
+  ['completed', 'customer_notified'].includes(toStatusCode);
+
+const assertTransitionPayload = (
+  toStatusCode: string,
+  statusPayload: Record<string, unknown>,
+): string | null => {
+  if (isProgressPercentInvalid(statusPayload.progress_percent)) {
+    return 'Tiến độ phần trăm phải trong khoảng 0-100.';
+  }
+
+  if (!hasValue(statusPayload.from_user_id)) {
+    return 'Người chuyển là bắt buộc.';
+  }
+
+  if (isTargetUserRequired(toStatusCode) && !hasValue(statusPayload.to_user_id)) {
+    return 'Người nhận là bắt buộc cho nhánh chuyển trạng thái này.';
+  }
+
+  if (isCompletedAtRequired(toStatusCode) && !hasValue(statusPayload.completed_at)) {
+    return 'Ngày kết thúc là bắt buộc khi chuyển sang trạng thái hoàn thành/thông báo khách hàng.';
+  }
+
+  if (
+    ['returned_to_manager', 'not_executed'].includes(toStatusCode)
+    && !hasValue(statusPayload.notes)
+  ) {
+    return 'Ghi chú là bắt buộc cho nhánh trả PM hoặc không tiếp nhận.';
+  }
+
+  return null;
+};
+
+const buildFixedTransitionPayload = (draft: Record<string, unknown>): Record<string, unknown> => ({
+  received_at: normalizeText(draft.received_at),
+  completed_at: normalizeText(draft.completed_at),
+  extended_at: normalizeText(draft.extended_at),
+  progress_percent: normalizeText(draft.progress_percent),
+  from_user_id: normalizeText(draft.from_user_id),
+  to_user_id: normalizeText(draft.to_user_id),
+  notes: normalizeText(draft.notes),
+});
+
+const applyFixedDefaultsFromCurrentCase = (
+  payload: Record<string, unknown>,
+  processDetail: YeuCauProcessDetail | null,
+  currentUserId?: string | number | null,
+): Record<string, unknown> => {
+  const actor = normalizeText(currentUserId);
+  const request = processDetail?.yeu_cau ?? {};
+  const currentOwnerUserId = normalizeText(
+    request.current_owner_user_id
+    ?? request.nguoi_xu_ly_id
+    ?? processDetail?.process_row?.data?.to_user_id
+  );
+
+  if (!hasValue(payload.from_user_id)) {
+    payload.from_user_id = currentOwnerUserId || actor || normalizeText(request.updated_by ?? request.receiver_user_id);
+  }
+
+  if (!hasValue(payload.to_user_id)) {
+    payload.to_user_id = currentOwnerUserId;
+  }
+
+  if (!hasValue(payload.received_at)) {
+    payload.received_at = normalizeText(request.ngay_tiep_nhan ?? request.received_at);
+  }
+
+  return payload;
+};
+
+const toMutationStatusPayload = (
+  processDetail: YeuCauProcessDetail | null,
+  draft: Record<string, unknown>,
+  modalNotes: string,
+  currentUserId?: string | number | null,
+): Record<string, unknown> => {
+  const next = applyFixedDefaultsFromCurrentCase(
+    buildFixedTransitionPayload(draft),
+    processDetail,
+    currentUserId
+  );
+
+  next.notes = normalizeText(modalNotes) || normalizeText(next.notes);
+  return next;
+};
+
+const buildInitialTransitionDraft = (
+  processDetail: YeuCauProcessDetail | null,
+  currentUserId?: string | number | null,
+): Record<string, unknown> =>
+  applyFixedDefaultsFromCurrentCase(buildFixedTransitionDraft(currentUserId), processDetail, currentUserId);
+
 export const useCustomerRequestTransition = ({
   currentUserId,
   selectedRequestId,
@@ -85,6 +219,8 @@ export const useCustomerRequestTransition = ({
   onTransitionSuccess,
   bumpDataVersion,
 }: UseCustomerRequestTransitionOptions) => {
+  void transitionProcessMeta;
+
   const queryClient = useQueryClient();
   const transitionMutation = useTransitionCase();
   const [showTransitionModal, setShowTransitionModal] = useState(false);
@@ -100,22 +236,27 @@ export const useCustomerRequestTransition = ({
   const [isModalUploading, setIsModalUploading] = useState(false);
 
   const openTransitionModal = (options?: OpenTransitionModalOptions) => {
-    const effectiveProcessMeta = options?.targetProcessMeta ?? transitionProcessMeta;
+    void options?.targetProcessMeta;
+
     const currentHandler =
-      people.find((person) => person.vai_tro === 'nguoi_thuc_hien')
-      ?? people.find((person) => person.vai_tro === 'nguoi_dieu_phoi')
-      ?? people.find((person) => person.vai_tro === 'nguoi_xu_ly');
-    const defaultHandlerUserId = String(currentHandler?.user_id ?? defaultProcessor?.user_id ?? '');
-    const currentPerformerUserId = normalizeText(
-      processDetail?.yeu_cau?.performer_user_id ?? currentHandler?.user_id ?? defaultProcessor?.user_id
+      people.find((person) => person.vai_tro === 'nguoi_xu_ly')
+      ?? people.find((person) => person.vai_tro === 'nguoi_thuc_hien')
+      ?? people.find((person) => person.vai_tro === 'nguoi_dieu_phoi');
+
+    const currentOwnerUserId = normalizeText(
+      processDetail?.yeu_cau?.current_owner_user_id
+      ?? processDetail?.process_row?.data?.to_user_id
+    );
+
+    const defaultHandlerUserId = normalizeText(
+      options?.handlerUserId
+      ?? currentOwnerUserId
+      ?? currentHandler?.user_id
+      ?? defaultProcessor?.user_id
     );
 
     const nextDraft = {
-      ...buildTransitionDraftFromFields(effectiveProcessMeta?.form_fields ?? [], {
-        actorUserId: currentUserId,
-        defaultHandlerUserId,
-        currentPerformerUserId,
-      }),
+      ...buildInitialTransitionDraft(processDetail, currentUserId),
       ...(options?.payloadOverrides ?? {}),
     };
 
@@ -162,13 +303,10 @@ export const useCustomerRequestTransition = ({
       return;
     }
 
-    if (transitionStatusCode === 'waiting_customer_feedback') {
-      const feedbackRequestedAt = String(modalStatusPayload.feedback_requested_at ?? '');
-      const customerDueAt = String(modalStatusPayload.customer_due_at ?? '');
-      if (feedbackRequestedAt && customerDueAt && feedbackRequestedAt > customerDueAt) {
-        onNotify('error', 'Ngày không hợp lệ', 'Ngày phản hồi KH không được sau Ngày KH phản hồi.');
-        return;
-      }
+    const validationError = assertTransitionPayload(transitionStatusCode, modalStatusPayload);
+    if (validationError) {
+      onNotify('error', 'Thiếu dữ liệu chuyển trạng thái', validationError);
+      return;
     }
 
     setIsTransitioning(true);
@@ -190,13 +328,12 @@ export const useCustomerRequestTransition = ({
           task_source: 'REFERENCE',
         }));
 
-      const transitionPayloadDraft: DraftState = { ...modalStatusPayload };
-      if ((transitionProcessMeta?.form_fields ?? []).some((field) => field.name === 'notes')) {
-        transitionPayloadDraft.notes = modalNotes;
-      }
-      const transitionFieldPayload = transitionProcessMeta
-        ? buildPayloadFromDraft(transitionProcessMeta.form_fields, transitionPayloadDraft)
-        : {};
+      const transitionFieldPayload = toMutationStatusPayload(
+        processDetail,
+        modalStatusPayload,
+        modalNotes,
+        currentUserId,
+      );
       const transitionMetadataPayload = pickTransitionMetadataPayload(modalStatusPayload);
 
       const transitioned = await transitionMutation.mutateAsync({

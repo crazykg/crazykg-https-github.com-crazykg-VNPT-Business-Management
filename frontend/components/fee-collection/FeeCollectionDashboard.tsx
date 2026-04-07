@@ -175,7 +175,7 @@ export const FeeCollectionDashboard: React.FC<Props> = React.memo(function FeeCo
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                {periodFrom} -> {periodTo}
+                {periodFrom} {'->'} {periodTo}
               </span>
               <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
                 {byMonth.length} kỳ theo dõi

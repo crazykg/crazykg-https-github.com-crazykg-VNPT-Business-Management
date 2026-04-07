@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import {
   useCRCList,
   useCRCPerformerWeeklyTimesheet,
@@ -40,7 +41,8 @@ export const useCustomerRequestPerformerWorkspace = ({
   }, [dataVersion, enabled, performerQuery.refetch, timesheetQuery.refetch]);
 
   useEffect(() => {
-    const firstError = [performerQuery.error, timesheetQuery.error].find(Boolean);
+    const firstError = [performerQuery.error, timesheetQuery.error]
+      .find((error) => Boolean(error) && !isRequestCanceledError(error));
     if (!firstError) {
       return;
     }

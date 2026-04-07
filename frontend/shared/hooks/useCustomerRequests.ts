@@ -61,10 +61,11 @@ const compactParams = <T extends Record<string, unknown>>(params: T): T =>
 
 export function useCRCList(params: CRCListParams, options: CRCQueryOptions = {}) {
   const compactedParams = compactParams(params);
+  const cancelKey = `page:/api/v5/customer-request-cases:${JSON.stringify(compactedParams)}`;
 
   return useQuery<CRCListResponse>({
     queryKey: queryKeys.customerRequests.list(compactedParams),
-    queryFn: () => fetchYeuCauPage(compactedParams),
+    queryFn: () => fetchYeuCauPage(compactedParams, { cancelKey }),
     enabled: options.enabled ?? true,
   });
 }

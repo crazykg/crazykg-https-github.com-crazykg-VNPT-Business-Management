@@ -73,23 +73,6 @@ type CustomerRequestTransitionModalProps = {
   caseContextReferenceTasks?: ReferenceTaskFormRow[];
 };
 
-const handlerOptionsFromRaci = (projectRaciRows: ProjectRaciRow[]): SearchableSelectOption[] =>
-  Array.from(new Map<string, ProjectRaciRow>(projectRaciRows.map((row) => [String(row.user_id), row])).values()).map((row) => ({
-    value: String(row.user_id),
-    label: row.user_code
-      ? `${row.full_name || row.username || String(row.user_id)} · ${row.user_code}`
-      : row.full_name || row.username || String(row.user_id),
-    searchText: `${row.full_name ?? ''} ${row.username ?? ''} ${row.user_code ?? ''}`,
-  }));
-
-const handlerOptionsFromEmployees = (employees: Employee[]): SearchableSelectOption[] =>
-  employees.map((employee) => ({
-    value: String(employee.id),
-    label: employee.user_code
-      ? `${employee.full_name || employee.username} · ${employee.user_code}`
-      : employee.full_name || employee.username,
-    searchText: `${employee.full_name} ${employee.username} ${employee.user_code ?? ''}`,
-  }));
 
 export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionModalProps> = ({
   show,
@@ -118,9 +101,9 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
   onClose,
   onConfirm,
   modalTimeline,
-  modalHandlerUserId,
-  onModalHandlerUserIdChange,
-  projectRaciRows,
+  modalHandlerUserId: _modalHandlerUserId,
+  onModalHandlerUserIdChange: _onModalHandlerUserIdChange,
+  projectRaciRows: _projectRaciRows,
   employees,
   customers,
   customerPersonnel,
@@ -167,8 +150,6 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
     processDetail?.yeu_cau?.current_status_name_vi
   );
   const targetStatusMeta = STATUS_COLOR_MAP[transitionStatusCode] ?? resolveStatusMeta(transitionStatusCode);
-  const handlerOptions =
-    projectRaciRows.length > 0 ? handlerOptionsFromRaci(projectRaciRows) : handlerOptionsFromEmployees(employees);
 
   // --- Tính toán hiển thị ngữ cảnh case hiện có ---
   const ctxAttachments = caseContextAttachments ?? [];
@@ -225,7 +206,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                       supportServiceGroups={supportServiceGroups}
                       projectItems={projectItems}
                       selectedCustomerId={selectedCustomerId}
-                      disabled={isTransitioning}
+                      disabled={isTransitioning || field.name === 'from_user_id'}
                       onChange={onModalStatusPayloadChange}
                     />
                   ))}
@@ -411,7 +392,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                       <div>
                         <p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Task tham chiếu #{index + 1}</p>
                         <SearchableSelect
-                          value={task.id != null ? String(task.id) : task.task_code}
+                          value={task.task_code}
                           options={taskReferenceOptions}
                           onChange={(value) => onUpdateModalReferenceTask(task.local_id, value)}
                           onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -519,27 +500,6 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                   </div>
                 ))}
 
-                <div className="flex items-start gap-1.5 pt-1">
-                  <span className="mt-0.5 text-sm">⚙️</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="mb-1 font-semibold text-slate-500">
-                      Người xử lý
-                      {projectRaciRows.length === 0 ? (
-                        <span className="ml-1 text-[10px] font-normal text-slate-400">(tất cả nhân viên)</span>
-                      ) : null}
-                    </p>
-                    <SearchableSelect
-                      value={modalHandlerUserId}
-                      options={handlerOptions}
-                      onChange={onModalHandlerUserIdChange}
-                      placeholder="Chọn người xử lý..."
-                      searchPlaceholder="Tìm theo tên..."
-                      className="min-w-0"
-                      compact
-                      disabled={isTransitioning}
-                    />
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -563,7 +523,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                         <div className="min-w-0 pb-2">
                           <p className="text-[11px] font-semibold text-slate-700">{meta.label}</p>
                           <p className="truncate text-[10px] text-slate-500">
-                            {entry.nguoi_thay_doi_name || '--'}
+                            {entry.nguoi_chuyen_name || entry.nguoi_xu_ly_name || entry.nguoi_thay_doi_name || '--'}
                             {entry.thay_doi_luc ? ` · ${formatDateTimeDdMmYyyy(entry.thay_doi_luc)}` : ''}
                           </p>
                           {entry.ly_do ? (

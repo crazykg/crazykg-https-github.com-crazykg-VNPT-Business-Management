@@ -27,7 +27,32 @@ export const buildDispatcherQuickActions = ({
   const allowedStatuses = new Set(transitionOptions.map((option) => option.process_code));
   const nextActions: DispatcherQuickAction[] = [];
 
-  if (allowedStatuses.has('in_progress')) {
+  if (allowedStatuses.has('assigned_to_receiver')) {
+    nextActions.push({
+      id: 'assign_performer',
+      label: 'Giao R thực hiện',
+      description: 'Mở form để giao yêu cầu cho R theo đúng bước Workflow A.',
+      targetStatusCode: 'assigned_to_receiver',
+      icon: 'person_add',
+      accentCls: 'border-amber-200 bg-amber-50 hover:border-amber-300',
+      payloadOverrides: { to_user_id: '' },
+    });
+
+    if (normalizedCurrentUserId !== '') {
+      nextActions.push({
+        id: 'self_handle',
+        label: 'Tự nhận bước giao R',
+        description: 'Chuyển nhanh sang bước Giao R thực hiện và mặc định người nhận là chính bạn.',
+        targetStatusCode: 'assigned_to_receiver',
+        icon: 'build_circle',
+        accentCls: 'border-emerald-200 bg-emerald-50 hover:border-emerald-300',
+        payloadOverrides: { to_user_id: normalizedCurrentUserId },
+        notePreset: 'Điều phối chọn giao R thực hiện cho chính mình.',
+      });
+    }
+  }
+
+  if (allowedStatuses.has('in_progress') && !allowedStatuses.has('assigned_to_receiver')) {
     nextActions.push({
       id: 'assign_performer',
       label: 'Giao performer',
@@ -64,16 +89,7 @@ export const buildDispatcherQuickActions = ({
     });
   }
 
-  if (allowedStatuses.has(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE)) {
-    nextActions.push({
-      id: 'review_missing_customer_info',
-      label: 'Đánh giá thiếu TT KH',
-      description: 'Tách nhánh PM mới theo XML: xác nhận có phải vướng vì khách hàng thiếu thông tin hay không.',
-      targetStatusCode: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
-      icon: 'rule',
-      accentCls: 'border-rose-200 bg-rose-50 hover:border-rose-300',
-    });
-  } else if (allowedStatuses.has('waiting_customer_feedback')) {
+  if (allowedStatuses.has('waiting_customer_feedback')) {
     nextActions.push({
       id: 'request_feedback',
       label: 'Chờ khách hàng',
@@ -82,9 +98,18 @@ export const buildDispatcherQuickActions = ({
       icon: 'forum',
       accentCls: 'border-yellow-200 bg-yellow-50 hover:border-yellow-300',
     });
+  } else if (allowedStatuses.has(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE)) {
+    nextActions.push({
+      id: 'review_missing_customer_info',
+      label: 'Đánh giá thiếu TT KH',
+      description: 'Tách nhánh PM mới theo XML: xác nhận có phải vướng vì khách hàng thiếu thông tin hay không.',
+      targetStatusCode: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
+      icon: 'rule',
+      accentCls: 'border-rose-200 bg-rose-50 hover:border-rose-300',
+    });
   }
 
-  if (!allowedStatuses.has(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE) && allowedStatuses.has('not_executed')) {
+  if (allowedStatuses.has('not_executed')) {
     nextActions.push({
       id: 'reject',
       label: 'Từ chối / không thực hiện',
@@ -128,7 +153,7 @@ export const buildPerformerQuickActions = ({
   if (allowedStatuses.has('analysis')) {
     nextActions.push({
       id: 'analysis_task',
-      label: 'Ghi nhận phân tích',
+      label: 'Chuyển BA Phân tích',
       description: 'Mở form phân tích để ghi rõ hướng xử lý, kết quả rà soát và người chịu trách nhiệm.',
       targetStatusCode: 'analysis',
       icon: 'query_stats',
@@ -138,7 +163,91 @@ export const buildPerformerQuickActions = ({
     });
   }
 
-  if (allowedStatuses.has('completed')) {
+  if (allowedStatuses.has('analysis_completed')) {
+    nextActions.push({
+      id: 'complete_task',
+      label: 'BA phân tích hoàn thành',
+      description: 'Xác nhận bước Chuyển BA Phân tích hoàn thành theo Workflow A.',
+      targetStatusCode: 'analysis_completed',
+      icon: 'task_alt',
+      accentCls: 'border-indigo-200 bg-indigo-50 hover:border-indigo-300',
+      notePreset: 'BA cập nhật hoàn thành phân tích.',
+    });
+  }
+
+  if (allowedStatuses.has('analysis_suspended')) {
+    nextActions.push({
+      id: 'return_to_manager',
+      label: 'BA phân tích tạm ngưng',
+      description: 'Chuyển sang trạng thái Chuyển BA Phân tích tạm ngưng.',
+      targetStatusCode: 'analysis_suspended',
+      icon: 'pause_circle',
+      accentCls: 'border-fuchsia-200 bg-fuchsia-50 hover:border-fuchsia-300',
+      notePreset: 'BA tạm ngưng xử lý và chờ điều phối.',
+    });
+  }
+
+  if (allowedStatuses.has('coding_in_progress')) {
+    nextActions.push({
+      id: 'take_task',
+      label: 'Dev đang thực hiện',
+      description: 'Chuyển sang trạng thái Dev đang thực hiện.',
+      targetStatusCode: 'coding_in_progress',
+      icon: 'code',
+      accentCls: 'border-violet-200 bg-violet-50 hover:border-violet-300',
+      notePreset: 'Dev bắt đầu thực hiện.',
+    });
+  }
+
+  if (allowedStatuses.has('coding_suspended')) {
+    nextActions.push({
+      id: 'return_to_manager',
+      label: 'Dev tạm ngưng',
+      description: 'Chuyển sang trạng thái Dev tạm ngưng.',
+      targetStatusCode: 'coding_suspended',
+      icon: 'pause_circle',
+      accentCls: 'border-fuchsia-200 bg-fuchsia-50 hover:border-fuchsia-300',
+      notePreset: 'Dev tạm ngưng xử lý.',
+    });
+  }
+
+  if (allowedStatuses.has('dms_task_created')) {
+    nextActions.push({
+      id: 'analysis_task',
+      label: 'Tạo task DMS',
+      description: 'Chuyển sang trạng thái Tạo task.',
+      targetStatusCode: 'dms_task_created',
+      icon: 'add_task',
+      accentCls: 'border-lime-200 bg-lime-50 hover:border-lime-300',
+      notePreset: 'Tạo task DMS theo workflow.',
+    });
+  }
+
+  if (allowedStatuses.has('dms_in_progress')) {
+    nextActions.push({
+      id: 'take_task',
+      label: 'DMS Đang thực hiện',
+      description: 'Chuyển sang trạng thái DMS Đang thực hiện.',
+      targetStatusCode: 'dms_in_progress',
+      icon: 'sync',
+      accentCls: 'border-lime-200 bg-lime-50 hover:border-lime-300',
+      notePreset: 'DMS bắt đầu xử lý.',
+    });
+  }
+
+  if (allowedStatuses.has('dms_suspended')) {
+    nextActions.push({
+      id: 'return_to_manager',
+      label: 'DMS tạm ngưng',
+      description: 'Chuyển sang trạng thái DMS tạm ngưng.',
+      targetStatusCode: 'dms_suspended',
+      icon: 'pause_circle',
+      accentCls: 'border-emerald-200 bg-emerald-50 hover:border-emerald-300',
+      notePreset: 'DMS tạm ngưng xử lý.',
+    });
+  }
+
+  if (allowedStatuses.has('completed') && !allowedStatuses.has('analysis_completed')) {
     nextActions.push({
       id: 'complete_task',
       label: 'Hoàn thành',
@@ -151,7 +260,7 @@ export const buildPerformerQuickActions = ({
     });
   }
 
-  if (allowedStatuses.has('returned_to_manager')) {
+  if (allowedStatuses.has('returned_to_manager') && !allowedStatuses.has('analysis_suspended') && !allowedStatuses.has('coding_suspended') && !allowedStatuses.has('dms_suspended')) {
     nextActions.push({
       id: 'return_to_manager',
       label: 'Trả người quản lý',

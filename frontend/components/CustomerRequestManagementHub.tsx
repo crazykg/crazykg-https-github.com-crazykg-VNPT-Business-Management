@@ -6,6 +6,7 @@ import {
   fetchYeuCau,
   fetchYeuCauProcessCatalog,
   isRequestCanceledError,
+  saveYeuCauProcess,
   storeYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
@@ -49,7 +50,6 @@ import { CustomerRequestDashboardCards } from './customer-request/CustomerReques
 import { CustomerRequestQuickAccessBar } from './customer-request/CustomerRequestQuickAccessBar';
 import { CustomerRequestDetailFrame } from './customer-request/CustomerRequestDetailFrame';
 import { CustomerRequestTransitionModal } from './customer-request/CustomerRequestTransitionModal';
-import { CustomerRequestPmMissingInfoDecisionModal } from './customer-request/CustomerRequestPmMissingInfoDecisionModal';
 import { CustomerRequestCreateModal } from './customer-request/CustomerRequestCreateModal';
 import {
   CustomerRequestEstimateModal,
@@ -76,7 +76,6 @@ import type {
 import {
   buildXmlAlignedTransitionOptionsForRequest,
   filterXmlVisibleProcesses,
-  isPmMissingCustomerInfoDecisionProcessCode,
   isXmlVisibleProcessCode,
   resolveRequestProcessCode,
 } from './customer-request/presentation';
@@ -186,7 +185,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [scopedProjectItems, setScopedProjectItems] = useState<ProjectItemMaster[]>([]);
   const [showWorklogModal, setShowWorklogModal] = useState(false);
   const [showEstimateModal, setShowEstimateModal] = useState(false);
-  const [showPmMissingInfoDecisionModal, setShowPmMissingInfoDecisionModal] = useState(false);
   const [pendingPrimaryAction, setPendingPrimaryAction] = useState<{
     requestId: string;
     action: CustomerRequestPrimaryActionMeta;
@@ -390,8 +388,16 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const transitionRenderableFields = useMemo<YeuCauProcessField[]>(
-    () => transitionProcessMeta?.form_fields ?? [],
-    [transitionProcessMeta]
+    () => ([
+      { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime' },
+      { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime' },
+      { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime' },
+      { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number' },
+      { name: 'from_user_id', label: 'Người chuyển', type: 'user_select' },
+      { name: 'to_user_id', label: 'Người nhận', type: 'user_select' },
+      { name: 'notes', label: 'Ghi chú', type: 'textarea' },
+    ]),
+    []
   );
 
   // -------------------------------------------------------------------------
@@ -407,28 +413,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsSearchOpen,
   } = useCustomerRequestSearch({ canReadRequests });
 
-  // Task reference options (from searchResults)
-  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      searchResults.map((r) => ({
-        value: r.request_code ?? String(r.id),
-        label: r.request_code
-          ? `${r.request_code} — ${r.summary ?? r.label ?? ''}`
-          : String(r.id),
-        searchText: `${r.request_code ?? ''} ${r.summary ?? ''} ${r.customer_name ?? ''} ${r.project_name ?? ''}`,
-      })),
-    [searchResults]
-  );
-
-  // Task reference lookup for transition hook
-  const taskReferenceLookup = useMemo(() => {
-    const map = new Map<string, { id?: string | number | null; task_code: string }>();
-    searchResults.forEach((r) => {
-      const code = r.request_code ?? String(r.id);
-      map.set(code, { id: r.id, task_code: code });
-    });
-    return map;
-  }, [searchResults]);
 
   // -------------------------------------------------------------------------
   // 5. Stable error/callback refs — prevent hook useEffect re-firing on every
@@ -496,6 +480,80 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onError: handleListError,
     onPageOverflow: handlePageOverflow,
   });
+
+  const taskReferenceCatalog = useMemo(() => {
+    const map = new Map<string, { id?: string | number | null; task_code: string; label: string; searchText: string }>();
+
+    const addTaskReference = (raw: {
+      id?: string | number | null;
+      taskCode: string;
+      summary?: string | null;
+      customerName?: string | null;
+      projectName?: string | null;
+    }) => {
+      const taskCode = String(raw.taskCode || '').trim();
+      if (!taskCode) {
+        return;
+      }
+
+      const normalizedCode = taskCode.toLowerCase();
+      if (map.has(normalizedCode)) {
+        return;
+      }
+
+      const summary = String(raw.summary || '').trim();
+      map.set(normalizedCode, {
+        id: raw.id ?? null,
+        task_code: taskCode,
+        label: summary ? `${taskCode} — ${summary}` : taskCode,
+        searchText: `${taskCode} ${summary} ${String(raw.customerName || '')} ${String(raw.projectName || '')}`,
+      });
+    };
+
+    listRows.forEach((row) => {
+      addTaskReference({
+        id: row.id,
+        taskCode: row.request_code ?? row.ma_yc ?? String(row.id ?? ''),
+        summary: row.summary ?? row.tieu_de,
+        customerName: row.customer_name ?? row.khach_hang_name,
+        projectName: (row as unknown as Record<string, unknown>).project_name as string | undefined,
+      });
+    });
+
+    searchResults.forEach((r) => {
+      addTaskReference({
+        id: r.id,
+        taskCode: r.request_code ?? String(r.id),
+        summary: r.summary ?? r.label,
+        customerName: r.customer_name,
+        projectName: r.project_name,
+      });
+    });
+
+    return map;
+  }, [listRows, searchResults]);
+
+  // Task reference options (default from current list + search results)
+  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      Array.from(taskReferenceCatalog.values()).map((item) => ({
+        value: item.task_code,
+        label: item.label,
+        searchText: item.searchText,
+      })),
+    [taskReferenceCatalog]
+  );
+
+  // Task reference lookup for transition/detail hooks
+  const taskReferenceLookup = useMemo(() => {
+    const map = new Map<string, { id?: string | number | null; task_code: string }>();
+    taskReferenceCatalog.forEach((item, key) => {
+      map.set(key, { id: item.id, task_code: item.task_code });
+      map.set(item.task_code, { id: item.id, task_code: item.task_code });
+    });
+    return map;
+  }, [taskReferenceCatalog]);
+
   const createCRCHook = useCreateCRC();
 
   // -------------------------------------------------------------------------
@@ -828,7 +886,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setActiveSurface('list');
     setActiveEditorProcessCode(resolveRequestProcessCode(row));
     setTransitionStatusCode('');
-    setShowPmMissingInfoDecisionModal(false);
     setPendingPrimaryAction(null);
     setActiveSavedViewId(null);
     setProcessDetail(null);
@@ -960,7 +1017,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsCreateMode(true);
     setActiveEditorProcessCode('new_intake');
     setTransitionStatusCode('');
-    setShowPmMissingInfoDecisionModal(false);
     setCreateFlowDraft(buildInitialCreateFlowDraft(currentUserId));
     setActiveSavedViewId(null);
   }, [currentUserId]);
@@ -985,7 +1041,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setTransitionStatusCode('');
     setShowWorklogModal(false);
     setShowEstimateModal(false);
-    setShowPmMissingInfoDecisionModal(false);
   }, []);
 
   const handleSubmitWorklog = useCallback(
@@ -1211,11 +1266,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const handleUpdateRefRow = useCallback(
     (localId: string, value: string) => {
+      const normalizedValue = String(value || '').trim();
+      const found = taskReferenceLookup.get(normalizedValue.toLowerCase())
+        ?? taskReferenceLookup.get(normalizedValue);
+
       setFormReferenceTasks((prev) =>
-        prev.map((r) => (r.local_id === localId ? { ...r, task_code: value } : r))
+        prev.map((r) =>
+          r.local_id === localId
+            ? {
+                ...r,
+                id: found?.id ?? null,
+                task_code: found?.task_code ?? normalizedValue,
+              }
+            : r
+        )
       );
     },
-    [setFormReferenceTasks]
+    [setFormReferenceTasks, taskReferenceLookup]
   );
 
   const handleRemoveRefRow = useCallback(
@@ -1388,6 +1455,64 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     notify,
   ]);
 
+  const handleSaveStatusDetail = useCallback(async () => {
+    if (!canWriteRequests || isCreateMode || !selectedRequestId || !activeEditorProcessCode) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const masterPayload = buildPayloadFromDraft(masterFields, masterDraft);
+      const refTasksPayload: Array<Record<string, unknown>> = [
+        ...formIt360Tasks
+          .filter((r) => r.task_code.trim())
+          .map((r) => ({
+            task_source: 'IT360',
+            task_code: r.task_code.trim(),
+            task_link: r.task_link || null,
+            task_status: r.status,
+            ...(r.id != null ? { id: r.id } : {}),
+          })),
+        ...formReferenceTasks
+          .filter((r) => r.task_code.trim() || r.id != null)
+          .map((r) => ({
+            task_source: 'REFERENCE',
+            ...(r.id != null ? { id: r.id } : { task_code: r.task_code.trim() }),
+          })),
+      ];
+
+      await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, {
+        master_payload: masterPayload,
+        status_payload: processDraft,
+        ref_tasks: refTasksPayload,
+      });
+      bumpDataVersion();
+      notify('success', 'Cập nhật trạng thái', 'Đã cập nhật thông tin trạng thái.');
+    } catch (e: unknown) {
+      if (!isRequestCanceledError(e)) {
+        notify(
+          'error',
+          'Cập nhật trạng thái thất bại',
+          e instanceof Error ? e.message : 'Không thể cập nhật trạng thái.'
+        );
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    canWriteRequests,
+    isCreateMode,
+    selectedRequestId,
+    activeEditorProcessCode,
+    masterFields,
+    masterDraft,
+    processDraft,
+    formIt360Tasks,
+    formReferenceTasks,
+    bumpDataVersion,
+    notify,
+  ]);
+
   const handleDeleteCase = useCallback(async () => {
     if (!canDeleteRequests || !selectedRequestId) return;
     const row = patchedListRows.find((r) => String(r.id) === String(selectedRequestId));
@@ -1411,10 +1536,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const handleOpenTransitionModal = useCallback(() => {
     if (!transitionStatusCode) return;
-    if (isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)) {
-      setShowPmMissingInfoDecisionModal(true);
-      return;
-    }
     transitionHook.openTransitionModal({
       targetProcessMeta: processMap.get(transitionStatusCode) ?? null,
     });
@@ -1423,10 +1544,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const handleRunDispatcherAction = useCallback(
     (action: DispatcherQuickAction) => {
       setTransitionStatusCode(action.targetStatusCode);
-      if (isPmMissingCustomerInfoDecisionProcessCode(action.targetStatusCode)) {
-        setShowPmMissingInfoDecisionModal(true);
-        return;
-      }
       transitionHook.openTransitionModal({
         targetProcessMeta: processMap.get(action.targetStatusCode) ?? null,
         payloadOverrides: action.payloadOverrides,
@@ -1446,30 +1563,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       });
     },
     [transitionHook, processMap]
-  );
-
-  const handleChoosePmMissingInfoTarget = useCallback(
-    (targetStatusCode: 'waiting_customer_feedback' | 'not_executed') => {
-      setShowPmMissingInfoDecisionModal(false);
-      setTransitionStatusCode(targetStatusCode);
-      const sourceStatusCode = resolveRequestProcessCode(processDetail?.yeu_cau ?? {}) || 'new_intake';
-      transitionHook.openTransitionModal({
-        targetProcessMeta: processMap.get(targetStatusCode) ?? null,
-        payloadOverrides: {
-          decision_context_code: 'pm_missing_customer_info_review',
-          decision_outcome_code:
-            targetStatusCode === 'waiting_customer_feedback'
-              ? 'customer_missing_info'
-              : 'other_reason',
-          decision_source_status_code: sourceStatusCode,
-        },
-        notes:
-          targetStatusCode === 'waiting_customer_feedback'
-            ? 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.'
-            : 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.',
-      });
-    },
-    [processDetail?.yeu_cau, processMap, transitionHook]
   );
 
   const handleRunListPrimaryAction = useCallback(
@@ -1787,18 +1880,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setShowEstimateModal(false);
   }, []);
 
-  const handleClosePmMissingInfoDecisionModal = useCallback(() => {
-    setShowPmMissingInfoDecisionModal(false);
-  }, []);
-
-  const handleChooseWaitingCustomerFeedback = useCallback(() => {
-    handleChoosePmMissingInfoTarget('waiting_customer_feedback');
-  }, [handleChoosePmMissingInfoTarget]);
-
-  const handleChooseNotExecuted = useCallback(() => {
-    handleChoosePmMissingInfoTarget('not_executed');
-  }, [handleChoosePmMissingInfoTarget]);
-
   const handleSurfaceChange = useCallback((surface: CustomerRequestSurfaceKey) => {
     setActiveSurface(surface);
     setActiveSavedViewId(null);
@@ -1951,6 +2032,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       editorProcessMeta={activeEditorMeta}
       processDraft={processDraft}
       onProcessDraftChange={handleProcessDraftChange}
+      onSaveStatusDetail={handleSaveStatusDetail}
       customers={customers}
       employees={employees}
       customerPersonnel={customerPersonnel}
@@ -1958,9 +2040,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       availableProjectItems={effectiveProjectItems}
       selectedProjectItem={selectedProjectItem}
       selectedCustomerId={selectedCustomerId}
-      currentUserName={currentUserName}
-      createFlowDraft={createFlowDraft}
-      onCreateFlowDraftChange={handleCreateFlowDraftChange}
       activeTaskTab={activeTaskTab}
       onActiveTaskTabChange={setActiveTaskTab}
       onAddTaskRow={handleAddTaskRow}
@@ -2185,15 +2264,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         onSubmit={handleSubmitEstimate}
       />
 
-      <CustomerRequestPmMissingInfoDecisionModal
-        show={showPmMissingInfoDecisionModal}
-        currentStatusCode={processDetail?.yeu_cau?.trang_thai ?? processDetail?.yeu_cau?.current_status_code}
-        currentStatusLabel={processDetail?.yeu_cau?.current_status_name_vi}
-        onClose={handleClosePmMissingInfoDecisionModal}
-        onChooseWaitingCustomerFeedback={handleChooseWaitingCustomerFeedback}
-        onChooseNotExecuted={handleChooseNotExecuted}
-      />
-
       {/* Transition modal */}
       <CustomerRequestTransitionModal
         show={transitionHook.showTransitionModal}
@@ -2247,14 +2317,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           masterFields={masterFields}
           masterDraft={masterDraft}
           onMasterFieldChange={handleMasterFieldChange}
-          createFlowDraft={createFlowDraft}
-          onCreateFlowDraftChange={handleCreateFlowDraftChange}
           customers={customers}
           employees={employees}
           customerPersonnel={customerPersonnel}
           supportServiceGroups={supportServiceGroups}
           projectItems={effectiveProjectItems}
-          currentUserName={currentUserName}
           /* attachments */
           formAttachments={formAttachments}
           onUploadAttachment={handleUploadAttachment}

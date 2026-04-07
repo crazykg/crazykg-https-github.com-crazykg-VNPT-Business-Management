@@ -1141,12 +1141,12 @@ const App: React.FC = () => {
   }, [loadCustomers, loadDocumentsPage, loadProductsData, loadProjects, scheduleBackgroundLoads]);
 
   const loadCustomerRequestManagementModuleData = React.useCallback(async () => {
-    scheduleBackgroundLoads(() => Promise.all([
+    await Promise.all([
       loadCustomers(),
       loadCustomerPersonnelData(),
       loadEmployees(),
-    ]).then(() => undefined));
-  }, [loadCustomerPersonnelData, loadCustomers, loadEmployees, scheduleBackgroundLoads]);
+    ]);
+  }, [loadCustomerPersonnelData, loadCustomers, loadEmployees]);
 
   const loadSupportMasterManagementModuleData = React.useCallback(async () => {
     scheduleBackgroundLoads(() => loadCustomers());

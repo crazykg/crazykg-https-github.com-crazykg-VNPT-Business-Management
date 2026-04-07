@@ -15,8 +15,6 @@ import type {
 import type { DraftState } from '../helpers';
 import {
   buildDraftFromFields,
-  createEmptyIt360TaskRow,
-  createEmptyReferenceTaskRow,
   splitCustomerRequestTaskRows,
 } from '../helpers';
 import type { It360TaskFormRow, ReferenceTaskFormRow } from '../presentation';
@@ -45,8 +43,8 @@ export const useCustomerRequestDetail = ({
   const [masterDraft, setMasterDraft] = useState<DraftState>({});
   const [processDraft, setProcessDraft] = useState<DraftState>({});
   const [formAttachments, setFormAttachments] = useState<Attachment[]>([]);
-  const [formIt360Tasks, setFormIt360Tasks] = useState<It360TaskFormRow[]>([createEmptyIt360TaskRow()]);
-  const [formReferenceTasks, setFormReferenceTasks] = useState<ReferenceTaskFormRow[]>([createEmptyReferenceTaskRow()]);
+  const [formIt360Tasks, setFormIt360Tasks] = useState<It360TaskFormRow[]>([]);
+  const [formReferenceTasks, setFormReferenceTasks] = useState<ReferenceTaskFormRow[]>([]);
   const [timeline, setTimeline] = useState<YeuCauTimelineEntry[]>([]);
   const [caseWorklogs, setCaseWorklogs] = useState<YeuCauWorklog[]>([]);
 
@@ -64,8 +62,8 @@ export const useCustomerRequestDetail = ({
     setProcessDraft(buildDraftFromFields(createInitialFields, null));
     setProcessDetail(null);
     setFormAttachments([]);
-    setFormIt360Tasks([createEmptyIt360TaskRow()]);
-    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setFormIt360Tasks([]);
+    setFormReferenceTasks([]);
     setTimeline([]);
     setCaseWorklogs([]);
   }, [createInitialFields, masterFields]);
@@ -74,8 +72,8 @@ export const useCustomerRequestDetail = ({
     setProcessDetail(null);
     setPeople([]);
     setFormAttachments([]);
-    setFormIt360Tasks([createEmptyIt360TaskRow()]);
-    setFormReferenceTasks([createEmptyReferenceTaskRow()]);
+    setFormIt360Tasks([]);
+    setFormReferenceTasks([]);
     setTimeline([]);
     setCaseWorklogs([]);
   }, []);
@@ -124,8 +122,8 @@ export const useCustomerRequestDetail = ({
     setMasterDraft(buildDraftFromFields(masterFields, detail.yeu_cau as unknown as Record<string, unknown>));
     setProcessDraft(buildDraftFromFields(detail.process.form_fields, detail.process_row?.data));
     setFormAttachments(Array.isArray(detail.attachments) ? detail.attachments : []);
-    setFormIt360Tasks(it360Rows.length > 0 ? it360Rows : [createEmptyIt360TaskRow()]);
-    setFormReferenceTasks(referenceRows.length > 0 ? referenceRows : [createEmptyReferenceTaskRow()]);
+    setFormIt360Tasks(it360Rows);
+    setFormReferenceTasks(referenceRows);
     if (timelineQuery.data) {
       setTimeline(timelineQuery.data);
     }

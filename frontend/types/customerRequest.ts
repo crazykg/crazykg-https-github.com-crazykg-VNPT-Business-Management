@@ -318,6 +318,11 @@ export interface YeuCau {
   current_status_code?: string | null;
   current_status_name_vi?: string | null;
   current_status_instance_id?: string | number | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
+  current_owner_user_id?: string | number | null;
+  current_owner_name?: string | null;
+  current_owner_field?: string | null;
   dispatch_route?: string | null;
   dispatched_at?: string | null;
   performer_accepted_at?: string | null;
@@ -328,17 +333,25 @@ export type CRCStatusCode =
   | 'assigned_to_dispatcher'
   | 'dispatched'
   | 'assigned_to_performer'
+  | 'assigned_to_receiver'
   | 'in_progress'
   | 'completed'
   | 'customer_notified'
   | 'not_executed'
   | 'waiting_customer_feedback'
   | 'analysis'
+  | 'analysis_completed'
+  | 'analysis_suspended'
   | 'returned_to_dispatcher'
   | 'returned_to_manager'
   | 'pending_dispatch'
   | 'coding'
-  | 'dms_transfer';
+  | 'coding_in_progress'
+  | 'coding_suspended'
+  | 'dms_transfer'
+  | 'dms_task_created'
+  | 'dms_in_progress'
+  | 'dms_suspended';
 
 export type CodingPhase = 'coding' | 'coding_done' | 'upcode_pending' | 'upcode_deployed' | 'suspended';
 export type DmsPhase = 'exchange' | 'task_created' | 'in_progress' | 'completed' | 'suspended';
@@ -370,6 +383,10 @@ export interface YeuCauTimelineEntry {
   nguoi_thay_doi_id?: string | number | null;
   nguoi_thay_doi_name?: string | null;
   nguoi_thay_doi_code?: string | null;
+  nguoi_chuyen_id?: string | number | null;
+  nguoi_chuyen_name?: string | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
   ly_do?: string | null;
   decision_context_code?: string | null;
   decision_outcome_code?: string | null;
@@ -389,6 +406,7 @@ export interface YeuCauProcessRow {
 export interface YeuCauRefTaskRow {
   id?: string | number | null;
   ref_task_id?: string | number | null;
+  request_code?: string | null;
   task_code?: string | null;
   task_link?: string | null;
   task_source?: string | null;

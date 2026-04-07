@@ -176,18 +176,13 @@ export const resolveRequestIntakeLane = (
   return 'dispatcher';
 };
 
-const PERFORMER_INTAKE_STATUS_CODES = new Set(['in_progress', 'returned_to_manager']);
-const DISPATCHER_INTAKE_STATUS_CODES = new Set([
-  'not_executed',
-  'waiting_customer_feedback',
-  'in_progress',
-  'analysis',
-]);
+const PERFORMER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
+const DISPATCHER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
 const DISPATCHER_INTAKE_PM_MISSING_INFO_TARGETS = new Set([
   'not_executed',
   'waiting_customer_feedback',
 ]);
-const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed']);
+const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed', 'returned_to_manager']);
 
 const PM_MISSING_INFO_DECISION_SOURCE_STATUSES = new Set([
   'returned_to_manager',
@@ -251,6 +246,30 @@ export const buildXmlAlignedTransitionOptionsForRequest = (
   );
 
   if (decisionTargets.length > 0) {
+    const waitingCustomerFeedbackProcess =
+      decisionTargets.find((process) => process.process_code === 'waiting_customer_feedback')
+      ?? visibleProcesses.find((process) => process.process_code === 'waiting_customer_feedback')
+      ?? null;
+
+    if (waitingCustomerFeedbackProcess) {
+      const nextProcesses: YeuCauProcessMeta[] = [];
+      let insertedWaitingCustomerFeedback = false;
+
+      for (const process of visibleProcesses) {
+        if (process.decision_context_code === PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE) {
+          if (!insertedWaitingCustomerFeedback) {
+            nextProcesses.push(waitingCustomerFeedbackProcess);
+            insertedWaitingCustomerFeedback = true;
+          }
+          continue;
+        }
+
+        nextProcesses.push(process);
+      }
+
+      return nextProcesses;
+    }
+
     const nextProcesses: YeuCauProcessMeta[] = [];
     let insertedDecision = false;
 
@@ -304,22 +323,30 @@ export const buildXmlAlignedTransitionOptionsForRequest = (
 };
 
 export const STATUS_COLOR_MAP: Record<string, { label: string; cls: string }> = {
-  new_intake: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
+  new_intake: { label: 'Tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
   [PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE]: {
     label: 'PM đánh giá thiếu TT KH',
     cls: 'bg-rose-100 text-rose-700',
   },
-  waiting_customer_feedback: { label: 'Đợi phản hồi KH', cls: 'bg-yellow-100 text-yellow-700' },
-  in_progress: { label: 'Đang xử lý', cls: 'bg-amber-100 text-amber-700' },
-  not_executed: { label: 'Không thực hiện', cls: 'bg-slate-100 text-slate-500' },
+  assigned_to_receiver: { label: 'Giao R thực hiện', cls: 'bg-cyan-100 text-cyan-700' },
+  waiting_customer_feedback: { label: 'Chờ khách hàng cung cấp thông tin', cls: 'bg-yellow-100 text-yellow-700' },
+  in_progress: { label: 'R Đang thực hiện', cls: 'bg-amber-100 text-amber-700' },
+  not_executed: { label: 'Không tiếp nhận', cls: 'bg-slate-100 text-slate-500' },
   completed: { label: 'Hoàn thành', cls: 'bg-emerald-100 text-emerald-700' },
-  customer_notified: { label: 'Báo khách hàng', cls: 'bg-teal-100 text-teal-700' },
-  returned_to_manager: { label: 'Chuyển trả QL', cls: 'bg-orange-100 text-orange-700' },
-  analysis: { label: 'Phân tích', cls: 'bg-purple-100 text-purple-700' },
-  pending_dispatch: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
-  dispatched: { label: 'Mới tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
+  customer_notified: { label: 'Thông báo khách hàng', cls: 'bg-teal-100 text-teal-700' },
+  returned_to_manager: { label: 'Giao PM/Trả YC cho PM', cls: 'bg-orange-100 text-orange-700' },
+  analysis: { label: 'Chuyển BA Phân tích', cls: 'bg-purple-100 text-purple-700' },
+  analysis_completed: { label: 'Chuyển BA Phân tích hoàn thành', cls: 'bg-indigo-100 text-indigo-700' },
+  analysis_suspended: { label: 'Chuyển BA Phân tích tạm ngưng', cls: 'bg-fuchsia-100 text-fuchsia-700' },
+  pending_dispatch: { label: 'Tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
+  dispatched: { label: 'Tiếp nhận', cls: 'bg-sky-100 text-sky-700' },
   coding: { label: 'Lập trình', cls: 'bg-violet-100 text-violet-700' },
+  coding_in_progress: { label: 'Dev đang thực hiện', cls: 'bg-violet-100 text-violet-700' },
+  coding_suspended: { label: 'Dev tạm ngưng', cls: 'bg-fuchsia-100 text-fuchsia-700' },
   dms_transfer: { label: 'Chuyển DMS', cls: 'bg-lime-100 text-lime-700' },
+  dms_task_created: { label: 'Tạo task', cls: 'bg-lime-100 text-lime-700' },
+  dms_in_progress: { label: 'DMS Đang thực hiện', cls: 'bg-lime-100 text-lime-700' },
+  dms_suspended: { label: 'DMS tạm ngưng', cls: 'bg-emerald-100 text-emerald-700' },
 };
 
 export const WARNING_LEVEL_META: Record<string, { label: string; cls: string }> = {
@@ -358,9 +385,9 @@ export const ATTENTION_REASON_META: Record<string, { label: string; cls: string 
   missing_estimate: { label: 'Thiếu ước lượng', cls: 'bg-slate-100 text-slate-700' },
   over_estimate: { label: 'Vượt ước lượng', cls: 'bg-rose-100 text-rose-700' },
   sla_risk: { label: 'Nguy cơ SLA', cls: 'bg-amber-100 text-amber-700' },
-  pending_dispatch: { label: 'Cần phân công', cls: 'bg-indigo-100 text-indigo-700' },
-  waiting_customer_feedback: { label: 'Đợi phản hồi KH', cls: 'bg-yellow-100 text-yellow-700' },
-  returned_to_manager: { label: 'Chuyển trả QL', cls: 'bg-orange-100 text-orange-700' },
+  pending_dispatch: { label: 'Tiếp nhận', cls: 'bg-indigo-100 text-indigo-700' },
+  waiting_customer_feedback: { label: 'Chờ khách hàng cung cấp thông tin', cls: 'bg-yellow-100 text-yellow-700' },
+  returned_to_manager: { label: 'Giao PM/Trả YC cho PM', cls: 'bg-orange-100 text-orange-700' },
 };
 
 export const SUPPORT_TASK_STATUS_OPTIONS: Array<{
@@ -380,16 +407,24 @@ export const LIST_KPI_STATUSES: Array<{
   cls: string;
   activeCls: string;
 }> = [
-  { code: 'new_intake', label: 'Mới tiếp nhận', cls: 'bg-sky-50 border-sky-200 text-sky-700', activeCls: 'ring-2 ring-sky-400' },
-  { code: 'waiting_customer_feedback', label: 'Đợi phản hồi KH', cls: 'bg-yellow-50 border-yellow-200 text-yellow-700', activeCls: 'ring-2 ring-yellow-400' },
-  { code: 'in_progress', label: 'Đang xử lý', cls: 'bg-amber-50 border-amber-200 text-amber-700', activeCls: 'ring-2 ring-amber-400' },
-  { code: 'analysis', label: 'Phân tích', cls: 'bg-purple-50 border-purple-200 text-purple-700', activeCls: 'ring-2 ring-purple-400' },
-  { code: 'returned_to_manager', label: 'Chuyển trả QL', cls: 'bg-orange-50 border-orange-200 text-orange-700', activeCls: 'ring-2 ring-orange-400' },
-  { code: 'completed', label: 'Hoàn thành', cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeCls: 'ring-2 ring-emerald-400' },
-  { code: 'customer_notified', label: 'Báo khách hàng', cls: 'bg-teal-50 border-teal-200 text-teal-700', activeCls: 'ring-2 ring-teal-400' },
-  { code: 'not_executed', label: 'Không thực hiện', cls: 'bg-slate-50 border-slate-200 text-slate-500', activeCls: 'ring-2 ring-slate-400' },
+  { code: 'new_intake', label: 'Tiếp nhận', cls: 'bg-sky-50 border-sky-200 text-sky-700', activeCls: 'ring-2 ring-sky-400' },
+  { code: 'assigned_to_receiver', label: 'Giao R thực hiện', cls: 'bg-cyan-50 border-cyan-200 text-cyan-700', activeCls: 'ring-2 ring-cyan-400' },
+  { code: 'waiting_customer_feedback', label: 'Chờ khách hàng cung cấp thông tin', cls: 'bg-yellow-50 border-yellow-200 text-yellow-700', activeCls: 'ring-2 ring-yellow-400' },
+  { code: 'in_progress', label: 'R Đang thực hiện', cls: 'bg-amber-50 border-amber-200 text-amber-700', activeCls: 'ring-2 ring-amber-400' },
+  { code: 'analysis', label: 'Chuyển BA Phân tích', cls: 'bg-purple-50 border-purple-200 text-purple-700', activeCls: 'ring-2 ring-purple-400' },
+  { code: 'analysis_completed', label: 'Chuyển BA Phân tích hoàn thành', cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', activeCls: 'ring-2 ring-indigo-400' },
+  { code: 'analysis_suspended', label: 'Chuyển BA Phân tích tạm ngưng', cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', activeCls: 'ring-2 ring-fuchsia-400' },
+  { code: 'returned_to_manager', label: 'Giao PM/Trả YC cho PM', cls: 'bg-orange-50 border-orange-200 text-orange-700', activeCls: 'ring-2 ring-orange-400' },
   { code: 'coding', label: 'Lập trình', cls: 'bg-violet-50 border-violet-200 text-violet-700', activeCls: 'ring-2 ring-violet-400' },
+  { code: 'coding_in_progress', label: 'Dev đang thực hiện', cls: 'bg-violet-50 border-violet-200 text-violet-700', activeCls: 'ring-2 ring-violet-400' },
+  { code: 'coding_suspended', label: 'Dev tạm ngưng', cls: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', activeCls: 'ring-2 ring-fuchsia-400' },
   { code: 'dms_transfer', label: 'Chuyển DMS', cls: 'bg-lime-50 border-lime-200 text-lime-700', activeCls: 'ring-2 ring-lime-400' },
+  { code: 'dms_task_created', label: 'Tạo task', cls: 'bg-lime-50 border-lime-200 text-lime-700', activeCls: 'ring-2 ring-lime-400' },
+  { code: 'dms_in_progress', label: 'DMS Đang thực hiện', cls: 'bg-lime-50 border-lime-200 text-lime-700', activeCls: 'ring-2 ring-lime-400' },
+  { code: 'dms_suspended', label: 'DMS tạm ngưng', cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeCls: 'ring-2 ring-emerald-400' },
+  { code: 'completed', label: 'Hoàn thành', cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeCls: 'ring-2 ring-emerald-400' },
+  { code: 'customer_notified', label: 'Thông báo khách hàng', cls: 'bg-teal-50 border-teal-200 text-teal-700', activeCls: 'ring-2 ring-teal-400' },
+  { code: 'not_executed', label: 'Không tiếp nhận', cls: 'bg-slate-50 border-slate-200 text-slate-500', activeCls: 'ring-2 ring-slate-400' },
 ];
 
 export const formatHoursValue = (value: unknown): string => {
@@ -582,6 +617,13 @@ export const resolveRequestProcessCode = (
 export const resolveDecisionOwner = (
   request: YeuCau
 ): CustomerRequestOwnerSummaryMeta => {
+  if (request.current_owner_name || request.nguoi_xu_ly_name) {
+    return {
+      label: request.current_owner_name || request.nguoi_xu_ly_name || '--',
+      hint: 'Người nhận trạng thái hiện tại',
+    };
+  }
+
   if (request.performer_name) {
     return { label: request.performer_name, hint: 'Người xử lý đang phụ trách' };
   }

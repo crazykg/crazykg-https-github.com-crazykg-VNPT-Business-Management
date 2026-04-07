@@ -75,9 +75,9 @@ final class CustomerRequestCaseRegistry
     public static function statusGroups(): array
     {
         return [
-            'intake'     => ['new_intake', 'waiting_customer_feedback'],
-            'analysis'   => ['analysis', 'returned_to_manager'],
-            'processing' => ['in_progress', 'coding', 'dms_transfer'],
+            'intake'     => ['new_intake', 'assigned_to_receiver', 'waiting_customer_feedback'],
+            'analysis'   => ['analysis', 'analysis_completed', 'analysis_suspended', 'returned_to_manager'],
+            'processing' => ['in_progress', 'coding', 'coding_in_progress', 'coding_suspended', 'dms_transfer', 'dms_task_created', 'dms_in_progress', 'dms_suspended'],
             'closure'    => ['completed', 'customer_notified', 'not_executed'],
         ];
     }
@@ -111,7 +111,7 @@ final class CustomerRequestCaseRegistry
         return [
             self::status(
                 'new_intake',
-                'Mới tiếp nhận',
+                'Tiếp nhận',
                 'customer_request_cases',
                 [
                     ...$commonColumns,
@@ -121,7 +121,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'waiting_customer_feedback',
-                'Đợi phản hồi từ khách hàng',
+                'Chờ khách hàng cung cấp thông tin',
                 'customer_request_waiting_customer_feedbacks',
                 [
                     ...$commonColumns,
@@ -138,7 +138,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'in_progress',
-                'Đang xử lý',
+                'R Đang thực hiện',
                 'customer_request_in_progress',
                 [
                     ...$commonColumns,
@@ -155,7 +155,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'not_executed',
-                'Không thực hiện',
+                'Không tiếp nhận',
                 'customer_request_not_executed',
                 [
                     ...$commonColumns,
@@ -185,7 +185,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'customer_notified',
-                'Báo khách hàng',
+                'Thông báo khách hàng',
                 'customer_request_customer_notified',
                 [
                     ...$commonColumns,
@@ -202,7 +202,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'returned_to_manager',
-                'Chuyển trả người quản lý',
+                'Giao PM/Trả YC cho PM',
                 'customer_request_returned_to_manager',
                 [
                     ...$commonColumns,
@@ -217,7 +217,7 @@ final class CustomerRequestCaseRegistry
             ),
             self::status(
                 'analysis',
-                'Phân tích',
+                'Chuyển BA Phân tích ú quà',
                 'customer_request_analysis',
                 [
                     self::column('request_code', 'ID yêu cầu'),
@@ -233,10 +233,39 @@ final class CustomerRequestCaseRegistry
                     self::field('notes', 'Ghi chú trạng thái', 'textarea'),
                 ]
             ),
-            // ── V4 NEW: analysis sub-paths ────────────────────────────────────
+            self::status(
+                'analysis_completed',
+                'Chuyển BA Phân tích hoàn thành',
+                'customer_request_analysis_completed',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
+            self::status(
+                'analysis_suspended',
+                'Chuyển BA Phân tích tạm ngưng',
+                'customer_request_analysis_suspended',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
+            self::status(
+                'assigned_to_receiver',
+                'Giao R thực hiện',
+                'customer_request_assigned_to_receiver',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
             self::status(
                 'coding',
-                'Đang lập trình',
+                'Lập trình',
                 'customer_request_coding',
                 [
                     ...$commonColumns,
@@ -254,6 +283,26 @@ final class CustomerRequestCaseRegistry
                     self::field('upcode_environment', 'Môi trường upcode', 'text'),
                     self::field('notes', 'Ghi chú', 'textarea'),
                 ]
+            ),
+            self::status(
+                'coding_in_progress',
+                'Dev đang thực hiện',
+                'customer_request_coding_in_progress',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
+            self::status(
+                'coding_suspended',
+                'Dev tạm ngưng',
+                'customer_request_coding_suspended',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
             ),
             self::status(
                 'dms_transfer',
@@ -276,6 +325,36 @@ final class CustomerRequestCaseRegistry
                     self::field('notes', 'Ghi chú', 'textarea'),
                 ]
             ),
+            self::status(
+                'dms_task_created',
+                'Tạo task',
+                'customer_request_dms_task_created',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
+            self::status(
+                'dms_in_progress',
+                'DMS Đang thực hiện',
+                'customer_request_dms_in_progress',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
+            self::status(
+                'dms_suspended',
+                'DMS tạm ngưng',
+                'customer_request_dms_suspended',
+                [
+                    ...$commonColumns,
+                    self::column('received_at', 'Ngày tiếp nhận'),
+                ],
+                []
+            ),
             // ── END V4 ANALYSIS BLOCK ─────────────────────────────────────────
         ];
     }
@@ -288,15 +367,60 @@ final class CustomerRequestCaseRegistry
         string $label,
         string $tableName,
         array $listColumns,
-        array $formFields
+        array $_unusedFormFields
     ): array {
         return [
             'status_code' => $statusCode,
             'status_name_vi' => $label,
             'table_name' => $tableName,
             'list_columns' => $listColumns,
-            'form_fields' => $formFields,
+            'form_fields' => self::fixedStatusFormFields(),
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private static function fixedStatusFormFields(): array
+    {
+        return [
+            self::field('received_at', 'Ngày bắt đầu', 'datetime'),
+            self::field('completed_at', 'Ngày kết thúc', 'datetime'),
+            self::field('extended_at', 'Ngày gia hạn', 'datetime'),
+            self::field('progress_percent', 'Tiến độ phần trăm', 'number'),
+            self::field('from_user_id', 'Người chuyển', 'user_select'),
+            self::field('to_user_id', 'Người nhận', 'user_select'),
+            self::field('notes', 'Ghi chú', 'textarea'),
+        ];
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    public static function workflowaAllowedTargets(string $statusCode): ?array
+    {
+        $map = [
+            'new_intake' => ['assigned_to_receiver', 'returned_to_manager'],
+            'assigned_to_receiver' => ['in_progress', 'returned_to_manager'],
+            'returned_to_manager' => ['not_executed', 'waiting_customer_feedback', 'assigned_to_receiver', 'analysis', 'dms_transfer', 'coding', 'completed'],
+            'in_progress' => ['completed', 'returned_to_manager'],
+            'waiting_customer_feedback' => ['assigned_to_receiver', 'returned_to_manager'],
+            'not_executed' => ['customer_notified', 'returned_to_manager'],
+            'analysis' => ['analysis_completed', 'analysis_suspended', 'returned_to_manager'],
+            'analysis_completed' => ['dms_transfer', 'coding', 'returned_to_manager'],
+            'analysis_suspended' => ['analysis', 'analysis_completed', 'returned_to_manager'],
+            'dms_transfer' => ['dms_task_created', 'returned_to_manager'],
+            'dms_task_created' => ['dms_in_progress', 'returned_to_manager'],
+            'dms_in_progress' => ['completed', 'dms_suspended', 'returned_to_manager'],
+            'dms_suspended' => ['dms_in_progress', 'returned_to_manager'],
+            'coding' => ['coding_in_progress', 'returned_to_manager'],
+            'coding_in_progress' => ['completed', 'coding_suspended', 'returned_to_manager'],
+            'coding_suspended' => ['coding_in_progress', 'returned_to_manager'],
+            'completed' => ['assigned_to_receiver', 'returned_to_manager', 'customer_notified'],
+            'customer_notified' => ['returned_to_manager'],
+        ];
+
+        return $map[$statusCode] ?? null;
     }
 
     /**

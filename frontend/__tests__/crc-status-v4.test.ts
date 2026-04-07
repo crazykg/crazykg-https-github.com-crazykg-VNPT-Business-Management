@@ -19,10 +19,18 @@ const ALL_V4_STATUS_CODES: CRCStatusCode[] = [
   'new_intake',
   'pending_dispatch',
   'dispatched',
+  'assigned_to_receiver',
   'in_progress',
   'analysis',
+  'analysis_completed',
+  'analysis_suspended',
   'coding',
+  'coding_in_progress',
+  'coding_suspended',
   'dms_transfer',
+  'dms_task_created',
+  'dms_in_progress',
+  'dms_suspended',
   'completed',
   'customer_notified',
   'not_executed',
@@ -33,7 +41,7 @@ const ALL_V4_STATUS_CODES: CRCStatusCode[] = [
 // ── STATUS_COLOR_MAP ──────────────────────────────────────────────────────────
 
 describe('STATUS_COLOR_MAP', () => {
-  it('contains all 12 V4 status codes', () => {
+  it('contains all workflow status codes used by XML-aligned UI', () => {
     for (const code of ALL_V4_STATUS_CODES) {
       expect(STATUS_COLOR_MAP[code], `STATUS_COLOR_MAP missing: ${code}`).toBeDefined();
     }
@@ -48,8 +56,16 @@ describe('STATUS_COLOR_MAP', () => {
   });
 
   it('aliases runtime-only intake statuses back to the XML-visible label', () => {
-    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Mới tiếp nhận');
-    expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Mới tiếp nhận');
+    expect(STATUS_COLOR_MAP['pending_dispatch'].label).toBe('Tiếp nhận');
+    expect(STATUS_COLOR_MAP['dispatched'].label).toBe('Tiếp nhận');
+    expect(STATUS_COLOR_MAP['assigned_to_receiver'].label).toBe('Giao R thực hiện');
+    expect(STATUS_COLOR_MAP['analysis_completed'].label).toBe('Chuyển BA Phân tích hoàn thành');
+    expect(STATUS_COLOR_MAP['analysis_suspended'].label).toBe('Chuyển BA Phân tích tạm ngưng');
+    expect(STATUS_COLOR_MAP['coding_in_progress'].label).toBe('Dev đang thực hiện');
+    expect(STATUS_COLOR_MAP['coding_suspended'].label).toBe('Dev tạm ngưng');
+    expect(STATUS_COLOR_MAP['dms_task_created'].label).toBe('Tạo task');
+    expect(STATUS_COLOR_MAP['dms_in_progress'].label).toBe('DMS Đang thực hiện');
+    expect(STATUS_COLOR_MAP['dms_suspended'].label).toBe('DMS tạm ngưng');
     expect(STATUS_COLOR_MAP['coding'].label).toBe('Lập trình');
     expect(STATUS_COLOR_MAP['dms_transfer'].label).toBe('Chuyển DMS');
   });
@@ -94,7 +110,7 @@ describe('XML-visible CRC UI filters', () => {
     const allTargets = [
       { process_code: 'not_executed' },
       { process_code: 'waiting_customer_feedback' },
-      { process_code: 'in_progress' },
+      { process_code: 'assigned_to_receiver' },
       { process_code: 'analysis' },
       { process_code: 'returned_to_manager' },
     ];
@@ -104,12 +120,7 @@ describe('XML-visible CRC UI filters', () => {
         current_status_code: 'new_intake',
         dispatch_route: 'assign_pm',
       }).map((item) => item.process_code)
-    ).toEqual([
-      'not_executed',
-      'waiting_customer_feedback',
-      'in_progress',
-      'analysis',
-    ]);
+    ).toEqual(['assigned_to_receiver', 'returned_to_manager']);
 
     expect(
       filterTransitionOptionsForRequest(allTargets, {
@@ -117,7 +128,7 @@ describe('XML-visible CRC UI filters', () => {
         dispatch_route: 'self_handle',
         performer_user_id: 3,
       }).map((item) => item.process_code)
-    ).toEqual(['in_progress', 'returned_to_manager']);
+    ).toEqual(['assigned_to_receiver', 'returned_to_manager']);
   });
 
   it('filters in_progress transition targets down to XML-valid outcomes', () => {
@@ -135,18 +146,18 @@ describe('XML-visible CRC UI filters', () => {
         dispatch_route: 'self_handle',
         performer_user_id: 3,
       }).map((item) => item.process_code)
-    ).toEqual(['completed']);
+    ).toEqual(['completed', 'returned_to_manager']);
   });
 
-  it('injects the PM missing-customer-info decision step for dispatcher intake lane', () => {
+  it('keeps only workflow-A dispatcher target for new_intake dispatcher lane', () => {
     const allTargets = [
       {
-        process_code: 'waiting_customer_feedback',
-        process_label: 'Đợi phản hồi KH',
-        group_code: 'feedback',
-        group_label: 'Phản hồi',
-        table_name: 'customer_request_waiting_customer_feedbacks',
-        default_status: 'waiting_customer_feedback',
+        process_code: 'assigned_to_receiver',
+        process_label: 'Giao R thực hiện',
+        group_code: 'processing',
+        group_label: 'Xử lý',
+        table_name: 'customer_request_assigned_to_receiver',
+        default_status: 'assigned_to_receiver',
         read_roles: [],
         write_roles: [],
         allowed_next_processes: [],
@@ -154,12 +165,12 @@ describe('XML-visible CRC UI filters', () => {
         list_columns: [],
       },
       {
-        process_code: 'in_progress',
-        process_label: 'Đang xử lý',
-        group_code: 'processing',
-        group_label: 'Xử lý',
-        table_name: 'customer_request_in_progress',
-        default_status: 'in_progress',
+        process_code: 'returned_to_manager',
+        process_label: 'Giao PM/Trả YC cho PM',
+        group_code: 'analysis',
+        group_label: 'Phân tích',
+        table_name: 'customer_request_returned_to_manager',
+        default_status: 'returned_to_manager',
         read_roles: [],
         write_roles: [],
         allowed_next_processes: [],
@@ -181,7 +192,7 @@ describe('XML-visible CRC UI filters', () => {
       },
       {
         process_code: 'not_executed',
-        process_label: 'Không thực hiện',
+        process_label: 'Không tiếp nhận',
         group_code: 'closure',
         group_label: 'Kết quả',
         table_name: 'customer_request_not_executed',
@@ -199,11 +210,7 @@ describe('XML-visible CRC UI filters', () => {
         current_status_code: 'new_intake',
         dispatch_route: 'assign_pm',
       }).map((item) => item.process_code)
-    ).toEqual([
-      PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
-      'in_progress',
-      'analysis',
-    ]);
+    ).toEqual(['assigned_to_receiver', 'returned_to_manager']);
   });
 
   it('reuses the same PM missing-customer-info decision step for returned_to_manager', () => {
@@ -223,7 +230,7 @@ describe('XML-visible CRC UI filters', () => {
       },
       {
         process_code: 'in_progress',
-        process_label: 'Đang xử lý',
+        process_label: 'R Đang thực hiện',
         group_code: 'processing',
         group_label: 'Xử lý',
         table_name: 'customer_request_in_progress',
@@ -249,7 +256,7 @@ describe('XML-visible CRC UI filters', () => {
       },
       {
         process_code: 'not_executed',
-        process_label: 'Không thực hiện',
+        process_label: 'Không tiếp nhận',
         group_code: 'closure',
         group_label: 'Kết quả',
         table_name: 'customer_request_not_executed',
@@ -277,23 +284,31 @@ describe('XML-visible CRC UI filters', () => {
 // ── CRCStatusCode type narrowing ──────────────────────────────────────────────
 
 describe('CRCStatusCode type', () => {
-  it('accepts all 12 valid codes at compile time', () => {
+  it('accepts all workflow status codes at compile time', () => {
     // These are compile-time checks — if they compile, they pass
     const codes: CRCStatusCode[] = [
       'new_intake',
       'pending_dispatch',
       'dispatched',
+      'assigned_to_receiver',
       'in_progress',
       'analysis',
+      'analysis_completed',
+      'analysis_suspended',
       'coding',
+      'coding_in_progress',
+      'coding_suspended',
       'dms_transfer',
+      'dms_task_created',
+      'dms_in_progress',
+      'dms_suspended',
       'completed',
       'customer_notified',
       'not_executed',
       'waiting_customer_feedback',
       'returned_to_manager',
     ];
-    expect(codes).toHaveLength(12);
+    expect(codes).toHaveLength(20);
   });
 });
 
