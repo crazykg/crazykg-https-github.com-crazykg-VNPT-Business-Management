@@ -49,7 +49,9 @@ class CustomerRequestCaseDomainService
         'dms_in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
         'dms_suspended' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
         'completed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'waiting_notification' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
         'customer_notified' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'closed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
         'not_executed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
     ];
 

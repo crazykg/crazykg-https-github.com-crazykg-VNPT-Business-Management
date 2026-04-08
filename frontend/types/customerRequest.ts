@@ -427,6 +427,13 @@ export interface YeuCauRefTaskRow {
   sort_order?: number | null;
 }
 
+export interface YeuCauTag {
+  id: number;
+  name: string;
+  color: string;
+  usage_count?: number;
+}
+
 export interface YeuCauEstimate {
   id: string | number;
   request_case_id?: string | number | null;
@@ -637,6 +644,7 @@ export interface YeuCauProcessDetail {
   hours_report?: YeuCauHoursReport | null;
   attachments?: Attachment[];
   ref_tasks?: YeuCauRefTaskRow[];
+  tags?: YeuCauTag[];
   worklogs?: YeuCauWorklog[];
 }
 

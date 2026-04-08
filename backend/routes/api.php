@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V5\CustomerController;
 use App\Http\Controllers\Api\V5\CustomerPersonnelController;
 use App\Http\Controllers\Api\V5\CustomerRequestController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
+use App\Http\Controllers\Api\V5\TagController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\DocumentController;
@@ -178,6 +179,32 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.delete');
         Route::get('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'show'])
             ->middleware('permission:support_requests.read');
+
+        // Tags management
+        Route::prefix('tags')->group(function () {
+            Route::get('/', [TagController::class, 'index'])
+                ->middleware('permission:support_requests.read');
+            Route::get('/suggestions', [TagController::class, 'suggestions'])
+                ->middleware('permission:support_requests.read');
+            Route::post('/', [TagController::class, 'store'])
+                ->middleware('permission:support_requests.write');
+            Route::put('/{tag}', [TagController::class, 'update'])
+                ->middleware('permission:support_requests.write');
+            Route::delete('/{tag}', [TagController::class, 'destroy'])
+                ->middleware('permission:support_requests.delete');
+        });
+
+        // Case tags
+        Route::prefix('customer-request-cases/{caseId}/tags')->group(function () {
+            Route::get('/', [TagController::class, 'getCaseTags'])
+                ->middleware('permission:support_requests.read');
+            Route::post('/', [TagController::class, 'attachToCase'])
+                ->middleware('permission:support_requests.write');
+            Route::post('/bulk', [TagController::class, 'bulkAttach'])
+                ->middleware('permission:support_requests.write');
+            Route::delete('/{tagId}', [TagController::class, 'detachFromCase'])
+                ->middleware('permission:support_requests.write');
+        });
 
         // Plans (§8 Kế hoạch giao việc)
         Route::get('/customer-request-plans/backlog', [CustomerRequestPlanController::class, 'backlog'])

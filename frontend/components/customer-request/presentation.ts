@@ -168,6 +168,7 @@ const COLOR_TOKEN_CLASS_MAP: Record<string, string> = {
   rose: 'bg-rose-100 text-rose-700',
   indigo: 'bg-indigo-100 text-indigo-700',
   slate: 'bg-slate-100 text-slate-500',
+  gray: 'bg-gray-100 text-gray-600',
 };
 
 const DEFAULT_STATUS_META = {
@@ -235,14 +236,22 @@ const LEGACY_STATUS_META_BY_CODE: Record<string, { label: string; cls: string }>
   receiver_in_progress: { label: 'R Đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.amber },
   not_executed: { label: 'Không thực hiện', cls: COLOR_TOKEN_CLASS_MAP.slate },
   completed: { label: 'Hoàn thành', cls: COLOR_TOKEN_CLASS_MAP.emerald },
+  waiting_notification: { label: 'Chờ thông báo khách hàng', cls: COLOR_TOKEN_CLASS_MAP.yellow },
   customer_notified: { label: 'Báo khách hàng', cls: COLOR_TOKEN_CLASS_MAP.teal },
+  closed: { label: 'Đóng yêu cầu', cls: COLOR_TOKEN_CLASS_MAP.gray },
   returned_to_manager: { label: 'Chuyển trả QL', cls: COLOR_TOKEN_CLASS_MAP.orange },
   analysis: { label: 'Phân tích', cls: COLOR_TOKEN_CLASS_MAP.purple },
+  analysis_completed: { label: 'Chuyển BA Phân tích hoàn thành', cls: COLOR_TOKEN_CLASS_MAP.purple },
+  analysis_suspended: { label: 'Chuyển BA Phân tích tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.purple },
   pending_dispatch: { label: 'Giao PM/Trả YC cho PM', cls: COLOR_TOKEN_CLASS_MAP.sky },
   dispatched: { label: 'Mới tiếp nhận', cls: COLOR_TOKEN_CLASS_MAP.sky },
   coding: { label: 'Lập trình', cls: COLOR_TOKEN_CLASS_MAP.violet },
+  coding_in_progress: { label: 'Dev đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.violet },
+  coding_suspended: { label: 'Dev tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.violet },
   dms_transfer: { label: 'Chuyển DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
   dms_task_created: { label: 'Tạo task DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
+  dms_in_progress: { label: 'DMS Đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.lime },
+  dms_suspended: { label: 'DMS tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.lime },
 };
 
 const resolveStatusToneClass = (
@@ -267,7 +276,7 @@ export const PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE = 'pm_missing_custom
 
 const PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_META: YeuCauProcessMeta = {
   process_code: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
-  process_label: 'PM đánh giá thiếu TT KH',
+  process_label: 'Chờ khách hàng cung cấp thông tin',
   group_code: 'intake',
   group_label: 'Tiếp nhận',
   table_name: 'customer_request_pm_missing_customer_info_review',

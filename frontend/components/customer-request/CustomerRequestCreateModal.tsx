@@ -10,6 +10,7 @@ import React, { useEffect, useState } from 'react';
 import { ModalWrapper } from '../modals';
 import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
+import { TagInput } from './TagInput';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
@@ -21,6 +22,7 @@ import type {
   ProjectItemMaster,
   SupportServiceGroup,
   YeuCauProcessField,
+  Tag,
 } from '../../types';
 
 type CustomerRequestCreateModalProps = {
@@ -44,7 +46,11 @@ type CustomerRequestCreateModalProps = {
   /* IT360 tasks */
   formIt360Tasks: It360TaskFormRow[];
   onAddIt360Task: () => void;
-  onUpdateIt360TaskRow: (localId: string, field: string, value: unknown) => void;
+  onUpdateIt360TaskRow: (
+    localId: string,
+    field: keyof Omit<It360TaskFormRow, 'local_id'>,
+    value: unknown
+  ) => void;
   onRemoveIt360TaskRow: (localId: string) => void;
   /* reference tasks */
   formReferenceTasks: ReferenceTaskFormRow[];
@@ -56,6 +62,9 @@ type CustomerRequestCreateModalProps = {
   onTaskReferenceSearchTermChange: (v: string) => void;
   taskReferenceSearchError: string;
   isTaskReferenceSearchLoading: boolean;
+  /* tags */
+  formTags: Tag[];
+  onTagsChange: (tags: Tag[]) => void;
   /* state + callbacks */
   isSaving: boolean;
   onSave: () => Promise<void> | void;
@@ -92,6 +101,8 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   onTaskReferenceSearchTermChange,
   taskReferenceSearchError,
   isTaskReferenceSearchLoading,
+  formTags,
+  onTagsChange,
   isSaving,
   onSave,
   onClose,
@@ -444,7 +455,25 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           {/* Task liên quan */}
           {renderTaskSection()}
 
-          {/* Đính kèm — đặt ngay dưới Task liên quan để luồng nhập liệu liền mạch */}
+          {/* Tags */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                Thẻ (Tags)
+              </h4>
+            </div>
+            <TagInput
+              value={formTags}
+              onChange={onTagsChange}
+              placeholder="Nhập tag và nhấn Enter..."
+              disabled={isSaving}
+            />
+            <p className="mt-1.5 text-xs text-slate-400">
+              Gắn thẻ để dễ tìm kiếm và phân loại yêu cầu. Nhấn Enter để tạo tag mới.
+            </p>
+          </div>
+
+          {/* Đính kèm — đặt ngay dưới Tags để luồng nhập liệu liền mạch */}
           {renderAttachmentSection()}
         </div>
 
@@ -453,6 +482,12 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       {/* ── Footer ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3.5">
         <p className="text-xs text-slate-400">
+          {formTags.length > 0 && (
+            <span className="mr-3 inline-flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">label</span>
+              {formTags.length} tag
+            </span>
+          )}
           {formAttachments.length > 0 && (
             <span className="mr-3 inline-flex items-center gap-1">
               <span className="material-symbols-outlined text-[14px]">attach_file</span>

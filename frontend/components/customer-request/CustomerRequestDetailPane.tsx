@@ -6,6 +6,7 @@ import type {
   YeuCauProcessDetail,
   YeuCauProcessField,
   YeuCauProcessMeta,
+  YeuCauTag,
   YeuCauTimelineEntry,
   YeuCauWorklog,
 } from '../../types/customerRequest';
@@ -17,6 +18,7 @@ import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
+import { TagInput } from './TagInput';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { CustomerRequestEstimatePanel } from './CustomerRequestEstimatePanel';
 import { CustomerRequestHoursPanel } from './CustomerRequestHoursPanel';
@@ -26,6 +28,7 @@ import {
   SUPPORT_TASK_STATUS_OPTIONS,
   formatHoursValue,
   humanizeKetQua,
+  resolveRequestProcessCode,
   resolveRequestStatusMeta,
   resolveStatusMeta,
   resolveTransitionStatusMeta,
@@ -79,6 +82,8 @@ type CustomerRequestDetailPaneProps = {
   onUpdateIt360TaskRow: (localId: string, fieldName: keyof Omit<It360TaskFormRow, 'local_id'>, value: unknown) => void;
   onRemoveIt360TaskRow: (localId: string) => void;
   formReferenceTasks: ReferenceTaskFormRow[];
+  formTags: YeuCauTag[];
+  onFormTagsChange: (tags: YeuCauTag[]) => void;
   taskReferenceOptions: SearchableSelectOption[];
   onUpdateReferenceTaskRow: (localId: string, value: string) => void;
   onTaskReferenceSearchTermChange: (value: string) => void;
@@ -88,7 +93,7 @@ type CustomerRequestDetailPaneProps = {
   onRemoveReferenceTaskRow: (localId: string) => void;
   formAttachments: Attachment[];
   onUploadAttachment: (file: File) => Promise<void>;
-  onDeleteAttachment: (id: string) => Promise<void>;
+  onDeleteAttachment: (id: string | number) => Promise<void>;
   isUploadingAttachment: boolean;
   attachmentError: string;
   attachmentNotice: string;
@@ -164,6 +169,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onUpdateIt360TaskRow,
   onRemoveIt360TaskRow,
   formReferenceTasks,
+  formTags,
+  onFormTagsChange,
   taskReferenceOptions,
   onUpdateReferenceTaskRow,
   onTaskReferenceSearchTermChange,
@@ -251,6 +258,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   ];
 
   const visibleRelatedSummaryItems = relatedSummaryItems.filter((item) => item.label !== 'Người xử lý');
+  const shouldHideInitialIntakeSection = !isCreateMode
+    && resolveRequestProcessCode(processDetail?.yeu_cau ?? {}) === 'new_intake';
   const selectedCustomerName =
     customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
     || selectedProjectItem?.customer_name
@@ -871,7 +880,21 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </div>
           </div>
 
-          {editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+          {!isCreateMode ? (
+            <div className="mt-6 border-t border-slate-100 pt-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thẻ (Tags)</h4>
+              </div>
+              <TagInput
+                value={formTags}
+                onChange={onFormTagsChange}
+                disabled={!canEditActiveForm || isSaving}
+                placeholder="Thêm tag cho yêu cầu..."
+              />
+            </div>
+          ) : null}
+
+          {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
             <div className="mt-6 border-t border-slate-100 pt-6">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
@@ -885,7 +908,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                 </button>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {[
+                {([
                   { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
                   { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
                   { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
@@ -893,7 +916,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
                   { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
                   { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
-                ].map((field) => (
+                ] satisfies YeuCauProcessField[]).map((field) => (
                   <ProcessFieldInput
                     key={field.name}
                     field={field}

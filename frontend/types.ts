@@ -1403,7 +1403,9 @@ export type CRCStatusCode =
   | 'assigned_to_performer'
   | 'in_progress'
   | 'completed'
+  | 'waiting_notification'
   | 'customer_notified'
+  | 'closed'
   | 'not_executed'
   | 'waiting_customer_feedback'
   | 'analysis'
@@ -2184,6 +2186,13 @@ export interface Attachment {
   storageDisk?: string | null;
   storageVisibility?: string | null;
   warningMessage?: string | null;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  color: string;
+  usage_count?: number;
 }
 
 export interface Document {

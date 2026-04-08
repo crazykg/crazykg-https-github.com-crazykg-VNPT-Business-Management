@@ -75,6 +75,11 @@ class CustomerRequestCaseWriteService
 
         $actorId = $this->readQueryService->resolveActorId($request);
         $statusSource = $this->extractStatusPayload($request);
+        foreach (['dispatch_route', 'dispatcher_user_id', 'performer_user_id', 'summary', 'description'] as $fallbackField) {
+            if (! array_key_exists($fallbackField, $statusSource) && array_key_exists($fallbackField, $masterPayload)) {
+                $statusSource[$fallbackField] = $masterPayload[$fallbackField];
+            }
+        }
         [$statusPayload, $statusErrors] = $this->normalizeStatusPayload($statusDefinition, $statusSource, null, $actorId);
         Log::debug('crc.store.status_payload', [
             'actor_id' => $actorId,
@@ -686,6 +691,30 @@ class CustomerRequestCaseWriteService
         $handlerUserId = $this->support->parseNullableInt($source['handler_user_id'] ?? null);
         if ($handlerUserId !== null && ! array_key_exists('to_user_id', $source)) {
             $source['to_user_id'] = $handlerUserId;
+        }
+
+        if ($case === null && $statusCode === 'new_intake') {
+            $resolvedToUserId = $this->support->parseNullableInt($source['to_user_id'] ?? null);
+            if ($resolvedToUserId === null) {
+                $dispatchRoute = (string) ($source['dispatch_route'] ?? '');
+                $resolvedToUserId = match ($dispatchRoute) {
+                    'assign_pm' => $this->support->parseNullableInt($source['dispatcher_user_id'] ?? null),
+                    'self_handle', 'assign_direct' => $this->support->parseNullableInt($source['performer_user_id'] ?? null),
+                    default => null,
+                };
+            }
+
+            if ($resolvedToUserId === null) {
+                $resolvedToUserId = $actorId;
+            }
+            $source['to_user_id'] = $resolvedToUserId;
+
+            if ($this->normalizeNullableString($source['notes'] ?? null) === null) {
+                $defaultNotes = $this->normalizeNullableString($source['description'] ?? null)
+                    ?? $this->normalizeNullableString($source['summary'] ?? null)
+                    ?? 'Khởi tạo yêu cầu';
+                $source['notes'] = $defaultNotes;
+            }
         }
 
         if ($case !== null && (string) $case->current_status_code === (string) $definition['status_code']) {

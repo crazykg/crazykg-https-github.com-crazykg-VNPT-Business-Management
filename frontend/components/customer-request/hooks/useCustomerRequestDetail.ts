@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  fetchYeuCauCaseTags,
   fetchYeuCauProcessDetail,
   fetchYeuCauTimeline,
   fetchYeuCauWorklogs,
@@ -12,6 +13,7 @@ import type {
   YeuCauRelatedUser,
   YeuCauTimelineEntry,
   YeuCauWorklog,
+  YeuCauTag,
 } from '../../../types/customerRequest';
 import type { DraftState } from '../helpers';
 import {
@@ -46,6 +48,7 @@ export const useCustomerRequestDetail = ({
   const [formAttachments, setFormAttachments] = useState<Attachment[]>([]);
   const [formIt360Tasks, setFormIt360Tasks] = useState<It360TaskFormRow[]>([]);
   const [formReferenceTasks, setFormReferenceTasks] = useState<ReferenceTaskFormRow[]>([]);
+  const [formTags, setFormTags] = useState<YeuCauTag[]>([]);
   const [timeline, setTimeline] = useState<YeuCauTimelineEntry[]>([]);
   const [caseWorklogs, setCaseWorklogs] = useState<YeuCauWorklog[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -59,6 +62,7 @@ export const useCustomerRequestDetail = ({
     setFormAttachments([]);
     setFormIt360Tasks([]);
     setFormReferenceTasks([]);
+    setFormTags([]);
     setTimeline([]);
     setCaseWorklogs([]);
     setIsDetailLoading(false);
@@ -70,6 +74,7 @@ export const useCustomerRequestDetail = ({
     setFormAttachments([]);
     setFormIt360Tasks([]);
     setFormReferenceTasks([]);
+    setFormTags([]);
     setTimeline([]);
     setCaseWorklogs([]);
     setIsDetailLoading(false);
@@ -90,6 +95,7 @@ export const useCustomerRequestDetail = ({
         setFormAttachments([]);
         setFormIt360Tasks([]);
         setFormReferenceTasks([]);
+        setFormTags([]);
         setTimeline([]);
         setCaseWorklogs([]);
       }
@@ -99,18 +105,28 @@ export const useCustomerRequestDetail = ({
           fetchYeuCauProcessDetail(selectedRequestId, activeEditorProcessCode),
           fetchYeuCauTimeline(selectedRequestId),
           fetchYeuCauWorklogs(selectedRequestId),
+          fetchYeuCauCaseTags(selectedRequestId),
         ]);
 
         if (requestSequenceRef.current !== requestSequence) {
           return;
         }
 
-        const [detailResult, timelineResult, worklogsResult] = results;
+        const [detailResult, timelineResult, worklogsResult, tagsResult] = results;
         if (detailResult.status !== 'fulfilled') {
           throw detailResult.reason;
         }
 
         const detail = detailResult.value;
+
+        const normalizedTags =
+          tagsResult.status === 'fulfilled' && Array.isArray(tagsResult.value)
+            ? tagsResult.value
+            : Array.isArray(detail.tags)
+            ? detail.tags
+            : [];
+
+        detail.tags = normalizedTags;
 
         const { it360Rows, referenceRows } = splitCustomerRequestTaskRows(
           Array.isArray(detail.ref_tasks) ? detail.ref_tasks : []
@@ -123,6 +139,7 @@ export const useCustomerRequestDetail = ({
         setFormAttachments(Array.isArray(detail.attachments) ? detail.attachments : []);
         setFormIt360Tasks(it360Rows);
         setFormReferenceTasks(referenceRows);
+        setFormTags(normalizedTags);
         setTimeline(
           timelineResult.status === 'fulfilled' && Array.isArray(timelineResult.value)
             ? timelineResult.value
@@ -196,6 +213,8 @@ export const useCustomerRequestDetail = ({
     setFormIt360Tasks,
     formReferenceTasks,
     setFormReferenceTasks,
+    formTags,
+    setFormTags,
     timeline,
     caseWorklogs,
     setCaseWorklogs,

@@ -636,6 +636,6 @@ describe('phase 4 workspace classifiers', () => {
 
 describe('phase 5 hardening smoke checks', () => {
   it('keeps PM missing-info synthetic option labeled via status metadata', () => {
-    expect(resolveStatusMeta(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE).label).toBe('PM đánh giá thiếu TT KH');
+    expect(resolveStatusMeta(PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE).label).toBe('Đợi phản hồi KH');
   });
 });

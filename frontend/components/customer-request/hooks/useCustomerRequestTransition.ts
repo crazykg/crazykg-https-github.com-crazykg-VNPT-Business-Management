@@ -21,6 +21,7 @@ import {
   normalizeText,
 } from '../helpers';
 import {
+  PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
   resolveTransitionStatusMeta,
   type CustomerRequestTaskSource,
   type It360TaskFormRow,
@@ -102,6 +103,11 @@ const isProgressPercentInvalid = (value: unknown): boolean => {
   const numeric = Number(normalized);
   return !Number.isFinite(numeric) || numeric < 0 || numeric > 100;
 };
+
+const normalizeTransitionTargetStatusCode = (toStatusCode: string): string =>
+  toStatusCode === PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE
+    ? 'waiting_customer_feedback'
+    : toStatusCode;
 
 const isTargetUserRequired = (toStatusCode: string): boolean =>
   [
@@ -303,7 +309,9 @@ export const useCustomerRequestTransition = ({
       return;
     }
 
-    const validationError = assertTransitionPayload(transitionStatusCode, modalStatusPayload);
+    const effectiveTransitionStatusCode = normalizeTransitionTargetStatusCode(transitionStatusCode);
+
+    const validationError = assertTransitionPayload(effectiveTransitionStatusCode, modalStatusPayload);
     if (validationError) {
       onNotify('error', 'Thiếu dữ liệu chuyển trạng thái', validationError);
       return;
@@ -333,15 +341,15 @@ export const useCustomerRequestTransition = ({
         modalStatusPayload,
         modalNotes,
         currentUserId,
-        transitionStatusCode,
+        effectiveTransitionStatusCode,
       );
       const transitionMetadataPayload = pickTransitionMetadataPayload(modalStatusPayload);
       const normalizedToUserId = normalizeText(transitionFieldPayload.to_user_id);
-      const effectiveHandlerUserId = isTargetUserRequired(transitionStatusCode)
+      const effectiveHandlerUserId = isTargetUserRequired(effectiveTransitionStatusCode)
         ? (normalizedToUserId || modalHandlerUserId || undefined)
         : (modalHandlerUserId || undefined);
 
-      const transitioned = await transitionCustomerRequestCase(selectedRequestId, transitionStatusCode, {
+      const transitioned = await transitionCustomerRequestCase(selectedRequestId, effectiveTransitionStatusCode, {
         ...transitionFieldPayload,
         ...transitionMetadataPayload,
         handler_user_id: effectiveHandlerUserId,
@@ -352,8 +360,8 @@ export const useCustomerRequestTransition = ({
 
       const newStatusMeta = resolveTransitionStatusMeta(
         transitionProcessMeta ?? {
-          process_code: transitionStatusCode,
-          process_label: transitionStatusCode,
+          process_code: effectiveTransitionStatusCode,
+          process_label: effectiveTransitionStatusCode,
           ui_meta: null,
         }
       );
@@ -364,7 +372,7 @@ export const useCustomerRequestTransition = ({
       );
 
       setShowTransitionModal(false);
-      onTransitionSuccess(transitioned.id ?? selectedRequestId, transitionStatusCode);
+      onTransitionSuccess(transitioned.id ?? selectedRequestId, effectiveTransitionStatusCode);
       bumpDataVersion();
     } catch (error) {
       onNotify('error', 'Chuyển trạng thái thất bại', error instanceof Error ? error.message : 'Đã xảy ra lỗi.');

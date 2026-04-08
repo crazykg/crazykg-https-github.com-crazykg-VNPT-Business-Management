@@ -3,6 +3,7 @@ import {
   createYeuCau,
   createYeuCauEstimate,
   deleteYeuCau,
+  saveYeuCauCaseTags,
   saveYeuCauProcess,
   fetchCustomerRequestProjectItems,
   fetchProjectRaciAssignments,
@@ -20,6 +21,7 @@ import type {
   ProjectItemMaster,
   ProjectRaciRow,
   SupportServiceGroup,
+  Tag,
   YeuCau,
   YeuCauEstimate,
   YeuCauHoursReport,
@@ -179,6 +181,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [selectedRequestPreview, setSelectedRequestPreview] = useState<YeuCau | null>(null);
   const [activeEditorProcessCode, setActiveEditorProcessCode] = useState('');
   const [isCreateMode, setIsCreateMode] = useState(false);
+  const [createFormTags, setCreateFormTags] = useState<Tag[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingWorklog, setIsSubmittingWorklog] = useState(false);
   const [isSubmittingEstimate, setIsSubmittingEstimate] = useState(false);
@@ -625,6 +628,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setFormIt360Tasks,
     formReferenceTasks,
     setFormReferenceTasks,
+    formTags,
+    setFormTags,
     timeline,
     caseWorklogs,
     setCaseWorklogs,
@@ -988,11 +993,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     defaultProcessor,
     taskReferenceLookup,
     onNotify: (type, title, msg) => notify(type, title, msg),
-    onTransitionSuccess: () => {
-      setSelectedRequestId(null);
-      setSelectedRequestPreview(null);
+    onTransitionSuccess: (requestId, statusCode) => {
+      setSelectedRequestId(requestId);
+      setSelectedRequestPreview((prev) =>
+        prev ? { ...prev, id: requestId, current_status_code: statusCode } : prev
+      );
       setIsCreateMode(false);
-      setActiveEditorProcessCode('');
+      setActiveEditorProcessCode(statusCode || 'new_intake');
       setTransitionStatusCode('');
       setPendingPrimaryAction(null);
       bumpDataVersion();
@@ -1139,6 +1146,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setSelectedRequestId(null);
     setSelectedRequestPreview(null);
     setPendingPrimaryAction(null);
+    setCreateFormTags([]);
     setIsCreateMode(true);
     setActiveEditorProcessCode('new_intake');
     setTransitionStatusCode('');
@@ -1466,8 +1474,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const handleDeleteAttachment = useCallback(
-    async (id: string) => {
-      setFormAttachments((prev) => prev.filter((a) => String(a.id) !== id));
+    async (id: string | number) => {
+      setFormAttachments((prev) => prev.filter((a) => String(a.id) !== String(id)));
     },
     [setFormAttachments]
   );
@@ -1533,7 +1541,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       }
 
+      // Save tags if any
+      if (createFormTags.length > 0 && created.id != null) {
+        try {
+          const normalizedTags = createFormTags
+            .map((tag) => ({
+              name: String(tag.name ?? '').trim().toLowerCase(),
+              color: String(tag.color ?? '').trim().toLowerCase() || 'blue',
+            }))
+            .filter((tag) => tag.name.length > 0);
+
+          await saveYeuCauCaseTags(created.id, normalizedTags);
+        } catch (error: unknown) {
+          followUpWarnings.push(
+            `Chưa lưu được tags: ${error instanceof Error ? error.message : 'Lỗi không xác định.'}`
+          );
+        }
+      }
+
       setIsCreateMode(false);
+      setCreateFormTags([]);
       setSelectedRequestId(effectiveRequest.id ?? created.id);
       setSelectedRequestPreview(effectiveRequest);
       setActiveEditorProcessCode(resolveRequestProcessCode(effectiveRequest) || 'new_intake');
@@ -1579,6 +1606,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     formAttachments,
     formIt360Tasks,
     formReferenceTasks,
+    createFormTags,
+    selectedWorkflowId,
     bumpDataVersion,
     notify,
   ]);
@@ -1667,6 +1696,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     try {
       setIsSaving(true);
 
+      const normalizedTags = formTags
+        .map((tag) => ({
+          name: String(tag.name ?? '').trim().toLowerCase(),
+          color: String(tag.color ?? '').trim().toLowerCase() || 'blue',
+        }))
+        .filter((tag) => tag.name.length > 0);
+
       // Build attachments payload
       const attachmentsPayload = formAttachments
         .filter((a) => a.id)
@@ -1701,6 +1737,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       const updated = await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, payload);
       setSelectedRequestPreview(updated);
+
+      if (selectedRequestId != null) {
+        try {
+          const savedTags = await saveYeuCauCaseTags(selectedRequestId, normalizedTags);
+          setFormTags(savedTags);
+        } catch (error: unknown) {
+          notify(
+            'warning',
+            'Cập nhật tags chưa hoàn tất',
+            error instanceof Error ? error.message : 'Không thể đồng bộ tags.'
+          );
+        }
+      }
+
       bumpDataVersion();
       notify('success', 'Cập nhật yêu cầu', 'Đã cập nhật yêu cầu.');
     } catch (e: unknown) {
@@ -1722,9 +1772,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     formAttachments,
     formIt360Tasks,
     formReferenceTasks,
+    formTags,
     selectedWorkflowId,
     bumpDataVersion,
     notify,
+    setFormTags,
   ]);
 
   const handleOpenTransitionModal = useCallback(() => {
@@ -2136,6 +2188,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       onUpdateIt360TaskRow={handleUpdateIt360Row}
       onRemoveIt360TaskRow={handleRemoveIt360Row}
       formReferenceTasks={formReferenceTasks}
+      formTags={formTags}
+      onFormTagsChange={setFormTags}
       taskReferenceOptions={taskReferenceOptions}
       onUpdateReferenceTaskRow={handleUpdateRefRow}
       onTaskReferenceSearchTermChange={setSearchKeyword}
@@ -2474,6 +2528,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           onTaskReferenceSearchTermChange={setSearchKeyword}
           taskReferenceSearchError={searchError}
           isTaskReferenceSearchLoading={isSearchLoading}
+          /* tags */
+          formTags={createFormTags}
+          onTagsChange={setCreateFormTags}
           isSaving={isSaving}
           onSave={handleSaveCase}
           onClose={() => {

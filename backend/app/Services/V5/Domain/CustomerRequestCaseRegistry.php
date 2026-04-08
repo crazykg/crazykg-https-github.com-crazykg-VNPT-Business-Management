@@ -78,7 +78,7 @@ final class CustomerRequestCaseRegistry
             'intake'     => ['new_intake', 'assigned_to_receiver', 'waiting_customer_feedback'],
             'analysis'   => ['analysis', 'analysis_completed', 'analysis_suspended', 'returned_to_manager'],
             'processing' => ['in_progress', 'coding', 'coding_in_progress', 'coding_suspended', 'dms_transfer', 'dms_task_created', 'dms_in_progress', 'dms_suspended'],
-            'closure'    => ['completed', 'customer_notified', 'not_executed'],
+            'closure'    => ['completed', 'waiting_notification', 'customer_notified', 'closed', 'not_executed'],
         ];
     }
 
@@ -231,6 +231,24 @@ final class CustomerRequestCaseRegistry
                 ]
             ),
             self::status(
+                'waiting_notification',
+                'Chờ thông báo khách hàng',
+                'customer_request_waiting_notification',
+                [
+                    ...$commonColumns,
+                    self::column('notified_by_user_id', 'Người phụ trách'),
+                    self::column('notification_channel', 'Kênh thông báo'),
+                    self::column('planned_notification_at', 'Dự kiến thông báo'),
+                ],
+                [
+                    self::field('notified_by_user_id', 'Người phụ trách thông báo', 'user_select', true),
+                    self::field('notification_channel', 'Kênh thông báo', 'select'),
+                    self::field('notification_content', 'Nội dung thông báo', 'textarea'),
+                    self::field('planned_notification_at', 'Dự kiến ngày thông báo', 'datetime'),
+                    self::field('notes', 'Ghi chú', 'textarea'),
+                ]
+            ),
+            self::status(
                 'customer_notified',
                 'Thông báo khách hàng',
                 'customer_request_customer_notified',
@@ -244,6 +262,24 @@ final class CustomerRequestCaseRegistry
                     self::field('notification_channel', 'Kênh báo khách hàng', 'text'),
                     self::field('notification_content', 'Nội dung báo khách hàng', 'textarea'),
                     self::field('customer_feedback', 'Phản hồi khách hàng', 'textarea'),
+                ]
+            ),
+            self::status(
+                'closed',
+                'Đóng yêu cầu',
+                'customer_request_closed',
+                [
+                    ...$commonColumns,
+                    self::column('closed_by_user_id', 'Người đóng'),
+                    self::column('closed_at', 'Ngày đóng'),
+                    self::column('customer_satisfaction', 'Mức độ hài lòng'),
+                ],
+                [
+                    self::field('closed_by_user_id', 'Người đóng yêu cầu', 'user_select', true),
+                    self::field('closed_at', 'Ngày đóng', 'datetime', true),
+                    self::field('closure_reason', 'Lý do đóng', 'select', true),
+                    self::field('closure_notes', 'Ghi chú đóng', 'textarea'),
+                    self::field('customer_satisfaction', 'Mức độ hài lòng', 'select'),
                 ]
             ),
             self::status(
@@ -431,8 +467,8 @@ final class CustomerRequestCaseRegistry
             self::field('extended_at', 'Ngày gia hạn', 'datetime'),
             self::field('progress_percent', 'Tiến độ phần trăm', 'number'),
             self::field('from_user_id', 'Người chuyển', 'user_select'),
-            self::field('to_user_id', 'Người nhận', 'user_select'),
-            self::field('notes', 'Ghi chú', 'textarea'),
+            self::field('to_user_id', 'Người nhận', 'user_select', true),
+            self::field('notes', 'Ghi chú', 'textarea', true),
         ];
     }
 
@@ -458,8 +494,10 @@ final class CustomerRequestCaseRegistry
             'coding' => ['coding_in_progress', 'returned_to_manager'],
             'coding_in_progress' => ['completed', 'coding_suspended', 'returned_to_manager'],
             'coding_suspended' => ['coding_in_progress', 'returned_to_manager'],
-            'completed' => ['assigned_to_receiver', 'returned_to_manager', 'customer_notified'],
-            'customer_notified' => ['returned_to_manager'],
+            'completed' => ['assigned_to_receiver', 'returned_to_manager', 'waiting_notification'],
+            'waiting_notification' => ['customer_notified', 'returned_to_manager'],
+            'customer_notified' => ['closed', 'returned_to_manager'],
+            'closed' => ['returned_to_manager'],
         ];
 
         return $map[$statusCode] ?? null;

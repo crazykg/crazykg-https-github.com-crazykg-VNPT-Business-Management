@@ -5,7 +5,7 @@ import type {
   PaginatedResult,
   PaginationMeta,
 } from '../../types/common';
-import type { WorkflowDefinition } from '../../types';
+import type { Tag, WorkflowDefinition } from '../../types';
 import type { SupportRequestReceiverResult, SupportRequestTaskStatus } from '../../types/support';
 import type {
   CRCFullDetail,
@@ -1092,6 +1092,57 @@ export const saveYeuCauProcess = async (
 
   const detail = await parseItemJson<Record<string, unknown>>(res);
   return (detail.request_case as YeuCau | undefined) ?? (detail.yeu_cau as YeuCau | undefined) ?? (detail as unknown as YeuCau);
+};
+
+export const fetchYeuCauCaseTags = async (id: string | number): Promise<Tag[]> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/tags`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:tags`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_CASE_TAGS_FAILED'));
+  }
+
+  const detail = (await res.json()) as { tags?: Tag[] };
+  return Array.isArray(detail.tags) ? detail.tags : [];
+};
+
+export const saveYeuCauCaseTags = async (
+  id: string | number,
+  tags: Array<Pick<Tag, 'name' | 'color'>>
+): Promise<Tag[]> => {
+  const tagNames = tags
+    .map((tag) => String(tag.name ?? '').trim().toLowerCase())
+    .filter((name) => name.length > 0);
+
+  const uniqueTagNames = Array.from(new Set(tagNames));
+  const tagColors = tags.reduce<Record<string, string>>((acc, tag) => {
+    const normalizedName = String(tag.name ?? '').trim().toLowerCase();
+    const normalizedColor = String(tag.color ?? '').trim().toLowerCase();
+    if (!normalizedName) {
+      return acc;
+    }
+    acc[normalizedName] = normalizedColor || 'blue';
+    return acc;
+  }, {});
+
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/tags/bulk`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      tag_names: uniqueTagNames,
+      tag_colors: tagColors,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SAVE_YEU_CAU_CASE_TAGS_FAILED'));
+  }
+
+  const detail = (await res.json()) as { tags?: Tag[] };
+  return Array.isArray(detail.tags) ? detail.tags : [];
 };
 
 export const deleteYeuCau = async (id: string | number): Promise<void> => {

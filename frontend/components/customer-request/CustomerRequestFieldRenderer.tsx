@@ -278,6 +278,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
         options={options}
         onChange={(nextValue) => onChange(field.name, nextValue)}
         label={field.label}
+        required={field.required}
         placeholder={`Chọn ${field.label.toLowerCase()}`}
         searchPlaceholder={`Tìm ${field.label.toLowerCase()}...`}
         disabled={disabled}
@@ -318,6 +319,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           options={options}
           onChange={(nextValue) => onChange(field.name, nextValue)}
           label={field.label}
+          required={field.required}
           placeholder={`Chọn ${field.label.toLowerCase()}`}
           searchPlaceholder={searchPlaceholder}
           noOptionsText={
