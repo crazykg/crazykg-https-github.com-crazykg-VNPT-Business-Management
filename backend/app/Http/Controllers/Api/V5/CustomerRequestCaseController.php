@@ -8,6 +8,7 @@ use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CustomerRequestCaseController extends V5BaseController
 {
@@ -46,6 +47,21 @@ class CustomerRequestCaseController extends V5BaseController
         ]);
 
         return $this->service->store($request);
+    }
+
+    public function importIntakeTemplate(Request $request): JsonResponse
+    {
+        return $this->service->importIntakeTemplate($request);
+    }
+
+    public function importIntake(Request $request): JsonResponse
+    {
+        return $this->service->importIntake($request);
+    }
+
+    public function exportIntake(Request $request): StreamedResponse
+    {
+        return $this->service->exportIntake($request);
     }
 
     public function show(Request $request, int $id): JsonResponse

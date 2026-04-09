@@ -11,6 +11,7 @@ use App\Services\V5\CustomerRequest\CustomerRequestCaseMetadataService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadModelService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseTransitionEvaluator;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadQueryService;
+use App\Services\V5\CustomerRequest\CustomerRequestCaseIntakeIoService;
 use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
@@ -20,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CustomerRequestCaseDomainService
 {
@@ -64,6 +66,7 @@ class CustomerRequestCaseDomainService
         private readonly CustomerRequestCaseTransitionEvaluator $transitionEvaluator,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
+        private readonly CustomerRequestCaseIntakeIoService $intakeIoService,
         private readonly CaseWriteOrchestrator $writeService,
         private readonly TransitionCaseAction $transitionCaseAction,
     ) {}
@@ -289,6 +292,21 @@ class CustomerRequestCaseDomainService
                 $userId
             )
         );
+    }
+
+    public function importIntakeTemplate(Request $request): JsonResponse
+    {
+        return $this->intakeIoService->importIntakeTemplate($request);
+    }
+
+    public function importIntake(Request $request): JsonResponse
+    {
+        return $this->intakeIoService->importIntake($request);
+    }
+
+    public function exportIntake(Request $request): StreamedResponse
+    {
+        return $this->intakeIoService->exportIntake($request);
     }
 
     public function show(Request $request, int $id): JsonResponse

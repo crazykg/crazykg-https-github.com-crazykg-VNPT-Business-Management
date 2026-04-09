@@ -31,6 +31,12 @@ Route::get('/customer-request-cases/statuses/{statusCode}', [CustomerRequestCase
     ->middleware('permission:support_requests.read');
 Route::post('/customer-request-cases', [CustomerRequestCaseController::class, 'store'])
     ->middleware('permission:support_requests.write');
+Route::get('/customer-request-cases/import-intake/template', [CustomerRequestCaseController::class, 'importIntakeTemplate'])
+    ->middleware('permission:support_requests.read');
+Route::post('/customer-request-cases/import-intake', [CustomerRequestCaseController::class, 'importIntake'])
+    ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
+Route::get('/customer-request-cases/export-intake', [CustomerRequestCaseController::class, 'exportIntake'])
+    ->middleware(['permission:support_requests.export', 'throttle:api.read.export']);
 Route::get('/customer-request-cases/{id}/timeline', [CustomerRequestCaseController::class, 'timeline'])
     ->middleware('permission:support_requests.read');
 Route::get('/customer-request-cases/{id}/people', [CustomerRequestCaseController::class, 'people'])

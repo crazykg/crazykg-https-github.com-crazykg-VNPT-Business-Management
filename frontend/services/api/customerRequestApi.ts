@@ -678,6 +678,128 @@ export const importCustomerRequests = async (
   }>(res);
 };
 
+export type CustomerRequestIntakeImportResult = {
+  total_rows: number;
+  success_rows: number;
+  failed_rows: number;
+  created_case_ids: number[];
+  results: Array<{
+    index: number;
+    row_number: number;
+    import_row_code?: string | null;
+    success: boolean;
+    action?: 'created';
+    case_id?: number | null;
+    message?: string;
+  }>;
+  errors: Array<{
+    row_number: number;
+    import_row_code?: string | null;
+    field: string;
+    error_code: string;
+    error_message: string;
+  }>;
+  warnings: Array<{
+    row_number: number;
+    import_row_code?: string | null;
+    field?: string;
+    message: string;
+  }>;
+  error_file_token?: string | null;
+};
+
+export const fetchCustomerRequestIntakeTemplate = async (workflowDefinitionId?: number | null): Promise<{
+  data: {
+    sheet?: string;
+    task_sheet?: string;
+    lookup_sheets?: string[];
+    required_headers?: string[];
+    headers?: string[];
+    task_headers?: string[];
+    priority_labels?: string[];
+    task_sources?: string[];
+    task_statuses?: string[];
+    status_policy?: string;
+  };
+}> => {
+  const suffix = buildQuerySuffix({
+    workflow_definition_id: workflowDefinitionId ?? undefined,
+  });
+  const res = await apiFetch(`/api/v5/customer-request-cases/import-intake/template${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request:intake-template',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_INTAKE_TEMPLATE_FAILED'));
+  }
+
+  return res.json();
+};
+
+export const importCustomerRequestIntake = async (
+  items: Array<Record<string, unknown>>,
+  workflowDefinitionId?: number | null
+): Promise<CustomerRequestIntakeImportResult> => {
+  const res = await apiFetch('/api/v5/customer-request-cases/import-intake', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items,
+      workflow_definition_id: workflowDefinitionId ?? undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'IMPORT_CUSTOMER_REQUEST_INTAKE_FAILED'));
+  }
+
+  const payload = (await res.json()) as { data?: CustomerRequestIntakeImportResult };
+  return payload.data ?? {
+    total_rows: 0,
+    success_rows: 0,
+    failed_rows: 0,
+    created_case_ids: [],
+    results: [],
+    errors: [],
+    warnings: [],
+    error_file_token: null,
+  };
+};
+
+export const exportCustomerRequestIntake = async (query?: {
+  q?: string;
+  status_code?: string;
+}): Promise<DownloadFileResult> => {
+  const suffix = buildQuerySuffix({
+    q: query?.q,
+    status_code: query?.status_code,
+  });
+  const path = suffix
+    ? `/api/v5/customer-request-cases/export-intake${suffix}`
+    : '/api/v5/customer-request-cases/export-intake';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv,application/octet-stream' },
+    cancelKey: 'customer-request:intake-export',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_CUSTOMER_REQUEST_INTAKE_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(
+      res,
+      `customer_request_intake_${new Date().toISOString().slice(0, 10)}.csv`
+    ),
+  };
+};
+
 export const exportCustomerRequestsCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
   const suffix = buildPaginatedQueryString(query);
   const path = suffix

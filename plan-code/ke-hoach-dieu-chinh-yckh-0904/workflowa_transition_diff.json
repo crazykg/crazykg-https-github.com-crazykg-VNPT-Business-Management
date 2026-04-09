@@ -1,0 +1,436 @@
+{
+  "summary": {
+    "status_count": 23,
+    "current_transition_count": 52,
+    "excel_remove_count": 29,
+    "excel_add_count": 10,
+    "final_transition_count": 34,
+    "remove_existing_count": 28,
+    "remove_missing_count": 1,
+    "add_existing_count": 0,
+    "add_new_count": 10
+  },
+  "changes": [
+    {
+      "actor": "R",
+      "from_name": "Giao R thực hiện",
+      "to_name": "R Đang thực hiện",
+      "from_code": "assigned_to_receiver",
+      "to_code": "in_progress",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Giao R thực hiện",
+      "to_name": "Chờ thông báo khách hàng",
+      "from_code": "assigned_to_receiver",
+      "to_code": "waiting_notification",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "R",
+      "from_name": "Giao R thực hiện",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "assigned_to_receiver",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "A",
+      "from_name": "Giao PM/Trả YC cho PM",
+      "to_name": "Đóng yêu cầu",
+      "from_code": "returned_to_manager",
+      "to_code": "closed",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "A",
+      "from_name": "Giao PM/Trả YC cho PM",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "returned_to_manager",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "A",
+      "from_name": "Hoàn thành",
+      "to_name": "Giao R thực hiện",
+      "from_code": "completed",
+      "to_code": "assigned_to_receiver",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Hoàn thành",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "completed",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Hoàn thành",
+      "to_name": "Chờ thông báo khách hàng",
+      "from_code": "completed",
+      "to_code": "waiting_notification",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Hoàn thành",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "completed",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": false
+    },
+    {
+      "actor": "R",
+      "from_name": "R Đang thực hiện",
+      "to_name": "Hoàn thành",
+      "from_code": "in_progress",
+      "to_code": "completed",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "R Đang thực hiện",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "in_progress",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Không tiếp nhận",
+      "to_name": "Chờ thông báo khách hàng",
+      "from_code": "not_executed",
+      "to_code": "waiting_notification",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Không tiếp nhận",
+      "to_name": "Đóng yêu cầu",
+      "from_code": "not_executed",
+      "to_code": "closed",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "R",
+      "from_name": "Chuyển BA Phân tích",
+      "to_name": "Chuyển BA Phân tích hoàn thành",
+      "from_code": "analysis",
+      "to_code": "analysis_completed",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Chuyển BA Phân tích",
+      "to_name": "Chuyển BA Phân tích tạm ngưng",
+      "from_code": "analysis",
+      "to_code": "analysis_suspended",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển BA Phân tích hoàn thành",
+      "to_name": "Chuyển DMS",
+      "from_code": "analysis_completed",
+      "to_code": "dms_transfer",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển BA Phân tích hoàn thành",
+      "to_name": "Lập trình",
+      "from_code": "analysis_completed",
+      "to_code": "coding",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Chuyển BA Phân tích hoàn thành",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "analysis_completed",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển BA Phân tích tạm ngưng",
+      "to_name": "Chuyển BA Phân tích",
+      "from_code": "analysis_suspended",
+      "to_code": "analysis",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Chuyển BA Phân tích tạm ngưng",
+      "to_name": "Chuyển BA Phân tích hoàn thành",
+      "from_code": "analysis_suspended",
+      "to_code": "analysis_completed",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Chuyển BA Phân tích tạm ngưng",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "analysis_suspended",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển DMS",
+      "to_name": "Tạo task",
+      "from_code": "dms_transfer",
+      "to_code": "dms_task_created",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển DMS",
+      "to_name": "Chờ thông báo khách hàng",
+      "from_code": "dms_transfer",
+      "to_code": "waiting_notification",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chuyển DMS",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "dms_transfer",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Tạo task",
+      "to_name": "DMS Đang thực hiện",
+      "from_code": "dms_task_created",
+      "to_code": "dms_in_progress",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Tạo task",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "dms_task_created",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "DMS Đang thực hiện",
+      "to_name": "Hoàn thành",
+      "from_code": "dms_in_progress",
+      "to_code": "completed",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "DMS Đang thực hiện",
+      "to_name": "DMS tạm ngưng",
+      "from_code": "dms_in_progress",
+      "to_code": "dms_suspended",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "DMS Đang thực hiện",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "dms_in_progress",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "DMS tạm ngưng",
+      "to_name": "DMS Đang thực hiện",
+      "from_code": "dms_suspended",
+      "to_code": "dms_in_progress",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "DMS tạm ngưng",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "dms_suspended",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Lập trình",
+      "to_name": "Dev đang thực hiện",
+      "from_code": "coding",
+      "to_code": "coding_in_progress",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Lập trình",
+      "to_name": "Chờ thông báo khách hàng",
+      "from_code": "coding",
+      "to_code": "waiting_notification",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "R",
+      "from_name": "Lập trình",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "coding",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": "Thêm",
+      "exists_now": false
+    },
+    {
+      "actor": "R",
+      "from_name": "Dev đang thực hiện",
+      "to_name": "Hoàn thành",
+      "from_code": "coding_in_progress",
+      "to_code": "completed",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Dev đang thực hiện",
+      "to_name": "Dev tạm ngưng",
+      "from_code": "coding_in_progress",
+      "to_code": "coding_suspended",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Dev đang thực hiện",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "coding_in_progress",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Dev tạm ngưng",
+      "to_name": "Dev đang thực hiện",
+      "from_code": "coding_suspended",
+      "to_code": "coding_in_progress",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    },
+    {
+      "actor": "R",
+      "from_name": "Dev tạm ngưng",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "coding_suspended",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": "Xoá",
+      "exists_now": true
+    }
+  ],
+  "ambiguous_star_rows": [
+    {
+      "actor": "Tất cả",
+      "from_name": "Chờ thông báo khách hàng",
+      "to_name": "Giao PM/Trả YC cho PM",
+      "from_code": "waiting_notification",
+      "to_code": "returned_to_manager",
+      "marker": "*",
+      "action": ""
+    },
+    {
+      "actor": "Tất cả",
+      "from_name": "Chờ thông báo khách hàng",
+      "to_name": "Thông báo khách hàng",
+      "from_code": "waiting_notification",
+      "to_code": "customer_notified",
+      "marker": "*",
+      "action": ""
+    }
+  ],
+  "unresolved_label_rows": [
+    {
+      "actor": "A",
+      "from_name": "Đóng yêu cầu",
+      "to_name": "Kết thúc",
+      "from_code": "closed",
+      "to_code": null,
+      "marker": "*",
+      "action": "Thêm"
+    }
+  ]
+}
