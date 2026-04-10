@@ -33,6 +33,11 @@ class CustomerRequestCaseExecutionService
     {
         $rows = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
+            ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
+                $join->on('catalog.status_code', '=', 'instance.status_code')
+                    ->where('catalog.is_active', 1);
+            })
             ->where('wl.request_case_id', $case->id)
             ->when(
                 $this->support->hasColumn('customer_request_worklogs', 'work_date'),
@@ -44,6 +49,7 @@ class CustomerRequestCaseExecutionService
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'catalog.status_name_vi as status_name_vi',
             ])
             ->get()
             ->map(fn (object $row): array => $this->readModelService->serializeWorklogRow($row))
@@ -208,12 +214,26 @@ class CustomerRequestCaseExecutionService
             }
         }
 
+        $difficultyStatus = $this->support->normalizeNullableString($request->input('difficulty_status'));
+        if ($difficultyStatus !== null && ! in_array($difficultyStatus, ['none', 'has_issue', 'resolved'], true)) {
+            return response()->json(['message' => 'difficulty_status không hợp lệ.'], 422);
+        }
+
+        $detailStatusAction = $this->support->normalizeNullableString($request->input('detail_status_action'));
+        if ($detailStatusAction !== null && ! in_array($detailStatusAction, ['in_progress', 'paused'], true)) {
+            return response()->json(['message' => 'detail_status_action không hợp lệ.'], 422);
+        }
+
         $payload = $this->writeService->filterByTableColumns('customer_request_worklogs', [
             'request_case_id' => (int) $case->id,
             'status_instance_id' => (int) $statusInstance->id,
             'status_code' => (string) $statusInstance->status_code,
             'performed_by_user_id' => $this->support->parseNullableInt($request->input('performed_by_user_id')) ?? $actorId,
             'work_content' => $workContent,
+            'difficulty_note' => $this->support->normalizeNullableString($request->input('difficulty_note')),
+            'proposal_note' => $this->support->normalizeNullableString($request->input('proposal_note')),
+            'difficulty_status' => $difficultyStatus,
+            'detail_status_action' => $detailStatusAction,
             'work_started_at' => $startedAt,
             'work_ended_at' => $endedAt,
             'work_date' => $workDate,
@@ -238,11 +258,17 @@ class CustomerRequestCaseExecutionService
 
         $row = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
+            ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
+                $join->on('catalog.status_code', '=', 'instance.status_code')
+                    ->where('catalog.is_active', 1);
+            })
             ->where('wl.id', $worklogId)
             ->select([
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'catalog.status_name_vi as status_name_vi',
             ])
             ->first();
 

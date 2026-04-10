@@ -57,6 +57,12 @@ Route::get('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseControll
     ->middleware('permission:support_requests.read');
 Route::post('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'storeWorklog'])
     ->middleware('permission:support_requests.write');
+Route::patch('/customer-request-cases/{id}/worklogs/{worklogId}', [CustomerRequestCaseController::class, 'updateWorklog'])
+    ->middleware('permission:support_requests.write');
+Route::post('/customer-request-cases/{id}/detail-status-worklog', [CustomerRequestCaseController::class, 'storeDetailStatusWorklog'])
+    ->middleware('permission:support_requests.write');
+Route::get('/customer-request-cases/{id}/detail-status', [CustomerRequestCaseController::class, 'detailStatus'])
+    ->middleware('permission:support_requests.read');
 Route::get('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'showStatus'])
     ->middleware('permission:support_requests.read');
 Route::post('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'saveStatus'])

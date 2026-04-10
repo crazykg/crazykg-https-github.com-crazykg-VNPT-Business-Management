@@ -403,8 +403,9 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
     <ModalWrapper
       title="Tạo yêu cầu mới"
       icon="add_circle"
-      width="max-w-5xl"
-      maxHeightClass="max-h-[92vh]"
+      width="max-w-[1560px]"
+      heightClass="h-[calc(100dvh-16px)] sm:h-[calc(100dvh-48px)]"
+      maxHeightClass=""
       disableClose={isSaving}
       onClose={onClose}
     >

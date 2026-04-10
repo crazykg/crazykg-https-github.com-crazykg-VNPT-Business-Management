@@ -23,7 +23,11 @@ class StoreCustomerRequestCaseWorklogRequest extends V5FormRequest
             'is_billable' => ['sometimes', 'nullable', 'boolean'],
             'is_auto_transition' => ['sometimes', 'nullable', 'boolean'],
             'transition_id' => ['sometimes', 'nullable', 'integer'],
-            'hours_spent' => ['sometimes', 'nullable', 'numeric'],
+            'hours_spent' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'difficulty_note' => ['sometimes', 'nullable', 'string'],
+            'proposal_note' => ['sometimes', 'nullable', 'string'],
+            'difficulty_status' => ['sometimes', 'nullable', 'in:none,has_issue,resolved'],
+            'detail_status_action' => ['sometimes', 'nullable', 'in:in_progress,paused'],
         ];
     }
 }

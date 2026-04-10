@@ -14,7 +14,7 @@ import type { Customer, CustomerPersonnel } from '../../types/customer';
 import type { Employee } from '../../types/employee';
 import type { ProjectItemMaster } from '../../types/project';
 import type { SupportServiceGroup } from '../../types/support';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
+import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
@@ -108,6 +108,8 @@ type CustomerRequestDetailPaneProps = {
   onOpenNotifyCustomerModal: () => void;
   canOpenWorklogModal: boolean;
   onOpenWorklogModal: () => void;
+  onOpenDetailStatusWorklogModal: (action: 'in_progress' | 'paused') => void;
+  onEditWorklog: (worklog: YeuCauWorklog) => void;
   isSubmittingWorklog: boolean;
   canOpenEstimateModal: boolean;
   onOpenEstimateModal: () => void;
@@ -132,6 +134,32 @@ const EmptyTabState: React.FC<{ message: string }> = ({ message }) => (
     <span className="material-symbols-outlined mb-3 text-[32px] text-slate-300">inbox</span>
     <p className="text-sm font-medium text-slate-500">{message}</p>
   </div>
+);
+
+const resolveWorklogDetailStatusLabel = (detailStatusAction: string | null | undefined): string | null => {
+  const normalized = normalizeText(detailStatusAction).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === 'in_progress') {
+    return 'Đang thực hiện';
+  }
+  if (normalized === 'paused') {
+    return 'Tạm ngưng';
+  }
+  if (normalized === 'completed') {
+    return 'Hoàn thành';
+  }
+  if (normalized === 'open') {
+    return 'Mở';
+  }
+  return normalized;
+};
+
+const resolveWorklogMainStatusLabel = (worklog: YeuCauWorklog): string | null => (
+  normalizeText(worklog.status_name_vi)
+  || normalizeText(worklog.status_code)
+  || null
 );
 
 export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps> = ({
@@ -195,6 +223,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onOpenNotifyCustomerModal,
   canOpenWorklogModal,
   onOpenWorklogModal,
+  onOpenDetailStatusWorklogModal,
+  onEditWorklog,
   isSubmittingWorklog,
   canOpenEstimateModal,
   onOpenEstimateModal,
@@ -250,6 +280,9 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
   const transitionCtaLabel = 'Chuyển →';
+  const currentDetailStatus = normalizeText(processDetail?.current_detail_status).toLowerCase();
+  const isDetailInProgress = currentDetailStatus === 'in_progress';
+  const isDetailPaused = currentDetailStatus === 'paused';
   const quickStats = [
     { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
     { label: 'Tệp', value: formAttachments.length },
@@ -553,27 +586,40 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
               {latestWorklogs.length === 0 ? (
                 <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
               ) : (
-                latestWorklogs.map((worklog) => (
-                  <div key={worklog.id} className="group rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-4 py-3.5 shadow-sm transition-shadow hover:shadow-md">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {worklog.performed_by_name || 'Chưa xác định'}
+                latestWorklogs.map((worklog) => {
+                  const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
+                  const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+
+                  return (
+                    <button
+                      key={worklog.id}
+                      type="button"
+                      onClick={() => onEditWorklog(worklog)}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className="group w-full rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-4 py-3.5 text-left shadow-sm transition-shadow hover:shadow-md disabled:opacity-50"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {worklog.performed_by_name || 'Chưa xác định'}
+                        </p>
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                          {formatHoursValue(worklog.hours_spent)}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        {[
+                          worklog.activity_type_code,
+                          mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
+                          detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                          formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </p>
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                        {formatHoursValue(worklog.hours_spent)}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      {[
-                        worklog.activity_type_code,
-                        worklog.work_date || worklog.work_started_at,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                    {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                  </div>
-                ))
+                      {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -691,18 +737,34 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             {latestWorklogs.length === 0 ? (
               <EmptyTabState message="Chưa có nhật ký công việc gần đây." />
             ) : (
-              latestWorklogs.map((worklog) => (
-                <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
-                    <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {[worklog.activity_type_code, worklog.work_date || worklog.work_started_at].filter(Boolean).join(' · ')}
-                  </p>
-                  {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                </div>
-              ))
+              latestWorklogs.map((worklog) => {
+                const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
+                const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+
+                return (
+                  <button
+                    key={worklog.id}
+                    type="button"
+                    onClick={() => onEditWorklog(worklog)}
+                    disabled={isSaving || isSubmittingWorklog}
+                    className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
+                      <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {[
+                        worklog.activity_type_code,
+                        mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
+                        detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                        formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
+                      ].filter(Boolean).join(' · ')}
+                    </p>
+                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -737,6 +799,37 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <div className="mb-6 border-b border-slate-100 pb-6">
               <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
               <div className="flex flex-wrap items-center gap-3">
+                {canOpenWorklogModal ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                        isDetailInProgress
+                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                      Đang thực hiện
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetailStatusWorklogModal('paused')}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                        isDetailPaused
+                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">pause_circle</span>
+                      Tạm ngưng
+                    </button>
+                  </>
+                ) : null}
+
                 {(() => {
                   const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
                   return (
@@ -748,6 +841,15 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
                 {canTransitionActiveRequest ? (
                   <>
+                    <button
+                      type="button"
+                      onClick={onOpenTransitionModal}
+                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                      Hoàn thành
+                    </button>
                     {canOpenCreatorFeedbackModal ? (
                       <button
                         type="button"
@@ -770,7 +872,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         Báo KH
                       </button>
                     ) : null}
-                    <span className="material-symbols-outlined text-[18px] text-slate-300">arrow_forward</span>
                     <select
                       value={transitionStatusCode}
                       onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
@@ -790,15 +891,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         <option value="">-- Không có bước tiếp theo --</option>
                       )}
                     </select>
-                    <button
-                      type="button"
-                      onClick={onOpenTransitionModal}
-                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                      {transitionCtaLabel || 'Chuyển trạng thái'}
-                    </button>
                   </>
                 ) : null}
 

@@ -29,6 +29,11 @@ class CustomerRequestCaseReadModelService
     {
         return DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
+            ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
+                $join->on('catalog.status_code', '=', 'instance.status_code')
+                    ->where('catalog.is_active', 1);
+            })
             ->where('wl.status_instance_id', $statusInstanceId)
             ->orderByDesc('wl.work_started_at')
             ->orderByDesc('wl.id')
@@ -36,6 +41,7 @@ class CustomerRequestCaseReadModelService
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'catalog.status_name_vi as status_name_vi',
             ])
             ->get()
             ->map(fn (object $row): array => $this->serializeWorklogRow($row))
@@ -406,10 +412,15 @@ class CustomerRequestCaseReadModelService
             'request_case_id' => $this->support->parseNullableInt($record['request_case_id'] ?? null),
             'status_instance_id' => $this->support->parseNullableInt($record['status_instance_id'] ?? null),
             'status_code' => $this->normalizeNullableString($record['status_code'] ?? null),
+            'status_name_vi' => $this->normalizeNullableString($record['status_name_vi'] ?? null),
             'performed_by_user_id' => $this->support->parseNullableInt($record['performed_by_user_id'] ?? null),
             'performed_by_name' => $this->normalizeNullableString($record['performed_by_name'] ?? null),
             'performed_by_code' => $this->normalizeNullableString($record['performed_by_code'] ?? null),
             'work_content' => $this->normalizeNullableString($record['work_content'] ?? null),
+            'difficulty_note' => $this->normalizeNullableString($record['difficulty_note'] ?? null),
+            'proposal_note' => $this->normalizeNullableString($record['proposal_note'] ?? null),
+            'difficulty_status' => $this->normalizeNullableString($record['difficulty_status'] ?? null),
+            'detail_status_action' => $this->normalizeNullableString($record['detail_status_action'] ?? null),
             'work_date' => $this->normalizeNullableString($record['work_date'] ?? null),
             'activity_type_code' => $this->normalizeNullableString($record['activity_type_code'] ?? null),
             'is_billable' => array_key_exists('is_billable', $record) ? ($record['is_billable'] === null ? null : (bool) $record['is_billable']) : null,

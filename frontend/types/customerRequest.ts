@@ -502,6 +502,7 @@ export interface YeuCauWorklog {
   request_case_id?: number | null;
   status_instance_id?: number | null;
   status_code?: string | null;
+  status_name_vi?: string | null;
   performed_by_user_id?: number | null;
   performed_by_name?: string | null;
   performed_by_code?: string | null;
@@ -513,6 +514,10 @@ export interface YeuCauWorklog {
   transition_id?: number | null;
   work_started_at?: string | null;
   work_ended_at?: string | null;
+  difficulty_note?: string | null;
+  proposal_note?: string | null;
+  difficulty_status?: 'none' | 'has_issue' | 'resolved' | string | null;
+  detail_status_action?: 'in_progress' | 'paused' | string | null;
   hours_spent?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -634,6 +639,9 @@ export interface YeuCauProcessDetail {
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
   status_row?: YeuCauProcessRow | null;
+  current_detail_status?: 'open' | 'in_progress' | 'paused' | 'completed' | string | null;
+  can_transition_main_status?: boolean;
+  can_transition_from_detail_status?: boolean;
   allowed_next_processes: YeuCauProcessMeta[];
   allowed_previous_processes?: YeuCauProcessMeta[];
   transition_allowed: boolean;

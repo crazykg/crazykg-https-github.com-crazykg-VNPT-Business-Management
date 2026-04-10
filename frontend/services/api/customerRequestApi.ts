@@ -65,6 +65,23 @@ type ApiItemResponse<T> = {
   };
 };
 
+type ApiDetailStatusResponse = {
+  data?: {
+    request_case_id?: string | number | null;
+    status_instance_id?: string | number | null;
+    status_code?: string | null;
+    detail_status?: 'open' | 'in_progress' | 'paused' | 'completed' | string | null;
+    can_transition_main_status?: boolean;
+    quick_actions?: Array<{
+      action?: 'in_progress' | 'paused' | string | null;
+      label?: string | null;
+    }>;
+    started_at?: string | null;
+    paused_at?: string | null;
+    completed_at?: string | null;
+  } | null;
+};
+
 type PlanListMeta = { page: number; per_page: number; total: number; total_pages: number };
 
 const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
@@ -173,9 +190,15 @@ export const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetai
     (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null) ??
     rawCurrentProcess;
 
+  const canTransitionMainStatus = raw.can_transition_main_status;
+
   return {
     ...(raw as unknown as YeuCauProcessDetail),
     yeu_cau: nestedRequest as unknown as YeuCau,
+    can_transition_main_status:
+      typeof canTransitionMainStatus === 'boolean'
+        ? canTransitionMainStatus
+        : Boolean(raw.can_transition_from_detail_status),
     current_status: syncCurrentRuntimeProcessMeta(
       rawCurrentStatus,
       currentStatusCode,
@@ -1123,35 +1146,47 @@ export const createYeuCauEstimate = async (
   return parseItemJson<{ estimate: YeuCauEstimate | null; request_case: YeuCau | null }>(res);
 };
 
+export type YeuCauWorklogStorePayload = {
+  work_content: string;
+  work_date?: string | null;
+  activity_type_code?: string | null;
+  hours_spent?: string | number | null;
+  is_billable?: boolean;
+  difficulty_note?: string | null;
+  proposal_note?: string | null;
+  difficulty_status?: 'none' | 'has_issue' | 'resolved' | null;
+  detail_status_action?: 'in_progress' | 'paused' | null;
+};
+
 export type YeuCauWorklogStoreResult = {
   worklog: YeuCauWorklog | null;
   hours_report: YeuCauHoursReport | null;
 };
 
+const buildYeuCauWorklogBody = (payload: YeuCauWorklogStorePayload): Record<string, unknown> => ({
+  work_content: normalizeNullableText(payload.work_content),
+  work_date: normalizeNullableText(payload.work_date),
+  activity_type_code: normalizeNullableText(payload.activity_type_code),
+  hours_spent:
+    payload.hours_spent === undefined || payload.hours_spent === null || payload.hours_spent === ''
+      ? null
+      : normalizeNumber(payload.hours_spent, 0),
+  is_billable: payload.is_billable === undefined ? true : Boolean(payload.is_billable),
+  difficulty_note: normalizeNullableText(payload.difficulty_note),
+  proposal_note: normalizeNullableText(payload.proposal_note),
+  difficulty_status: normalizeNullableText(payload.difficulty_status),
+  detail_status_action: normalizeNullableText(payload.detail_status_action),
+});
+
 export const storeYeuCauWorklog = async (
   id: string | number,
-  payload: {
-    work_content: string;
-    work_date?: string | null;
-    activity_type_code?: string | null;
-    hours_spent?: string | number | null;
-    is_billable?: boolean;
-  }
+  payload: YeuCauWorklogStorePayload
 ): Promise<YeuCauWorklogStoreResult> => {
   const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      work_content: normalizeNullableText(payload.work_content),
-      work_date: normalizeNullableText(payload.work_date),
-      activity_type_code: normalizeNullableText(payload.activity_type_code),
-      hours_spent:
-        payload.hours_spent === undefined || payload.hours_spent === null || payload.hours_spent === ''
-          ? null
-          : normalizeNumber(payload.hours_spent, 0),
-      is_billable: payload.is_billable === undefined ? true : Boolean(payload.is_billable),
-    }),
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
   });
 
   if (!res.ok) {
@@ -1164,6 +1199,69 @@ export const storeYeuCauWorklog = async (
     worklog: detail.data ?? null,
     hours_report: detail.meta?.hours_report ?? null,
   };
+};
+
+export const storeYeuCauDetailStatusWorklog = async (
+  id: string | number,
+  payload: YeuCauWorklogStorePayload
+): Promise<YeuCauWorklogStoreResult> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/detail-status-worklog`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'STORE_YEU_CAU_DETAIL_STATUS_WORKLOG_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiItemResponse<YeuCauWorklog | null>;
+
+  return {
+    worklog: detail.data ?? null,
+    hours_report: detail.meta?.hours_report ?? null,
+  };
+};
+
+export const updateYeuCauWorklog = async (
+  id: string | number,
+  worklogId: string | number,
+  payload: YeuCauWorklogStorePayload
+): Promise<YeuCauWorklogStoreResult> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs/${worklogId}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_YEU_CAU_WORKLOG_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiItemResponse<YeuCauWorklog | null>;
+
+  return {
+    worklog: detail.data ?? null,
+    hours_report: detail.meta?.hours_report ?? null,
+  };
+};
+
+export const fetchYeuCauDetailStatus = async (
+  id: string | number
+): Promise<ApiDetailStatusResponse['data']> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/detail-status`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:detail-status`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_DETAIL_STATUS_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiDetailStatusResponse;
+  return detail.data ?? null;
 };
 
 export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {

@@ -361,6 +361,9 @@ class CustomerRequestCaseIntakeIoService
             if ($creatorUserId !== null) {
                 $masterPayload['created_by'] = $creatorUserId;
             }
+            if ($receiverUserId !== null) {
+                $masterPayload['received_by_user_id'] = $receiverUserId;
+            }
 
             $statusPayload = [
                 'summary' => $summary,

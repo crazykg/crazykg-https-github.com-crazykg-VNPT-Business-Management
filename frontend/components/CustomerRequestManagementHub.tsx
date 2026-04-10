@@ -444,15 +444,35 @@ const createCrcIntakeTemplateWorkbook = async (params: {
     customerDisplayByCode.set(String(code).trim(), display);
   });
 
-  const projectDisplayByCustomerCode = new Map<string, string[]>();
+  const customerDisplayByProjectDisplay = new Map<string, string[]>();
   params.projectItemByCustomerCode.forEach((rows, customerCode) => {
+    const safeCustomerCode = String(customerCode).trim();
+    const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
     const displayRows = rows
       .map(([code, name]) => {
         const displayName = String(name || code || '').trim();
         return `${code} - ${displayName}`;
       })
       .filter(Boolean);
-    projectDisplayByCustomerCode.set(String(customerCode).trim(), Array.from(new Set(displayRows)));
+    displayRows.forEach((projectDisplay) => {
+      const currentCustomers = customerDisplayByProjectDisplay.get(projectDisplay) || [];
+      if (!currentCustomers.includes(customerDisplay)) {
+        currentCustomers.push(customerDisplay);
+        customerDisplayByProjectDisplay.set(projectDisplay, currentCustomers);
+      }
+    });
+  });
+
+  if (customerDisplayByProjectDisplay.size === 0) {
+    const allCustomers = Array.from(new Set(Array.from(customerDisplayByCode.values()).filter(Boolean)));
+    projectItemDisplayRows.forEach((row) => {
+      const projectDisplay = row[2];
+      customerDisplayByProjectDisplay.set(projectDisplay, [...allCustomers]);
+    });
+  }
+
+  customerDisplayByProjectDisplay.forEach((customers, projectDisplay) => {
+    customerDisplayByProjectDisplay.set(projectDisplay, [...customers].sort((a, b) => a.localeCompare(b, 'vi')));
   });
 
   const customerPersonnelDisplayByCustomerCode = new Map<string, string[]>();
@@ -540,78 +560,93 @@ const createCrcIntakeTemplateWorkbook = async (params: {
   setWorksheetColumns(
     dependentLookupSheet,
     [
-      'customer_code',
-      'customer_display',
       'project_display_name',
-      'customer_personnel_display_name',
-      'project_key',
+      'customer_display_name',
+      'personnel_display_name',
+      'customer_key',
       'personnel_key',
     ],
-    [180, 320, 360, 360, 220, 220]
+    [360, 320, 360, 220, 220]
   );
 
-  const projectNameKeyMap = new Map<string, string>();
+  const customerNameKeyMap = new Map<string, string>();
   const personnelNameKeyMap = new Map<string, string>();
 
+  dependentLookupSheet.getCell(1, 4).value = '';
   dependentLookupSheet.getCell(1, 5).value = '';
-  dependentLookupSheet.getCell(1, 6).value = '';
-  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$E$1:$E$1`, 'EMPTY_PROJECT');
-  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$F$1:$F$1`, 'EMPTY_PERSONNEL');
+  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$D$1:$D$1`, 'EMPTY_CUSTOMER');
+  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$E$1:$E$1`, 'EMPTY_PERSONNEL');
+
+  const sortedProjectDisplays = Array.from(customerDisplayByProjectDisplay.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+  const lookupSheetRef = quoteSheetName('_LookupByCustomer');
+
+  sortedProjectDisplays.forEach((projectDisplay) => {
+    const customerKey = sanitizeExcelNameKey(`CUSTOMER_${projectDisplay}`);
+    customerNameKeyMap.set(projectDisplay, customerKey);
+  });
 
   customerDisplayRows.forEach(([customerCode]) => {
     const safeCustomerCode = String(customerCode).trim();
-    const projectKey = sanitizeExcelNameKey(`PROJECT_${safeCustomerCode}`);
-    projectNameKeyMap.set(safeCustomerCode, projectKey);
-
     const personnelKey = sanitizeExcelNameKey(`PERSONNEL_${safeCustomerCode}`);
     personnelNameKeyMap.set(safeCustomerCode, personnelKey);
   });
 
-  const lookupCustomerKeys = Array.from(customerDisplayByCode.keys());
-  const sortedLookupCustomerKeys = lookupCustomerKeys.sort((a, b) => a.localeCompare(b, 'vi'));
-
-  const lookupSheetRef = quoteSheetName('_LookupByCustomer');
-
   let lookupRowIndex = 2;
-  sortedLookupCustomerKeys.forEach((safeCustomerCode) => {
-    const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
-    const projectKey = projectNameKeyMap.get(safeCustomerCode) || 'EMPTY_PROJECT';
-    const personnelKey = personnelNameKeyMap.get(safeCustomerCode) || 'EMPTY_PERSONNEL';
+  sortedProjectDisplays.forEach((projectDisplay) => {
+    const linkedCustomers = customerDisplayByProjectDisplay.get(projectDisplay) || [];
+    const customerKey = customerNameKeyMap.get(projectDisplay) || 'EMPTY_CUSTOMER';
 
-    const projectDisplayList = projectDisplayByCustomerCode.get(safeCustomerCode) || [];
-    const personnelDisplayList = customerPersonnelDisplayByCustomerCode.get(safeCustomerCode) || [];
-
-    const maxRows = Math.max(1, projectDisplayList.length, personnelDisplayList.length);
+    const maxRows = Math.max(1, linkedCustomers.length);
     const startRow = lookupRowIndex;
 
     for (let index = 0; index < maxRows; index += 1) {
-      dependentLookupSheet.getCell(lookupRowIndex, 1).value = safeCustomerCode;
-      dependentLookupSheet.getCell(lookupRowIndex, 2).value = customerDisplay;
-      dependentLookupSheet.getCell(lookupRowIndex, 3).value = projectDisplayList[index] || '';
-      dependentLookupSheet.getCell(lookupRowIndex, 4).value = personnelDisplayList[index] || '';
-      dependentLookupSheet.getCell(lookupRowIndex, 5).value = projectKey;
-      dependentLookupSheet.getCell(lookupRowIndex, 6).value = personnelKey;
+      dependentLookupSheet.getCell(lookupRowIndex, 1).value = projectDisplay;
+      dependentLookupSheet.getCell(lookupRowIndex, 2).value = linkedCustomers[index] || '';
+      dependentLookupSheet.getCell(lookupRowIndex, 3).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 4).value = customerKey;
+      dependentLookupSheet.getCell(lookupRowIndex, 5).value = '';
       lookupRowIndex += 1;
     }
 
     const endRow = lookupRowIndex - 1;
-    workbook.definedNames.add(`${lookupSheetRef}!$C$${startRow}:$C$${endRow}`, projectKey);
-    workbook.definedNames.add(`${lookupSheetRef}!$D$${startRow}:$D$${endRow}`, personnelKey);
+    workbook.definedNames.add(`${lookupSheetRef}!$B$${startRow}:$B$${endRow}`, customerKey);
   });
 
-  for (let col = 1; col <= 6; col += 1) {
+  const sortedLookupCustomerKeys = Array.from(customerDisplayByCode.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+  sortedLookupCustomerKeys.forEach((safeCustomerCode) => {
+    const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
+    const personnelKey = personnelNameKeyMap.get(safeCustomerCode) || 'EMPTY_PERSONNEL';
+    const personnelDisplayList = customerPersonnelDisplayByCustomerCode.get(safeCustomerCode) || [];
+
+    const maxRows = Math.max(1, personnelDisplayList.length);
+    const startRow = lookupRowIndex;
+
+    for (let index = 0; index < maxRows; index += 1) {
+      dependentLookupSheet.getCell(lookupRowIndex, 1).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 2).value = customerDisplay;
+      dependentLookupSheet.getCell(lookupRowIndex, 3).value = personnelDisplayList[index] || '';
+      dependentLookupSheet.getCell(lookupRowIndex, 4).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 5).value = personnelKey;
+      lookupRowIndex += 1;
+    }
+
+    const endRow = lookupRowIndex - 1;
+    workbook.definedNames.add(`${lookupSheetRef}!$C$${startRow}:$C$${endRow}`, personnelKey);
+  });
+
+  for (let col = 1; col <= 5; col += 1) {
     dependentLookupSheet.getColumn(col).hidden = true;
   }
 
   const lookupLastRow = Math.max(2, lookupRowIndex - 1);
 
-  const projectFormulaByRow = (row: number): string =>
-    `INDIRECT(IFERROR(VLOOKUP($B${row},${lookupSheetRef}!$B$2:$F$${lookupLastRow},4,FALSE),"EMPTY_PROJECT"))`;
+  const customerFormulaByRow = (row: number): string =>
+    `INDIRECT(IFERROR(VLOOKUP($C${row},${lookupSheetRef}!$A$2:$D$${lookupLastRow},4,FALSE),"EMPTY_CUSTOMER"))`;
 
   const personnelFormulaByRow = (row: number): string =>
-    `INDIRECT(IFERROR(VLOOKUP($B${row},${lookupSheetRef}!$B$2:$F$${lookupLastRow},5,FALSE),"EMPTY_PERSONNEL"))`;
+    `INDIRECT(IFERROR(VLOOKUP($B${row},${lookupSheetRef}!$B$2:$E$${lookupLastRow},4,FALSE),"EMPTY_PERSONNEL"))`;
 
-  const customerFormula = `'KhachHang'!$C$2:$C$${Math.max(2, customerDisplayRows.length + 1)}`;
+  const projectFormula = `'HangMucDuAnSanPham'!$C$2:$C$${Math.max(2, projectItemDisplayRows.length + 1)}`;
 
   const guideSheet = workbook.addWorksheet('HuongDan');
   setWorksheetColumns(guideSheet, ['Nội dung'], [560]);
@@ -619,8 +654,8 @@ const createCrcIntakeTemplateWorkbook = async (params: {
   [
     '1. Điền dữ liệu tại sheet YeuCauNhap.',
     '2. import_row_code là mã khóa để nối với sheet YeuCauTasks.',
-    '3. Cột Mã khách hàng tra ở sheet KhachHang.',
-    '4. Cột Mã hạng mục dự án/sản phẩm và Mã nhân sự liên hệ khách hàng sẽ lọc theo Mã khách hàng đã chọn.',
+    '3. Chọn Mã hạng mục dự án/sản phẩm trước, sau đó cột Mã khách hàng sẽ lọc theo hạng mục đã chọn.',
+    '4. Cột Mã nhân sự liên hệ khách hàng sẽ lọc theo Mã khách hàng đã chọn.',
     '5. Nếu cần tra cứu toàn bộ dữ liệu, xem sheet HangMucDuAnSanPham và NhanSuLienHe.',
     '6. Cột Mã nhóm hỗ trợ tra ở sheet NhomHoTro.',
     '7. Cột Mã người tiếp nhận và Mã người tạo tra ở sheet NhanSuNoiBo.',
@@ -639,8 +674,8 @@ const createCrcIntakeTemplateWorkbook = async (params: {
   const sourceChannelFormula = `'KenhTiepNhan'!$A$2:$A$${Math.max(2, params.sourceChannelRows.length + 1)}`;
   const priorityFormula = `'DoUuTien'!$A$2:$A$${Math.max(2, params.priorityRows.length + 1)}`;
 
-  addDropdownValidation(intakeSheet, 2, customerFormula, 2, maxTemplateRows);
-  addDropdownValidationByRowFormula(intakeSheet, 3, 2, maxTemplateRows, projectFormulaByRow);
+  addDropdownValidationByRowFormula(intakeSheet, 2, 2, maxTemplateRows, customerFormulaByRow);
+  addDropdownValidation(intakeSheet, 3, projectFormula, 2, maxTemplateRows);
   addDropdownValidationByRowFormula(intakeSheet, 4, 2, maxTemplateRows, personnelFormulaByRow);
   addDropdownValidation(intakeSheet, 5, supportGroupFormula, 2, maxTemplateRows);
   addDropdownValidation(intakeSheet, 6, sourceChannelFormula, 2, maxTemplateRows);
@@ -2848,6 +2883,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       });
 
       const supportGroupRows = supportServiceGroups
+        .filter((group) => {
+          const raw = group as unknown as Record<string, unknown>;
+          const isActive = raw.is_active ?? (group as unknown as { isActive?: unknown }).isActive;
+          const deletedAt = raw.deleted_at ?? raw.deletedAt;
+          if (deletedAt) {
+            return false;
+          }
+          if (isActive === false || isActive === 0 || isActive === '0') {
+            return false;
+          }
+          return true;
+        })
         .map((group) => {
           const raw = group as unknown as Record<string, unknown>;
           const code = String(raw.group_code || raw.code || '').trim();

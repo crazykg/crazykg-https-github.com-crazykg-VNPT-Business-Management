@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreCustomerRequestCaseWorklogRequest;
 use App\Services\V5\Domain\CustomerRequestCaseDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
@@ -144,9 +145,24 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->worklogs($request, $id);
     }
 
-    public function storeWorklog(Request $request, int $id): JsonResponse
+    public function storeWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
     {
         return $this->service->storeWorklog($request, $id);
+    }
+
+    public function storeDetailStatusWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
+    {
+        return $this->service->storeDetailStatusWorklog($request, $id);
+    }
+
+    public function updateWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id, int $worklogId): JsonResponse
+    {
+        return $this->service->updateWorklog($request, $id, $worklogId);
+    }
+
+    public function detailStatus(Request $request, int $id): JsonResponse
+    {
+        return $this->service->detailStatus($request, $id);
     }
 
     public function showStatus(Request $request, int $id, string $statusCode): JsonResponse

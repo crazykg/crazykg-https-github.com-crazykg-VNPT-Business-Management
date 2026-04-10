@@ -94,7 +94,8 @@ class CustomerRequestCaseWriteService
         $createdCase = DB::transaction(function () use ($masterPayload, $statusDefinition, $statusPayload, $actorId, $request, $workflowDefinitionId): CustomerRequestCase {
             Log::debug('crc.store.tx.begin');
             $receivedAt = now()->format('Y-m-d H:i:s');
-            $receivedByUserId = $actorId;
+            $receivedByUserId = $this->support->parseNullableInt($masterPayload['received_by_user_id'] ?? null) ?? $actorId;
+            $createdByUserId = $this->support->parseNullableInt($masterPayload['created_by'] ?? null) ?? $actorId;
             $requestCase = new CustomerRequestCase();
             $requestCase->fill([
                 ...$masterPayload,
@@ -103,7 +104,7 @@ class CustomerRequestCaseWriteService
                 'current_status_code' => (string) $statusDefinition['status_code'],
                 'received_at' => $receivedAt,
                 'received_by_user_id' => $receivedByUserId,
-                'created_by' => $actorId,
+                'created_by' => $createdByUserId,
                 'updated_by' => $actorId,
                 'current_status_changed_at' => now()->format('Y-m-d H:i:s'),
             ]);
@@ -607,7 +608,7 @@ class CustomerRequestCaseWriteService
             }
         }
 
-        foreach (['dispatcher_user_id', 'performer_user_id'] as $extraUserField) {
+        foreach (['dispatcher_user_id', 'performer_user_id', 'received_by_user_id', 'created_by'] as $extraUserField) {
             $hasValue = array_key_exists($extraUserField, $source) || $request->exists($extraUserField);
             if (! $requireRequiredFields && ! $hasValue) {
                 continue;
@@ -655,7 +656,7 @@ class CustomerRequestCaseWriteService
             }
         }
 
-        foreach (['dispatcher_user_id', 'performer_user_id'] as $extraUserField) {
+        foreach (['dispatcher_user_id', 'performer_user_id', 'received_by_user_id', 'created_by'] as $extraUserField) {
             $entityId = $this->support->parseNullableInt($normalized[$extraUserField] ?? null);
             if ($entityId !== null && $this->support->hasTable('internal_users') && ! DB::table('internal_users')->where('id', $entityId)->exists()) {
                 $errors[$extraUserField][] = "{$extraUserField} không hợp lệ.";
