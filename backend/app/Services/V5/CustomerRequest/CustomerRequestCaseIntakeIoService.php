@@ -401,6 +401,13 @@ class CustomerRequestCaseIntakeIoService
                     $caseId = $this->support->parseNullableInt($body['data']['id'] ?? ($body['data']['request_case']['id'] ?? null));
                     if ($caseId !== null) {
                         $createdCaseIds[] = $caseId;
+                        $this->persistImportedMasterRelations(
+                            $caseId,
+                            $projectItemId,
+                            $customerId,
+                            $customerPersonnelId,
+                            $supportServiceGroupId
+                        );
                     }
 
                     $results[] = [
@@ -645,6 +652,41 @@ class CustomerRequestCaseIntakeIoService
         }
 
         return null;
+    }
+
+    private function persistImportedMasterRelations(
+        int $caseId,
+        ?int $projectItemId,
+        ?int $customerId,
+        ?int $customerPersonnelId,
+        ?int $supportServiceGroupId
+    ): void {
+        if (! $this->support->hasTable('customer_request_cases')) {
+            return;
+        }
+
+        $payload = [];
+        if ($projectItemId !== null && $this->support->hasColumn('customer_request_cases', 'project_item_id')) {
+            $payload['project_item_id'] = $projectItemId;
+        }
+        if ($customerId !== null && $this->support->hasColumn('customer_request_cases', 'customer_id')) {
+            $payload['customer_id'] = $customerId;
+        }
+        if ($customerPersonnelId !== null && $this->support->hasColumn('customer_request_cases', 'customer_personnel_id')) {
+            $payload['customer_personnel_id'] = $customerPersonnelId;
+        }
+        if ($supportServiceGroupId !== null && $this->support->hasColumn('customer_request_cases', 'support_service_group_id')) {
+            $payload['support_service_group_id'] = $supportServiceGroupId;
+        }
+
+        if ($payload === []) {
+            return;
+        }
+
+        DB::table('customer_request_cases')
+            ->where('id', $caseId)
+            ->when($this->support->hasColumn('customer_request_cases', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->update($payload);
     }
 
     /**

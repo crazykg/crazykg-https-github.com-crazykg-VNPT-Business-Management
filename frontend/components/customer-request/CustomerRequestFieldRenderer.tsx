@@ -29,6 +29,90 @@ const BOOLEAN_NULLABLE_OPTIONS: SearchableSelectOption[] = [
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
 
+const resolveProjectItemSelectValue = (
+  value: unknown,
+  projectItems: ProjectItemMaster[]
+): string => {
+  const rawValue = normalizeText(value);
+  if (!rawValue) {
+    return '';
+  }
+
+  const directMatch = projectItems.find((item) => String(item.id) === rawValue);
+  if (directMatch) {
+    return String(directMatch.id);
+  }
+
+  const byCodeMatch = projectItems.find((item) => {
+    const raw = item as unknown as Record<string, unknown>;
+    const candidates = [
+      item.project_code,
+      item.product_code,
+      raw.project_item_code,
+      raw.projectItemCode,
+      raw.item_code,
+      raw.itemCode,
+      raw.code,
+    ];
+
+    return candidates.some((candidate) => normalizeText(candidate) === rawValue);
+  });
+
+  return byCodeMatch ? String(byCodeMatch.id) : rawValue;
+};
+
+const resolveCustomerPersonnelSelectValue = (
+  value: unknown,
+  customerPersonnel: CustomerPersonnel[]
+): string => {
+  const rawValue = normalizeText(value);
+  if (!rawValue) {
+    return '';
+  }
+
+  const directMatch = customerPersonnel.find((person) => String(person.id) === rawValue);
+  if (directMatch) {
+    return String(directMatch.id);
+  }
+
+  const byCodeMatch = customerPersonnel.find((person) => {
+    const raw = person as unknown as Record<string, unknown>;
+    const candidates = [
+      raw.personnel_code,
+      raw.personnelCode,
+      raw.customer_personnel_code,
+      raw.customerPersonnelCode,
+      raw.contact_code,
+      raw.contactCode,
+      raw.code,
+      raw.personnel_id,
+      raw.personnelId,
+    ];
+
+    return candidates.some((candidate) => normalizeText(candidate) === rawValue);
+  });
+
+  return byCodeMatch ? String(byCodeMatch.id) : rawValue;
+};
+
+const resolveSelectValue = (
+  field: YeuCauProcessField,
+  value: unknown,
+  projectItems: ProjectItemMaster[],
+  customerPersonnel: CustomerPersonnel[]
+): string => {
+  if (field.type === 'project_item_select') {
+    return resolveProjectItemSelectValue(value, projectItems);
+  }
+
+  if (field.type === 'customer_personnel_select') {
+    return resolveCustomerPersonnelSelectValue(value, customerPersonnel);
+  }
+
+  return String(value ?? '');
+};
+
+
 const isProgressPercentField = (field: YeuCauProcessField): boolean =>
   field.type === 'number' && normalizeText(field.name) === 'progress_percent';
 
@@ -315,7 +399,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
     return (
       <div>
         <SearchableSelect
-          value={String(value ?? '')}
+          value={resolveSelectValue(field, value, projectItems, customerPersonnel)}
           options={options}
           onChange={(nextValue) => onChange(field.name, nextValue)}
           label={field.label}

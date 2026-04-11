@@ -161,15 +161,29 @@ const readCustomerRequestWindowScrollY = (): number => {
 const CRC_INTAKE_HEADER_ALIASES: Record<string, string[]> = {
   import_row_code: ['import_row_code', 'importrowcode', 'ma_dong_import', 'madongimport'],
   customer_code: ['customer_code', 'customercode', 'ma_khach_hang', 'makhachhang'],
-  project_item_code: ['project_item_code', 'projectitemcode', 'ma_hang_muc', 'mahangmuc'],
-  customer_personnel_code: ['customer_personnel_code', 'customerpersonnelcode', 'ma_nhan_su_lien_he', 'manhansulienhe'],
+  project_item_code: [
+    'project_item_code',
+    'projectitemcode',
+    'ma_hang_muc',
+    'mahangmuc',
+    'ma_hang_muc_du_an_san_pham',
+    'mahangmucduansanpham',
+  ],
+  customer_personnel_code: [
+    'customer_personnel_code',
+    'customerpersonnelcode',
+    'ma_nhan_su_lien_he',
+    'manhansulienhe',
+    'ma_nhan_su_lien_he_khach_hang',
+    'manhansulienhekhachhang',
+  ],
   support_service_group_code: ['support_service_group_code', 'supportservicegroupcode', 'ma_nhom_ho_tro', 'manhomhotro'],
   source_channel: ['source_channel', 'sourcechannel', 'kenh_tiep_nhan', 'kenhtiepnhan'],
-  summary: ['summary', 'tieu_de', 'tieude'],
-  description: ['description', 'mo_ta', 'mota'],
+  summary: ['summary', 'tieu_de', 'tieude', 'tieu_de_yeu_cau', 'tieudeyeucau'],
+  description: ['description', 'mo_ta', 'mota', 'mo_ta_yeu_cau', 'motayeucau'],
   priority_label: ['priority_label', 'prioritylabel', 'do_uu_tien', 'douutien'],
-  receiver_user_code: ['receiver_user_code', 'receiverusercode', 'nguoi_tiep_nhan', 'nguoitiepnhan'],
-  creator_user_code: ['creator_user_code', 'creatorusercode', 'nguoi_tao', 'nguoitao'],
+  receiver_user_code: ['receiver_user_code', 'receiverusercode', 'nguoi_tiep_nhan', 'nguoitiepnhan', 'ma_nguoi_tiep_nhan', 'manguoitiepnhan'],
+  creator_user_code: ['creator_user_code', 'creatorusercode', 'nguoi_tao', 'nguoitao', 'ma_nguoi_tao', 'manguoitao'],
 };
 
 const CRC_INTAKE_TASK_HEADER_ALIASES: Record<string, string[]> = {
@@ -636,6 +650,8 @@ const createCrcIntakeTemplateWorkbook = async (params: {
   });
 
   const sortedLookupCustomerKeys = Array.from(customerDisplayByCode.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+  const personnelLookupStartRow = lookupRowIndex;
+
   sortedLookupCustomerKeys.forEach((safeCustomerCode) => {
     const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
     const personnelKey = personnelNameKeyMap.get(safeCustomerCode) || 'EMPTY_PERSONNEL';
@@ -667,7 +683,7 @@ const createCrcIntakeTemplateWorkbook = async (params: {
     `INDIRECT(IFERROR(VLOOKUP($${projectItemColumnLetter}${row},${lookupSheetRef}!$A$2:$D$${lookupLastRow},4,FALSE),"EMPTY_CUSTOMER"))`;
 
   const personnelFormulaByRow = (row: number): string =>
-    `INDIRECT(IFERROR(VLOOKUP($${customerColumnLetter}${row},${lookupSheetRef}!$B$2:$E$${lookupLastRow},4,FALSE),"EMPTY_PERSONNEL"))`;
+    `INDIRECT(IFERROR(VLOOKUP($${customerColumnLetter}${row},${lookupSheetRef}!$B$${personnelLookupStartRow}:$E$${lookupLastRow},4,FALSE),"EMPTY_PERSONNEL"))`;
 
   const projectFormula = `'HangMucDuAnSanPham'!$C$2:$C$${Math.max(2, projectItemDisplayRows.length + 1)}`;
 
@@ -2849,7 +2865,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         if (!resolvedCustomerCode) {
           return;
         }
-
         const currentRows = projectItemByCustomerCode.get(resolvedCustomerCode) || [];
         const dedupKey = `${code}__${name}`;
         if (!currentRows.some(([existingCode, existingName]) => `${existingCode}__${existingName}` === dedupKey)) {
@@ -2858,6 +2873,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       });
 
+      if (projectItemRows.length === 0 && projectItemByCustomerCode.size > 0) {
+        projectItemByCustomerCode.forEach((rows) => {
+          rows.forEach(([code, name]) => {
+            const normalizedCode = String(code || '').trim();
+            const normalizedName = String(name || '').trim();
+            if (normalizedCode || normalizedName) {
+              projectItemRows.push([normalizedCode, normalizedName]);
+            }
+          });
+        });
+      }
+
+
       const dedupProjectItemMap = new Map<string, readonly [string, string]>();
       projectItemRows.forEach((row) => {
         dedupProjectItemMap.set(`${row[0]}__${row[1]}`, row);
@@ -2865,26 +2893,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       const finalProjectItemRows = Array.from(dedupProjectItemMap.values())
         .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
 
-      if (projectItemByCustomerCode.size === 0 && finalProjectItemRows.length > 0) {
-        customerRows.forEach(([customerCode]) => {
-          projectItemByCustomerCode.set(customerCode, [...finalProjectItemRows]);
-        });
-      } else {
-        customerRows.forEach(([customerCode]) => {
-          if (!projectItemByCustomerCode.has(customerCode)) {
-            projectItemByCustomerCode.set(customerCode, finalProjectItemRows.length > 0 ? [...finalProjectItemRows] : []);
-          }
-        });
-      }
-
-      if (finalProjectItemRows.length > 0) {
-        customerRows.forEach(([customerCode]) => {
-          const currentRows = projectItemByCustomerCode.get(customerCode) || [];
-          if (currentRows.length === 0) {
-            projectItemByCustomerCode.set(customerCode, [...finalProjectItemRows]);
-          }
-        });
-      }
 
       const projectItemRowsForTemplate =
         finalProjectItemRows.length > 0
@@ -2918,6 +2926,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               || raw.contact_code
               || raw.contactCode
               || raw.code
+              || raw.personnel_id
+              || raw.personnelId
+              || raw.id
+              || person.id
               || ''
           ).trim();
           const name = String(
@@ -2954,6 +2966,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             || raw.contact_code
             || raw.contactCode
             || raw.code
+            || raw.personnel_id
+            || raw.personnelId
+            || raw.id
+            || person.id
             || ''
         ).trim();
         const name = String(
@@ -2969,8 +2985,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
 
         const customerCode = String(raw.customer_code || raw.customerCode || '').trim();
-        const customerId = String(raw.customer_id || raw.customerId || '').trim();
+        const customerId = String(raw.customer_id || raw.customerId || person.customerId || '').trim();
         const resolvedCustomerCode = customerCode || customerIdToCode.get(customerId) || '';
+
         if (!resolvedCustomerCode) {
           return;
         }
@@ -2983,39 +3000,24 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       });
 
-      if (customerPersonnelByCustomerCode.size === 0 && finalCustomerPersonnelRows.length > 0) {
-        customerRows.forEach(([customerCode]) => {
-          customerPersonnelByCustomerCode.set(customerCode, [...finalCustomerPersonnelRows]);
-        });
-      } else {
-        customerRows.forEach(([customerCode]) => {
-          if (!customerPersonnelByCustomerCode.has(customerCode)) {
-            customerPersonnelByCustomerCode.set(customerCode, finalCustomerPersonnelRows.length > 0 ? [...finalCustomerPersonnelRows] : []);
-          }
-        });
-      }
-
-      if (finalCustomerPersonnelRows.length > 0) {
-        customerRows.forEach(([customerCode]) => {
-          const currentRows = customerPersonnelByCustomerCode.get(customerCode) || [];
-          if (currentRows.length === 0) {
-            customerPersonnelByCustomerCode.set(customerCode, [...finalCustomerPersonnelRows]);
-          }
+      if (finalCustomerPersonnelRows.length === 0 && customerPersonnelByCustomerCode.size > 0) {
+        customerPersonnelByCustomerCode.forEach((rows) => {
+          rows.forEach(([code, name]) => {
+            const normalizedCode = String(code || '').trim();
+            const normalizedName = String(name || '').trim();
+            if (normalizedCode || normalizedName) {
+              finalCustomerPersonnelRows.push([normalizedCode, normalizedName]);
+            }
+          });
         });
       }
 
-      const customerPersonnelRowsForTemplate =
-        finalCustomerPersonnelRows.length > 0
-          ? finalCustomerPersonnelRows
-          : Array.from(new Map(
-              Array.from(customerPersonnelByCustomerCode.values())
-                .flatMap((rows) => rows)
-                .map((row) => [`${row[0]}__${row[1]}`, row] as const)
-            ).values())
-              .filter((row): row is readonly [string, string] => Array.isArray(row) && row.length >= 2)
-              .map((row) => [String(row[0] || ''), String(row[1] || '')] as const)
-              .filter(([code, name]) => Boolean(code || name))
-              .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+      const dedupFallbackCustomerPersonnel = new Map<string, readonly [string, string]>();
+      finalCustomerPersonnelRows.forEach((row) => {
+        dedupFallbackCustomerPersonnel.set(`${row[0]}__${row[1]}`, row);
+      });
+      const finalCustomerPersonnelRowsForTemplate = Array.from(dedupFallbackCustomerPersonnel.values())
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
 
       const finalCustomerPersonnelByCustomerCode = new Map<string, readonly (readonly [string, string])[]>();
       customerPersonnelByCustomerCode.forEach((rows, customerCode) => {
@@ -3025,23 +3027,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         );
       });
 
+      const sourceChannelRows = ['Email', 'Điện thoại', 'Zalo', 'Portal', 'Khác'];
+      const priorityRows = (priorityLabels.length > 0 ? priorityLabels : ['Thấp', 'Trung bình', 'Cao', 'Khẩn']).map((value) => [value]);
       const supportGroupRows = supportServiceGroups
-        .filter((group) => {
-          const raw = group as unknown as Record<string, unknown>;
-          const isActive = raw.is_active ?? (group as unknown as { isActive?: unknown }).isActive;
-          const deletedAt = raw.deleted_at ?? raw.deletedAt;
-          if (deletedAt) {
-            return false;
-          }
-          if (isActive === false || isActive === 0 || isActive === '0') {
-            return false;
-          }
-          return true;
-        })
         .map((group) => {
           const raw = group as unknown as Record<string, unknown>;
-          const code = String(raw.group_code || raw.code || '').trim();
-          const name = String(group.name || raw.group_name || '').trim();
+          const isDeleted = raw.deleted_at !== null && raw.deleted_at !== undefined && String(raw.deleted_at).trim() !== '';
+          const isInactive = raw.is_active === false || raw.is_active === 0 || raw.is_active === '0';
+          if (isDeleted || isInactive) {
+            return null;
+          }
+          const code = String(group.group_code || '').trim();
+          const name = String(group.group_name || '').trim();
           if (!code && !name) {
             return null;
           }
@@ -3050,17 +3047,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         .filter((row): row is readonly [string, string] => row !== null)
         .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
 
-      const sourceChannelRows = ['Email', 'Điện thoại', 'Văn bản', 'Khác'].map((value) => [value]);
-      const priorityRows = (priorityLabels.length > 0 ? priorityLabels : ['Thấp', 'Trung bình', 'Cao', 'Khẩn']).map((value) => [value]);
-
       const hasLookupData =
         customerRows.length > 0 ||
         projectItemRowsForTemplate.length > 0 ||
-        customerPersonnelRowsForTemplate.length > 0 ||
+        finalCustomerPersonnelRowsForTemplate.length > 0 ||
         supportGroupRows.length > 0 ||
         personnelRows.length > 0;
 
-      const xlsxTemplate = await createCrcIntakeTemplateWorkbook({
+      const { blob, fileName } = await createCrcIntakeTemplateWorkbook({
         fileNameBase: 'import_mau_customer_request_tiep_nhan',
         intakeSheetName: template.sheet || 'YeuCauNhap',
         taskSheetName: template.task_sheet || 'YeuCauTasks',
@@ -3068,19 +3062,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         viTaskHeaders,
         customerRows,
         projectItemRows: projectItemRowsForTemplate,
-        customerPersonnelRows: customerPersonnelRowsForTemplate,
+        customerPersonnelRows: finalCustomerPersonnelRowsForTemplate,
         supportGroupRows,
         personnelRows,
         projectItemByCustomerCode: finalProjectItemByCustomerCode,
         customerPersonnelByCustomerCode: finalCustomerPersonnelByCustomerCode,
-        sourceChannelRows: sourceChannelRows.map((row) => row[0]),
+        sourceChannelRows,
         priorityRows: priorityRows.map((row) => row[0]),
         taskSources,
         taskStatuses,
         hasLookupData,
         headerOrder: orderedHeaders,
       });
-      triggerBrowserDownload(xlsxTemplate.blob, xlsxTemplate.fileName);
+
+      triggerBrowserDownload(blob, fileName);
+
       notify('success', 'Template import', 'Đã tải file mẫu intake (.xlsx) có dropdown ở sheet YeuCauNhap.');
     } catch (error: unknown) {
       if (!isRequestCanceledError(error)) {
@@ -3093,7 +3089,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     } finally {
       setIsDownloadingTemplate(false);
     }
-  }, [canImportRequests, employees, isRequestCanceledError, notify, selectedWorkflowId]);
+  }, [
+    canImportRequests,
+    effectiveProjectItems,
+    customers,
+    customerPersonnel,
+    supportServiceGroups,
+    employees,
+    isRequestCanceledError,
+    notify,
+    selectedWorkflowId,
+  ]);
 
 
   const handleExportIntake = useCallback(async () => {
