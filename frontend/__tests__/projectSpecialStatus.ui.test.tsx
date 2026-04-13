@@ -8,6 +8,9 @@ import type { Customer, Department, ProcedureTemplate, Project } from '../types'
 
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
 const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
+const fetchProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
+const generateProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
+const syncProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -20,9 +23,15 @@ fetchProcedureTemplatesMock.mockResolvedValue([
 ] as ProcedureTemplate[]);
 
 fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
+fetchProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+generateProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+syncProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
 
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
+  fetchProjectRevenueSchedules: fetchProjectRevenueSchedulesMock,
+  generateProjectRevenueSchedules: generateProjectRevenueSchedulesMock,
+  syncProjectRevenueSchedules: syncProjectRevenueSchedulesMock,
   deleteUploadedDocumentAttachment: vi.fn(),
   uploadDocumentAttachment: vi.fn(),
   uploadFeedbackAttachment: vi.fn(),
@@ -221,19 +230,19 @@ describe('Project special statuses UI', () => {
     const searchInput = screen.getByRole('textbox', { name: 'Tìm kiếm...' });
 
     await user.type(searchInput, 'TTH');
-    expect(screen.getByRole('button', { name: /TTH - Tổ tổng hợp/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tổ tổng hợp' })).toBeInTheDocument();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'TTKDGP');
-    expect(screen.getByRole('button', { name: /TTKDGP - Trung tâm Kinh doanh Giải pháp/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Trung tâm Kinh doanh Giải pháp' })).toBeInTheDocument();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'PKT');
-    expect(screen.queryByRole('button', { name: /PKT - Phòng Kế toán/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Phòng Kế toán' })).not.toBeInTheDocument();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'PGP2');
-    expect(screen.queryByRole('button', { name: /PGP2 - Phòng giải pháp 2/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Phòng giải pháp 2' })).not.toBeInTheDocument();
 
     await user.clear(searchInput);
     await user.type(searchInput, 'BGĐVT');

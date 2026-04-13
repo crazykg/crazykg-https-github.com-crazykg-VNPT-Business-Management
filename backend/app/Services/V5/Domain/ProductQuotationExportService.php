@@ -1372,7 +1372,14 @@ class ProductQuotationExportService
      */
     private function buildQuotationFeatureAppendices(array $quotation): array
     {
-        if (! Schema::hasTable('products') || ! Schema::hasTable('product_feature_groups') || ! Schema::hasTable('product_features')) {
+        $hasProductCatalogTables = Schema::hasTable('products')
+            && Schema::hasTable('product_feature_groups')
+            && Schema::hasTable('product_features');
+        $hasPackageCatalogTables = Schema::hasTable('product_packages')
+            && Schema::hasTable('product_package_feature_groups')
+            && Schema::hasTable('product_package_features');
+
+        if (! $hasProductCatalogTables && ! $hasPackageCatalogTables) {
             return [];
         }
 
@@ -1383,7 +1390,7 @@ class ProductQuotationExportService
             $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
             $fallbackProductName = trim((string) ($item['product_name'] ?? ''));
             $catalog = $productId !== null && $productId > 0
-                ? ($catalogCache[$productId] ??= $this->loadAppendixCatalogForProduct($productId))
+                ? ($catalogCache[$productId] ??= $this->loadAppendixCatalogForQuotationItem($productId))
                 : null;
 
             $rows = $catalog['rows'] ?? [];
@@ -1406,6 +1413,19 @@ class ProductQuotationExportService
         }
 
         return $appendices;
+    }
+
+    /**
+     * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
+     */
+    private function loadAppendixCatalogForQuotationItem(int $productId): ?array
+    {
+        $packageCatalog = $this->loadAppendixCatalogForMatchingPackage($productId);
+        if (($packageCatalog['rows'] ?? []) !== []) {
+            return $packageCatalog;
+        }
+
+        return $this->loadAppendixCatalogForProduct($productId);
     }
 
     private function buildWordAppendixSections(array $quotation, int $tableWidth): string
@@ -1595,6 +1615,10 @@ class ProductQuotationExportService
      */
     private function loadAppendixCatalogForProduct(int $productId): ?array
     {
+        if (! Schema::hasTable('products') || ! Schema::hasTable('product_feature_groups') || ! Schema::hasTable('product_features')) {
+            return null;
+        }
+
         $scope = $this->resolveAppendixCatalogScope($productId);
         if (($scope['product_ids'] ?? []) === []) {
             return null;
@@ -1624,6 +1648,77 @@ class ProductQuotationExportService
 
         return [
             'product_name' => trim((string) ($scope['product_name'] ?? '')),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
+     */
+    private function loadAppendixCatalogForMatchingPackage(int $productId): ?array
+    {
+        if (
+            ! Schema::hasTable('product_packages')
+            || ! Schema::hasTable('product_package_feature_groups')
+            || ! Schema::hasTable('product_package_features')
+        ) {
+            return null;
+        }
+
+        $packageColumns = ['id'];
+        foreach (['product_id', 'package_code', 'package_name'] as $column) {
+            if (Schema::hasColumn('product_packages', $column)) {
+                $packageColumns[] = $column;
+            }
+        }
+
+        $package = DB::table('product_packages')
+            ->select($packageColumns)
+            ->where('product_id', $productId)
+            ->when(
+                Schema::hasColumn('product_packages', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->orderBy('id')
+            ->first();
+
+        if (! $package) {
+            return null;
+        }
+
+        $packageRow = (array) $package;
+        $packageId = isset($packageRow['id']) ? (int) $packageRow['id'] : 0;
+        if ($packageId <= 0) {
+            return null;
+        }
+
+        $groups = $this->loadAppendixPackageCatalogGroups([$packageId]);
+        if ($groups === []) {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($groups as $groupIndex => $group) {
+            $rows[] = [
+                'type' => 'group',
+                'stt' => $this->toRomanNumeral($groupIndex + 1),
+                'name' => trim((string) ($group['group_name'] ?? '')),
+                'description' => '',
+            ];
+
+            $featureIndex = 1;
+            foreach ($group['features'] ?? [] as $feature) {
+                $rows[] = [
+                    'type' => 'feature',
+                    'stt' => (string) $featureIndex++,
+                    'name' => trim((string) ($feature['feature_name'] ?? '')),
+                    'description' => trim((string) ($feature['detail_description'] ?? '')) ?: '—',
+                ];
+            }
+        }
+
+        return [
+            'product_name' => trim((string) ($packageRow['package_name'] ?? $packageRow['package_code'] ?? '')),
             'rows' => $rows,
         ];
     }
@@ -1747,6 +1842,76 @@ class ProductQuotationExportService
             ->whereIn('product_id', $productIds)
             ->when(
                 Schema::hasColumn('product_features', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->orderBy('group_id')
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->groupBy(fn (array $record): string => (string) ($record['group_id'] ?? ''))
+            ->all();
+
+        return $groups
+            ->map(function (array $group) use ($features): array {
+                $groupId = (string) ($group['id'] ?? '');
+                $items = collect($features[$groupId] ?? [])
+                    ->map(fn (array $feature): array => [
+                        'feature_name' => trim((string) ($feature['feature_name'] ?? '')),
+                        'detail_description' => isset($feature['detail_description'])
+                            ? trim((string) $feature['detail_description'])
+                            : null,
+                    ])
+                    ->values()
+                    ->all();
+
+                return [
+                    'group_name' => trim((string) ($group['group_name'] ?? '')),
+                    'features' => $items,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param array<int, int> $packageIds
+     * @return array<int, array{group_name: string, features: array<int, array{feature_name: string, detail_description: string|null}>}>
+     */
+    private function loadAppendixPackageCatalogGroups(array $packageIds): array
+    {
+        if ($packageIds === []) {
+            return [];
+        }
+
+        $groupColumns = ['id', 'package_id', 'group_name', 'display_order'];
+        if (Schema::hasColumn('product_package_feature_groups', 'deleted_at')) {
+            $groupColumns[] = 'deleted_at';
+        }
+
+        $featureColumns = ['id', 'package_id', 'group_id', 'feature_name', 'detail_description', 'display_order'];
+        if (Schema::hasColumn('product_package_features', 'deleted_at')) {
+            $featureColumns[] = 'deleted_at';
+        }
+
+        $groups = DB::table('product_package_feature_groups')
+            ->select($groupColumns)
+            ->whereIn('package_id', $packageIds)
+            ->when(
+                Schema::hasColumn('product_package_feature_groups', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $record): array => (array) $record)
+            ->values();
+
+        $features = DB::table('product_package_features')
+            ->select($featureColumns)
+            ->whereIn('package_id', $packageIds)
+            ->when(
+                Schema::hasColumn('product_package_features', 'deleted_at'),
                 fn ($query) => $query->whereNull('deleted_at')
             )
             ->orderBy('group_id')

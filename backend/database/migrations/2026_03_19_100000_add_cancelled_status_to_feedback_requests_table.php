@@ -40,6 +40,10 @@ return new class extends Migration
             return;
         }
 
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         $meta = DB::selectOne(
             "SELECT COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
              FROM INFORMATION_SCHEMA.COLUMNS

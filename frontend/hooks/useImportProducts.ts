@@ -16,7 +16,6 @@ import {
   normalizeProductRecord,
   normalizeStatusActive,
 } from '../utils/importUtils';
-import { normalizeProductUnitForSave } from '../utils/productUnit';
 import {
   DEFAULT_PRODUCT_SERVICE_GROUP,
   resolveProductServiceGroupImportValue,
@@ -108,39 +107,79 @@ export function useImportProducts(): UseImportProductsResult {
       const row = rows[rowIndex];
       const rowNumber = rowIndex + 2;
 
-      const serviceGroupRaw = getImportCell(row, headerIndex, ['manhom', 'nhomdichvu', 'servicegroup', 'groupcode', 'magroup']);
-      const productCode = getImportCell(row, headerIndex, ['masanpham', 'masp', 'productcode', 'code']);
+      const serviceGroupRaw = getImportCell(row, headerIndex, [
+        'manhomdichvu',
+        'tennhomdichvu',
+        'manhom',
+        'nhomdichvu',
+        'servicegroupcode',
+        'servicegroup',
+        'groupcode',
+        'magroup',
+      ]);
+      const productCode = getImportCell(row, headerIndex, [
+        'madinhdanh',
+        'madinhdanhsanpham',
+        'masanpham',
+        'masp',
+        'productcode',
+        'code',
+        'identifier',
+        'productidentifier',
+      ]);
       const productName = getImportCell(row, headerIndex, ['tensanpham', 'tensp', 'productname', 'name']);
-      const packageName = getImportCell(row, headerIndex, ['goicuoc', 'package', 'packagename', 'goi']);
-      const businessLookupRaw = getImportCell(row, headerIndex, ['malinhvuc', 'linhvuc', 'businesscode', 'domaincode', 'mald', 'domainid']);
-      const vendorLookupRaw = getImportCell(row, headerIndex, ['manhacungcap', 'nhacungcap', 'vendorcode', 'suppliercode', 'mancc', 'vendorid']);
-      const standardPriceRaw = getImportCell(row, headerIndex, ['dongiachuan', 'dongiachuanvnd', 'giatieuchuan', 'giatieuchuanvnd', 'standardprice', 'price']);
-      const unitRaw = getImportCell(row, headerIndex, ['donvitinh', 'unit']);
+      const productShortName = getImportCell(row, headerIndex, ['tenviettat', 'tengan', 'shortname', 'productshortname', 'abbreviation', 'shortlabel']);
+      const businessLookupRaw = getImportCell(row, headerIndex, [
+        'malinhvuckd',
+        'malinhvuc',
+        'linhvuc',
+        'businesscode',
+        'domaincode',
+        'mald',
+        'domainid',
+      ]);
+      const vendorLookupRaw = getImportCell(row, headerIndex, [
+        'manhacungcap',
+        'mancc',
+        'nhacungcap',
+        'vendorcode',
+        'suppliercode',
+        'vendorid',
+      ]);
+      const standardPriceRaw = getImportCell(row, headerIndex, [
+        'dongiachuanvnd',
+        'dongiachuan',
+        'dongia',
+        'giatieuchuan',
+        'giatieuchuanvnd',
+        'standardprice',
+        'price',
+      ]);
       const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status', 'isactive']);
       const description = getImportCell(row, headerIndex, ['motagoicuoc', 'mota', 'description', 'ghichu']);
 
-      if (!(serviceGroupRaw || productCode || productName || packageName || businessLookupRaw || vendorLookupRaw || standardPriceRaw || unitRaw || statusRaw || description)) {
+      if (!(serviceGroupRaw || productCode || productName || productShortName || businessLookupRaw || vendorLookupRaw || standardPriceRaw || statusRaw || description)) {
         continue;
       }
 
       if (!productCode) {
-        failures.push(`Dòng ${rowNumber}: thiếu Mã sản phẩm.`);
+        failures.push(`Dòng ${rowNumber}: thiếu Mã định danh.`);
         continue;
       }
 
       const productCodeToken = normalizeImportToken(productCode);
       if (!productCodeToken) {
-        failures.push(`Dòng ${rowNumber}: Mã sản phẩm không hợp lệ.`);
+        failures.push(`Dòng ${rowNumber}: Mã định danh không hợp lệ.`);
         continue;
       }
 
       if (existingProductCodeTokens.has(productCodeToken)) {
-        failures.push(`Dòng ${rowNumber}: Mã sản phẩm "${productCode}" đã tồn tại.`);
+        failures.push(`Dòng ${rowNumber}: Mã định danh "${productCode}" đã tồn tại.`);
         continue;
       }
 
       if (seenProductCodeTokens.has(productCodeToken)) {
-        failures.push(`Dòng ${rowNumber}: Mã sản phẩm "${productCode}" bị trùng trong file import.`);
+        failures.push(`Dòng ${rowNumber}: Mã định danh "${productCode}" bị trùng trong file import.`);
         continue;
       }
       seenProductCodeTokens.add(productCodeToken);
@@ -190,11 +229,10 @@ export function useImportProducts(): UseImportProductsResult {
           service_group: serviceGroup ?? DEFAULT_PRODUCT_SERVICE_GROUP,
           product_code: productCode.trim(),
           product_name: productName.trim(),
-          package_name: packageName || '',
+          product_short_name: productShortName || '',
           domain_id: business.id,
           vendor_id: vendor.id,
           standard_price: standardPrice ?? 0,
-          unit: normalizeProductUnitForSave(unitRaw),
           description: description || '',
           is_active: normalizeStatusActive(statusRaw),
         },

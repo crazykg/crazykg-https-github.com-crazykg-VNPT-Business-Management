@@ -77,6 +77,46 @@ describe('projectApi module', () => {
     ]);
   });
 
+  it('keeps product_package_id in project item payloads so package units survive after save', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: { id: 7, project_code: 'DA007' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await updateProject(7, {
+      project_code: 'DA007',
+      items: [
+        {
+          id: 'ITEM_1',
+          productId: '11',
+          product_id: 11,
+          productPackageId: '21',
+          product_package_id: 21,
+          quantity: 12,
+          unitPrice: 900000,
+          unit_price: 900000,
+          discountPercent: 0,
+          discountAmount: 0,
+        },
+      ],
+      sync_items: true,
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    const payload = JSON.parse(String(requestInit.body));
+
+    expect(payload.items).toEqual([
+      {
+        product_id: 11,
+        product_package_id: 21,
+        quantity: 12,
+        unit_price: 900000,
+      },
+    ]);
+  });
+
   it('fetches implementation-unit options from the dedicated project lookup endpoint', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ data: [{ id: 1, user_code: 'USR001' }] }), {

@@ -40,6 +40,31 @@ interface RevenueStoreState {
   syncToUrl: () => void;
 }
 
+type PersistedRevenueUiState = Pick<
+  RevenueStoreState,
+  | 'activeView'
+  | 'reportTab'
+  | 'forecastHorizon'
+  | 'periodFrom'
+  | 'periodTo'
+  | 'periodType'
+  | 'grouping'
+  | 'selectedDeptId'
+  | 'year'
+>;
+
+const REVENUE_UI_STATE_STORAGE_KEY = 'revenue_mgmt_state';
+const REVENUE_URL_PARAM_KEYS = [
+  'rev_view',
+  'rev_from',
+  'rev_to',
+  'rev_period_type',
+  'rev_grouping',
+  'rev_report_tab',
+  'rev_horizon',
+  'rev_dept_id',
+] as const;
+
 function getCurrentYear(): number {
   return new Date().getFullYear();
 }
@@ -52,6 +77,195 @@ function getDefaultPeriodFrom(): string {
 function getDefaultPeriodTo(): string {
   const now = new Date();
   return `${now.getFullYear()}-12-31`;
+}
+
+function isRevenueSubView(value: string | null): value is RevenueSubView {
+  return value !== null && ['OVERVIEW', 'BY_CONTRACT', 'BY_COLLECTION', 'FORECAST', 'REPORT'].includes(value);
+}
+
+function isRevenuePeriodType(value: string | null): value is RevenuePeriodType {
+  return value !== null && ['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(value);
+}
+
+function isRevenueReportTab(value: string | null): value is RevenueStoreState['reportTab'] {
+  return value !== null && ['department', 'customer', 'product', 'time'].includes(value);
+}
+
+function isRevenueGrouping(value: string | null): value is RevenueStoreState['grouping'] {
+  return value === 'month' || value === 'quarter';
+}
+
+function parseForecastHorizon(value: string | number | null | undefined): RevenueStoreState['forecastHorizon'] | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+  return parsed === 3 || parsed === 6 || parsed === 12 ? parsed : null;
+}
+
+function parseOptionalDeptId(value: string | number | null | undefined): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+
+  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function parseYear(value: string | number | null | undefined): number | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed >= 2000 && parsed <= 2100 ? parsed : undefined;
+}
+
+function deriveYearFromPeriod(periodFrom?: string): number | undefined {
+  if (!periodFrom || !/^\d{4}-\d{2}-\d{2}$/.test(periodFrom)) {
+    return undefined;
+  }
+
+  return parseYear(periodFrom.slice(0, 4));
+}
+
+function pickPersistedRevenueUiState(state: RevenueStoreState | PersistedRevenueUiState): PersistedRevenueUiState {
+  return {
+    activeView: state.activeView,
+    reportTab: state.reportTab,
+    forecastHorizon: state.forecastHorizon,
+    periodFrom: state.periodFrom,
+    periodTo: state.periodTo,
+    periodType: state.periodType,
+    grouping: state.grouping,
+    selectedDeptId: state.selectedDeptId,
+    year: state.year,
+  };
+}
+
+function sanitizePersistedRevenueUiState(raw: unknown): Partial<PersistedRevenueUiState> {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  const updates: Partial<PersistedRevenueUiState> = {};
+  const activeView = typeof candidate.activeView === 'string' ? candidate.activeView : null;
+  const reportTab = typeof candidate.reportTab === 'string' ? candidate.reportTab : null;
+  const periodType = typeof candidate.periodType === 'string' ? candidate.periodType : null;
+  const grouping = typeof candidate.grouping === 'string' ? candidate.grouping : null;
+  const periodFrom = typeof candidate.periodFrom === 'string' ? candidate.periodFrom : undefined;
+  const periodTo = typeof candidate.periodTo === 'string' ? candidate.periodTo : undefined;
+  const selectedDeptId = parseOptionalDeptId(candidate.selectedDeptId as string | number | null | undefined);
+  const forecastHorizon = parseForecastHorizon(candidate.forecastHorizon as string | number | null | undefined);
+  const year = parseYear(candidate.year as string | number | null | undefined);
+
+  if (isRevenueSubView(activeView)) {
+    updates.activeView = activeView;
+  }
+  if (isRevenueReportTab(reportTab)) {
+    updates.reportTab = reportTab;
+  }
+  if (forecastHorizon !== null) {
+    updates.forecastHorizon = forecastHorizon;
+  }
+  if (periodFrom) {
+    updates.periodFrom = periodFrom;
+  }
+  if (periodTo) {
+    updates.periodTo = periodTo;
+  }
+  if (isRevenuePeriodType(periodType)) {
+    updates.periodType = periodType;
+  }
+  if (isRevenueGrouping(grouping)) {
+    updates.grouping = grouping;
+  }
+  if (selectedDeptId !== undefined) {
+    updates.selectedDeptId = selectedDeptId;
+  }
+  if (year !== undefined) {
+    updates.year = year;
+  }
+
+  if (updates.year === undefined) {
+    const derivedYear = deriveYearFromPeriod(updates.periodFrom);
+    if (derivedYear !== undefined) {
+      updates.year = derivedYear;
+    }
+  }
+
+  return updates;
+}
+
+function readPersistedRevenueUiState(): Partial<PersistedRevenueUiState> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(REVENUE_UI_STATE_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    return sanitizePersistedRevenueUiState(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+function writePersistedRevenueUiState(state: PersistedRevenueUiState): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(REVENUE_UI_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore storage quota / private mode errors.
+  }
+}
+
+function stripRevenueParamsFromUrl(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  let changed = false;
+
+  REVENUE_URL_PARAM_KEYS.forEach((key) => {
+    if (params.has(key)) {
+      params.delete(key);
+      changed = true;
+    }
+  });
+
+  if (!changed) {
+    return;
+  }
+
+  const nextQuery = params.toString();
+  const nextUrl = nextQuery
+    ? `${window.location.pathname}?${nextQuery}`
+    : window.location.pathname;
+
+  window.history.replaceState({}, '', nextUrl);
+}
+
+function persistRevenueUiState(state: RevenueStoreState | PersistedRevenueUiState): void {
+  writePersistedRevenueUiState(pickPersistedRevenueUiState(state));
+  stripRevenueParamsFromUrl();
 }
 
 export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
@@ -107,72 +321,74 @@ export const useRevenueStore = create<RevenueStoreState>((set, get) => ({
   setFeeCollectionAvailable: (available) => set({ feeCollectionAvailable: available }),
 
   syncFromUrl: () => {
-    const params = new URLSearchParams(window.location.search);
-    const updates: Partial<RevenueStoreState> = {};
+    if (typeof window === 'undefined') {
+      return;
+    }
 
-    const view = params.get('rev_view') as RevenueSubView | null;
-    if (view && ['OVERVIEW', 'BY_CONTRACT', 'BY_COLLECTION', 'FORECAST', 'REPORT'].includes(view)) {
+    const params = new URLSearchParams(window.location.search);
+    const hasLegacyRevenueParams = REVENUE_URL_PARAM_KEYS.some((key) => params.has(key));
+    const updates: Partial<RevenueStoreState> = {
+      ...readPersistedRevenueUiState(),
+    };
+
+    const view = params.get('rev_view');
+    if (isRevenueSubView(view)) {
       updates.activeView = view;
     }
 
-    const pf = params.get('rev_from');
-    if (pf) updates.periodFrom = pf;
-
-    const pt = params.get('rev_to');
-    if (pt) updates.periodTo = pt;
-
-    const pType = params.get('rev_period_type') as RevenuePeriodType | null;
-    if (pType && ['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(pType)) {
-      updates.periodType = pType;
+    const periodFrom = params.get('rev_from');
+    if (periodFrom) {
+      updates.periodFrom = periodFrom;
     }
 
-    const g = params.get('rev_grouping');
-    if (g === 'month' || g === 'quarter') {
-      updates.grouping = g;
+    const periodTo = params.get('rev_to');
+    if (periodTo) {
+      updates.periodTo = periodTo;
     }
 
-    const deptId = params.get('rev_dept_id');
-    if (deptId !== null) {
-      updates.selectedDeptId = deptId === '' ? null : parseInt(deptId, 10);
+    const periodType = params.get('rev_period_type');
+    if (isRevenuePeriodType(periodType)) {
+      updates.periodType = periodType;
+    }
+
+    const grouping = params.get('rev_grouping');
+    if (isRevenueGrouping(grouping)) {
+      updates.grouping = grouping;
+    }
+
+    if (params.has('rev_dept_id')) {
+      const deptId = parseOptionalDeptId(params.get('rev_dept_id'));
+      if (deptId !== undefined) {
+        updates.selectedDeptId = deptId;
+      }
     }
 
     const reportTab = params.get('rev_report_tab');
-    if (reportTab !== null) {
-      updates.reportTab = ['department', 'customer', 'product', 'time'].includes(reportTab)
-        ? reportTab as RevenueStoreState['reportTab']
-        : 'department';
+    if (isRevenueReportTab(reportTab)) {
+      updates.reportTab = reportTab;
     }
 
-    const horizon = params.get('rev_horizon');
-    if (horizon !== null) {
-      updates.forecastHorizon = horizon === '3' || horizon === '6' || horizon === '12'
-        ? parseInt(horizon, 10) as RevenueStoreState['forecastHorizon']
-        : 6;
+    const forecastHorizon = parseForecastHorizon(params.get('rev_horizon'));
+    if (forecastHorizon !== null) {
+      updates.forecastHorizon = forecastHorizon;
+    }
+
+    if (updates.year === undefined) {
+      const derivedYear = deriveYearFromPeriod(updates.periodFrom);
+      if (derivedYear !== undefined) {
+        updates.year = derivedYear;
+      }
     }
 
     if (Object.keys(updates).length > 0) {
       set(updates as Partial<RevenueStoreState>);
+      persistRevenueUiState({ ...get(), ...(updates as Partial<RevenueStoreState>) } as RevenueStoreState);
+    } else if (hasLegacyRevenueParams) {
+      stripRevenueParamsFromUrl();
     }
   },
 
   syncToUrl: () => {
-    const state = get();
-    const params = new URLSearchParams(window.location.search);
-
-    params.set('rev_view', state.activeView);
-    params.set('rev_from', state.periodFrom);
-    params.set('rev_to', state.periodTo);
-    params.set('rev_period_type', state.periodType);
-    params.set('rev_grouping', state.grouping);
-    params.set('rev_report_tab', state.reportTab);
-    params.set('rev_horizon', String(state.forecastHorizon));
-
-    if (state.selectedDeptId !== null) {
-      params.set('rev_dept_id', String(state.selectedDeptId));
-    } else {
-      params.delete('rev_dept_id');
-    }
-
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    persistRevenueUiState(get());
   },
 }));

@@ -21,6 +21,10 @@ const supportConfigApiMocks = vi.hoisted(() => ({
   updateCalendarDay: vi.fn(),
 }));
 
+const productApiMocks = vi.hoisted(() => ({
+  fetchProductTargetSegments: vi.fn(),
+}));
+
 vi.mock('../services/v5Api', async () => {
   const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
   return {
@@ -39,8 +43,19 @@ vi.mock('../services/api/supportConfigApi', async () => {
   };
 });
 
+vi.mock('../services/api/productApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/productApi')>(
+    '../services/api/productApi'
+  );
+  return {
+    ...actual,
+    ...productApiMocks,
+  };
+});
+
 import { SupportMasterManagement } from '../components/SupportMasterManagement';
 import type {
+  ContractSignerMaster,
   ProductUnitMaster,
   SupportContactPosition,
   SupportRequestStatusOption,
@@ -48,6 +63,9 @@ import type {
   SupportSlaConfigOption,
   WorklogActivityTypeOption,
 } from '../types/support';
+import type { Department } from '../types/department';
+import type { Employee } from '../types/employee';
+import type { Product, ProductPackage, ProductTargetSegment } from '../types/product';
 import type { ProjectTypeOption } from '../types/project';
 import type { WorkCalendarDay } from '../types/scheduling';
 
@@ -159,6 +177,120 @@ const productUnitMasters: ProductUnitMaster[] = [
   },
 ];
 
+const departments: Department[] = [
+  {
+    id: 'dept-root',
+    dept_code: 'BGDVT',
+    dept_name: 'Ban giám đốc Viễn thông',
+    parent_id: null,
+    dept_path: 'BGDVT',
+    is_active: true,
+  },
+  {
+    id: 'dept-center',
+    dept_code: 'TTKDGP',
+    dept_name: 'Trung tâm Kinh doanh Giải pháp',
+    parent_id: 'dept-root',
+    dept_path: 'BGDVT/TTKDGP',
+    is_active: true,
+  },
+  {
+    id: 'dept-child',
+    dept_code: 'PGP2',
+    dept_name: 'Phòng giải pháp 2',
+    parent_id: 'dept-center',
+    dept_path: 'BGDVT/TTKDGP/PGP2',
+    is_active: true,
+  },
+];
+
+const employees: Employee[] = [
+  {
+    id: 'employee-1',
+    uuid: 'employee-1',
+    user_code: 'U001',
+    username: 'nguoiky1',
+    full_name: 'Người Ký 1',
+    email: 'u001@example.test',
+    status: 'ACTIVE',
+    department_id: 'dept-child',
+    position_id: null,
+  },
+  {
+    id: 'employee-2',
+    uuid: 'employee-2',
+    user_code: 'U002',
+    username: 'nguoiky2',
+    full_name: 'Người Ký 2',
+    email: 'u002@example.test',
+    status: 'ACTIVE',
+    department_id: 'dept-center',
+    position_id: null,
+  },
+];
+
+const contractSignerMasters: ContractSignerMaster[] = [
+  {
+    id: 'signer-master-1',
+    internal_user_id: 'employee-1',
+    user_code: 'U001',
+    full_name: 'Người Ký 1',
+    department_id: 'dept-center',
+    dept_code: 'TTKDGP',
+    dept_name: 'Trung tâm Kinh doanh Giải pháp',
+    used_in_contracts: 2,
+    is_active: true,
+  },
+];
+
+const products: Product[] = [
+  {
+    id: 'product-1',
+    product_code: 'SP-HIS',
+    product_name: 'Phan mem HIS',
+    product_short_name: 'HIS',
+    service_group: 'Y te so',
+    domain_id: 'domain-1',
+    vendor_id: 'vendor-1',
+    standard_price: 1000000,
+    is_active: true,
+  },
+];
+
+const productPackages: ProductPackage[] = [
+  {
+    id: 'package-1',
+    product_id: 'product-1',
+    package_code: 'PKG-HIS-01',
+    package_name: 'HIS Standard',
+    standard_price: 1000000,
+    is_active: true,
+  },
+  {
+    id: 'package-2',
+    product_id: 'product-1',
+    package_code: 'PKG-HIS-02',
+    package_name: 'HIS Premium',
+    standard_price: 1200000,
+    is_active: true,
+  },
+];
+
+const productTargetSegments: ProductTargetSegment[] = [
+  {
+    id: 'segment-1',
+    product_id: 'product-1',
+    customer_sector: 'HEALTHCARE',
+    facility_type: 'PUBLIC_HOSPITAL',
+    facility_types: ['PUBLIC_HOSPITAL'],
+    bed_capacity_min: 200,
+    bed_capacity_max: null,
+    priority: 1,
+    sales_notes: 'Ưu tiên bệnh viện công.',
+    is_active: true,
+  },
+];
+
 const workCalendarDays: WorkCalendarDay[] = [
   {
     date: '2026-01-01',
@@ -179,6 +311,9 @@ const noopAsync = vi.fn(async () => {
   throw new Error('Not implemented in test');
 });
 
+const toStartsWithMatcher = (label: string) =>
+  new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+
 const renderSupportMasterManagement = (
   overrides: Partial<React.ComponentProps<typeof SupportMasterManagement>> = {}
 ) =>
@@ -187,7 +322,12 @@ const renderSupportMasterManagement = (
       customers={[]}
       supportServiceGroups={[]}
       supportContactPositions={[]}
+      departments={[]}
+      employees={[]}
+      products={[]}
+      productPackages={[]}
       productUnitMasters={[]}
+      contractSignerMasters={[]}
       supportRequestStatuses={[]}
       projectTypes={[]}
       worklogActivityTypes={[]}
@@ -196,9 +336,11 @@ const renderSupportMasterManagement = (
       onUpdateSupportServiceGroup={noopAsync}
       onCreateSupportContactPosition={noopAsync}
       onCreateProductUnitMaster={noopAsync}
+      onCreateContractSignerMaster={noopAsync}
       onCreateSupportContactPositionsBulk={noopAsync}
       onUpdateSupportContactPosition={noopAsync}
       onUpdateProductUnitMaster={noopAsync}
+      onUpdateContractSignerMaster={noopAsync}
       onCreateSupportRequestStatus={noopAsync}
       onUpdateSupportRequestStatus={noopAsync}
       onCreateProjectType={noopAsync}
@@ -210,7 +352,9 @@ const renderSupportMasterManagement = (
       canReadCustomers={false}
       canReadServiceGroups={false}
       canReadContactPositions={false}
+      canReadProducts={false}
       canReadProductUnitMasters={false}
+      canReadContractSigners={false}
       canReadStatuses={false}
       canReadWorklogActivityTypes={false}
       canReadSlaConfigs={false}
@@ -218,7 +362,9 @@ const renderSupportMasterManagement = (
       canReadWorkCalendar={false}
       canWriteServiceGroups={false}
       canWriteContactPositions={false}
+      canWriteProducts={false}
       canWriteProductUnitMasters={false}
+      canWriteContractSigners={false}
       canWriteStatuses={false}
       canWriteWorklogActivityTypes={false}
       canWriteSlaConfigs={false}
@@ -247,6 +393,87 @@ describe('SupportMasterManagement', () => {
       skipped: 0,
     });
     supportConfigApiMocks.updateCalendarDay.mockResolvedValue(workCalendarDays[0]);
+    productApiMocks.fetchProductTargetSegments.mockResolvedValue({
+      data: productTargetSegments,
+      meta: { table_available: true },
+    });
+  });
+
+  it('shows product sales configuration with linked package mapping under support master management', async () => {
+    renderSupportMasterManagement({
+      products,
+      productPackages,
+      canReadProducts: true,
+      canWriteProducts: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('SP-HIS')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Cấu hình bán sản phẩm')).toBeInTheDocument();
+    expect(screen.getByText('Phan mem HIS')).toBeInTheDocument();
+    expect(screen.getByText('2 gói cước')).toBeInTheDocument();
+    expect(screen.getByText('PKG-HIS-01 - HIS Standard')).toBeInTheDocument();
+    expect(await screen.findByText('1 phân khúc')).toBeInTheDocument();
+    expect(screen.getByText('Y tế • Bệnh viện (Công lập)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cấu hình bán sản phẩm' })).toBeInTheDocument();
+  });
+
+  it('shows and creates contract signer masters with ownership department mapping', async () => {
+    const user = userEvent.setup();
+    const onCreateContractSignerMaster = vi.fn().mockResolvedValue({
+      id: 'signer-master-2',
+      internal_user_id: 'employee-1',
+      user_code: 'U001',
+      full_name: 'Người Ký 1',
+      department_id: 'dept-center',
+      dept_code: 'TTKDGP',
+      dept_name: 'Trung tâm Kinh doanh Giải pháp',
+      used_in_contracts: 0,
+      is_active: true,
+    });
+
+    renderSupportMasterManagement({
+      departments,
+      employees,
+      contractSignerMasters,
+      onCreateContractSignerMaster,
+      canReadContractSigners: true,
+      canWriteContractSigners: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Người ký hợp đồng')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('U001')).toBeInTheDocument();
+    expect(screen.getByText('Người Ký 1')).toBeInTheDocument();
+    expect(screen.getByText('TTKDGP - Trung tâm Kinh doanh Giải pháp')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Thêm mới/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Thêm người ký hợp đồng' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: toStartsWithMatcher('Chọn nhân sự nội bộ') }));
+    await user.click(screen.getByRole('button', { name: 'U001 - Người Ký 1' }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('TTKDGP - Trung tâm Kinh doanh Giải pháp')).toBeInTheDocument();
+    });
+
+    const submitButton = screen.getAllByRole('button', { name: /Thêm mới/i }).at(-1);
+    expect(submitButton).toBeDefined();
+    await user.click(submitButton!);
+
+    await waitFor(() => {
+      expect(onCreateContractSignerMaster).toHaveBeenCalledWith({
+        internal_user_id: 'employee-1',
+        is_active: true,
+      });
+    });
   });
 
   it('shows worklog activity columns and values on the worklog tab', async () => {

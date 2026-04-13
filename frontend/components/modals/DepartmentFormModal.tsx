@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Department } from '../../types';
+import { useModalShortcuts } from '../../hooks/useModalShortcuts';
 import { FormSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
@@ -212,6 +213,24 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({
   const isSolutionChildDepartment = isSolutionChildDepartmentCode(formData.dept_code);
   const maxAllowedParentLevel = 1 - subtreeMaxDepth;
 
+  const handleSubmit = () => {
+    if (!isRootDepartment && parentError) return;
+    const rawParentId = isRootDepartment ? null : formData.parent_id;
+    const normalizedParentId =
+      rawParentId === null || rawParentId === undefined || rawParentId === ''
+        ? null
+        : Number.isNaN(Number(rawParentId))
+          ? rawParentId
+          : Number(rawParentId);
+    onSave({
+      ...formData,
+      dept_code: isRootDepartment ? ROOT_DEPARTMENT_CODE : formData.dept_code,
+      parent_id: normalizedParentId,
+    });
+  };
+
+  useModalShortcuts({ onSave: handleSubmit, enabled: !isLoading });
+
   const candidateParents = useMemo(() => {
     if (isRootDepartment) {
       return [] as Department[];
@@ -360,6 +379,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({
         />
         <FormSelect
           label="Phòng ban cha"
+          size="sm"
           value={formData.parent_id === null || formData.parent_id === undefined ? '' : String(formData.parent_id)}
           onChange={(e: any) => {
             const raw = e.target.value;
@@ -397,25 +417,7 @@ export const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({
           Hủy
         </button>
         <button
-          onClick={() => {
-            if (!isRootDepartment && parentError) {
-              return;
-            }
-
-            const rawParentId = isRootDepartment ? null : formData.parent_id;
-            const normalizedParentId =
-              rawParentId === null || rawParentId === undefined || rawParentId === ''
-                ? null
-                : Number.isNaN(Number(rawParentId))
-                  ? rawParentId
-                  : Number(rawParentId);
-
-            onSave({
-              ...formData,
-              dept_code: isRootDepartment ? ROOT_DEPARTMENT_CODE : formData.dept_code,
-              parent_id: normalizedParentId,
-            });
-          }}
+          onClick={handleSubmit}
           className="flex items-center gap-2 rounded-lg bg-primary px-8 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90"
         >
           {isLoading ? 'Đang lưu...' : (type === 'ADD' ? 'Lưu' : 'Lưu thay đổi')}

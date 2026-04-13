@@ -17,6 +17,7 @@ import {
   formatDateRangeDdMmYyyy,
 } from '../../utils/revenueDisplay';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { RevenueWorkspaceHeader } from './RevenueWorkspaceHeader';
 
 interface Props {
   departments: Department[];
@@ -27,6 +28,14 @@ function pctColor(pct: number): string {
   if (pct >= 80) return 'text-blue-600';
   if (pct >= 60) return 'text-yellow-600';
   return 'text-red-600';
+}
+
+function findDepartmentLabel(departments: Department[], deptId: number | null): string {
+  if (deptId == null) {
+    return 'Toàn công ty';
+  }
+
+  return departments.find((department) => department.id === deptId)?.dept_name ?? `Đơn vị #${deptId}`;
 }
 
 export function RevenueByContractView({ departments }: Props) {
@@ -118,34 +127,80 @@ export function RevenueByContractView({ departments }: Props) {
     return sortDir === 'asc' ? 'expand_less' : 'expand_more';
   };
 
+  const deptScopeLabel = findDepartmentLabel(departments, selectedDeptId);
+
   return (
-    <div className="p-4 space-y-4">
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[18px]">search</span>
-          <input
-            type="text"
-            value={searchQ}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Tìm mã HĐ, tên HĐ, khách hàng..."
-            className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          />
+    <div className="space-y-4 p-3 pb-6">
+      <RevenueWorkspaceHeader
+        icon="description"
+        title="Theo hợp đồng"
+        description="Tập trung vào mã hợp đồng, khách hàng, phần đã thu và phần còn phải xử lý trong phạm vi đang xem."
+        badges={[
+          {
+            label: formatDateRangeDdMmYyyy(periodFrom, periodTo),
+            icon: 'date_range',
+            tone: 'primary',
+          },
+          {
+            label: deptScopeLabel,
+            icon: 'corporate_fare',
+            tone: selectedDeptId == null ? 'success' : 'neutral',
+          },
+          {
+            label: 'Có drill-down kỳ thanh toán',
+            icon: 'unfold_more',
+            tone: 'neutral',
+          },
+        ]}
+        metrics={kpis ? [
+          {
+            label: 'Hợp đồng trong phạm vi',
+            value: `${kpis.contract_count}`,
+            detail: 'Danh sách bên dưới có thể drill-down tới từng kỳ thanh toán.',
+            tone: 'primary',
+          },
+          {
+            label: 'Doanh thu kỳ vọng',
+            value: formatCompactCurrencyVnd(kpis.total_expected),
+            detail: 'Tổng doanh thu kỳ vọng của các hợp đồng đang lọc.',
+          },
+          {
+            label: 'Còn nợ',
+            value: formatCompactCurrencyVnd(kpis.total_outstanding),
+            detail: `Tỷ lệ thu hiện tại ${kpis.collection_rate}%`,
+            tone: kpis.total_outstanding > 0 ? 'warning' : 'success',
+          },
+        ] : []}
+      >
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="relative flex-1 min-w-[220px] max-w-xl">
+            <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[18px]">search</span>
+            <input
+              type="text"
+              value={searchQ}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Tìm mã HĐ, tên HĐ, khách hàng..."
+              className="w-full rounded border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedDeptId ?? ''}
+              onChange={(e) => setDeptId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+              className="h-9 min-w-[180px] rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+            >
+              <option value="">Toàn công ty</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.dept_name}</option>
+              ))}
+            </select>
+            <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
+              {total} hợp đồng
+            </span>
+          </div>
         </div>
-        <select
-          value={selectedDeptId ?? ''}
-          onChange={(e) => setDeptId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm min-w-[150px]"
-        >
-          <option value="">Tất cả phòng ban</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>{d.dept_name}</option>
-          ))}
-        </select>
-        <span className="text-xs text-gray-500">
-          {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
-        </span>
-      </div>
+      </RevenueWorkspaceHeader>
 
       {/* KPIs */}
       {kpis && (

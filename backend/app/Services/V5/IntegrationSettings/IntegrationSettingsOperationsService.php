@@ -2,11 +2,14 @@
 
 namespace App\Services\V5\IntegrationSettings;
 
+use App\Support\Auth\UserAccessService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class IntegrationSettingsOperationsService
 {
@@ -15,10 +18,13 @@ class IntegrationSettingsOperationsService
     private const CONTRACT_RENEWAL_SETTINGS_PROVIDER = 'CONTRACT_RENEWAL_SETTINGS';
     private const MIN_CONTRACT_EXPIRY_WARNING_DAYS = 1;
     private const MAX_CONTRACT_EXPIRY_WARNING_DAYS = 365;
+    private const USER_DEPT_HISTORY_TRANSFER_TYPE_LUAN_CHUYEN = 'LUAN_CHUYEN';
+    private const USER_DEPT_HISTORY_TRANSFER_TYPE_BIET_PHAI = 'BIET_PHAI';
 
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly EmailSmtpIntegrationService $emailSmtp,
+        private readonly UserAccessService $userAccessService,
     ) {}
 
     public function reminders(Request $request): JsonResponse
@@ -300,6 +306,8 @@ class IntegrationSettingsOperationsService
             return $this->support->missingTable('user_dept_history');
         }
 
+        [$actorId, $isAdmin] = $this->resolveUserDeptHistoryActorContext($request);
+
         $query = DB::table('user_dept_history')
             ->select($this->support->selectColumns('user_dept_history', [
                 'id',
@@ -308,8 +316,11 @@ class IntegrationSettingsOperationsService
                 'to_dept_id',
                 'transfer_date',
                 'decision_number',
+                'transfer_type',
                 'reason',
                 'created_at',
+                'created_by',
+                'updated_by',
             ]))
             ->orderByDesc('transfer_date')
             ->orderByDesc('id');
@@ -318,7 +329,7 @@ class IntegrationSettingsOperationsService
             [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 200);
             if ($this->support->shouldUseSimplePagination($request)) {
                 $paginator = $query->simplePaginate($perPage, ['*'], 'page', $page);
-                $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()));
+                $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()), $actorId, $isAdmin);
 
                 return response()->json([
                     'data' => $serializedRows,
@@ -327,7 +338,7 @@ class IntegrationSettingsOperationsService
             }
 
             $paginator = $query->paginate($perPage, ['*'], 'page', $page);
-            $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()));
+            $serializedRows = $this->serializeUserDeptHistoryRows(collect($paginator->items()), $actorId, $isAdmin);
 
             return response()->json([
                 'data' => $serializedRows,
@@ -336,7 +347,7 @@ class IntegrationSettingsOperationsService
         }
 
         return response()->json([
-            'data' => $this->serializeUserDeptHistoryRows($query->get()),
+            'data' => $this->serializeUserDeptHistoryRows($query->get(), $actorId, $isAdmin),
         ]);
     }
 
@@ -351,14 +362,19 @@ class IntegrationSettingsOperationsService
             return $payload;
         }
 
-        $created = DB::transaction(function () use ($payload): ?array {
+        [$actorId, $isAdmin] = $this->resolveUserDeptHistoryActorContext($request);
+
+        $created = DB::transaction(function () use ($payload, $actorId, $isAdmin): ?array {
             $insertPayload = $this->support->filterPayloadByTableColumns('user_dept_history', [
                 'user_id' => $payload['user_id'],
                 'from_dept_id' => $payload['from_dept_id'],
                 'to_dept_id' => $payload['to_dept_id'],
                 'transfer_date' => $payload['transfer_date'],
                 'decision_number' => $payload['decision_number'],
+                'transfer_type' => $payload['transfer_type'],
                 'reason' => $payload['reason'],
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -366,7 +382,7 @@ class IntegrationSettingsOperationsService
             $historyId = (int) DB::table('user_dept_history')->insertGetId($insertPayload);
             $this->syncTransferUserDepartment($payload['user_id'], $payload['from_dept_id']);
 
-            return $this->loadSerializedUserDeptHistoryRow($historyId);
+            return $this->loadSerializedUserDeptHistoryRow($historyId, $actorId, $isAdmin);
         });
 
         if ($created === null) {
@@ -397,17 +413,20 @@ class IntegrationSettingsOperationsService
             return $payload;
         }
 
+        [$actorId, $isAdmin] = $this->resolveUserDeptHistoryActorContext($request);
         $currentUserId = $this->support->parseNullableInt($current['user_id'] ?? null);
         $currentFromDeptId = $this->support->parseNullableInt($current['from_dept_id'] ?? null);
 
-        $updated = DB::transaction(function () use ($historyId, $payload, $currentUserId, $currentFromDeptId): ?array {
+        $updated = DB::transaction(function () use ($historyId, $payload, $currentUserId, $currentFromDeptId, $actorId, $isAdmin): ?array {
             $updatePayload = $this->support->filterPayloadByTableColumns('user_dept_history', [
                 'user_id' => $payload['user_id'],
                 'from_dept_id' => $payload['from_dept_id'],
                 'to_dept_id' => $payload['to_dept_id'],
                 'transfer_date' => $payload['transfer_date'],
                 'decision_number' => $payload['decision_number'],
+                'transfer_type' => $payload['transfer_type'],
                 'reason' => $payload['reason'],
+                'updated_by' => $actorId,
                 'updated_at' => now(),
             ]);
 
@@ -421,7 +440,7 @@ class IntegrationSettingsOperationsService
 
             $this->syncTransferUserDepartment($payload['user_id'], $payload['from_dept_id']);
 
-            return $this->loadSerializedUserDeptHistoryRow($historyId);
+            return $this->loadSerializedUserDeptHistoryRow($historyId, $actorId, $isAdmin);
         });
 
         if ($updated === null) {
@@ -431,10 +450,15 @@ class IntegrationSettingsOperationsService
         return response()->json(['data' => $updated]);
     }
 
-    public function destroyUserDeptHistory(string $id): JsonResponse
+    public function destroyUserDeptHistory(Request $request, string $id): JsonResponse
     {
         if (! $this->support->hasTable('user_dept_history')) {
             return $this->support->missingTable('user_dept_history');
+        }
+
+        [$actorId, $isAdmin] = $this->resolveUserDeptHistoryActorContext($request);
+        if ($actorId === null) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
         }
 
         $historyId = $this->support->parseNullableInt($id);
@@ -447,10 +471,17 @@ class IntegrationSettingsOperationsService
             return response()->json(['message' => 'Không tìm thấy lịch sử luân chuyển.'], 404);
         }
 
+        if (! $this->canDeleteUserDeptHistoryRecord($current, $actorId, $isAdmin)) {
+            return response()->json([
+                'message' => $this->userDeptHistoryDeleteRestrictionMessage(),
+            ], 403);
+        }
+
         $userId = $this->support->parseNullableInt($current['user_id'] ?? null);
         $fallbackDeptId = $this->support->parseNullableInt($current['from_dept_id'] ?? null);
+        $deletedSnapshot = $this->loadSerializedUserDeptHistoryRow($historyId, $actorId, $isAdmin) ?? $current;
 
-        DB::transaction(function () use ($historyId, $userId, $fallbackDeptId): void {
+        DB::transaction(function () use ($request, $historyId, $userId, $fallbackDeptId, $deletedSnapshot, $actorId): void {
             DB::table('user_dept_history')
                 ->where('id', $historyId)
                 ->delete();
@@ -458,7 +489,11 @@ class IntegrationSettingsOperationsService
             if ($userId !== null) {
                 $this->syncTransferUserDepartment($userId, $fallbackDeptId);
             }
+
+            $this->appendUserDeptHistoryAuditLog($request, $historyId, $deletedSnapshot, $actorId);
         });
+
+        $this->sendUserDeptHistoryDeleteNotification($request, $deletedSnapshot, $actorId);
 
         return response()->json([
             'message' => 'Đã xóa lịch sử luân chuyển.',
@@ -662,7 +697,7 @@ class IntegrationSettingsOperationsService
      * @param Collection<int, object> $rows
      * @return Collection<int, array<string, mixed>>
      */
-    private function serializeUserDeptHistoryRows(Collection $rows): Collection
+    private function serializeUserDeptHistoryRows(Collection $rows, ?int $actorId = null, bool $isAdmin = false): Collection
     {
         $userIds = $rows
             ->pluck('user_id')
@@ -687,8 +722,9 @@ class IntegrationSettingsOperationsService
         $deptMap = $this->resolveTransferDepartmentMap($deptIds);
 
         return $rows
-            ->map(function (object $item): array {
+            ->map(function (object $item) use ($actorId, $isAdmin): array {
                 $row = (array) $item;
+                $canDelete = $this->canDeleteUserDeptHistoryRecord($row, $actorId, $isAdmin);
 
                 return [
                     'id' => (string) ($row['id'] ?? ''),
@@ -699,6 +735,9 @@ class IntegrationSettingsOperationsService
                     'reason' => (string) ($row['reason'] ?? ''),
                     'createdDate' => $this->formatDateColumn($row['created_at'] ?? null),
                     'decisionNumber' => (string) ($row['decision_number'] ?? ''),
+                    'transferType' => $this->normalizeUserDeptHistoryTransferType($row['transfer_type'] ?? null),
+                    'canDelete' => $canDelete,
+                    'deleteRestrictionMessage' => $canDelete ? null : $this->userDeptHistoryDeleteRestrictionMessage(),
                 ];
             })
             ->map(function (array $row) use ($userMap, $deptMap): array {
@@ -730,8 +769,46 @@ class IntegrationSettingsOperationsService
     }
 
     /**
+     * @return array{0:?int,1:bool}
+     */
+    private function resolveUserDeptHistoryActorContext(Request $request): array
+    {
+        $actorId = $this->resolveAuthenticatedUserId($request);
+
+        return [$actorId, $actorId !== null && $this->userAccessService->isAdmin($actorId)];
+    }
+
+    private function resolveAuthenticatedUserId(Request $request): ?int
+    {
+        return $this->support->parseNullableInt($request->user()?->id ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function canDeleteUserDeptHistoryRecord(array $row, ?int $actorId, bool $isAdmin): bool
+    {
+        if ($actorId === null) {
+            return false;
+        }
+
+        if ($isAdmin) {
+            return true;
+        }
+
+        $createdBy = $this->support->parseNullableInt($row['created_by'] ?? $row['createdBy'] ?? null);
+
+        return $createdBy !== null && $createdBy === $actorId;
+    }
+
+    private function userDeptHistoryDeleteRestrictionMessage(): string
+    {
+        return 'Chỉ người tạo dòng hoặc admin mới được xóa lịch sử luân chuyển này.';
+    }
+
+    /**
      * @param array<string, mixed>|null $current
-     * @return array{user_id:int,from_dept_id:?int,to_dept_id:int,transfer_date:string,decision_number:?string,reason:?string}|JsonResponse
+     * @return array{user_id:int,from_dept_id:?int,to_dept_id:int,transfer_date:string,decision_number:?string,transfer_type:string,reason:?string}|JsonResponse
      */
     private function validateUserDeptHistoryPayload(Request $request, ?array $current = null): array|JsonResponse
     {
@@ -746,6 +823,7 @@ class IntegrationSettingsOperationsService
             'to_dept_id' => ['required', 'integer'],
             'transfer_date' => ['required', 'date'],
             'decision_number' => ['nullable', 'string', 'max:100'],
+            'transfer_type' => ['nullable', 'string', 'in:'.self::USER_DEPT_HISTORY_TRANSFER_TYPE_LUAN_CHUYEN.','.self::USER_DEPT_HISTORY_TRANSFER_TYPE_BIET_PHAI],
             'reason' => ['nullable', 'string'],
         ]);
 
@@ -776,12 +854,17 @@ class IntegrationSettingsOperationsService
             ], 422);
         }
 
+        $transferType = $this->normalizeUserDeptHistoryTransferType(
+            $validated['transfer_type'] ?? ($current['transfer_type'] ?? null)
+        );
+
         return [
             'user_id' => $userId,
             'from_dept_id' => $fromDeptId,
             'to_dept_id' => $toDeptId,
             'transfer_date' => (string) $validated['transfer_date'],
             'decision_number' => $this->support->normalizeNullableString($validated['decision_number'] ?? ($current['decision_number'] ?? null)),
+            'transfer_type' => $transferType,
             'reason' => $this->support->normalizeNullableString($validated['reason'] ?? ($current['reason'] ?? null)),
         ];
     }
@@ -871,8 +954,12 @@ class IntegrationSettingsOperationsService
                 'to_dept_id',
                 'transfer_date',
                 'decision_number',
+                'transfer_type',
                 'reason',
                 'created_at',
+                'created_by',
+                'updated_by',
+                'updated_at',
             ]))
             ->where('id', $historyId)
             ->first();
@@ -883,16 +970,185 @@ class IntegrationSettingsOperationsService
     /**
      * @return array<string, mixed>|null
      */
-    private function loadSerializedUserDeptHistoryRow(int $historyId): ?array
+    private function loadSerializedUserDeptHistoryRow(int $historyId, ?int $actorId = null, bool $isAdmin = false): ?array
     {
         $record = $this->loadUserDeptHistoryRow($historyId);
         if ($record === null) {
             return null;
         }
 
-        $serialized = $this->serializeUserDeptHistoryRows(collect([(object) $record]))->first();
+        $serialized = $this->serializeUserDeptHistoryRows(collect([(object) $record]), $actorId, $isAdmin)->first();
 
         return is_array($serialized) ? $serialized : null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $oldValues
+     */
+    private function appendUserDeptHistoryAuditLog(Request $request, int $historyId, ?array $oldValues, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('audit_logs')) {
+            return;
+        }
+
+        try {
+            $payload = $this->support->filterPayloadByTableColumns('audit_logs', [
+                'uuid' => (string) Str::uuid(),
+                'event' => 'DELETE',
+                'auditable_type' => 'user_dept_history',
+                'auditable_id' => $historyId,
+                'old_values' => $oldValues === null ? null : json_encode($oldValues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'new_values' => null,
+                'url' => $request->fullUrl(),
+                'ip_address' => $request->ip(),
+                'user_agent' => $this->support->normalizeNullableString($request->userAgent()),
+                'created_by' => $actorId,
+                'created_at' => now(),
+            ]);
+
+            if ($payload !== []) {
+                DB::table('audit_logs')->insert($payload);
+            }
+        } catch (\Throwable) {
+            // Không để lỗi audit chặn luồng xóa lịch sử luân chuyển.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $deletedSnapshot
+     */
+    private function sendUserDeptHistoryDeleteNotification(Request $request, array $deletedSnapshot, ?int $actorId): void
+    {
+        $recipients = $this->loadUserDeptHistoryNotificationRecipients();
+        if ($recipients === []) {
+            return;
+        }
+
+        $actor = $request->user();
+        $actorName = trim((string) ($actor?->full_name ?? $actor?->username ?? 'Không rõ'));
+        $actorUsername = trim((string) ($actor?->username ?? ''));
+        $actorDisplay = $actorUsername !== ''
+            ? sprintf('%s (%s)', $actorName, $actorUsername)
+            : $actorName;
+        $performedAt = now()->format('d/m/Y H:i:s');
+        $historyCode = $this->formatUserDeptHistoryCode($deletedSnapshot['id'] ?? null);
+        $employeeLabel = $this->formatUserDeptHistoryEmployeeLabel($deletedSnapshot);
+        $fromDeptLabel = $this->formatUserDeptHistoryDepartmentLabel(
+            $deletedSnapshot['fromDeptCode'] ?? null,
+            $deletedSnapshot['fromDeptName'] ?? null
+        );
+        $toDeptLabel = $this->formatUserDeptHistoryDepartmentLabel(
+            $deletedSnapshot['toDeptCode'] ?? null,
+            $deletedSnapshot['toDeptName'] ?? null
+        );
+        $transferTypeLabel = $this->normalizeUserDeptHistoryTransferType($deletedSnapshot['transferType'] ?? null) === self::USER_DEPT_HISTORY_TRANSFER_TYPE_BIET_PHAI
+            ? 'Biệt phái'
+            : 'Luân chuyển';
+
+        $result = $this->emailSmtp->sendPlainTextEmail(
+            $recipients,
+            sprintf('[VNPT Business] Xóa lịch sử điều động - %s', $historyCode),
+            [
+                'Hệ thống vừa xóa một bản ghi lịch sử điều động nhân sự.',
+                '',
+                'Mã lịch sử: '.$historyCode,
+                'Nhân sự: '.$employeeLabel,
+                'Loại hình: '.$transferTypeLabel,
+                'Từ đơn vị: '.$fromDeptLabel,
+                'Đến đơn vị: '.$toDeptLabel,
+                'Ngày hiệu lực: '.(string) ($deletedSnapshot['transferDate'] ?? ''),
+                'Lý do: '.trim((string) ($deletedSnapshot['reason'] ?? '')),
+                'Người xóa: '.$actorDisplay,
+                'Thời điểm xóa: '.$performedAt,
+            ]
+        );
+
+        if (($result['success'] ?? false) === true) {
+            return;
+        }
+
+        Log::warning('user_dept_history.delete_email_failed', [
+            'history_id' => $deletedSnapshot['id'] ?? null,
+            'actor_id' => $actorId,
+            'recipients' => $recipients,
+            'message' => $result['message'] ?? 'Unknown mail error.',
+        ]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function loadUserDeptHistoryNotificationRecipients(): array
+    {
+        if (! $this->support->hasTable('integration_settings')
+            || ! $this->support->hasColumn('integration_settings', 'provider')
+            || ! $this->support->hasColumn('integration_settings', 'smtp_recipient_emails')) {
+            return [];
+        }
+
+        $rawRecipients = DB::table('integration_settings')
+            ->where('provider', 'EMAIL_SMTP')
+            ->value('smtp_recipient_emails');
+
+        return collect(preg_split('/[\s,;]+/', (string) ($rawRecipients ?? '')) ?: [])
+            ->map(fn (mixed $value): string => strtolower(trim((string) $value)))
+            ->filter(fn (string $email): bool => $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function formatUserDeptHistoryCode(mixed $id): string
+    {
+        $raw = strtoupper(trim((string) ($id ?? '')));
+        if ($raw === '') {
+            return 'LS-NA';
+        }
+
+        if (preg_match('/^LC\d+$/', $raw) === 1) {
+            return $raw;
+        }
+
+        $digits = preg_replace('/\D+/', '', $raw);
+
+        return $digits !== ''
+            ? 'LC'.str_pad($digits, 3, '0', STR_PAD_LEFT)
+            : $raw;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function formatUserDeptHistoryEmployeeLabel(array $row): string
+    {
+        $employeeCode = trim((string) ($row['employeeCode'] ?? $row['userCode'] ?? ''));
+        $employeeName = trim((string) ($row['employeeName'] ?? $row['userName'] ?? ''));
+
+        if ($employeeCode !== '' && $employeeName !== '') {
+            return sprintf('%s - %s', $employeeCode, $employeeName);
+        }
+
+        if ($employeeName !== '') {
+            return $employeeName;
+        }
+
+        return $employeeCode !== '' ? $employeeCode : 'Không rõ';
+    }
+
+    private function formatUserDeptHistoryDepartmentLabel(mixed $departmentCode, mixed $departmentName): string
+    {
+        $code = trim((string) ($departmentCode ?? ''));
+        $name = trim((string) ($departmentName ?? ''));
+
+        if ($code !== '' && $name !== '') {
+            return sprintf('%s - %s', $code, $name);
+        }
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return $code !== '' ? $code : 'Không rõ';
     }
 
     private function departmentExists(int $departmentId): bool
@@ -959,6 +1215,18 @@ class IntegrationSettingsOperationsService
         DB::table($userTable)
             ->where('id', $userId)
             ->update($payload);
+    }
+
+    private function normalizeUserDeptHistoryTransferType(mixed $value): string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+
+        return in_array($normalized, [
+            self::USER_DEPT_HISTORY_TRANSFER_TYPE_LUAN_CHUYEN,
+            self::USER_DEPT_HISTORY_TRANSFER_TYPE_BIET_PHAI,
+        ], true)
+            ? $normalized
+            : self::USER_DEPT_HISTORY_TRANSFER_TYPE_LUAN_CHUYEN;
     }
 
     private function resolveEmployeeTable(): ?string

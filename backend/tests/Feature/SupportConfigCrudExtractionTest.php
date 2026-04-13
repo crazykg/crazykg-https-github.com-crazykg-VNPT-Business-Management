@@ -224,6 +224,78 @@ class SupportConfigCrudExtractionTest extends TestCase
             ->assertJsonPath('message', 'Khong the doi ten don vi tinh da phat sinh san pham.');
     }
 
+    public function test_contract_signer_masters_can_create_list_and_update_via_api(): void
+    {
+        $this->setUpContractSignerMasterSchema();
+
+        DB::table('departments')->insert([
+            ['id' => 100, 'dept_code' => 'BGDVT', 'dept_name' => 'Ban giam doc Vien Thong', 'parent_id' => null, 'deleted_at' => null],
+            ['id' => 110, 'dept_code' => 'TTKDGP', 'dept_name' => 'Trung tam Kinh doanh Giai phap', 'parent_id' => 100, 'deleted_at' => null],
+            ['id' => 120, 'dept_code' => 'PGP2', 'dept_name' => 'Phong giai phap 2', 'parent_id' => 110, 'deleted_at' => null],
+            ['id' => 130, 'dept_code' => 'VNPT_CAIRANG', 'dept_name' => 'VNPT Cai Rang', 'parent_id' => 100, 'deleted_at' => null],
+        ]);
+
+        DB::table('internal_users')->insert([
+            ['id' => 1, 'user_code' => 'U001', 'full_name' => 'Signer PGP2', 'department_id' => 120, 'deleted_at' => null],
+            ['id' => 2, 'user_code' => 'U002', 'full_name' => 'Signer Cai Rang', 'department_id' => 130, 'deleted_at' => null],
+            ['id' => 3, 'user_code' => 'U003', 'full_name' => 'No Dept', 'department_id' => null, 'deleted_at' => null],
+        ]);
+
+        $createResponse = $this->postJson('/api/v5/contract-signer-masters', [
+            'internal_user_id' => 1,
+            'is_active' => true,
+        ])->assertCreated();
+
+        $masterId = (int) $createResponse->json('data.id');
+        $this->assertGreaterThan(0, $masterId);
+        $createResponse
+            ->assertJsonPath('data.internal_user_id', 1)
+            ->assertJsonPath('data.user_code', 'U001')
+            ->assertJsonPath('data.department_id', 110)
+            ->assertJsonPath('data.dept_code', 'TTKDGP')
+            ->assertJsonPath('data.dept_name', 'Trung tam Kinh doanh Giai phap');
+
+        DB::table('contracts')->insert([
+            'id' => 901,
+            'signer_user_id' => 1,
+            'deleted_at' => null,
+        ]);
+
+        $this->getJson('/api/v5/contract-signer-masters?include_inactive=1')
+            ->assertOk()
+            ->assertJsonPath('data.0.internal_user_id', 1)
+            ->assertJsonPath('data.0.used_in_contracts', 1);
+
+        $this->putJson("/api/v5/contract-signer-masters/{$masterId}", [
+            'internal_user_id' => 2,
+            'is_active' => false,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Khong the doi nguoi ky da phat sinh hop dong.');
+
+        $this->putJson("/api/v5/contract-signer-masters/{$masterId}", [
+            'internal_user_id' => 1,
+            'is_active' => false,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.internal_user_id', 1)
+            ->assertJsonPath('data.is_active', false);
+
+        $this->postJson('/api/v5/contract-signer-masters', [
+            'internal_user_id' => 3,
+            'is_active' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'internal_user_id is invalid or does not belong to a writable ownership department.');
+
+        $this->postJson('/api/v5/contract-signer-masters', [
+            'internal_user_id' => 1,
+            'is_active' => true,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'internal_user_id has already been taken.');
+    }
+
     private function setUpSupportServiceGroupSchema(): void
     {
         Schema::dropIfExists('customer_requests');
@@ -365,6 +437,46 @@ class SupportConfigCrudExtractionTest extends TestCase
         Schema::create('products', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->string('unit')->nullable();
+        });
+    }
+
+    private function setUpContractSignerMasterSchema(): void
+    {
+        Schema::dropIfExists('contracts');
+        Schema::dropIfExists('contract_signer_masters');
+        Schema::dropIfExists('departments');
+        Schema::dropIfExists('internal_users');
+
+        Schema::create('departments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('dept_code')->nullable();
+            $table->string('dept_name')->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('internal_users', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('user_code')->nullable();
+            $table->string('full_name')->nullable();
+            $table->unsignedBigInteger('department_id')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('contract_signer_masters', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('internal_user_id');
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('created_at')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamp('updated_at')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+        });
+
+        Schema::create('contracts', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('signer_user_id')->nullable();
+            $table->timestamp('deleted_at')->nullable();
         });
     }
 }

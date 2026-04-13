@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
 import {
   Customer,
+  Department,
+  Employee,
+  Product,
+  ProductPackage,
+  ContractSignerMaster,
   ProjectTypeOption,
   ProductUnitMaster,
   SupportContactPosition,
@@ -20,12 +25,15 @@ import {
   generateCalendarYear,
 } from '../services/v5Api';
 import { PaginationControls } from './PaginationControls';
+import ProductSalesConfigList from './ProductSalesConfigList';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 
 type MasterType =
   | 'group'
   | 'contact_position'
   | 'product_unit'
+  | 'contract_signer'
+  | 'product_sales_config'
   | 'status'
   | 'project_type'
   | 'worklog_activity_type'
@@ -46,7 +54,12 @@ interface SupportMasterManagementProps {
   customers: Customer[];
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
+  departments?: Department[];
+  employees?: Employee[];
+  products?: Product[];
+  productPackages?: ProductPackage[];
   productUnitMasters?: ProductUnitMaster[];
+  contractSignerMasters?: ContractSignerMaster[];
   supportRequestStatuses: SupportRequestStatusOption[];
   worklogActivityTypes: WorklogActivityTypeOption[];
   supportSlaConfigs: SupportSlaConfigOption[];
@@ -67,6 +80,10 @@ interface SupportMasterManagementProps {
     payload: Partial<ProductUnitMaster>,
     options?: { silent?: boolean }
   ) => Promise<ProductUnitMaster>;
+  onCreateContractSignerMaster?: (
+    payload: Partial<ContractSignerMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ContractSignerMaster>;
   onCreateSupportContactPositionsBulk?: (
     items: Array<Partial<SupportContactPosition>>,
     options?: { silent?: boolean }
@@ -81,6 +98,11 @@ interface SupportMasterManagementProps {
     payload: Partial<ProductUnitMaster>,
     options?: { silent?: boolean }
   ) => Promise<ProductUnitMaster>;
+  onUpdateContractSignerMaster?: (
+    id: string | number,
+    payload: Partial<ContractSignerMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ContractSignerMaster>;
   onCreateSupportRequestStatus: (
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -123,19 +145,24 @@ interface SupportMasterManagementProps {
   canReadCustomers?: boolean;
   canReadServiceGroups?: boolean;
   canReadContactPositions?: boolean;
+  canReadProducts?: boolean;
   canReadProductUnitMasters?: boolean;
+  canReadContractSigners?: boolean;
   canReadStatuses?: boolean;
   canReadWorklogActivityTypes?: boolean;
   canReadSlaConfigs?: boolean;
   canWriteServiceGroups?: boolean;
   canWriteContactPositions?: boolean;
+  canWriteProducts?: boolean;
   canWriteProductUnitMasters?: boolean;
+  canWriteContractSigners?: boolean;
   canWriteStatuses?: boolean;
   canWriteWorklogActivityTypes?: boolean;
   canWriteSlaConfigs?: boolean;
   // Lịch làm việc
   canWriteWorkCalendar?: boolean;
   canReadWorkCalendar?: boolean;
+  onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
 interface GroupFormState {
@@ -159,6 +186,11 @@ interface ProductUnitFormState {
   unit_code: string;
   unit_name: string;
   description: string;
+  is_active: boolean;
+}
+
+interface ContractSignerFormState {
+  internal_user_id: string;
   is_active: boolean;
 }
 
@@ -249,6 +281,61 @@ const normalizeToken = (value: unknown): string =>
     .toLowerCase()
     .trim();
 
+const normalizeDepartmentToken = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/[Đđ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .trim()
+    .toUpperCase();
+
+const SOLUTION_CENTER_CODE_TOKENS = new Set(['TTKDGIAIPHAP', 'TTKDGP', 'TTGP']);
+const SOLUTION_CENTER_NAME_TOKEN = 'TRUNGTAMKINHDOANHGIAIPHAP';
+
+const findDepartmentById = (
+  departments: Department[],
+  departmentId: string | number | null | undefined
+): Department | null => {
+  const normalizedId = String(departmentId ?? '').trim();
+  if (!normalizedId) {
+    return null;
+  }
+
+  return departments.find((department) => String(department.id) === normalizedId) ?? null;
+};
+
+const isSolutionCenterDepartment = (department: Department | null | undefined): boolean => {
+  if (!department) {
+    return false;
+  }
+
+  const codeToken = normalizeDepartmentToken(department.dept_code);
+  if (SOLUTION_CENTER_CODE_TOKENS.has(codeToken)) {
+    return true;
+  }
+
+  const nameToken = normalizeDepartmentToken(department.dept_name);
+  return nameToken.includes(SOLUTION_CENTER_NAME_TOKEN);
+};
+
+const resolveOwnershipDepartment = (
+  departments: Department[],
+  departmentId: string | number | null | undefined
+): Department | null => {
+  const currentDepartment = findDepartmentById(departments, departmentId);
+  if (!currentDepartment) {
+    return null;
+  }
+
+  const parentDepartment = findDepartmentById(departments, currentDepartment.parent_id);
+  if (isSolutionCenterDepartment(parentDepartment)) {
+    return parentDepartment;
+  }
+
+  return currentDepartment;
+};
+
 const normalizeGroupCodeInput = (value: string): string =>
   String(value || '')
     .toUpperCase()
@@ -306,6 +393,11 @@ const defaultProductUnitForm = (): ProductUnitFormState => ({
   unit_code: '',
   unit_name: '',
   description: '',
+  is_active: true,
+});
+
+const defaultContractSignerForm = (): ContractSignerFormState => ({
+  internal_user_id: '',
   is_active: true,
 });
 
@@ -423,7 +515,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   customers = [],
   supportServiceGroups = [],
   supportContactPositions = [],
+  departments = [],
+  employees = [],
+  products = [],
+  productPackages = [],
   productUnitMasters = [],
+  contractSignerMasters = [],
   supportRequestStatuses = [],
   worklogActivityTypes = [],
   supportSlaConfigs = [],
@@ -431,8 +528,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   onUpdateSupportServiceGroup,
   onCreateSupportContactPosition,
   onCreateProductUnitMaster,
+  onCreateContractSignerMaster,
   onUpdateSupportContactPosition,
   onUpdateProductUnitMaster,
+  onUpdateContractSignerMaster,
   onCreateSupportRequestStatus,
   onUpdateSupportRequestStatus,
   projectTypes = [],
@@ -445,13 +544,17 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   canReadCustomers = true,
   canReadServiceGroups = true,
   canReadContactPositions = true,
+  canReadProducts = false,
   canReadProductUnitMasters = false,
+  canReadContractSigners = false,
   canReadStatuses = true,
   canReadWorklogActivityTypes = true,
   canReadSlaConfigs = true,
   canWriteServiceGroups = true,
   canWriteContactPositions = true,
+  canWriteProducts = false,
   canWriteProductUnitMasters = false,
+  canWriteContractSigners = false,
   canWriteStatuses = true,
   canWriteWorklogActivityTypes = true,
   canWriteSlaConfigs = true,
@@ -459,6 +562,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   canReadProjectTypes = true,
   canWriteWorkCalendar = true,
   canReadWorkCalendar = true,
+  onNotify,
 }) => {
   const [masterType, setMasterType] = useState<MasterType>('group');
   const [searchTerm, setSearchTerm] = useState('');
@@ -486,6 +590,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [editingGroup, setEditingGroup] = useState<SupportServiceGroup | null>(null);
   const [editingContactPosition, setEditingContactPosition] = useState<SupportContactPosition | null>(null);
   const [editingProductUnitMaster, setEditingProductUnitMaster] = useState<ProductUnitMaster | null>(null);
+  const [editingContractSignerMaster, setEditingContractSignerMaster] = useState<ContractSignerMaster | null>(null);
   const [editingStatus, setEditingStatus] = useState<SupportRequestStatusOption | null>(null);
   const [editingProjectType, setEditingProjectType] = useState<ProjectTypeOption | null>(null);
   const [editingWorklogActivityType, setEditingWorklogActivityType] = useState<WorklogActivityTypeOption | null>(null);
@@ -496,6 +601,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [groupForm, setGroupForm] = useState<GroupFormState>(defaultGroupForm);
   const [contactPositionForm, setContactPositionForm] = useState<ContactPositionFormState>(defaultContactPositionForm);
   const [productUnitForm, setProductUnitForm] = useState<ProductUnitFormState>(defaultProductUnitForm);
+  const [contractSignerForm, setContractSignerForm] = useState<ContractSignerFormState>(defaultContractSignerForm);
   const [statusForm, setStatusForm] = useState<StatusFormState>(() => defaultStatusForm(10));
   const [projectTypeForm, setProjectTypeForm] = useState<ProjectTypeFormState>(() =>
     defaultProjectTypeForm(10)
@@ -559,6 +665,78 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     : !hasCustomerOptions
       ? 'Chưa có dữ liệu khách hàng để liên kết.'
       : '';
+
+  const contractSignerEmployeeOptions = useMemo<SearchableSelectOption[]>(() => {
+    const options: SearchableSelectOption[] = [];
+    const seen = new Set<string>();
+
+    (employees || []).forEach((employee) => {
+      const employeeId = String(employee.id ?? '').trim();
+      if (!employeeId || seen.has(employeeId)) {
+        return;
+      }
+
+      const ownershipDepartment = resolveOwnershipDepartment(departments, employee.department_id);
+      if (!ownershipDepartment) {
+        return;
+      }
+
+      seen.add(employeeId);
+      options.push({
+        value: employeeId,
+        label:
+          [String(employee.user_code || '').trim(), String(employee.full_name || '').trim()]
+            .filter((part) => part !== '')
+            .join(' - ') || `#${employeeId}`,
+        searchText: `${employee.user_code || ''} ${employee.full_name || ''} ${ownershipDepartment.dept_code || ''} ${ownershipDepartment.dept_name || ''}`.trim(),
+      });
+    });
+
+    const selectedValue = String(contractSignerForm.internal_user_id || '').trim();
+    if (selectedValue !== '' && !seen.has(selectedValue) && editingContractSignerMaster) {
+      options.unshift({
+        value: selectedValue,
+        label:
+          [
+            String(editingContractSignerMaster.user_code || '').trim(),
+            String(editingContractSignerMaster.full_name || '').trim(),
+          ]
+            .filter((part) => part !== '')
+            .join(' - ') || `#${selectedValue}`,
+        searchText: `${editingContractSignerMaster.user_code || ''} ${editingContractSignerMaster.full_name || ''} ${editingContractSignerMaster.dept_code || ''} ${editingContractSignerMaster.dept_name || ''}`.trim(),
+      });
+    }
+
+    return options.sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'vi'));
+  }, [contractSignerForm.internal_user_id, departments, editingContractSignerMaster, employees]);
+
+  const selectedContractSignerEmployee = useMemo(
+    () =>
+      employees.find((employee) => String(employee.id ?? '') === String(contractSignerForm.internal_user_id || '').trim())
+      ?? null,
+    [contractSignerForm.internal_user_id, employees]
+  );
+
+  const selectedContractSignerOwnershipDepartment = useMemo(() => {
+    if (selectedContractSignerEmployee) {
+      return resolveOwnershipDepartment(departments, selectedContractSignerEmployee.department_id);
+    }
+
+    if (
+      editingContractSignerMaster
+      && String(editingContractSignerMaster.internal_user_id) === String(contractSignerForm.internal_user_id || '').trim()
+    ) {
+      return editingContractSignerMaster.department_id !== null && editingContractSignerMaster.department_id !== undefined
+        ? {
+            id: editingContractSignerMaster.department_id,
+            dept_code: editingContractSignerMaster.dept_code || null,
+            dept_name: editingContractSignerMaster.dept_name || null,
+          }
+        : null;
+    }
+
+    return null;
+  }, [contractSignerForm.internal_user_id, departments, editingContractSignerMaster, selectedContractSignerEmployee]);
 
   const workflowStatusCatalogOptions = useMemo<SearchableSelectOption[]>(() => {
     const activeRows = (workflowStatusCatalogs || []).filter((item) => item.is_active !== false);
@@ -646,6 +824,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadProductUnitMasters) {
       options.push({ value: 'product_unit', label: 'Đơn vị tính sản phẩm' });
     }
+    if (canReadContractSigners) {
+      options.push({ value: 'contract_signer', label: 'Người ký hợp đồng' });
+    }
+    if (canReadProducts) {
+      options.push({ value: 'product_sales_config', label: 'Cấu hình bán sản phẩm' });
+    }
     if (canReadStatuses) {
       options.push({ value: 'status', label: 'Trạng thái hỗ trợ' });
     }
@@ -667,7 +851,9 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   }, [
     canReadServiceGroups,
     canReadContactPositions,
+    canReadProducts,
     canReadProductUnitMasters,
+    canReadContractSigners,
     canReadStatuses,
     canReadProjectTypes,
     canReadWorklogActivityTypes,
@@ -682,6 +868,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? canWriteContactPositions
       : masterType === 'product_unit'
         ? canWriteProductUnitMasters
+      : masterType === 'contract_signer'
+        ? canWriteContractSigners
+      : masterType === 'product_sales_config'
+        ? canWriteProducts
       : masterType === 'status'
         ? canWriteStatuses
       : masterType === 'project_type'
@@ -855,6 +1045,46 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     });
   }, [productUnitMasters, activityFilter, searchTerm]);
 
+  const filteredContractSignerMasters = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+
+    return (contractSignerMasters || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const haystack = `${item.user_code || ''} ${item.full_name || ''} ${item.dept_code || ''} ${item.dept_name || ''}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [contractSignerMasters, activityFilter, searchTerm]);
+
+  const filteredProductSalesConfigs = useMemo(() => {
+    const keyword = normalizeToken(searchTerm);
+    const productPackagesByProductId = new Map<string, ProductPackage[]>();
+
+    (productPackages || []).forEach((item) => {
+      const key = String(item.product_id ?? '');
+      const rows = productPackagesByProductId.get(key) || [];
+      rows.push(item);
+      productPackagesByProductId.set(key, rows);
+    });
+
+    return (products || []).filter((item) => {
+      const isActive = item.is_active !== false;
+      const matchesActivity =
+        activityFilter === 'all' ? true : activityFilter === 'active' ? isActive : !isActive;
+      const relatedPackages = productPackagesByProductId.get(String(item.id ?? '')) || [];
+      const packageHaystack = relatedPackages
+        .map((productPackage) => `${productPackage.package_code || ''} ${productPackage.package_name || ''}`)
+        .join(' ');
+      const haystack = `${item.product_code || ''} ${item.product_name || ''} ${item.product_short_name || ''} ${item.service_group || ''} ${packageHaystack}`;
+      const matchesSearch = keyword ? normalizeToken(haystack).includes(keyword) : true;
+
+      return matchesActivity && matchesSearch;
+    });
+  }, [products, productPackages, activityFilter, searchTerm]);
+
   const filteredStatuses = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
 
@@ -990,6 +1220,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? filteredContactPositions.length
         : masterType === 'product_unit'
           ? filteredProductUnits.length
+        : masterType === 'contract_signer'
+          ? filteredContractSignerMasters.length
+        : masterType === 'product_sales_config'
+          ? filteredProductSalesConfigs.length
         : masterType === 'status'
           ? filteredStatuses.length
         : masterType === 'project_type'
@@ -1031,6 +1265,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     return filteredProductUnits.slice(startIndex, startIndex + rowsPerPage);
   }, [filteredProductUnits, safePage, rowsPerPage]);
 
+  const pagedContractSignerMasters = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredContractSignerMasters.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredContractSignerMasters, safePage, rowsPerPage]);
+
+  const pagedProductSalesConfigs = useMemo(() => {
+    const startIndex = (safePage - 1) * rowsPerPage;
+    return filteredProductSalesConfigs.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredProductSalesConfigs, safePage, rowsPerPage]);
+
   const pagedStatuses = useMemo(() => {
     const startIndex = (safePage - 1) * rowsPerPage;
     return filteredStatuses.slice(startIndex, startIndex + rowsPerPage);
@@ -1071,6 +1315,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setEditingGroup(null);
     setEditingContactPosition(null);
     setEditingProductUnitMaster(null);
+    setEditingContractSignerMaster(null);
     setEditingStatus(null);
     setEditingProjectType(null);
     setEditingWorklogActivityType(null);
@@ -1081,6 +1326,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setGroupForm(defaultGroupForm());
     setContactPositionForm(defaultContactPositionForm());
     setProductUnitForm(defaultProductUnitForm());
+    setContractSignerForm(defaultContractSignerForm());
     setStatusForm(defaultStatusForm(nextStatusSortOrder));
     setProjectTypeForm(defaultProjectTypeForm(nextProjectTypeSortOrder));
     setWorklogActivityTypeForm(defaultWorklogActivityTypeForm(nextWorklogActivityTypeSortOrder));
@@ -1127,6 +1373,13 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     setFormError('');
   };
 
+  const openContractSignerAdd = () => {
+    setFormMode('ADD');
+    setEditingContractSignerMaster(null);
+    setContractSignerForm(defaultContractSignerForm());
+    setFormError('');
+  };
+
   const openProductUnitEdit = (unit: ProductUnitMaster) => {
     setFormMode('EDIT');
     setEditingProductUnitMaster(unit);
@@ -1135,6 +1388,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       unit_name: String(unit.unit_name || ''),
       description: String(unit.description || ''),
       is_active: unit.is_active !== false,
+    });
+    setFormError('');
+  };
+
+  const openContractSignerEdit = (item: ContractSignerMaster) => {
+    setFormMode('EDIT');
+    setEditingContractSignerMaster(item);
+    setContractSignerForm({
+      internal_user_id: String(item.internal_user_id || ''),
+      is_active: item.is_active !== false,
     });
     setFormError('');
   };
@@ -1427,6 +1690,36 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
           await onUpdateProductUnitMaster(editingProductUnitMaster.id, payload);
         }
+      } else if (masterType === 'contract_signer') {
+        const internalUserId = String(contractSignerForm.internal_user_id || '').trim();
+        if (!internalUserId) {
+          setFormError('Nhân sự nội bộ là bắt buộc.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const payload: Partial<ContractSignerMaster> = {
+          internal_user_id: internalUserId,
+          is_active: contractSignerForm.is_active,
+        };
+
+        if (formMode === 'ADD') {
+          if (!onCreateContractSignerMaster) {
+            setFormError('Chức năng tạo người ký hợp đồng chưa được cấu hình.');
+            setIsSubmitting(false);
+            return;
+          }
+
+          await onCreateContractSignerMaster(payload);
+        } else if (formMode === 'EDIT' && editingContractSignerMaster) {
+          if (!onUpdateContractSignerMaster) {
+            setFormError('Chức năng cập nhật người ký hợp đồng chưa được cấu hình.');
+            setIsSubmitting(false);
+            return;
+          }
+
+          await onUpdateContractSignerMaster(editingContractSignerMaster.id, payload);
+        }
       } else if (masterType === 'status') {
         const statusCode = normalizeStatusCodeInput(statusForm.status_code);
         if (!statusCode) {
@@ -1588,6 +1881,11 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       ? true
       : Boolean(editingProductUnitMaster?.is_name_editable ?? Number(editingProductUnitMaster?.used_in_products ?? 0) === 0);
 
+  const contractSignerEmployeeEditable =
+    formMode === 'ADD'
+      ? true
+      : Number(editingContractSignerMaster?.used_in_contracts ?? 0) === 0;
+
   const projectTypeCodeEditable =
     formMode === 'ADD'
       ? true
@@ -1615,10 +1913,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, trạng thái hỗ trợ, SLA, lịch làm việc và giai đoạn cơ hội.
+            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, danh mục sản phẩm, người ký hợp đồng, trạng thái hỗ trợ, SLA và lịch làm việc.
           </p>
         </div>
-        {masterType !== 'work_calendar' && (
+        {masterType !== 'work_calendar' && masterType !== 'product_sales_config' && (
           <button
             type="button"
             disabled={!canWriteCurrentMaster}
@@ -1633,6 +1931,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               }
               if (masterType === 'product_unit') {
                 openProductUnitAdd();
+                return;
+              }
+              if (masterType === 'contract_signer') {
+                openContractSignerAdd();
                 return;
               }
               if (masterType === 'status') {
@@ -1874,6 +2176,68 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
+          ) : masterType === 'contract_signer' ? (
+            <table className="w-full min-w-[920px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Mã NV</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Họ tên</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Phòng ban</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Đang dùng</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-left">Trạng thái</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {pagedContractSignerMasters.map((item) => {
+                  const canEditRow = canWriteContractSigners && item.id !== null && item.id !== undefined;
+                  return (
+                    <tr key={String(item.id)} className="odd:bg-white even:bg-slate-50/30">
+                      <td className="px-6 py-4 text-sm font-mono font-semibold text-slate-800">{item.user_code || '--'}</td>
+                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.full_name || '--'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {[item.dept_code, item.dept_name].filter((part) => String(part || '').trim() !== '').join(' - ') || '--'}
+                      </td>
+                      <td className="px-6 py-4 text-center text-sm text-slate-600">{Number(item.used_in_contracts || 0)}</td>
+                      <td className="px-6 py-4 text-sm">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            item.is_active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {item.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          disabled={!canEditRow}
+                          onClick={() => openContractSignerEdit(item)}
+                          className="p-1.5 text-slate-400 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Cập nhật"
+                        >
+                          <span className="material-symbols-outlined text-lg">edit</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {pagedContractSignerMasters.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                      Không có dữ liệu người ký hợp đồng phù hợp.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : masterType === 'product_sales_config' ? (
+            <ProductSalesConfigList
+              products={pagedProductSalesConfigs}
+              productPackages={productPackages}
+              canManage={canWriteProducts}
+              onNotify={onNotify}
+            />
           ) : masterType === 'status' ? (
             <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50 border-b border-slate-200">
@@ -2577,6 +2941,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                       ? formMode === 'ADD'
                         ? 'Thêm đơn vị tính sản phẩm'
                         : 'Cập nhật đơn vị tính sản phẩm'
+                    : masterType === 'contract_signer'
+                      ? formMode === 'ADD'
+                        ? 'Thêm người ký hợp đồng'
+                        : 'Cập nhật người ký hợp đồng'
 	                  : masterType === 'status'
 	                    ? formMode === 'ADD'
 	                      ? 'Thêm trạng thái hỗ trợ'
@@ -2836,6 +3204,65 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                       checked={productUnitForm.is_active}
                       onChange={(event) =>
                         setProductUnitForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                    />
+                    Hoạt động
+                  </label>
+                </>
+              ) : masterType === 'contract_signer' ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Nhân sự nội bộ <span className="text-red-500">*</span>
+                      </label>
+                      <SearchableSelect
+                        value={contractSignerForm.internal_user_id}
+                        onChange={(value) =>
+                          setContractSignerForm((prev) => ({
+                            ...prev,
+                            internal_user_id: String(value || ''),
+                          }))
+                        }
+                        options={contractSignerEmployeeOptions}
+                        placeholder="Chọn nhân sự nội bộ"
+                        searchPlaceholder="Tìm theo mã, tên hoặc phòng ban..."
+                        noOptionsText="Không tìm thấy nhân sự phù hợp"
+                        disabled={!contractSignerEmployeeEditable}
+                        usePortal
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-semibold text-slate-700">Phòng ban ownership</label>
+                      <input
+                        value={
+                          [selectedContractSignerOwnershipDepartment?.dept_code, selectedContractSignerOwnershipDepartment?.dept_name]
+                            .filter((part) => String(part || '').trim() !== '')
+                            .join(' - ')
+                        }
+                        readOnly
+                        placeholder="Chưa xác định phòng ban ownership"
+                        className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-slate-50 text-slate-700 outline-none"
+                      />
+                    </div>
+                  </div>
+                  {!contractSignerEmployeeEditable && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Người ký này đã phát sinh hợp đồng, chỉ cho phép bật hoặc tắt trạng thái sử dụng.
+                    </p>
+                  )}
+                  {editingContractSignerMaster && (
+                    <p className="text-xs text-slate-500">
+                      Đang dùng trong {Number(editingContractSignerMaster.used_in_contracts || 0)} hợp đồng.
+                    </p>
+                  )}
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={contractSignerForm.is_active}
+                      onChange={(event) =>
+                        setContractSignerForm((prev) => ({ ...prev, is_active: event.target.checked }))
                       }
                       className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30"
                     />

@@ -50,6 +50,9 @@ const normalizeContractItems = (
 ):
   | Array<{
       product_id: number;
+      product_package_id: number | null;
+      product_name: string | null;
+      unit: string | null;
       quantity: number;
       unit_price: number;
       vat_rate: number | null;
@@ -74,6 +77,11 @@ const normalizeContractItems = (
 
       return {
         product_id: productId,
+        product_package_id: normalizeNullableNumber(
+          source.product_package_id ?? source.productPackageId
+        ),
+        product_name: normalizeNullableText(source.product_name ?? source.productName),
+        unit: normalizeNullableText(source.unit),
         quantity: normalizeNumber(source.quantity, 1),
         unit_price: normalizeNumber(source.unit_price ?? source.unitPrice, 0),
         vat_rate: normalizeNullableNumber(source.vat_rate ?? source.vatRate),
@@ -85,6 +93,9 @@ const normalizeContractItems = (
         item
       ): item is {
         product_id: number;
+        product_package_id: number | null;
+        product_name: string | null;
+        unit: string | null;
         quantity: number;
         unit_price: number;
         vat_rate: number | null;
@@ -93,7 +104,7 @@ const normalizeContractItems = (
     );
 };
 
-const normalizePaymentScheduleAttachments = (attachments?: Attachment[]) =>
+const normalizeAttachments = (attachments?: Attachment[]) =>
   Array.isArray(attachments)
     ? attachments.map((attachment) => ({
         id: normalizeNullableText(attachment.id),
@@ -115,6 +126,7 @@ export interface RevenueAnalyticsParams {
   period_to: string;
   grouping?: 'month' | 'quarter';
   contract_id?: number;
+  source_mode?: 'PROJECT' | 'INITIAL';
 }
 
 export type ContractPaymentAllocationMode = 'EVEN' | 'MILESTONE';
@@ -125,12 +137,19 @@ export interface ContractMilestoneInstallmentInput {
   expected_date?: string | null;
 }
 
+export interface ContractCycleDraftInstallmentInput {
+  label: string;
+  expected_date: string;
+  expected_amount: number;
+}
+
 export interface GenerateContractPaymentsPayload {
   allocation_mode?: ContractPaymentAllocationMode;
   advance_percentage?: number;
   retention_percentage?: number;
   installment_count?: number;
   installments?: ContractMilestoneInstallmentInput[];
+  draft_installments?: ContractCycleDraftInstallmentInput[];
 }
 
 export interface GenerateContractPaymentsResult {
@@ -176,6 +195,9 @@ export const fetchContractRevenueAnalytics = async (
   if (typeof params.contract_id === 'number' && Number.isFinite(params.contract_id) && params.contract_id > 0) {
     query.set('contract_id', String(params.contract_id));
   }
+  if (params.source_mode === 'PROJECT' || params.source_mode === 'INITIAL') {
+    query.set('source_mode', params.source_mode);
+  }
 
   const res = await apiFetch(`/api/v5/contracts/revenue-analytics?${query.toString()}`, {
     credentials: 'include',
@@ -214,6 +236,7 @@ export const createContract = async (
       project_type_code: payload.project_type_code ? String(payload.project_type_code).trim().toUpperCase() : null,
       term_unit: normalizedTermUnit,
       term_value: normalizeNullableNumber(payload.term_value),
+      attachments: normalizeAttachments(payload.attachments),
       items: normalizeContractItems(payload.items),
       expiry_date_manual_override:
         payload.expiry_date_manual_override === undefined
@@ -235,32 +258,44 @@ export const updateContract = async (
 ): Promise<Contract> => {
   const termUnitRaw = String(payload.term_unit || '').trim().toUpperCase();
   const normalizedTermUnit = termUnitRaw === 'MONTH' || termUnitRaw === 'DAY' ? termUnitRaw : null;
+  const body: Record<string, unknown> = {};
+  const assignIfPresent = (key: string, value: unknown) => {
+    if (Object.prototype.hasOwnProperty.call(payload, key) && value !== undefined) {
+      body[key] = value;
+    }
+  };
+
+  assignIfPresent('contract_code', payload.contract_code);
+  assignIfPresent('contract_name', payload.contract_name);
+  assignIfPresent('signer_user_id', normalizeNullableNumber(payload.signer_user_id));
+  assignIfPresent('customer_id', normalizeNullableNumber(payload.customer_id));
+  assignIfPresent('project_id', normalizeNullableNumber(payload.project_id));
+  assignIfPresent('value', normalizeNumber(payload.value, 0));
+  assignIfPresent('payment_cycle', normalizePaymentCycle(payload.payment_cycle, 'ONCE'));
+  assignIfPresent('status', payload.status);
+  assignIfPresent('sign_date', payload.sign_date);
+  assignIfPresent('effective_date', payload.effective_date);
+  assignIfPresent('expiry_date', payload.expiry_date);
+  assignIfPresent(
+    'project_type_code',
+    payload.project_type_code ? String(payload.project_type_code).trim().toUpperCase() : null
+  );
+  assignIfPresent('term_unit', normalizedTermUnit);
+  assignIfPresent('term_value', normalizeNullableNumber(payload.term_value));
+  assignIfPresent('attachments', normalizeAttachments(payload.attachments));
+  assignIfPresent('items', normalizeContractItems(payload.items));
+  assignIfPresent(
+    'expiry_date_manual_override',
+    payload.expiry_date_manual_override === undefined
+      ? undefined
+      : Boolean(payload.expiry_date_manual_override)
+  );
 
   const res = await apiFetch(`/api/v5/contracts/${id}`, {
     method: 'PUT',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      contract_code: payload.contract_code,
-      contract_name: payload.contract_name,
-      signer_user_id: normalizeNullableNumber(payload.signer_user_id),
-      customer_id: normalizeNullableNumber(payload.customer_id),
-      project_id: normalizeNullableNumber(payload.project_id),
-      value: normalizeNumber(payload.value, 0),
-      payment_cycle: normalizePaymentCycle(payload.payment_cycle, 'ONCE'),
-      status: payload.status,
-      sign_date: payload.sign_date,
-      effective_date: payload.effective_date,
-      expiry_date: payload.expiry_date,
-      project_type_code: payload.project_type_code ? String(payload.project_type_code).trim().toUpperCase() : null,
-      term_unit: normalizedTermUnit,
-      term_value: normalizeNullableNumber(payload.term_value),
-      items: normalizeContractItems(payload.items),
-      expiry_date_manual_override:
-        payload.expiry_date_manual_override === undefined
-          ? undefined
-          : Boolean(payload.expiry_date_manual_override),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -316,7 +351,7 @@ export const updatePaymentSchedule = async (
       actual_paid_amount: normalizeNumber(payload.actual_paid_amount, 0),
       status: payload.status,
       notes: normalizeNullableText(payload.notes),
-      attachments: normalizePaymentScheduleAttachments(payload.attachments),
+      attachments: normalizeAttachments(payload.attachments),
     }),
   });
 
@@ -325,6 +360,18 @@ export const updatePaymentSchedule = async (
   }
 
   return parseItemJson<PaymentSchedule>(res);
+};
+
+export const deletePaymentSchedule = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/payment-schedules/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PAYMENT_SCHEDULE_FAILED'));
+  }
 };
 
 export const generateContractPayments = async (
@@ -345,6 +392,13 @@ export const generateContractPayments = async (
             label: normalizeNullableText(installment.label),
             percentage: normalizeNumber(installment.percentage, 0),
             expected_date: normalizeNullableText(installment.expected_date),
+          }))
+        : undefined,
+      draft_installments: Array.isArray(payload?.draft_installments)
+        ? payload.draft_installments.map((installment) => ({
+            label: normalizeNullableText(installment.label),
+            expected_date: normalizeNullableText(installment.expected_date),
+            expected_amount: normalizeNumber(installment.expected_amount, 0),
           }))
         : undefined,
     }),

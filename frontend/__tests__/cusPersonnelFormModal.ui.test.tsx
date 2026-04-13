@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CusPersonnelFormModal } from '../components/modals';
@@ -51,6 +51,29 @@ const existingPersonnel: CustomerPersonnel = {
 };
 
 describe('CusPersonnelFormModal', () => {
+  it('uses the same compact sizing for customer, position and status selects as other inputs', () => {
+    render(
+      <CusPersonnelFormModal
+        type="ADD"
+        customers={customers}
+        supportContactPositions={supportContactPositions}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    const customerField = screen.getByText('Khách hàng', { selector: 'label' }).closest('div');
+    const positionField = screen.getByText('Chức vụ', { selector: 'label' }).closest('div');
+    const statusField = screen.getByText('Trạng thái', { selector: 'label' }).closest('div');
+
+    expect(screen.getByText('Khách hàng', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByText('Chức vụ', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByText('Trạng thái', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
+    expect(within(customerField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+  });
+
   it('renders the position dropdown in a portal so it is not clipped by the modal frame', async () => {
     const user = userEvent.setup();
 

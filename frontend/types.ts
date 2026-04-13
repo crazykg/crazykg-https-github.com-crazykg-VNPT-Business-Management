@@ -84,6 +84,7 @@ export interface PaginationMeta {
     new_signed_count?: number;
     new_signed_value?: number;
     total_pipeline_value?: number;
+    total_estimated_value?: number;
     overdue_payment_amount?: number;
     collection_rate?: number;
     actual_collected_value?: number;
@@ -341,7 +342,9 @@ export interface Product {
   service_group?: string | null;
   product_code: string;
   product_name: string;
+  product_short_name?: string | null;
   package_name?: string | null;
+  has_product_packages?: boolean;
   domain_id: string | number;
   vendor_id: string | number;
   standard_price: number;
@@ -355,6 +358,28 @@ export interface Product {
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
+  updated_by?: string | number | null;
+}
+
+export interface ProductPackage {
+  id: string | number;
+  uuid?: string | null;
+  product_id: string | number;
+  package_code: string;
+  package_name: string;
+  product_name?: string | null;
+  parent_product_code?: string | null;
+  service_group?: string | null;
+  domain_id?: string | number | null;
+  vendor_id?: string | number | null;
+  standard_price: number;
+  unit?: string | null;
+  description?: string | null;
+  attachments?: Attachment[];
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
   updated_by?: string | number | null;
 }
 
@@ -680,6 +705,22 @@ export interface ProductUnitMaster {
   is_active: boolean;
   used_in_products?: number;
   is_name_editable?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
+export interface ContractSignerMaster {
+  id: string | number;
+  internal_user_id: string | number;
+  user_code?: string | null;
+  full_name?: string | null;
+  department_id?: string | number | null;
+  dept_code?: string | null;
+  dept_name?: string | null;
+  used_in_contracts?: number;
+  is_active: boolean;
   created_at?: string | null;
   created_by?: string | number | null;
   updated_at?: string | null;
@@ -1113,6 +1154,7 @@ export interface ProjectItemMaster {
   customer_code?: string | null;
   customer_name?: string | null;
   product_id: string | number;
+  product_package_id?: string | number | null;
   product_code?: string | null;
   product_name?: string | null;
   unit?: string | null;
@@ -1689,12 +1731,15 @@ export interface YeuCauProcessDetail {
 export interface ProjectItem {
   id: string;
   productId: string | number;
+  productPackageId?: string | number | null;
+  catalogValue?: string;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;
   discountAmount: number | string;
   lineTotal?: number;
   product_id?: string | number | null;
+  product_package_id?: string | number | null;
   unit_price?: number | null;
   line_total?: number | null;
   discountMode?: 'PERCENT' | 'AMOUNT';
@@ -1742,6 +1787,7 @@ export interface Project {
   start_date?: string | null;
   expected_end_date?: string | null;
   actual_end_date?: string | null;
+  opportunity_score?: string | number | null;
   status: ProjectStatus;
   status_reason?: string | null;
   investment_mode?: InvestmentMode | string | null;
@@ -1995,6 +2041,8 @@ export interface ContractItem {
   id: string | number;
   contract_id: string | number;
   product_id: string | number;
+  product_package_id?: string | number | null;
+  productPackageId?: string | number | null;
   product_code?: string | null;
   product_name?: string | null;
   unit?: string | null;
@@ -2028,6 +2076,7 @@ export interface Contract {
   expiry_date_manual_override?: boolean;
   term_unit?: ContractTermUnit | null;
   term_value?: number | null;
+  attachments?: Attachment[];
   items?: ContractItem[];
   // Renewal / addendum fields
   parent_contract_id?: string | number | null;
@@ -2035,6 +2084,10 @@ export interface Contract {
   gap_days?: number | null;
   continuity_status?: ContinuityStatus | null;
   penalty_rate?: number | null;          // e.g. 0.05 = 5%
+  payment_schedule_count?: number;
+  has_generated_payment_schedules?: boolean;
+  can_edit_schedule_source_fields?: boolean;
+  can_delete_unpaid_schedules?: boolean;
   parent_contract?: {
     id: number;
     contract_code: string;
@@ -2237,6 +2290,8 @@ export interface SendReminderEmailResult {
   };
 }
 
+export type UserDeptHistoryTransferType = 'LUAN_CHUYEN' | 'BIET_PHAI';
+
 export interface UserDeptHistory {
   id: string;
   userId: string;
@@ -2246,12 +2301,15 @@ export interface UserDeptHistory {
   reason: string;
   createdDate?: string;
   decisionNumber?: string;
+  transferType?: UserDeptHistoryTransferType;
   employeeCode?: string;
   employeeName?: string;
   fromDeptCode?: string | null;
   fromDeptName?: string | null;
   toDeptCode?: string | null;
   toDeptName?: string | null;
+  canDelete?: boolean;
+  deleteRestrictionMessage?: string | null;
 }
 
 // ── Feedback (Góp ý người dùng) ──────────────────────────────────────────────
@@ -2308,6 +2366,10 @@ export type ModalType =
   | 'EDIT_PRODUCT'
   | 'DELETE_PRODUCT'
   | 'CANNOT_DELETE_PRODUCT'
+  | 'ADD_PRODUCT_PACKAGE'
+  | 'EDIT_PRODUCT_PACKAGE'
+  | 'DELETE_PRODUCT_PACKAGE'
+  | 'PRODUCT_PACKAGE_FEATURE_CATALOG'
   | 'PRODUCT_FEATURE_CATALOG'
   | 'PRODUCT_TARGET_SEGMENT'
   | 'ADD_CUSTOMER'
@@ -2598,6 +2660,9 @@ export interface ProjectRevenueSchedule {
   expected_date: string | null;
   expected_amount: number;
   notes: string | null;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_by_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

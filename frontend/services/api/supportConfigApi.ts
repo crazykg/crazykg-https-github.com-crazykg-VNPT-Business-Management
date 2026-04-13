@@ -1,6 +1,7 @@
 import type { BulkMutationResult } from '../../types/common';
 import type { DepartmentWeekOption, DepartmentWeeklySchedule, WorkCalendarDay } from '../../types/scheduling';
 import type {
+  ContractSignerMaster,
   ProductUnitMaster,
   SupportContactPosition,
   SupportRequestStatusOption,
@@ -51,6 +52,11 @@ export const fetchSupportContactPositions = async (includeInactive = false): Pro
 export const fetchProductUnitMasters = async (includeInactive = false): Promise<ProductUnitMaster[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<ProductUnitMaster>(`/api/v5/product-unit-masters${query}`);
+};
+
+export const fetchContractSignerMasters = async (includeInactive = false): Promise<ContractSignerMaster[]> => {
+  const query = includeInactive ? '?include_inactive=1' : '';
+  return fetchList<ContractSignerMaster>(`/api/v5/contract-signer-masters${query}`);
 };
 
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
@@ -197,6 +203,27 @@ export const createProductUnitMaster = async (
   return parseItemJson<ProductUnitMaster>(res);
 };
 
+export const createContractSignerMaster = async (
+  payload: Partial<ContractSignerMaster>
+): Promise<ContractSignerMaster> => {
+  const res = await apiFetch('/api/v5/contract-signer-masters', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      internal_user_id: normalizeNullableNumber(payload.internal_user_id),
+      is_active: payload.is_active ?? true,
+      created_by: normalizeNullableNumber(payload.created_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_CONTRACT_SIGNER_MASTER_FAILED'));
+  }
+
+  return parseItemJson<ContractSignerMaster>(res);
+};
+
 export const updateSupportContactPosition = async (
   id: string | number,
   payload: Partial<SupportContactPosition>
@@ -243,6 +270,28 @@ export const updateProductUnitMaster = async (
   }
 
   return parseItemJson<ProductUnitMaster>(res);
+};
+
+export const updateContractSignerMaster = async (
+  id: string | number,
+  payload: Partial<ContractSignerMaster>
+): Promise<ContractSignerMaster> => {
+  const res = await apiFetch(`/api/v5/contract-signer-masters/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      internal_user_id: normalizeNullableNumber(payload.internal_user_id),
+      is_active: payload.is_active,
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_CONTRACT_SIGNER_MASTER_FAILED'));
+  }
+
+  return parseItemJson<ContractSignerMaster>(res);
 };
 
 export const createSupportContactPositionsBulk = async (

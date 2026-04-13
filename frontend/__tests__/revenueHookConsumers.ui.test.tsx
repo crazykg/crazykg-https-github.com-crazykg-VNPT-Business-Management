@@ -12,6 +12,7 @@ import {
   useRevenueTargets,
   useRevenueTargetsByYears,
 } from '../shared/hooks/useRevenue';
+import { useDashboardRealtime } from '../shared/hooks/useDashboardRealtime';
 import { useRevenueStore } from '../shared/stores/revenueStore';
 import { useToastStore } from '../shared/stores/toastStore';
 import type { Department } from '../types';
@@ -118,6 +119,11 @@ describe('Revenue hook consumers', () => {
       />,
     );
 
+    expect(useDashboardRealtime).toHaveBeenCalledWith(
+      ['revenue'],
+      true,
+      { allowPollingFallback: false },
+    );
     expect(screen.getByText('Kế hoạch doanh thu')).toBeInTheDocument();
     expect(screen.getByText('Tháng 03/2026')).toBeInTheDocument();
 

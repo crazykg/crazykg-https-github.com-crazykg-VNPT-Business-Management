@@ -1,0 +1,199 @@
+
+/vendor/
+
+# Laravel Storage (logs, sessions, cache, uploads)
+/storage/
+/storage/app/
+/storage/framework/
+/storage/logs/
+/storage/logs/laravel.log
+
+# Bootstrap Cache
+/bootstrap/cache/
+/bootstrap/cache/packages.php
+/bootstrap/cache/services.php
+
+# Laravel Mix (nếu dùng)
+public/hot
+public/mix-manifest.json
+
+# Environment Files (chứa secrets)
+.env
+.env.local
+.env.*.local
+
+# Compiled Files
+*.blade.php.cache
+*.compiled
+
+# ===========================================
+# REACT (Frontend)
+# ===========================================
+
+# Node Dependencies (CẢ 2 folders)
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build Outputs
+build/
+dist/
+frontend/build/
+frontend/dist/
+backend/build/
+backend/dist/
+
+# React Cache
+.cache/
+.parcel-cache/
+.turbo/
+
+# ===========================================
+# COMMON (Cả 2)
+# ===========================================
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Package Locks (giữ lại để reference)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Testing
+coverage/
+.nyc_output/
+.phpunit.result.cache
+
+# IDE & Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary Files
+tmp/
+temp/
+.cache/
+*.tmp
+*.temp
+
+# ===========================================
+# Generated Files (KHÔNG CẦN PHÂN TÍCH)
+# ===========================================
+
+# Auto-generated
+*.generated.*
+*.min.js
+*.min.css
+*.bundle.js
+
+# TypeScript Build Outputs
+*.d.ts
+*.js.map
+*.css.map
+
+# ===========================================
+# Large Binary Files
+# ===========================================
+
+# Images (không cần phân tích)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.svg
+
+# Media
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mov
+
+# Documents (trừ markdown)
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ===========================================
+# Database (Nếu Có)
+# ===========================================
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Database Dumps
+*.sql
+!database/seeders/*.sql
+!database/migrations/*.sql
+
+# ===========================================
+# KEEP (NÊN PHÂN TÍCH)
+# ===========================================
+
+# ✅ Code Files
+# *.php
+# *.js
+# *.jsx
+# *.ts
+# *.tsx
+# *.vue
+# *.py
+# *.go
+# *.java
+# *.cs
+
+# ✅ Config Files
+# *.json
+# *.yaml
+# *.yml
+# *.xml
+# *.toml
+
+# ✅ Documentation
+# *.md
+# *.markdown
+# *.rst
+# docs/
+# README*
+
+# ✅ Laravel Specific (NÊN GIỮ)
+# app/
+# routes/
+# database/migrations/
+# database/seeders/
+# tests/
+# config/
+
+# ✅ React Specific (NÊN GIỮ)
+# src/
+# components/
+# pages/
+# hooks/
+# utils/
+# public/

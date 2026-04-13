@@ -45,8 +45,24 @@ class StoreContractRequest extends V5FormRequest
             'term_value' => ['nullable', 'numeric', 'gt:0'],
             'expiry_date_manual_override' => ['sometimes', 'boolean'],
             'data_scope' => ['nullable', 'string', 'max:255'],
+            'attachments' => ['sometimes', 'array'],
+            'attachments.*' => ['array'],
+            'attachments.*.id' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'attachments.*.fileName' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'attachments.*.mimeType' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'attachments.*.fileUrl' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'attachments.*.driveFileId' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'attachments.*.fileSize' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'attachments.*.createdAt' => ['sometimes', 'nullable', 'date'],
+            'attachments.*.storagePath' => ['sometimes', 'nullable', 'string', 'max:1024'],
+            'attachments.*.storageDisk' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'attachments.*.storageVisibility' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'attachments.*.storageProvider' => ['sometimes', 'nullable', 'string', 'max:30'],
             'items' => ['sometimes', 'array'],
             'items.*.product_id' => ['required', 'integer'],
+            'items.*.product_package_id' => ['sometimes', 'nullable', 'integer'],
+            'items.*.product_name' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'items.*.unit' => ['sometimes', 'nullable', 'string', 'max:100'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'items.*.vat_rate' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
@@ -96,6 +112,25 @@ class StoreContractRequest extends V5FormRequest
 
             if (! $departmentExists) {
                 $validator->errors()->add('signer_user_id', 'Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
+            }
+
+            $attachments = $this->input('attachments');
+            if (! is_array($attachments)) {
+                return;
+            }
+
+            foreach ($attachments as $index => $attachment) {
+                if (! is_array($attachment)) {
+                    continue;
+                }
+
+                $fileName = strtolower(trim((string) ($attachment['fileName'] ?? $attachment['file_name'] ?? '')));
+                $mimeType = strtolower(trim((string) ($attachment['mimeType'] ?? $attachment['mime_type'] ?? '')));
+                $isPdf = $mimeType === 'application/pdf' || str_ends_with($fileName, '.pdf');
+
+                if (! $isPdf) {
+                    $validator->errors()->add("attachments.{$index}", 'Chỉ cho phép đính kèm file PDF cho hợp đồng.');
+                }
             }
         });
     }

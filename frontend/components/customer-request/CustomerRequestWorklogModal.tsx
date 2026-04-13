@@ -17,7 +17,7 @@ export type CustomerRequestWorklogSubmission = {
   difficulty_note?: string | null;
   proposal_note?: string | null;
   difficulty_status?: 'none' | 'has_issue' | 'resolved' | null;
-  detail_status_action?: 'in_progress' | 'paused' | null;
+  detail_status_action?: 'in_progress' | 'paused' | 'completed' | null;
 };
 
 export type CustomerRequestWorklogModalContext = {
@@ -80,7 +80,7 @@ const normalizeWorklogForForm = (
   difficulty_note: worklog.difficulty_note ?? null,
   proposal_note: worklog.proposal_note ?? null,
   difficulty_status: (worklog.difficulty_status as 'none' | 'has_issue' | 'resolved' | null) ?? null,
-  detail_status_action: (worklog.detail_status_action as 'in_progress' | 'paused' | null) ?? null,
+  detail_status_action: (worklog.detail_status_action as 'in_progress' | 'paused' | 'completed' | null) ?? null,
 });
 
 const resolveHeaderCaption = (context: CustomerRequestWorklogModalContext): { eyebrow: string; title: string; submit: string } => ({

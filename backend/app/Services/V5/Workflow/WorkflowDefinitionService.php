@@ -142,17 +142,17 @@ class WorkflowDefinitionService
             
             $workflow = WorkflowDefinition::create($workflowData);
             
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'INSERT',
-                details: [
+                request(),
+                'INSERT',
+                'workflow_definitions',
+                $workflow->id,
+                null,
+                [
                     'code' => $workflow->code,
                     'name' => $workflow->name,
                     'process_type' => $workflow->process_type,
-                ],
-                actorId: $userId
+                ]
             );
             
             return $workflow;
@@ -245,17 +245,18 @@ class WorkflowDefinitionService
                 'updated_by' => $userId,
             ]);
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'activate',
-                details: [
+                request(),
+                'UPDATE',
+                'workflow_definitions',
+                $workflow->id,
+                null,
+                [
                     'code' => $workflow->code,
                     'name' => $workflow->name,
                     'process_type' => $workflow->process_type,
-                ],
-                actorId: $userId
+                    'is_active' => true,
+                ]
             );
         });
 
@@ -285,16 +286,17 @@ class WorkflowDefinitionService
                 'updated_by' => $userId,
             ]);
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'deactivate',
-                details: [
+                request(),
+                'UPDATE',
+                'workflow_definitions',
+                $workflow->id,
+                null,
+                [
                     'code' => $workflow->code,
                     'name' => $workflow->name,
-                ],
-                actorId: $userId
+                    'is_active' => false,
+                ]
             );
         });
 
@@ -324,16 +326,16 @@ class WorkflowDefinitionService
             // Soft delete workflow
             $workflow->delete();
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'DELETE',
-                details: [
+                request(),
+                'DELETE',
+                'workflow_definitions',
+                $workflow->id,
+                [
                     'code' => $workflow->code,
                     'name' => $workflow->name,
                 ],
-                actorId: $userId
+                null
             );
         });
 

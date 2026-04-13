@@ -3540,9 +3540,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         />
         </div>
       ) : activeSurface === 'list' ? (
-        <div className="h-[calc(100vh-240px)] flex-1 overflow-hidden">
-          <CustomerRequestListPane {...listPaneProps} />
-        </div>
+        <>
+          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} flex-1 overflow-hidden ${selectedRequestId !== null && layoutMode !== 'mobile' ? 'md:w-[calc(100%-450px)]' : ''}`}>
+            <CustomerRequestListPane {...listPaneProps} />
+          </div>
+
+          {/* Inline detail pane for desktop mode */}
+          {!showDetailModal && selectedRequestId !== null && layoutMode !== 'mobile' && (
+            <div className="absolute top-[152px] right-3 bottom-6 w-[420px] z-10">
+              <CustomerRequestDetailFrame
+                mode="inline"
+                request={selectedRequestSummary}
+                isPinned={isPinnedRequest(selectedRequestSummary?.id)}
+                onTogglePinned={() => {
+                  if (selectedRequestSummary) {
+                    handleTogglePinnedRequest(selectedRequestSummary);
+                  }
+                }}
+                onClose={handleCloseDetail}
+              >
+                {detailPaneNode}
+              </CustomerRequestDetailFrame>
+            </div>
+          )}
+        </>
       ) : null}
 
       {/* Detail modal — dùng một bề mặt duy nhất để hiển thị đủ thông tin

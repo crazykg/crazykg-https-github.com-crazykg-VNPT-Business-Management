@@ -165,7 +165,7 @@ const formatImportPreviewCellValue = (moduleKey: string, header: string, value: 
     return formattedDate === '--' ? rawValue : formattedDate;
   }
 
-  if (moduleToken === 'products' || moduleToken === 'product') {
+  if (['products', 'product', 'productpackages', 'productpackage', 'product_packages'].includes(moduleToken)) {
     if (!['dongiachuan', 'dongiachuanvnd', 'giatieuchuan', 'giatieuchuanvnd', 'standardprice'].includes(headerToken)) {
       return rawValue;
     }

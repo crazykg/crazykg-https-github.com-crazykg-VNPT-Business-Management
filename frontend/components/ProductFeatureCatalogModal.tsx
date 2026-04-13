@@ -22,6 +22,53 @@ import { SearchableSelect } from './SearchableSelect';
 
 type NotifyFn = (type: 'success' | 'error', title: string, message: string) => void;
 
+export type FeatureCatalogUpdatePayload = {
+  groups: Array<{
+    id?: string | number | null;
+    uuid?: string | null;
+    group_name: string;
+    notes?: string | null;
+    display_order?: number | null;
+    features: Array<{
+      id?: string | number | null;
+      uuid?: string | null;
+      feature_name: string;
+      detail_description?: string | null;
+      status?: 'ACTIVE' | 'INACTIVE' | null;
+      display_order?: number | null;
+    }>;
+  }>;
+  audit_context?: {
+    source?: 'FORM' | 'IMPORT' | null;
+    import_file_name?: string | null;
+    import_sheet_name?: string | null;
+    import_row_count?: number | null;
+    import_group_count?: number | null;
+    import_feature_count?: number | null;
+  } | null;
+};
+
+export interface FeatureCatalogModalConfig {
+  entityLabel: string;
+  catalogLabel: string;
+  listLabel: string;
+  featureNounPlural: string;
+  importModuleKey: string;
+  templateFilename: string;
+  exportFilenamePrefix: string;
+  loadCatalog: (id: string | number) => Promise<ProductFeatureCatalog>;
+  loadCatalogList: (
+    id: string | number,
+    params?: {
+      page?: number;
+      per_page?: number;
+      group_id?: string | number | null;
+      search?: string | null;
+    }
+  ) => Promise<ProductFeatureCatalogListPage>;
+  updateCatalog: (id: string | number, payload: FeatureCatalogUpdatePayload) => Promise<ProductFeatureCatalog>;
+}
+
 type DraftFeature = {
   id: string | number;
   persistedId?: string | number | null;
@@ -115,6 +162,7 @@ interface ProductFeatureCatalogModalProps {
   canManage?: boolean;
   onClose: () => void;
   onNotify?: NotifyFn;
+  config?: FeatureCatalogModalConfig;
 }
 
 const FEATURE_STATUS_OPTIONS = [
@@ -138,9 +186,31 @@ const FEATURE_STATUS_LABELS: Record<ProductFeatureStatus, string> = {
   INACTIVE: 'Tạm ngưng',
 };
 
+const DEFAULT_FEATURE_CATALOG_MODAL_CONFIG: FeatureCatalogModalConfig = {
+  entityLabel: 'sản phẩm',
+  catalogLabel: 'Danh mục chức năng',
+  listLabel: 'Danh sách chức năng',
+  featureNounPlural: 'chức năng',
+  importModuleKey: 'product_feature_catalog',
+  templateFilename: 'mau_nhap_danh_muc_chuc_nang_san_pham',
+  exportFilenamePrefix: 'danh_muc_chuc_nang',
+  loadCatalog: fetchProductFeatureCatalog,
+  loadCatalogList: fetchProductFeatureCatalogList,
+  updateCatalog: updateProductFeatureCatalog,
+};
+
 const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
 const toText = (value: unknown): string => String(value ?? '').trim();
+
+const toSentenceLabel = (value: string): string => {
+  const text = toText(value);
+  if (!text) {
+    return '';
+  }
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
 
 const normalizeToken = (value: unknown): string =>
   toText(value)
@@ -921,7 +991,14 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   canManage = false,
   onClose,
   onNotify,
+  config = DEFAULT_FEATURE_CATALOG_MODAL_CONFIG,
 }) => {
+  const entityLabel = toText(config.entityLabel) || 'sản phẩm';
+  const entityLabelCapitalized = toSentenceLabel(entityLabel);
+  const catalogLabel = toText(config.catalogLabel) || 'Danh mục chức năng';
+  const catalogLabelLower = catalogLabel.toLocaleLowerCase('vi-VN');
+  const listLabel = toText(config.listLabel) || 'Danh sách chức năng';
+  const featureNounPlural = toText(config.featureNounPlural) || 'chức năng';
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === 'undefined' ? PRODUCT_FEATURE_CATALOG_EDITOR_BREAKPOINT : window.innerWidth
   );
@@ -1082,10 +1159,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   }, [listGroupFilters, normalizedDraftGroups]);
   const groupFilterOptions = useMemo(
     () => [
-      { value: 'ALL', label: 'Tất cả nhóm chức năng' },
+      { value: 'ALL', label: `Tất cả nhóm ${featureNounPlural}` },
       ...availableGroupFilters,
     ],
-    [availableGroupFilters]
+    [availableGroupFilters, featureNounPlural]
   );
   const filteredDraftGroups = useMemo(() => {
     return normalizedDraftGroups.flatMap((group) => {
@@ -1136,7 +1213,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     setErrorMessage('');
 
     try {
-      const result = await fetchProductFeatureCatalog(product.id);
+      const result = await config.loadCatalog(product.id);
       const nextDraftGroups = toDraftGroups(result.groups || []);
       setCatalog(result);
       setDraftGroups(nextDraftGroups);
@@ -1144,7 +1221,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       setInitialSignature(buildCatalogSignature(nextDraftGroups));
       setPendingAuditContext(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tải danh mục chức năng.';
+      const message = error instanceof Error ? error.message : `Không thể tải ${catalogLabelLower}.`;
       setErrorMessage(message);
     } finally {
       setIsLoading(false);
@@ -1165,7 +1242,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     }
 
     try {
-      const result = await fetchProductFeatureCatalogList(product.id, {
+      const result = await config.loadCatalogList(product.id, {
         page,
         per_page: 40,
         group_id: selectedGroupFilter === 'ALL' ? null : selectedGroupFilter,
@@ -1195,7 +1272,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         return;
       }
 
-      const message = error instanceof Error ? error.message : 'Không thể tải danh sách chức năng.';
+      const message = error instanceof Error ? error.message : `Không thể tải ${listLabel.toLocaleLowerCase('vi-VN')}.`;
       setErrorMessage(message);
     } finally {
       if (requestId === listRequestIdRef.current) {
@@ -1285,7 +1362,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       return;
     }
 
-    if (window.confirm('Danh mục chức năng đang có thay đổi chưa lưu. Bạn vẫn muốn đóng?')) {
+    if (window.confirm(`${catalogLabel} đang có thay đổi chưa lưu. Bạn vẫn muốn đóng?`)) {
       onClose();
     }
   };
@@ -1558,7 +1635,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
   const handleSave = async () => {
     if (!isDirty) {
-      onNotify?.('error', 'Chưa có thay đổi', 'Danh mục chức năng chưa có thay đổi mới để lưu.');
+      onNotify?.('error', 'Chưa có thay đổi', `${catalogLabel} chưa có thay đổi mới để lưu.`);
       return;
     }
 
@@ -1573,7 +1650,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
     try {
       const auditContext = pendingAuditContext ?? { source: 'FORM' as const };
-      const result = await updateProductFeatureCatalog(product.id, buildCatalogPayload(draftGroups, auditContext));
+      const result = await config.updateCatalog(product.id, buildCatalogPayload(draftGroups, auditContext));
       const nextDraftGroups = toDraftGroups(result.groups || []);
       setCatalog(result);
       setDraftGroups(nextDraftGroups);
@@ -1582,9 +1659,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       if (activeTab === 'list') {
         void loadFeatureListPage(1, false);
       }
-      onNotify?.('success', 'Danh mục chức năng', 'Đã lưu danh mục chức năng của sản phẩm.');
+      onNotify?.('success', catalogLabel, `Đã lưu ${catalogLabelLower} của ${entityLabel}.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể lưu danh mục chức năng.';
+      const message = error instanceof Error ? error.message : `Không thể lưu ${catalogLabelLower}.`;
       setErrorMessage(message);
       onNotify?.('error', 'Lưu thất bại', message);
     } finally {
@@ -1593,7 +1670,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const handleDownloadTemplate = () => {
-    downloadExcelWorkbook('mau_nhap_danh_muc_chuc_nang_san_pham', [
+    downloadExcelWorkbook(config.templateFilename, [
       {
         name: 'ChucNang',
         headers: [...FEATURE_IMPORT_HEADERS],
@@ -1615,7 +1692,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const handleExportExcel = () => {
-    downloadExcelWorkbook(`danh_muc_chuc_nang_${productSummary.product_code}_${isoDateStamp()}`, [
+    downloadExcelWorkbook(`${config.exportFilenamePrefix}_${productSummary.product_code}_${isoDateStamp()}`, [
       {
         name: 'DanhMucChucNang',
         headers: ['STT', 'Tên phân hệ/chức năng', 'Mô tả chi tiết tính năng'],
@@ -1715,9 +1792,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         import_feature_count: importedGroups.reduce((total, group) => total + (group.features || []).length, 0),
       });
       setShowImportReviewModal(false);
-      onNotify?.('success', 'Import danh mục chức năng', `Đã nạp ${mergedGroups.length} phân hệ từ file, vui lòng kiểm tra rồi bấm Lưu.`);
+      onNotify?.('success', `Import ${catalogLabelLower}`, `Đã nạp ${mergedGroups.length} phân hệ từ file, vui lòng kiểm tra rồi bấm Lưu.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể import danh mục chức năng.';
+      const message = error instanceof Error ? error.message : `Không thể import ${catalogLabelLower}.`;
       onNotify?.('error', 'Import thất bại', message);
     } finally {
       setIsImporting(false);
@@ -1764,8 +1841,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
   const modalTitleSegments = [toText(productSummary.product_code), toText(productSummary.product_name)].filter(Boolean);
   const modalTitle = modalTitleSegments.length > 0
-    ? `Danh mục chức năng: ${modalTitleSegments.join(' - ')}`
-    : 'Danh mục chức năng';
+    ? `${catalogLabel}: ${modalTitleSegments.join(' - ')}`
+    : catalogLabel;
 
   return (
     <>
@@ -1861,9 +1938,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         ? 'border-primary text-primary'
                         : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
                     }`}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>table_rows</span>
-                    Danh sách chức năng
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>table_rows</span>
+                    {listLabel}
                   </button>
                 </div>
               </div>
@@ -1878,9 +1955,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         value={selectedGroupFilter}
                         options={groupFilterOptions}
                         onChange={(value) => setSelectedGroupFilter(value || 'ALL')}
-                        placeholder="Tất cả nhóm chức năng"
-                        searchPlaceholder="Tìm kiếm nhóm chức năng..."
-                        noOptionsText="Không có nhóm chức năng phù hợp"
+                        placeholder={`Tất cả nhóm ${featureNounPlural}`}
+                        searchPlaceholder={`Tìm kiếm nhóm ${featureNounPlural}...`}
+                        noOptionsText={`Không có nhóm ${featureNounPlural} phù hợp`}
                         usePortal
                         portalZIndex={2300}
                         portalMinWidth={260}
@@ -1900,14 +1977,14 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         value={featureSearchKeyword}
                         onChange={(event) => setFeatureSearchKeyword(event.target.value)}
                         className="h-8 w-full rounded border border-slate-300 bg-white pl-8 pr-8 text-xs text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
-                        placeholder="Tìm kiếm tên chức năng theo nhóm..."
+                        placeholder={`Tìm kiếm tên ${featureNounPlural} theo nhóm...`}
                       />
                       {featureSearchKeyword ? (
                         <button
                           type="button"
                           onClick={() => setFeatureSearchKeyword('')}
                           className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                          aria-label="Xóa từ khóa tìm kiếm chức năng"
+                          aria-label={`Xóa từ khóa tìm kiếm ${featureNounPlural}`}
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
                         </button>
@@ -1935,12 +2012,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
             {activeTab === 'editor' && isLoading ? (
               <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500 shadow-sm">
-                Đang tải danh mục chức năng...
+                {`Đang tải ${catalogLabelLower}...`}
               </div>
             ) : activeTab === 'list' ? (
               shouldUseServerList && isListLoading && featureListRows.length === 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-xs text-slate-500 shadow-sm">
-                  Đang tải danh sách chức năng...
+                  {`Đang tải ${listLabel.toLocaleLowerCase('vi-VN')}...`}
                 </div>
               ) : (
               featureListRows.length > 0 ? (
@@ -2003,7 +2080,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     </table>
                     {shouldUseServerList && isListLoadingMore ? (
                       <div className="border-x border-b border-slate-300 px-4 py-3 text-center text-xs text-slate-500">
-                        Đang tải thêm chức năng...
+                        {`Đang tải thêm ${featureNounPlural}...`}
                       </div>
                     ) : null}
                   </div>
@@ -2012,12 +2089,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
                   <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>format_list_bulleted</span>
                   <p className="mt-3 text-xs font-semibold text-slate-700">
-                    {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups) ? 'Không tìm thấy chức năng phù hợp với bộ lọc hiện tại.' : 'Chưa có chức năng nào để hiển thị.'}
+                    {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups) ? `Không tìm thấy ${featureNounPlural} phù hợp với bộ lọc hiện tại.` : `Chưa có ${featureNounPlural} nào để hiển thị.`}
                   </p>
                   <p className="mt-1.5 text-xs text-slate-500">
                     {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups)
-                      ? 'Hãy đổi nhóm chức năng hoặc xóa từ khóa tìm kiếm để xem lại toàn bộ danh mục.'
-                      : 'Hãy thêm hoặc import danh mục chức năng rồi chuyển lại tab này để xem nhanh.'}
+                      ? `Hãy đổi nhóm ${featureNounPlural} hoặc xóa từ khóa tìm kiếm để xem lại toàn bộ danh mục.`
+                      : `Hãy thêm hoặc import ${catalogLabelLower} rồi chuyển lại tab này để xem nhanh.`}
                   </p>
                 </div>
               )
@@ -2025,9 +2102,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
             ) : !hasAnyCatalogGroups ? (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
                 <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>fact_check</span>
-                <p className="mt-3 text-xs font-semibold text-slate-700">Sản phẩm này chưa có danh mục chức năng.</p>
+                <p className="mt-3 text-xs font-semibold text-slate-700">{`${entityLabelCapitalized} này chưa có ${catalogLabelLower}.`}</p>
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Tạo nhóm chức năng đầu tiên hoặc nhập từ file mẫu để bắt đầu.
+                  {`Tạo nhóm ${featureNounPlural} đầu tiên hoặc nhập từ file mẫu để bắt đầu.`}
                 </p>
                 {canManage && (
                   <button
@@ -2036,16 +2113,16 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                    Thêm nhóm chức năng
+                    {`Thêm nhóm ${featureNounPlural}`}
                   </button>
                 )}
               </div>
             ) : filteredDraftGroups.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center shadow-sm">
                 <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>manage_search</span>
-                <p className="mt-3 text-xs font-semibold text-slate-700">Không tìm thấy chức năng phù hợp với bộ lọc hiện tại.</p>
+                <p className="mt-3 text-xs font-semibold text-slate-700">{`Không tìm thấy ${featureNounPlural} phù hợp với bộ lọc hiện tại.`}</p>
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Hãy đổi nhóm chức năng hoặc xóa từ khóa tìm kiếm để xem lại đầy đủ danh mục.
+                  {`Hãy đổi nhóm ${featureNounPlural} hoặc xóa từ khóa tìm kiếm để xem lại đầy đủ danh mục.`}
                 </p>
               </div>
             ) : (
@@ -2317,7 +2394,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                       className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
-                      {isSaving ? 'Đang lưu...' : 'Lưu danh mục chức năng'}
+                      {isSaving ? 'Đang lưu...' : `Lưu ${catalogLabelLower}`}
                     </button>
                   )}
                 </div>
@@ -2517,7 +2594,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">Lịch sử thay đổi</h4>
                   <p className="mt-0.5 text-[11px] text-slate-400">
-                    Theo dõi các lần cập nhật catalog chức năng của sản phẩm này.
+                    {`Theo dõi các lần cập nhật ${catalogLabelLower} của ${entityLabel} này.`}
                   </p>
                 </div>
                 <button
@@ -2640,7 +2717,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500">Chưa có lịch sử thay đổi nào cho danh mục chức năng.</p>
+                  <p className="text-xs text-slate-500">{`Chưa có lịch sử thay đổi nào cho ${catalogLabelLower}.`}</p>
                 )}
               </div>
             </div>
@@ -2671,8 +2748,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
       {showImportReviewModal && (
         <ImportModal
-          title="Nhập dữ liệu danh mục chức năng"
-          moduleKey="product_feature_catalog"
+          title={`Nhập dữ liệu ${catalogLabelLower}`}
+          moduleKey={config.importModuleKey}
           onClose={() => !isImporting && setShowImportReviewModal(false)}
           onSave={handleApplyImportedCatalog}
           isLoading={isImporting}

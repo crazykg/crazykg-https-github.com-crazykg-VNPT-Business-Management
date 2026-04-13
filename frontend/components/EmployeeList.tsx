@@ -28,6 +28,8 @@ interface EmployeeListProps {
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: EmployeeListQuery) => void;
+  forcedDepartmentFilter?: string;
+  hideDepartmentFilter?: boolean;
 }
 
 const normalizeEmployeeStatus = (status: string | null | undefined): 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' => {
@@ -140,6 +142,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
+  forcedDepartmentFilter,
+  hideDepartmentFilter = false,
 }: EmployeeListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
@@ -302,6 +306,20 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   }, [currentPage, totalPages]);
 
   useEffect(() => {
+    if (forcedDepartmentFilter === undefined) {
+      return;
+    }
+
+    const normalizedForcedFilter = String(forcedDepartmentFilter || '').trim();
+    if (normalizedForcedFilter === String(departmentFilter || '').trim()) {
+      return;
+    }
+
+    setDepartmentFilter(normalizedForcedFilter);
+    setCurrentPage(1);
+  }, [departmentFilter, forcedDepartmentFilter]);
+
+  useEffect(() => {
     if (!serverMode || !onQueryChange) {
       return;
     }
@@ -354,6 +372,9 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     ? (employees || [])
     : filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
   const visibleEmployees = serverMode ? currentData : filteredEmployees;
+  const filterGridClass = hideDepartmentFilter
+    ? 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_180px] xl:items-center'
+    : 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_220px_180px] xl:items-center';
   const activeVisibleCount = visibleEmployees.filter((employee) => normalizeEmployeeStatus(employee.status) === 'ACTIVE').length;
   const vpnVisibleCount = visibleEmployees.filter((employee) => getVpnLabel(employee.vpn_status) === 'Có').length;
   const departmentCoverageCount = new Set(
@@ -697,7 +718,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_220px_180px] xl:items-center">
+          <div className={filterGridClass}>
             <div className="relative min-w-[200px]">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral" style={{ fontSize: 16 }}>
                 search
@@ -710,14 +731,16 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
               />
             </div>
-            <SearchableSelect
-              className="col-span-1"
-              value={departmentFilter}
-              onChange={handleDepartmentFilterChange}
-              options={departmentFilterOptions}
-              placeholder="Phòng ban"
-              triggerClassName={compactSelectTriggerClass}
-            />
+            {!hideDepartmentFilter ? (
+              <SearchableSelect
+                className="col-span-1"
+                value={departmentFilter}
+                onChange={handleDepartmentFilterChange}
+                options={departmentFilterOptions}
+                placeholder="Phòng ban"
+                triggerClassName={compactSelectTriggerClass}
+              />
+            ) : null}
             <div className="relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral" style={{ fontSize: 16 }}>
                 mail

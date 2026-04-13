@@ -51,6 +51,11 @@ const compactParams = <T extends Record<string, unknown>>(params: T): T =>
     return accumulator;
   }, {}) as T;
 
+const STATIC_REVENUE_QUERY_OPTIONS = {
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
+
 export function useRevenueOverview(params: RevenueOverviewQuery) {
   const compactedParams = compactParams(params);
 
@@ -58,6 +63,7 @@ export function useRevenueOverview(params: RevenueOverviewQuery) {
     queryKey: queryKeys.revenue.overview(compactedParams),
     queryFn: () => fetchRevenueOverview(compactedParams),
     enabled: Boolean(compactedParams.period_from) && Boolean(compactedParams.period_to),
+    ...STATIC_REVENUE_QUERY_OPTIONS,
   });
 }
 
@@ -67,6 +73,7 @@ export function useRevenueTargets(params: RevenueTargetsQuery) {
   return useQuery<{ data: RevenueTarget[] }>({
     queryKey: queryKeys.revenue.targets(compactedParams),
     queryFn: () => fetchRevenueTargets(compactedParams),
+    ...STATIC_REVENUE_QUERY_OPTIONS,
   });
 }
 
@@ -84,6 +91,7 @@ export function useRevenueTargetsByYears(params: RevenueTargetsByYearsQuery) {
       return {
         queryKey: queryKeys.revenue.targets(filters),
         queryFn: () => fetchRevenueTargets(filters),
+        ...STATIC_REVENUE_QUERY_OPTIONS,
       };
     }),
   });
@@ -103,6 +111,7 @@ export function useRevenueForecast(params: RevenueForecastQuery) {
   return useQuery<{ data: RevenueForecastData }>({
     queryKey: queryKeys.revenue.forecast(compactedParams),
     queryFn: () => fetchRevenueForecast(compactedParams),
+    ...STATIC_REVENUE_QUERY_OPTIONS,
   });
 }
 
@@ -118,6 +127,7 @@ export function useRevenueReport(params: RevenueReportQuery) {
       dept_id: compactedParams.dept_id as number | undefined,
     }),
     enabled: Boolean(compactedParams.period_from) && Boolean(compactedParams.period_to) && Boolean(compactedParams.dimension),
+    ...STATIC_REVENUE_QUERY_OPTIONS,
   });
 }
 

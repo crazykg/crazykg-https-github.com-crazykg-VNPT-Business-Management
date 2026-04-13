@@ -2,7 +2,7 @@ import { act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
 import { useProjectStore } from '../shared/stores/projectStore';
-import { useFilterStore } from '../shared/stores/filterStore';
+import { getProjectsPageDefaultDateFilters, useFilterStore } from '../shared/stores/filterStore';
 import type { Project, ProjectItemMaster, PaginatedQuery, PaginationMeta } from '../types';
 
 const fetchProjectsMock = vi.hoisted(() => vi.fn());
@@ -109,6 +109,26 @@ describe('projectStore', () => {
     expect(storedFilter.page).toBe(pageQuery.page);
     expect(storedFilter.per_page).toBe(pageQuery.per_page);
     expect(storedFilter.q).toBe(pageQuery.q);
+  });
+
+  it('uses the default project date window when loading without an explicit query', async () => {
+    const defaultDateFilters = getProjectsPageDefaultDateFilters();
+
+    fetchProjectsPageMock.mockResolvedValue({
+      data: [],
+      meta: buildMeta({ page: 1, per_page: 10, total: 0, total_pages: 1 }),
+    });
+
+    await act(async () => {
+      await useProjectStore.getState().loadProjectsPage();
+    });
+
+    expect(fetchProjectsPageMock).toHaveBeenCalledWith(expect.objectContaining({
+      filters: expect.objectContaining({
+        start_date_from: defaultDateFilters.start_date_from,
+        start_date_to: defaultDateFilters.start_date_to,
+      }),
+    }));
   });
 
   it('loads project items as sub-state', async () => {

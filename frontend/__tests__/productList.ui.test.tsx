@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom';
 import type { Business, Product, Vendor } from '../types';
 import { ProductList } from '../components/ProductList';
 import type { ProductQuotationDraft } from '../services/v5Api';
+import { PRODUCT_LIST_UI_STATE_STORAGE_KEY } from '../shared/stores/productListUiState';
 
 const exportSpies = vi.hoisted(() => ({
   downloadExcelWorkbook: vi.fn(),
@@ -59,7 +60,9 @@ const products: Product[] = [
     service_group: 'GROUP_A',
     product_code: 'SP-A',
     product_name: 'San pham A',
+    product_short_name: 'SPA',
     package_name: 'Goi VNPT HIS 1',
+    has_product_packages: true,
     domain_id: 1,
     vendor_id: 1,
     standard_price: 1000000,
@@ -72,7 +75,9 @@ const products: Product[] = [
     service_group: 'GROUP_B',
     product_code: 'SP-B',
     product_name: 'San pham B',
+    product_short_name: 'SPB',
     package_name: 'Goi VNPT HIS 2',
+    has_product_packages: false,
     domain_id: 1,
     vendor_id: 1,
     standard_price: 2000000,
@@ -203,6 +208,7 @@ describe('ProductList UI', () => {
       value: storage,
     });
     vi.stubGlobal('localStorage', storage);
+    window.sessionStorage.clear();
     window.history.replaceState({}, '', '/?tab=products');
     quotationApiSpies.fetchProductQuotationsPage.mockResolvedValue({
       data: [],
@@ -239,7 +245,7 @@ describe('ProductList UI', () => {
     expect(window.location.search).toContain('products_service_group=GROUP_A');
   });
 
-  it('filters by product code or package name and syncs the search term to the URL', async () => {
+  it('filters by product code or product name and syncs the search term to the URL', async () => {
     const user = userEvent.setup();
 
     renderProductList({
@@ -250,8 +256,8 @@ describe('ProductList UI', () => {
     });
 
     await user.type(
-      screen.getByPlaceholderText('Tìm mã sản phẩm hoặc tên gói cước...'),
-      'Goi VNPT HIS 2'
+      screen.getByPlaceholderText('Tìm mã định danh, tên sản phẩm, phân nhóm, tên viết tắt hoặc mô tả...'),
+      'San pham B'
     );
 
     await waitFor(() => {
@@ -260,11 +266,11 @@ describe('ProductList UI', () => {
     });
 
     await waitFor(() => {
-      expect(window.location.search).toContain('products_q=Goi+VNPT+HIS+2');
+      expect(window.location.search).toContain('products_q=San+pham+B');
     });
   });
 
-  it('falls back to product name for search and package display when package name is empty', async () => {
+  it('supports searching by product description and product name when package name is empty', async () => {
     const user = userEvent.setup();
     const productsWithEmptyPackage: Product[] = [
       ...products,
@@ -274,6 +280,7 @@ describe('ProductList UI', () => {
         product_code: 'SP-C',
         product_name: 'San pham C fallback',
         package_name: '',
+        has_product_packages: false,
         domain_id: 1,
         vendor_id: 1,
         standard_price: 3000000,
@@ -290,13 +297,13 @@ describe('ProductList UI', () => {
       onOpenModal: vi.fn(),
     });
 
-    const searchInput = screen.getByPlaceholderText('Tìm mã sản phẩm hoặc tên gói cước...');
+    const searchInput = screen.getByPlaceholderText('Tìm mã định danh, tên sản phẩm, phân nhóm, tên viết tắt hoặc mô tả...');
 
-    await user.type(searchInput, 'San pham A');
+    await user.type(searchInput, 'Mo ta A');
 
     await waitFor(() => {
-      expect(screen.queryByText('SP-A')).not.toBeInTheDocument();
-      expect(screen.getByText('Không tìm thấy sản phẩm phù hợp.')).toBeInTheDocument();
+      expect(screen.getByText('SP-A')).toBeInTheDocument();
+      expect(screen.queryByText('SP-C')).not.toBeInTheDocument();
     });
 
     await user.clear(searchInput);
@@ -348,18 +355,26 @@ describe('ProductList UI', () => {
 
     expect(exportSpies.downloadExcelWorkbook).toHaveBeenCalledTimes(1);
     const [, sheets] = exportSpies.downloadExcelWorkbook.mock.calls[0];
-    expect(sheets[0].headers[0]).toBe('Mã nhóm');
-    expect(sheets[0].headers).toContain('Gói cước');
+    expect(sheets[0].name).toBe('SanPham');
+    expect(sheets[0].headers[0]).toBe('Mã định danh');
+    expect(sheets[0].headers).toContain('Mã định danh');
+    expect(sheets[0].headers).toContain('Mã nhóm dịch vụ');
+    expect(sheets[0].headers).toContain('Tên viết tắt');
+    expect(sheets[0].headers).not.toContain('Gói cước');
+    expect(sheets[0].headers).not.toContain('Đơn giá chuẩn (VNĐ)');
     expect(sheets[0].headers).toContain('Trạng thái');
-    expect(sheets[0].headers).toContain('Mô tả gói cước');
-    expect(sheets[0].rows[0][0]).toBe('GROUP_A');
-    expect(sheets[0].rows[0][3]).toBe('Gói VNPT HIS 1');
-    expect(sheets[0].rows[0][8]).toBe('Hoạt động');
-    expect(sheets[1].name).toBe('NhomDichVu');
-    expect(sheets[2].name).toBe('TrangThai');
+    expect(sheets[0].headers).toContain('Mô tả');
+    expect(sheets[0].rows[0][0]).toBe('VNPT_HIS');
+    expect(sheets[0].rows[0][2]).toBe('Nền tảng HIS phục vụ quản lý bệnh viện.');
+    expect(sheets[0].rows[0][3]).toBe('GROUP_A');
+    expect(sheets[0].rows[0][5]).toBe('KD001');
+    expect(sheets[0].rows[0][7]).toBe('Hoạt động');
+    expect(sheets[1].name).toBe('HuongDan');
+    expect(sheets[2].name).toBe('NhomDichVu');
+    expect(sheets[3].name).toBe('TrangThai');
   });
 
-  it('exports an import-ready spreadsheet with full product fields', async () => {
+  it('exports an import-ready excel workbook with the same core headers as the import template', async () => {
     const user = userEvent.setup();
 
     renderProductList({
@@ -373,25 +388,35 @@ describe('ProductList UI', () => {
     await user.click(screen.getByRole('button', { name: /Excel/i }));
 
     await waitFor(() => {
-      expect(exportSpies.exportExcel).toHaveBeenCalledTimes(1);
+      expect(exportSpies.downloadExcelWorkbook).toHaveBeenCalledTimes(1);
     });
 
-    const [, , headers, rows] = exportSpies.exportExcel.mock.calls[0];
-    expect(headers[0]).toBe('Mã nhóm');
-    expect(headers).toContain('Gói cước');
+    const [, sheets] = exportSpies.downloadExcelWorkbook.mock.calls[0];
+    const headers = sheets[0].headers;
+    const rows = sheets[0].rows;
+    expect(headers[0]).toBe('Mã định danh');
+    expect(headers).toContain('Mã định danh');
+    expect(headers).toContain('Mã nhóm dịch vụ');
+    expect(headers).toContain('Tên viết tắt');
+    expect(headers).not.toContain('Gói cước');
+    expect(headers).not.toContain('Đơn giá chuẩn (VNĐ)');
     expect(headers).toContain('Mã lĩnh vực');
     expect(headers).toContain('Mã nhà cung cấp');
     expect(headers).toContain('Trạng thái');
-    expect(headers).toContain('Mô tả gói cước');
-    expect(rows[0][0]).toBe('GROUP_A');
-    expect(rows[0][4]).toBe('Goi VNPT HIS 1');
+    expect(headers).toContain('Mô tả');
+    expect(rows[0][0]).toBe('SP-A');
+    expect(rows[0][1]).toBe('San pham A');
+    expect(rows[0][2]).toBe('Mo ta A');
+    expect(rows[0][3]).toBe('GROUP_A');
+    expect(rows[0][4]).toBe('SPA');
     expect(rows[0][5]).toBe('KD001');
-    expect(rows[0][7]).toBe('NCC001');
-    expect(rows[0][11]).toBe('Hoạt động');
-    expect(rows[0][12]).toBe('Mo ta A');
+    expect(rows[0][6]).toBe('NCC001');
+    expect(rows[0][7]).toBe('Hoạt động');
+    expect(sheets[1].name).toBe('HuongDan');
+    expect(sheets[2].name).toBe('NhomDichVu');
   });
 
-  it('locks fixed widths for the description, service group, product code and price columns', () => {
+  it('locks fixed widths for the description, service group and product code columns', () => {
     renderProductList({
       products,
       businesses,
@@ -400,10 +425,83 @@ describe('ProductList UI', () => {
     });
 
     expect(screen.getByRole('table')).toHaveClass('table-fixed');
-    expect(screen.getByRole('columnheader', { name: /Mô tả gói cước/i })).toHaveClass('w-[200px]', 'min-w-[200px]');
-    expect(screen.getByRole('columnheader', { name: /Nhóm dịch vụ/i })).toHaveClass('w-[112px]', 'min-w-[112px]');
-    expect(screen.getByRole('columnheader', { name: /Mã SP/i })).toHaveClass('w-[112px]', 'min-w-[112px]');
-    expect(screen.getByRole('columnheader', { name: /Đơn giá/i })).toHaveClass('w-[136px]', 'min-w-[136px]');
+    expect(screen.getByRole('columnheader', { name: /Mô tả/i })).toHaveClass('w-[200px]', 'min-w-[200px]');
+    expect(screen.getByRole('columnheader', { name: /Phân nhóm/i })).toHaveClass('w-[168px]', 'min-w-[168px]');
+    expect(screen.getByRole('columnheader', { name: /Mã định danh/i })).toHaveClass('w-[144px]', 'min-w-[144px]');
+    expect(screen.queryByRole('columnheader', { name: /Đơn giá/i })).not.toBeInTheDocument();
+  });
+
+  it('switches desktop catalog between table and list modes, keeps the URL clean and persists the display mode in session storage', async () => {
+    const user = userEvent.setup();
+
+    renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
+
+    expect(screen.getByTestId('product-view-mode-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('product-table-view')).toHaveClass('block');
+    expect(screen.getByTestId('product-list-view')).toHaveClass('hidden');
+
+    await user.click(screen.getByTestId('product-view-mode-list'));
+
+    expect(screen.getByTestId('product-table-view')).toHaveClass('hidden');
+    expect(screen.getByTestId('product-list-view')).toHaveClass('block');
+    expect(screen.getByTestId('product-catalog-card-list')).toHaveClass('grid-cols-1');
+
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('products_display=');
+    });
+    expect(JSON.parse(window.sessionStorage.getItem(PRODUCT_LIST_UI_STATE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      catalogDisplayMode: 'list',
+    });
+
+    await user.click(screen.getByTestId('product-view-mode-table'));
+
+    expect(screen.getByTestId('product-table-view')).toHaveClass('block');
+    expect(screen.getByTestId('product-list-view')).toHaveClass('hidden');
+
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('products_display=');
+    });
+    expect(JSON.parse(window.sessionStorage.getItem(PRODUCT_LIST_UI_STATE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      catalogDisplayMode: 'table',
+    });
+  });
+
+  it('restores legacy UI params for display, page and rows, then cleans them from the URL', async () => {
+    const manyProducts: Product[] = Array.from({ length: 25 }, (_, index) => ({
+      ...products[0],
+      id: index + 1,
+      product_code: `SP-${index + 1}`,
+      product_name: `San pham ${index + 1}`,
+      product_short_name: `SP${index + 1}`,
+    }));
+
+    renderProductList({
+      products: manyProducts,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    }, '/products?products_display=list&products_page=2&products_rows=20');
+
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('products_display=');
+      expect(window.location.search).not.toContain('products_page=');
+      expect(window.location.search).not.toContain('products_rows=');
+    });
+
+    expect(screen.getByTestId('product-list-view')).toHaveClass('block');
+    expect(screen.getByDisplayValue('20')).toBeInTheDocument();
+    expect(screen.getByText('SP-21')).toBeInTheDocument();
+    expect(screen.queryByText('SP-1')).not.toBeInTheDocument();
+    expect(JSON.parse(window.sessionStorage.getItem(PRODUCT_LIST_UI_STATE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      catalogDisplayMode: 'list',
+      currentPage: 2,
+      rowsPerPage: 20,
+    });
   });
 
   it('keeps responsive scaffolding for the toolbar, KPI strip and filter bar', () => {
@@ -417,12 +515,12 @@ describe('ProductList UI', () => {
       canUploadDocument: true,
     });
 
-    expect(screen.getByTestId('products-toolbar')).toHaveClass('flex-col', 'xl:flex-row');
-    expect(screen.getByTestId('products-kpi-grid')).toHaveClass('grid-cols-2', 'xl:grid-cols-5');
+    expect(screen.getByTestId('products-toolbar')).toHaveClass('flex-col', 'xl:flex-row', 'xl:sticky', 'xl:top-0');
+    expect(screen.getByTestId('products-kpi-grid')).toHaveClass('grid-cols-2', 'xl:grid-cols-4');
     expect(screen.getByTestId('products-filter-toolbar')).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-2');
   });
 
-  it('removes the inactive KPI card from the summary strip', () => {
+  it('shows only the total KPI card in the summary strip', () => {
     renderProductList({
       products: productsWithInactive,
       businesses,
@@ -432,7 +530,7 @@ describe('ProductList UI', () => {
 
     const kpiGrid = screen.getByTestId('products-kpi-grid');
     expect(within(kpiGrid).getByText('Tổng số')).toBeInTheDocument();
-    expect(within(kpiGrid).getByText('Hoạt động')).toBeInTheDocument();
+    expect(within(kpiGrid).queryByText('Hoạt động')).not.toBeInTheDocument();
     expect(within(kpiGrid).queryByText('Ngưng hoạt động')).not.toBeInTheDocument();
   });
 
@@ -559,7 +657,7 @@ describe('ProductList UI', () => {
 
     expect(screen.queryByTestId('product-catalog-card-details-1')).not.toBeInTheDocument();
 
-    expect(screen.getAllByTestId('product-catalog-card')[0]).toHaveTextContent('Mô tả gói cước: Mo ta A');
+    expect(screen.getAllByTestId('product-catalog-card')[0]).toHaveTextContent('Mô tả: Mo ta A');
 
     await user.click(firstCardToggle);
 
@@ -593,17 +691,11 @@ describe('ProductList UI', () => {
 
     const firstCard = screen.getAllByTestId('product-catalog-card')[0];
 
-    expect(firstCard).toHaveTextContent('Mã: SP-A');
-    expect(firstCard).toHaveTextContent('Gói cước: Goi VNPT HIS 1');
-    expect(within(firstCard).getAllByText(/^Gói cước:$/i)).toHaveLength(1);
-    expect(within(firstCard).getByText(/ĐVT:/i)).toBeInTheDocument();
-    expect(within(firstCard).getByText(/Đơn giá:/i)).toBeInTheDocument();
-    expect(within(firstCard).getByText(/1\.000\.000 đồng/i)).toBeInTheDocument();
+    expect(firstCard).toHaveTextContent('Mã định danh: SP-A');
     expect(within(firstCard).getByText('San pham A')).toBeInTheDocument();
     expect(within(firstCard).getByText(/Lĩnh vực KD:/i)).toBeInTheDocument();
-    expect(within(firstCard).getByText(/Mô tả gói cước:/i)).toBeInTheDocument();
+    expect(within(firstCard).getByText(/Mô tả:/i)).toBeInTheDocument();
     expect(within(firstCard).getByText('Mo ta A')).toBeInTheDocument();
-    expect(within(firstCard).getByText('Gói')).toBeInTheDocument();
     expect(within(firstCard).queryByText('NCC001 - DMS')).not.toBeInTheDocument();
     expect(within(firstCard).queryByText('Đề xuất')).not.toBeInTheDocument();
     expect(within(firstCard).queryByRole('button', { name: /Thao tác khác cho/i })).not.toBeInTheDocument();
@@ -661,15 +753,11 @@ describe('ProductList UI', () => {
 
     expect(headerTexts).toEqual([
       'STT',
-      'Mã SP',
-      'Gói cước',
-      'Mô tả gói cước',
-      'Đơn giá',
+      'Mã định danh',
       'Tên sản phẩm',
-      'Nhóm dịch vụ',
-      'Lĩnh vực KD',
+      'Mô tả',
+      'Phân nhóm',
       'Nhà cung cấp',
-      'Đơn vị tính',
       'Trạng thái',
       'Thao tác',
     ]);
@@ -691,6 +779,38 @@ describe('ProductList UI', () => {
     const secondRow = screen.getByText('SP-B').closest('tr');
     expect(secondRow).not.toBeNull();
     expect(secondRow).toHaveTextContent('—');
+  });
+
+  it('shows the product package availability badge in both desktop and compact layouts', () => {
+    const { unmount } = renderProductList({
+      products,
+      businesses,
+      vendors,
+      onOpenModal: vi.fn(),
+    });
+
+    const firstDesktopRow = screen.getByText('SP-A').closest('tr');
+    const secondDesktopRow = screen.getByText('SP-B').closest('tr');
+
+    expect(firstDesktopRow).toHaveTextContent('Có gói cước');
+    expect(secondDesktopRow).toHaveTextContent('Chưa có gói cước');
+
+    unmount();
+
+    renderProductList(
+      {
+        products,
+        businesses,
+        vendors,
+        onOpenModal: vi.fn(),
+      },
+      '/products',
+      390
+    );
+
+    const cards = screen.getAllByTestId('product-catalog-card');
+    expect(cards[0]).toHaveTextContent('Có gói cước');
+    expect(cards[1]).toHaveTextContent('Chưa có gói cước');
   });
 
   it('wraps long product codes inside the fixed column instead of letting text spill into adjacent columns', () => {
@@ -742,21 +862,17 @@ describe('ProductList UI', () => {
     expect(onOpenModal).toHaveBeenCalledWith('PRODUCT_FEATURE_CATALOG', expect.objectContaining({ id: 1 }));
   });
 
-  it('opens the target segment modal action for editable users', async () => {
-    const user = userEvent.setup();
-    const onOpenModal = vi.fn();
-
+  it('does not render the sales configuration action in the product list anymore', () => {
     renderProductList({
       products,
       businesses,
       vendors,
-      onOpenModal,
+      onOpenModal: vi.fn(),
       canEdit: true,
     });
 
-    await user.click(screen.getAllByTitle('Cấu hình đề xuất bán hàng')[0]);
-
-    expect(onOpenModal).toHaveBeenCalledWith('PRODUCT_TARGET_SEGMENT', expect.objectContaining({ id: 1 }));
+    expect(screen.queryByTitle('Cấu hình bán sản phẩm')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Cấu hình đề xuất bán hàng')).not.toBeInTheDocument();
   });
 
   it('passes currentUserId to the quotation tab so floating settings hydrate per user', async () => {

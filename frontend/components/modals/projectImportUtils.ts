@@ -17,6 +17,74 @@ export const normalizeProjectItemImportToken = (value: unknown): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
 
+const PROJECT_ITEM_PACKAGE_PREFIX = 'pkg:';
+const PROJECT_ITEM_PRODUCT_PREFIX = 'prd:';
+
+export const buildProjectPackageCatalogValue = (value: unknown): string => {
+  const normalized = String(value ?? '').trim();
+  return normalized ? `${PROJECT_ITEM_PACKAGE_PREFIX}${normalized}` : '';
+};
+
+export const buildProjectProductCatalogValue = (value: unknown): string => {
+  const normalized = String(value ?? '').trim();
+  return normalized ? `${PROJECT_ITEM_PRODUCT_PREFIX}${normalized}` : '';
+};
+
+export const parseProjectItemCatalogValue = (
+  value: unknown
+): { kind: 'package' | 'product' | null; id: string } => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return { kind: null, id: '' };
+  }
+
+  if (normalized.startsWith(PROJECT_ITEM_PACKAGE_PREFIX)) {
+    return {
+      kind: 'package',
+      id: normalized.slice(PROJECT_ITEM_PACKAGE_PREFIX.length).trim(),
+    };
+  }
+
+  if (normalized.startsWith(PROJECT_ITEM_PRODUCT_PREFIX)) {
+    return {
+      kind: 'product',
+      id: normalized.slice(PROJECT_ITEM_PRODUCT_PREFIX.length).trim(),
+    };
+  }
+
+  return {
+    kind: 'product',
+    id: normalized,
+  };
+};
+
+export const resolveProjectItemCatalogValue = (
+  item: Pick<
+    ProjectItem,
+    'catalogValue' | 'productPackageId' | 'product_package_id' | 'productId' | 'product_id'
+  >
+): string => {
+  const explicitCatalogValue = String(item.catalogValue ?? '').trim();
+  if (explicitCatalogValue) {
+    return explicitCatalogValue;
+  }
+
+  const packageId = String(item.productPackageId ?? item.product_package_id ?? '').trim();
+  if (packageId) {
+    return buildProjectPackageCatalogValue(packageId);
+  }
+
+  const productId = String(item.productId ?? item.product_id ?? '').trim();
+  return buildProjectProductCatalogValue(productId);
+};
+
+export const buildProjectItemIdentityKey = (
+  item: Pick<
+    ProjectItem,
+    'catalogValue' | 'productPackageId' | 'product_package_id' | 'productId' | 'product_id'
+  >
+): string => normalizeProjectItemImportToken(resolveProjectItemCatalogValue(item));
+
 export const downloadProjectItemImportTemplate = (): void => {
   downloadExcelWorkbook('mau_nhap_hang_muc_du_an', [
     {
@@ -29,10 +97,10 @@ export const downloadProjectItemImportTemplate = (): void => {
     },
     {
       name: 'HangMuc',
-      headers: ['Mã DA', 'Mã sản phẩm', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
+      headers: ['Mã DA', 'Mã gói cước', 'Số lượng', 'Đơn giá', '% CK', 'Giảm giá'],
       rows: [
-        ['DA001', 'SP001', 2, 1500000, 10, ''],
-        ['DA002', 'SP002', 1, 2000000, '', 100000],
+        ['DA001', 'PKG-HIS-CORE', 2, 1500000, 10, ''],
+        ['DA002', 'PKG-SOC-01', 1, 2000000, '', 100000],
       ],
     },
   ]);
@@ -150,7 +218,7 @@ export const mergeImportedProjectItems = (
   const existingIndexByProduct = new Map<string, number>();
 
   nextItems.forEach((item, index) => {
-    const key = normalizeProjectItemImportToken(item.productId || item.product_id || '');
+    const key = buildProjectItemIdentityKey(item);
     if (!key || existingIndexByProduct.has(key)) {
       return;
     }
@@ -158,7 +226,7 @@ export const mergeImportedProjectItems = (
   });
 
   importedItems.forEach((importedItem) => {
-    const productKey = normalizeProjectItemImportToken(importedItem.productId || '');
+    const productKey = buildProjectItemIdentityKey(importedItem);
     if (!productKey) {
       return;
     }

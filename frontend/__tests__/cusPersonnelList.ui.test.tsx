@@ -74,11 +74,11 @@ describe('CusPersonnelList UI', () => {
 
     const longCustomerText = 'KH001 - Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive desktop';
     const customerCellContent = within(desktopTable).getByText(longCustomerText);
-    expect(customerCellContent).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(customerCellContent).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
     expect(customerCellContent.closest('td')).not.toHaveClass('truncate');
 
     const longFullName = 'Đầu mối Trung tâm Y tế khu vực có họ và tên rất dài để kiểm tra wrap';
-    expect(within(desktopTable).getByText(longFullName)).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(within(desktopTable).getByText(longFullName)).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
   });
 
   it('renders the mobile/tablet card layout and lets users sort from the small-screen control', async () => {

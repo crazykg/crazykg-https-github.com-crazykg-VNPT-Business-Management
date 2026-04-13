@@ -4,10 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\WorkflowDefinition;
 use App\Models\WorkflowTransition;
-use App\Models\InternalUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
+use Tests\Feature\Concerns\InteractsWithWorkflowTestSchema;
 
 /**
  * Class WorkflowDefinitionTest
@@ -17,17 +16,12 @@ use Tests\TestCase;
 class WorkflowDefinitionTest extends TestCase
 {
     use RefreshDatabase;
+    use InteractsWithWorkflowTestSchema;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
-        // Create test user
-        InternalUser::factory()->create([
-            'id' => 1,
-            'username' => 'test.admin',
-            'full_name' => 'Test Admin',
-        ]);
+        $this->setUpWorkflowSchema();
     }
 
     /**

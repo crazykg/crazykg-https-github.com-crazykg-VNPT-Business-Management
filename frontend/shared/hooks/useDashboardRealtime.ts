@@ -6,6 +6,10 @@ import { realtimeConfig, type DashboardRealtimeDomain } from '../realtime/realti
 
 const INVALIDATION_DEBOUNCE_MS = 250;
 
+interface UseDashboardRealtimeOptions {
+  allowPollingFallback?: boolean;
+}
+
 const invalidateDashboardDomains = async (
   queryClient: ReturnType<typeof useQueryClient>,
   domains: DashboardRealtimeDomain[],
@@ -20,12 +24,17 @@ const invalidateDashboardDomains = async (
   }
 };
 
-export const useDashboardRealtime = (domains: DashboardRealtimeDomain[], enabled = true): { pollingEnabled: boolean } => {
+export const useDashboardRealtime = (
+  domains: DashboardRealtimeDomain[],
+  enabled = true,
+  options?: UseDashboardRealtimeOptions,
+): { pollingEnabled: boolean } => {
   const queryClient = useQueryClient();
   const [pollingEnabled, setPollingEnabled] = useState(false);
   const pendingDomainsRef = useRef<Set<DashboardRealtimeDomain>>(new Set());
   const flushTimeoutRef = useRef<number | null>(null);
   const domainsRef = useRef(domains);
+  const allowPollingFallback = options?.allowPollingFallback ?? true;
 
   domainsRef.current = domains;
 
@@ -63,7 +72,13 @@ export const useDashboardRealtime = (domains: DashboardRealtimeDomain[], enabled
       };
     }
 
-    const unsubscribe = subscribeDashboardSignals(domainsRef.current, queueInvalidation, setPollingEnabled);
+    const unsubscribe = subscribeDashboardSignals(
+      domainsRef.current,
+      queueInvalidation,
+      (polling) => {
+        setPollingEnabled(allowPollingFallback ? polling : false);
+      },
+    );
 
     return () => {
       unsubscribe();
@@ -73,10 +88,10 @@ export const useDashboardRealtime = (domains: DashboardRealtimeDomain[], enabled
       }
       pendingDomainsRef.current.clear();
     };
-  }, [enabled, queryClient]);
+  }, [allowPollingFallback, enabled, queryClient]);
 
   useEffect(() => {
-    if (!enabled || !pollingEnabled) {
+    if (!enabled || !allowPollingFallback || !pollingEnabled) {
       return;
     }
 
@@ -87,7 +102,7 @@ export const useDashboardRealtime = (domains: DashboardRealtimeDomain[], enabled
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [enabled, pollingEnabled, queryClient]);
+  }, [allowPollingFallback, enabled, pollingEnabled, queryClient]);
 
   return { pollingEnabled };
 };

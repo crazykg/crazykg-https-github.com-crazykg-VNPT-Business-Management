@@ -263,6 +263,9 @@ class ProductQuotationDomainService
         }
 
         $normalized = $this->normalizeDraftPayload($request);
+        if ($draftValidation = $this->validatePersistableDraftPayload($normalized)) {
+            return $draftValidation;
+        }
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $customerId = $this->resolveCustomerId($request);
         if ($customerId instanceof JsonResponse) {
@@ -326,6 +329,9 @@ class ProductQuotationDomainService
 
         $beforeSnapshot = $this->serializeQuotationAuditSnapshot($quotation);
         $normalized = $this->normalizeDraftPayload($request);
+        if ($draftValidation = $this->validatePersistableDraftPayload($normalized)) {
+            return $draftValidation;
+        }
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $customerId = $this->resolveCustomerId($request);
         if ($customerId instanceof JsonResponse) {
@@ -543,6 +549,10 @@ class ProductQuotationDomainService
         $normalized = null;
         $version = null;
         $filename = null;
+        $emailNotification = [
+            'status' => 'SKIPPED',
+            'message' => null,
+        ];
 
         DB::transaction(function () use (
             $request,
@@ -677,7 +687,7 @@ class ProductQuotationDomainService
                 $version->status = self::VERSION_STATUS_SUCCESS;
                 $version->save();
 
-                $this->sendQuotationPrintNotification(
+                $emailNotification = $this->sendQuotationPrintNotification(
                     $request,
                     $version,
                     $normalized,
@@ -688,9 +698,9 @@ class ProductQuotationDomainService
 
             return response($binary, 200, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'Content-Disposition' => $this->quotationExportService->buildContentDispositionHeader(
-                    (string) $filename
-                ),
+                'Content-Disposition' => $this->quotationExportService->buildContentDispositionHeader((string) $filename),
+                'X-Quotation-Email-Status' => (string) ($emailNotification['status'] ?? 'SKIPPED'),
+                'X-Quotation-Email-Message' => rawurlencode((string) ($emailNotification['message'] ?? '')),
             ]);
         } catch (Throwable $exception) {
             if ($version instanceof ProductQuotationVersion) {
@@ -716,6 +726,7 @@ class ProductQuotationDomainService
 
     /**
      * @param array<string, mixed> $normalized
+     * @return array{status: 'SUCCESS'|'FAILED'|'SKIPPED', message: string|null}
      */
     private function sendQuotationPrintNotification(
         Request $request,
@@ -723,7 +734,7 @@ class ProductQuotationDomainService
         array $normalized,
         string $filename,
         string $binary
-    ): void {
+    ): array {
         $recipients = collect(
             config(
                 'audit.product_quotation_print_notification_recipients',
@@ -737,7 +748,10 @@ class ProductQuotationDomainService
             ->all();
 
         if ($recipients === []) {
-            return;
+            return [
+                'status' => 'SKIPPED',
+                'message' => null,
+            ];
         }
 
         $actor = $request->user();
@@ -764,16 +778,26 @@ class ProductQuotationDomainService
         );
 
         if (($result['success'] ?? false) === true) {
-            return;
+            return [
+                'status' => 'SUCCESS',
+                'message' => 'Đã gửi email lưu trữ bản in báo giá.',
+            ];
         }
+
+        $message = (string) ($result['message'] ?? 'Không thể gửi email lưu trữ bản in báo giá.');
 
         Log::warning('product_quotation.print_email_failed', [
             'quotation_id' => $version->quotation_id,
             'version_id' => $version->id,
             'version_no' => $version->version_no,
             'recipients' => $recipients,
-            'message' => $result['message'] ?? 'Unknown mail error.',
+            'message' => $message,
         ]);
+
+        return [
+            'status' => 'FAILED',
+            'message' => $message,
+        ];
     }
 
     /**
@@ -1152,6 +1176,20 @@ class ProductQuotationDomainService
             'uses_multi_vat_template' => $usesMultiVatTemplate,
             'items' => $items,
         ];
+    }
+
+    private function validatePersistableDraftPayload(array $normalized): ?JsonResponse
+    {
+        $items = $normalized['items'] ?? [];
+        $total = (float) ($normalized['total'] ?? 0);
+
+        if ($items !== [] && $total > 0) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'Không lưu nháp báo giá 0 đồng. Vui lòng nhập ít nhất một hạng mục có thành tiền lớn hơn 0.',
+        ], 422);
     }
 
     /**

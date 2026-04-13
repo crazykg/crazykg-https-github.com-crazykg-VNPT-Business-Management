@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -45,6 +46,9 @@ class ContractDomainService
      * @var array<int, string>
      */
     private const DEFAULT_PROJECT_TYPE_CODES = ['DAU_TU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_COSAN'];
+    private const ATTACHMENT_REFERENCE_TYPE = 'CONTRACT';
+    private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
+    private const BACKBLAZE_B2_STORAGE_DISK = 'backblaze_b2';
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -150,6 +154,13 @@ class ContractDomainService
             $query->where('contracts.project_id', $projectId);
         }
 
+        $sourceMode = strtoupper(trim((string) ($this->support->readFilterParam($request, 'source_mode', '') ?? '')));
+        if ($sourceMode === 'PROJECT' && $this->support->hasColumn('contracts', 'project_id')) {
+            $query->whereNotNull('contracts.project_id');
+        } elseif ($sourceMode === 'INITIAL' && $this->support->hasColumn('contracts', 'project_id')) {
+            $query->whereNull('contracts.project_id');
+        }
+
         $signDateFrom = trim((string) ($this->support->readFilterParam($request, 'sign_date_from', '') ?? ''));
         $signDateTo   = trim((string) ($this->support->readFilterParam($request, 'sign_date_to', '') ?? ''));
         if ($signDateFrom !== '' && $this->support->hasColumn('contracts', 'sign_date')) {
@@ -247,12 +258,15 @@ class ContractDomainService
         $contract = $query->firstOrFail();
 
         return response()->json([
-            'data' => $this->support->serializeContract($contract),
+            'data' => $this->serializeContractWithAttachments($contract),
         ]);
     }
 
     public function signerOptions(Request $request): JsonResponse
     {
+        if (! $this->support->hasTable('contract_signer_masters')) {
+            return $this->support->missingTable('contract_signer_masters');
+        }
         if (! $this->support->hasTable('internal_users')) {
             return $this->support->missingTable('internal_users');
         }
@@ -267,9 +281,13 @@ class ContractDomainService
 
         $allowedDepartmentIds = app(UserAccessService::class)->resolveDepartmentIdsForUser($userId);
 
-        $query = DB::table('internal_users as signer')
+        $query = DB::table('contract_signer_masters as master')
+            ->join('internal_users as signer', 'signer.id', '=', 'master.internal_user_id')
             ->join('departments as dept', 'dept.id', '=', 'signer.department_id');
 
+        if ($this->support->hasColumn('contract_signer_masters', 'is_active')) {
+            $query->where('master.is_active', 1);
+        }
         if ($this->support->hasColumn('internal_users', 'deleted_at')) {
             $query->whereNull('signer.deleted_at');
         }
@@ -305,17 +323,23 @@ class ContractDomainService
             ->orderBy('dept.dept_name')
             ->orderBy('signer.full_name')
             ->get()
-            ->map(function (object $row): array {
+            ->map(function (object $row): ?array {
+                $departmentId = $this->support->parseNullableInt($row->department_id ?? null);
+                $ownershipDepartment = $this->support->resolveOwnershipDepartmentById($departmentId);
+                if ($ownershipDepartment === null) {
+                    return null;
+                }
+
                 return [
                     'id' => $this->support->parseNullableInt($row->id ?? null),
                     'user_code' => $this->support->normalizeNullableString($row->user_code ?? null),
                     'full_name' => $this->support->normalizeNullableString($row->full_name ?? null),
-                    'department_id' => $this->support->parseNullableInt($row->department_id ?? null),
-                    'dept_code' => $this->support->normalizeNullableString($row->dept_code ?? null),
-                    'dept_name' => $this->support->normalizeNullableString($row->dept_name ?? null),
+                    'department_id' => $ownershipDepartment['id'],
+                    'dept_code' => $ownershipDepartment['dept_code'],
+                    'dept_name' => $ownershipDepartment['dept_name'],
                 ];
             })
-            ->filter(fn (array $row): bool => $row['id'] !== null && $row['department_id'] !== null)
+            ->filter(fn (?array $row): bool => $row !== null && $row['id'] !== null && $row['department_id'] !== null)
             ->values();
 
         return response()->json([
@@ -363,6 +387,10 @@ class ContractDomainService
         }
 
         $validated = $this->validatedInput($request);
+        $attachmentsProvided = array_key_exists('attachments', $validated);
+        $attachments = $attachmentsProvided && is_array($validated['attachments'] ?? null)
+            ? $validated['attachments']
+            : [];
 
         // --- Renewal chain validation ---
         $parentContractId = $this->support->parseNullableInt($validated['parent_contract_id'] ?? null);
@@ -504,7 +532,9 @@ class ContractDomainService
             $this->renewalService->applyRenewalMetaToContract($contract, $parentContract, $resolvedEffectiveDate);
         }
 
-        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $parentContract): Contract {
+        $itemsToPersist = $this->resolveContractItemsForStore($validated, $projectId);
+
+        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $parentContract, $attachmentsProvided, $attachments, $itemsToPersist): Contract {
             $contract->save();
 
             // Auto-promote parent contract SIGNED → RENEWED when an EXTENSION addendum is saved
@@ -526,9 +556,13 @@ class ContractDomainService
                 }
             }
 
-            if (array_key_exists('items', $validated) && is_array($validated['items'])) {
-                $this->syncContractItems((int) $contract->getKey(), $validated['items'], $actorId);
-                $this->syncContractStoredAmountFromItems($contract, $validated['items']);
+            if ($itemsToPersist !== null) {
+                $this->syncContractItems((int) $contract->getKey(), $itemsToPersist, $actorId);
+                $this->syncContractStoredAmountFromItems($contract, $itemsToPersist);
+            }
+
+            if ($attachmentsProvided) {
+                $this->syncContractAttachments((int) $contract->getKey(), $attachments, $actorId);
             }
 
             $fresh = Contract::query()->with($this->contractRelationsWithItems())->findOrFail($contract->getKey());
@@ -551,8 +585,34 @@ class ContractDomainService
         }
 
         return response()->json([
-            'data' => $this->support->serializeContract($contract),
+            'data' => $this->serializeContractWithAttachments($contract),
         ], 201);
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function resolveContractItemsForStore(array $validated, ?int $projectId): ?array
+    {
+        $validatedItems = array_key_exists('items', $validated) && is_array($validated['items'])
+            ? array_values($validated['items'])
+            : null;
+
+        if ($validatedItems !== null && $validatedItems !== []) {
+            return $validatedItems;
+        }
+
+        if ($projectId === null || $projectId <= 0) {
+            return $validatedItems;
+        }
+
+        $projectItems = $this->buildContractItemsFromProject($projectId);
+        if ($projectItems !== []) {
+            return $projectItems;
+        }
+
+        return $validatedItems;
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -603,6 +663,10 @@ class ContractDomainService
         }
 
         $validated = $this->validatedInput($request);
+        $attachmentsProvided = array_key_exists('attachments', $validated);
+        $attachments = $attachmentsProvided && is_array($validated['attachments'] ?? null)
+            ? $validated['attachments']
+            : [];
 
         $linkage = $this->resolveContractLinkageState($validated, $contract);
         if ($linkage instanceof JsonResponse) {
@@ -614,14 +678,11 @@ class ContractDomainService
             return $signerContext;
         }
 
-        if (array_key_exists('items', $validated)) {
-            $hasSchedules = $this->support->hasTable('payment_schedules')
-                && DB::table('payment_schedules')->where('contract_id', $contract->getKey())->exists();
-            if ($hasSchedules) {
-                return response()->json([
-                    'message' => 'Không thể sửa hạng mục khi đã có kỳ thanh toán.',
-                ], 422);
-            }
+        $scheduleMutationMessage = $this->resolveContractScheduleMutationMessage($validated, $contract, $linkage);
+        if ($scheduleMutationMessage !== null) {
+            return response()->json([
+                'message' => $scheduleMutationMessage,
+            ], 422);
         }
 
         $resolvedSignDate = array_key_exists('sign_date', $validated)
@@ -782,12 +843,16 @@ class ContractDomainService
 
         $expiryDateBefore = (string) ($contract->getAttribute('expiry_date') ?? '');
 
-        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $before): Contract {
+        $contract = DB::transaction(function () use ($request, $validated, $contract, $actorId, $before, $attachmentsProvided, $attachments): Contract {
             $contract->save();
 
             if (array_key_exists('items', $validated) && is_array($validated['items'])) {
                 $this->syncContractItems((int) $contract->getKey(), $validated['items'], $actorId);
                 $this->syncContractStoredAmountFromItems($contract, $validated['items']);
+            }
+
+            if ($attachmentsProvided) {
+                $this->syncContractAttachments((int) $contract->getKey(), $attachments, $actorId);
             }
 
             $fresh = Contract::query()->with($this->contractRelationsWithItems())->findOrFail($contract->getKey());
@@ -825,7 +890,7 @@ class ContractDomainService
         }
 
         return response()->json([
-            'data' => $this->support->serializeContract($contract),
+            'data' => $this->serializeContractWithAttachments($contract),
         ]);
     }
 
@@ -853,8 +918,12 @@ class ContractDomainService
         $customerId = $this->support->parseNullableInt($contract->getAttribute('customer_id'));
         $response = $this->accessAudit->deleteModel($request, $contract, 'Contract');
 
-        if ($response->getStatusCode() < 400 && $customerId !== null) {
-            $this->insightService->invalidateCustomerCaches($customerId);
+        if ($response->getStatusCode() < 400) {
+            $this->deleteContractAttachments((int) $contract->getKey());
+
+            if ($customerId !== null) {
+                $this->insightService->invalidateCustomerCaches($customerId);
+            }
         }
 
         return $response;
@@ -873,6 +942,11 @@ class ContractDomainService
     public function updatePaymentSchedule(Request $request, int $id): JsonResponse
     {
         return $this->contractPaymentService->updatePaymentSchedule($request, $id);
+    }
+
+    public function destroyPaymentSchedule(Request $request, int $id): JsonResponse
+    {
+        return $this->contractPaymentService->destroyPaymentSchedule($request, $id);
     }
 
     private function validateContractDateOrder(?string $signDate, ?string $effectiveDate, ?string $expiryDate): ?JsonResponse
@@ -928,14 +1002,308 @@ class ContractDomainService
 
         if ($this->support->hasTable('contract_items')) {
             $productColumns = $this->support->selectColumns('products', ['id', 'product_code', 'product_name', 'unit']);
-            $relations['items'] = fn ($query) => $query->with([
-                'product' => fn ($productQuery) => $productColumns !== []
-                    ? $productQuery->select($productColumns)
-                    : $productQuery,
-            ]);
+            $itemRelations = [];
+            if ($productColumns !== []) {
+                $itemRelations['product'] = fn ($productQuery) => $productQuery->select($productColumns);
+            }
+
+            if ($this->support->hasTable('product_packages')) {
+                $packageColumns = $this->support->selectColumns('product_packages', [
+                    'id',
+                    'product_id',
+                    'package_code',
+                    'package_name',
+                    'product_name',
+                    'unit',
+                ]);
+                if ($packageColumns !== []) {
+                    $itemRelations['productPackage'] = fn ($packageQuery) => $packageQuery->select($packageColumns);
+                }
+            }
+
+            $relations['items'] = fn ($query) => $itemRelations !== [] ? $query->with($itemRelations) : $query;
         }
 
         return $relations;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildContractItemsFromProject(int $projectId): array
+    {
+        if (
+            $projectId <= 0
+            || ! $this->support->hasTable('project_items')
+            || ! $this->support->hasColumn('project_items', 'project_id')
+            || ! $this->support->hasColumn('project_items', 'product_id')
+        ) {
+            return [];
+        }
+
+        $query = DB::table('project_items as pi')
+            ->where('pi.project_id', $projectId);
+        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('pi.deleted_at');
+        }
+
+        $hasProductPackages = $this->support->hasTable('product_packages')
+            && $this->support->hasColumn('project_items', 'product_package_id');
+        if ($hasProductPackages) {
+            $query->leftJoin('product_packages as pp', 'pi.product_package_id', '=', 'pp.id');
+        }
+
+        $hasProducts = $this->support->hasTable('products');
+        if ($hasProducts) {
+            $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
+        }
+
+        $selects = ['pi.project_id as project_id', 'pi.product_id as product_id'];
+        $selects[] = $this->support->hasColumn('project_items', 'product_package_id')
+            ? 'pi.product_package_id as product_package_id'
+            : DB::raw('NULL as product_package_id');
+        $selects[] = $this->support->hasColumn('project_items', 'quantity')
+            ? 'pi.quantity as quantity'
+            : DB::raw('1 as quantity');
+        $selects[] = $this->support->hasColumn('project_items', 'unit_price')
+            ? 'pi.unit_price as unit_price'
+            : DB::raw('0 as unit_price');
+        $selects[] = $hasProductPackages && $this->support->hasColumn('product_packages', 'package_name')
+            ? 'pp.package_name as package_name'
+            : DB::raw('NULL as package_name');
+        $selects[] = $hasProductPackages && $this->support->hasColumn('product_packages', 'product_name')
+            ? 'pp.product_name as package_product_name'
+            : DB::raw('NULL as package_product_name');
+        $selects[] = $hasProductPackages && $this->support->hasColumn('product_packages', 'unit')
+            ? 'pp.unit as package_unit'
+            : DB::raw('NULL as package_unit');
+        $selects[] = $hasProducts && $this->support->hasColumn('products', 'product_name')
+            ? 'pr.product_name as product_name'
+            : DB::raw('NULL as product_name');
+        $selects[] = $hasProducts && $this->support->hasColumn('products', 'unit')
+            ? 'pr.unit as unit'
+            : DB::raw('NULL as unit');
+
+        $projectItems = $query
+            ->select($selects)
+            ->orderBy('pi.id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values()
+            ->all();
+        if ($projectItems === []) {
+            return [];
+        }
+
+        return collect($projectItems)
+            ->filter(fn (array $item): bool => ($this->support->parseNullableInt($item['project_id'] ?? null) ?? 0) === $projectId)
+            ->map(function (array $item): array {
+                return [
+                    'product_id' => $this->support->parseNullableInt($item['product_id'] ?? null),
+                    'product_package_id' => $this->support->parseNullableInt($item['product_package_id'] ?? null),
+                    'product_name' => $this->support->normalizeNullableString(
+                        $item['package_name'] ?? $item['package_product_name'] ?? $item['product_name'] ?? null
+                    ),
+                    'unit' => $this->support->normalizeNullableString($item['package_unit'] ?? $item['unit'] ?? null),
+                    'quantity' => is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 0.0,
+                    'unit_price' => is_numeric($item['unit_price'] ?? null) ? (float) $item['unit_price'] : 0.0,
+                    'vat_rate' => null,
+                    'vat_amount' => null,
+                ];
+            })
+            ->filter(function (array $item): bool {
+                $productId = $this->support->parseNullableInt($item['product_id'] ?? null);
+                $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 0.0;
+                $unitPrice = is_numeric($item['unit_price'] ?? null) ? (float) $item['unit_price'] : 0.0;
+
+                return $productId !== null
+                    && $productId > 0
+                    && is_finite($quantity)
+                    && $quantity > 0
+                    && is_finite($unitPrice)
+                    && $unitPrice >= 0;
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeContractWithAttachments(Contract $contract): array
+    {
+        $data = $this->support->serializeContract($contract);
+        $contractId = $this->support->parseNullableInt($contract->getKey());
+        if ($contractId === null) {
+            $data['attachments'] = [];
+            $data = array_merge($data, $this->emptyContractPaymentScheduleMetadata());
+
+            return $data;
+        }
+
+        $attachmentMap = $this->loadContractAttachmentMap([$contractId]);
+        $data['attachments'] = $attachmentMap[(string) $contractId] ?? [];
+        $data = array_merge($data, $this->buildContractPaymentScheduleMetadata($contractId));
+
+        return $data;
+    }
+
+    /**
+     * @return array{
+     *     payment_schedule_count:int,
+     *     has_generated_payment_schedules:bool,
+     *     can_edit_schedule_source_fields:bool,
+     *     can_delete_unpaid_schedules:bool
+     * }
+     */
+    private function emptyContractPaymentScheduleMetadata(): array
+    {
+        return [
+            'payment_schedule_count' => 0,
+            'has_generated_payment_schedules' => false,
+            'can_edit_schedule_source_fields' => true,
+            'can_delete_unpaid_schedules' => false,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     payment_schedule_count:int,
+     *     has_generated_payment_schedules:bool,
+     *     can_edit_schedule_source_fields:bool,
+     *     can_delete_unpaid_schedules:bool
+     * }
+     */
+    private function buildContractPaymentScheduleMetadata(int $contractId): array
+    {
+        $count = $this->contractPaymentScheduleCount($contractId);
+        $hasGeneratedSchedules = $count > 0;
+
+        return [
+            'payment_schedule_count' => $count,
+            'has_generated_payment_schedules' => $hasGeneratedSchedules,
+            'can_edit_schedule_source_fields' => ! $hasGeneratedSchedules,
+            'can_delete_unpaid_schedules' => $hasGeneratedSchedules
+                ? $this->canDeleteAnyUnpaidPaymentSchedule($contractId)
+                : false,
+        ];
+    }
+
+    private function contractPaymentScheduleCount(int $contractId): int
+    {
+        if (
+            $contractId <= 0
+            || ! $this->support->hasTable('payment_schedules')
+            || ! $this->support->hasColumn('payment_schedules', 'contract_id')
+        ) {
+            return 0;
+        }
+
+        return (int) DB::table('payment_schedules')
+            ->where('contract_id', $contractId)
+            ->count();
+    }
+
+    private function canDeleteAnyUnpaidPaymentSchedule(int $contractId): bool
+    {
+        if (
+            $contractId <= 0
+            || ! $this->support->hasTable('payment_schedules')
+            || ! $this->support->hasColumn('payment_schedules', 'contract_id')
+        ) {
+            return false;
+        }
+
+        $query = DB::table('payment_schedules')
+            ->where('contract_id', $contractId);
+
+        if ($this->support->hasColumn('payment_schedules', 'invoice_id')) {
+            $query->whereNull('invoice_id');
+        }
+
+        if ($this->support->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            $query->where(function ($builder): void {
+                $builder->whereNull('actual_paid_amount')
+                    ->orWhere('actual_paid_amount', '<=', 0);
+            });
+        }
+
+        if ($this->support->hasColumn('payment_schedules', 'actual_paid_date')) {
+            $query->whereNull('actual_paid_date');
+        }
+
+        if ($this->support->hasColumn('payment_schedules', 'status')) {
+            $query->where(function ($builder): void {
+                $builder->whereNull('status')
+                    ->orWhereRaw("UPPER(status) NOT IN ('PAID', 'PARTIAL')");
+            });
+        }
+
+        return $query->exists();
+    }
+
+    /**
+     * @param array<int, int|string> $contractIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function loadContractAttachmentMap(array $contractIds): array
+    {
+        if (
+            $contractIds === []
+            || ! $this->support->hasTable('attachments')
+            || ! $this->support->hasColumn('attachments', 'reference_type')
+            || ! $this->support->hasColumn('attachments', 'reference_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('attachments')
+            ->select($this->support->selectColumns('attachments', [
+                'id',
+                'reference_id',
+                'file_name',
+                'file_url',
+                'drive_file_id',
+                'file_size',
+                'mime_type',
+                'storage_disk',
+                'storage_path',
+                'storage_visibility',
+                'created_at',
+            ]))
+            ->where('reference_type', self::ATTACHMENT_REFERENCE_TYPE)
+            ->whereIn('reference_id', $contractIds)
+            ->when($this->support->hasColumn('attachments', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $referenceId = (string) ($row['reference_id'] ?? '');
+            if ($referenceId === '') {
+                continue;
+            }
+
+            $map[$referenceId][] = [
+                'id' => (string) ($row['id'] ?? ''),
+                'fileName' => (string) ($row['file_name'] ?? ''),
+                'mimeType' => (string) ($this->support->firstNonEmpty($row, ['mime_type'], 'application/octet-stream')),
+                'fileSize' => (int) ($row['file_size'] ?? 0),
+                'fileUrl' => $this->resolveAttachmentFileUrl($row),
+                'driveFileId' => (string) ($row['drive_file_id'] ?? ''),
+                'createdAt' => $this->formatDateColumn($row['created_at'] ?? null) ?? '',
+                'storagePath' => $this->support->normalizeNullableString($row['storage_path'] ?? null),
+                'storageDisk' => $this->support->normalizeNullableString($row['storage_disk'] ?? null),
+                'storageVisibility' => $this->support->normalizeNullableString($row['storage_visibility'] ?? null),
+                'storageProvider' => $this->support->normalizeNullableString($row['drive_file_id'] ?? null) !== null
+                    ? 'GOOGLE_DRIVE'
+                    : (($this->support->normalizeNullableString($row['storage_disk'] ?? null) === self::BACKBLAZE_B2_STORAGE_DISK) ? 'BACKBLAZE_B2' : 'LOCAL'),
+            ];
+        }
+
+        return $map;
     }
 
     /**
@@ -958,7 +1326,6 @@ class ContractDomainService
         }
 
         $normalized = [];
-        $seen = [];
         foreach ($items as $index => $item) {
             $productId = $this->support->parseNullableInt($item['product_id'] ?? null);
             if ($productId === null || $productId <= 0) {
@@ -966,13 +1333,6 @@ class ContractDomainService
                     "items.{$index}.product_id" => ['Mã sản phẩm không hợp lệ.'],
                 ]);
             }
-
-            if (isset($seen[$productId])) {
-                throw ValidationException::withMessages([
-                    "items.{$index}.product_id" => ['Không được chọn trùng sản phẩm trong cùng một hợp đồng.'],
-                ]);
-            }
-            $seen[$productId] = true;
 
             $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 0.0;
             if (! is_finite($quantity) || $quantity <= 0) {
@@ -990,6 +1350,9 @@ class ContractDomainService
 
             $normalized[] = [
                 'product_id' => $productId,
+                'product_package_id' => $this->support->parseNullableInt($item['product_package_id'] ?? null),
+                'product_name' => $this->support->normalizeNullableString($item['product_name'] ?? null),
+                'unit' => $this->support->normalizeNullableString($item['unit'] ?? null),
                 'quantity' => round($quantity, 2),
                 'unit_price' => round($unitPrice, 2),
                 'vat_rate' => array_key_exists('vat_rate', $item) && is_numeric($item['vat_rate'] ?? null)
@@ -1001,11 +1364,98 @@ class ContractDomainService
             ];
         }
 
+        $packageRowsById = collect();
+        $packageIds = collect($normalized)
+            ->pluck('product_package_id')
+            ->filter(fn ($id): bool => $id !== null && $id > 0)
+            ->unique()
+            ->values();
+        if ($packageIds->isNotEmpty()) {
+            if (! $this->support->hasTable('product_packages')) {
+                throw ValidationException::withMessages([
+                    'items' => ['Hệ thống chưa hỗ trợ gói cước cho hạng mục hợp đồng.'],
+                ]);
+            }
+
+            $packageSelects = ['id'];
+            if ($this->support->hasColumn('product_packages', 'product_id')) {
+                $packageSelects[] = 'product_id';
+            }
+            if ($this->support->hasColumn('product_packages', 'package_code')) {
+                $packageSelects[] = 'package_code';
+            }
+            if ($this->support->hasColumn('product_packages', 'package_name')) {
+                $packageSelects[] = 'package_name';
+            }
+            if ($this->support->hasColumn('product_packages', 'product_name')) {
+                $packageSelects[] = 'product_name';
+            }
+            if ($this->support->hasColumn('product_packages', 'unit')) {
+                $packageSelects[] = 'unit';
+            }
+
+            $packageRowsById = DB::table('product_packages')
+                ->whereIn('id', $packageIds->all())
+                ->select($packageSelects)
+                ->get()
+                ->keyBy(fn (object $row): int => (int) $row->id);
+
+            $existingPackageIds = $packageRowsById
+                ->keys()
+                ->map(fn ($id): int => (int) $id)
+                ->all();
+            $missingPackageIds = array_values(array_diff($packageIds->all(), $existingPackageIds));
+            if ($missingPackageIds !== []) {
+                throw ValidationException::withMessages([
+                    'items' => ['Không tìm thấy gói cước: '.implode(', ', $missingPackageIds).'.'],
+                ]);
+            }
+        }
+
+        $normalized = array_map(function (array $item) use ($packageRowsById): array {
+            $packageId = $item['product_package_id'] ?? null;
+            if ($packageId === null || $packageId <= 0) {
+                return $item;
+            }
+
+            /** @var object|null $packageRow */
+            $packageRow = $packageRowsById->get($packageId);
+            if ($packageRow === null) {
+                return $item;
+            }
+
+            $resolvedProductId = $this->support->parseNullableInt($packageRow->product_id ?? null);
+            if ($resolvedProductId !== null && $resolvedProductId > 0) {
+                $item['product_id'] = $resolvedProductId;
+            }
+
+            $item['product_name'] = $item['product_name']
+                ?? $this->support->normalizeNullableString($packageRow->package_name ?? null)
+                ?? $this->support->normalizeNullableString($packageRow->product_name ?? null);
+            $item['unit'] = $item['unit']
+                ?? $this->support->normalizeNullableString($packageRow->unit ?? null);
+
+            return $item;
+        }, $normalized);
+
         $productIds = collect($normalized)->pluck('product_id')->unique()->values();
+        $productRowsById = collect();
         if ($productIds->isNotEmpty()) {
-            $existingProductIds = DB::table('products')
+            $productSelects = ['id'];
+            if ($this->support->hasColumn('products', 'product_name')) {
+                $productSelects[] = 'product_name';
+            }
+            if ($this->support->hasColumn('products', 'unit')) {
+                $productSelects[] = 'unit';
+            }
+
+            $productRowsById = DB::table('products')
                 ->whereIn('id', $productIds->all())
-                ->pluck('id')
+                ->select($productSelects)
+                ->get()
+                ->keyBy(fn (object $row): int => (int) $row->id);
+            $existingProductIds = $productRowsById
+                ->keys()
                 ->map(fn ($id): int => (int) $id)
                 ->all();
             $missingProductIds = array_values(array_diff($productIds->all(), $existingProductIds));
@@ -1015,6 +1465,29 @@ class ContractDomainService
                 ]);
             }
         }
+
+        $normalized = array_map(function (array $item) use ($packageRowsById, $productRowsById): array {
+            $packageRow = null;
+            $packageId = $item['product_package_id'] ?? null;
+            if ($packageId !== null && $packageId > 0) {
+                /** @var object|null $packageRow */
+                $packageRow = $packageRowsById->get($packageId);
+            }
+            /** @var object|null $productRow */
+            $productRow = $productRowsById->get($item['product_id']);
+            $productName = $item['product_name']
+                ?? $this->support->normalizeNullableString($packageRow?->package_name ?? null)
+                ?? $this->support->normalizeNullableString($packageRow?->product_name ?? null)
+                ?? $this->support->normalizeNullableString($productRow?->product_name ?? null);
+            $unit = $item['unit']
+                ?? $this->support->normalizeNullableString($packageRow?->unit ?? null)
+                ?? $this->support->normalizeNullableString($productRow?->unit ?? null);
+
+            $item['product_name'] = $productName;
+            $item['unit'] = $unit;
+
+            return $item;
+        }, $normalized);
 
         ContractItem::query()->where('contract_id', $contractId)->delete();
 
@@ -1030,6 +1503,15 @@ class ContractDomainService
                 'product_id' => $item['product_id'],
             ];
 
+            if ($this->support->hasColumn('contract_items', 'product_package_id')) {
+                $row['product_package_id'] = $item['product_package_id'];
+            }
+            if ($this->support->hasColumn('contract_items', 'product_name')) {
+                $row['product_name'] = $item['product_name'];
+            }
+            if ($this->support->hasColumn('contract_items', 'unit')) {
+                $row['unit'] = $item['unit'];
+            }
             if ($this->support->hasColumn('contract_items', 'quantity')) {
                 $row['quantity'] = $item['quantity'];
             }
@@ -1095,6 +1577,170 @@ class ContractDomainService
     }
 
     /**
+     * @param array<int, mixed> $attachments
+     */
+    private function syncContractAttachments(int $contractId, array $attachments, ?int $actorId): void
+    {
+        if (
+            ! $this->support->hasTable('attachments')
+            || ! $this->support->hasColumn('attachments', 'reference_type')
+            || ! $this->support->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', self::ATTACHMENT_REFERENCE_TYPE)
+            ->where('reference_id', $contractId)
+            ->delete();
+
+        if ($attachments === []) {
+            return;
+        }
+
+        $now = now();
+        $records = [];
+        foreach ($attachments as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $fileName = trim((string) $this->support->firstNonEmpty($item, ['fileName', 'file_name'], ''));
+            if ($fileName === '') {
+                continue;
+            }
+
+            $mimeType = strtolower(trim((string) $this->support->firstNonEmpty($item, ['mimeType', 'mime_type'], '')));
+            if ($mimeType !== 'application/pdf' && ! str_ends_with(strtolower($fileName), '.pdf')) {
+                throw ValidationException::withMessages([
+                    "attachments.{$index}" => ['Chỉ cho phép đính kèm file PDF cho hợp đồng.'],
+                ]);
+            }
+
+            $fileSize = $this->support->parseNullableInt($this->support->firstNonEmpty($item, ['fileSize', 'file_size'], 0)) ?? 0;
+            $storagePath = $this->support->normalizeNullableString($this->support->firstNonEmpty($item, ['storagePath', 'storage_path']));
+            $storageDisk = $this->support->normalizeNullableString($this->support->firstNonEmpty($item, ['storageDisk', 'storage_disk']));
+            $storageVisibility = $this->support->normalizeNullableString($this->support->firstNonEmpty($item, ['storageVisibility', 'storage_visibility']));
+            $payload = $this->support->filterPayloadByTableColumns('attachments', [
+                'reference_type' => self::ATTACHMENT_REFERENCE_TYPE,
+                'reference_id' => $contractId,
+                'file_name' => $fileName,
+                'file_url' => $this->support->normalizeNullableString($this->support->firstNonEmpty($item, ['fileUrl', 'file_url'])),
+                'drive_file_id' => $this->support->normalizeNullableString($this->support->firstNonEmpty($item, ['driveFileId', 'drive_file_id'])),
+                'file_size' => max(0, $fileSize),
+                'mime_type' => $mimeType !== '' ? $mimeType : 'application/pdf',
+                'storage_path' => $storagePath,
+                'storage_disk' => $storageDisk,
+                'storage_visibility' => $storageVisibility ?? ($storagePath !== null ? 'private' : null),
+                'created_at' => $now,
+                'created_by' => $actorId,
+                'updated_by' => $actorId,
+            ]);
+
+            if (
+                array_key_exists('reference_type', $payload)
+                && array_key_exists('reference_id', $payload)
+                && array_key_exists('file_name', $payload)
+            ) {
+                $records[] = $payload;
+            }
+        }
+
+        if ($records !== []) {
+            DB::table('attachments')->insert($records);
+        }
+    }
+
+    private function deleteContractAttachments(int $contractId): void
+    {
+        if (
+            $contractId <= 0
+            || ! $this->support->hasTable('attachments')
+            || ! $this->support->hasColumn('attachments', 'reference_type')
+            || ! $this->support->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', self::ATTACHMENT_REFERENCE_TYPE)
+            ->where('reference_id', $contractId)
+            ->delete();
+    }
+
+    /**
+     * @param array<string, mixed> $attachment
+     */
+    private function resolveAttachmentFileUrl(array $attachment): string
+    {
+        $storedPath = $this->support->normalizeNullableString($attachment['storage_path'] ?? null);
+        $storedDisk = $this->support->normalizeNullableString($attachment['storage_disk'] ?? null) ?? 'local';
+        $fileName = $this->support->normalizeNullableString($attachment['file_name'] ?? null) ?? 'attachment';
+        $attachmentId = $this->support->parseNullableInt($attachment['id'] ?? null);
+
+        if ($storedPath !== null) {
+            if ($attachmentId !== null) {
+                $signedUrl = $this->buildSignedAttachmentDownloadUrl($attachmentId);
+                if ($signedUrl !== '') {
+                    return $signedUrl;
+                }
+            }
+
+            $temporaryUrl = $this->buildSignedTempAttachmentDownloadUrl($storedDisk, $storedPath, $fileName);
+            if ($temporaryUrl !== '') {
+                return $temporaryUrl;
+            }
+        }
+
+        return (string) ($attachment['file_url'] ?? '');
+    }
+
+    private function buildSignedAttachmentDownloadUrl(int $attachmentId): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.documents.attachments.download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                ['id' => $attachmentId],
+                false
+            );
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function buildSignedTempAttachmentDownloadUrl(string $disk, string $path, string $name): string
+    {
+        try {
+            return URL::temporarySignedRoute(
+                'v5.documents.attachments.temp-download',
+                now()->addMinutes(self::ATTACHMENT_SIGNED_URL_TTL_MINUTES),
+                [
+                    'disk' => $disk,
+                    'path' => $path,
+                    'name' => $name,
+                ],
+                false
+            );
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function formatDateColumn(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $value)->toISOString();
+        } catch (\Throwable) {
+            return is_string($value) ? $value : null;
+        }
+    }
+
+    /**
      * @param array<string, mixed> $validated
      * @return array{signer_user_id:int,department_id:int}|JsonResponse
      */
@@ -1123,21 +1769,14 @@ class ContractDomainService
             return $this->invalidSignerResponse('Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
         }
 
-        $departmentExists = $this->support->hasTable('departments')
-            && DB::table('departments')
-                ->where('id', $departmentId)
-                ->when(
-                    $this->support->hasColumn('departments', 'deleted_at'),
-                    fn ($query) => $query->whereNull('deleted_at')
-                )
-                ->exists();
-        if (! $departmentExists) {
+        $ownershipDepartment = $this->support->resolveOwnershipDepartmentById($departmentId);
+        if ($ownershipDepartment === null) {
             return $this->invalidSignerResponse('Người ký hợp đồng chưa được gán phòng ban hợp lệ.');
         }
 
         return [
             'signer_user_id' => $signerUserId,
-            'department_id' => $departmentId,
+            'department_id' => $ownershipDepartment['id'],
         ];
     }
 
@@ -1313,6 +1952,175 @@ class ContractDomainService
         }
 
         return null;
+    }
+
+    private function normalizeComparableDate(mixed $value): ?string
+    {
+        $normalized = trim((string) ($value ?? ''));
+        if ($normalized === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($normalized)->toDateString();
+        } catch (\Throwable) {
+            return $normalized;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     * @param array{project_id:int|null,customer_id:int|null,project_type_code:string|null} $linkage
+     */
+    private function resolveContractScheduleMutationMessage(array $validated, Contract $contract, array $linkage): ?string
+    {
+        $contractId = $this->support->parseNullableInt($contract->getKey());
+        if ($contractId === null || $this->contractPaymentScheduleCount($contractId) <= 0) {
+            return null;
+        }
+
+        $currentProjectId = $this->support->parseNullableInt($contract->getAttribute('project_id'));
+        $currentCustomerId = $this->support->parseNullableInt($contract->getAttribute('customer_id'));
+        $currentProjectTypeCode = $this->normalizeProjectTypeCode($contract->getAttribute('project_type_code'));
+        $currentPaymentCycle = $this->support->normalizePaymentCycle((string) ($contract->getAttribute('payment_cycle') ?? 'ONCE'));
+        $currentValue = (float) ($contract->getAttribute('value') ?? $contract->getAttribute('total_value') ?? 0);
+        $currentSignDate = $this->normalizeComparableDate($contract->getAttribute('sign_date'));
+        $currentEffectiveDate = $this->normalizeComparableDate($contract->getAttribute('effective_date'));
+        $currentExpiryDate = $this->normalizeComparableDate($contract->getAttribute('expiry_date'));
+        $currentTermUnit = $this->normalizeContractTermUnit($contract->getAttribute('term_unit'));
+        $currentTermValue = $this->parseNullableFloat($contract->getAttribute('term_value'));
+        $currentManualExpiryOverride = (bool) ($contract->getAttribute('expiry_date_manual_override') ?? false);
+
+        if (array_key_exists('project_id', $validated) && $linkage['project_id'] !== $currentProjectId) {
+            return 'Không thể đổi dự án liên kết khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (array_key_exists('customer_id', $validated) && $linkage['customer_id'] !== $currentCustomerId) {
+            return 'Không thể đổi khách hàng khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (array_key_exists('project_type_code', $validated) && $linkage['project_type_code'] !== $currentProjectTypeCode) {
+            return 'Không thể đổi loại dự án khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('payment_cycle', $validated)
+            && $this->support->normalizePaymentCycle((string) ($validated['payment_cycle'] ?? 'ONCE')) !== $currentPaymentCycle
+        ) {
+            return 'Không thể sửa chu kỳ thanh toán khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('value', $validated)
+            && abs((float) ($validated['value'] ?? 0) - $currentValue) > 0.0001
+        ) {
+            return 'Không thể sửa giá trị hợp đồng khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('sign_date', $validated)
+            && $this->normalizeComparableDate($validated['sign_date']) !== $currentSignDate
+        ) {
+            return 'Không thể sửa ngày ký khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('effective_date', $validated)
+            && $this->normalizeComparableDate($validated['effective_date']) !== $currentEffectiveDate
+        ) {
+            return 'Không thể sửa ngày hiệu lực khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('expiry_date', $validated)
+            && $this->normalizeComparableDate($validated['expiry_date']) !== $currentExpiryDate
+        ) {
+            return 'Không thể sửa ngày hết hiệu lực khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('term_unit', $validated)
+            && $this->normalizeContractTermUnit($validated['term_unit']) !== $currentTermUnit
+        ) {
+            return 'Không thể sửa đơn vị thời hạn khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('term_value', $validated)
+            && abs((float) ($this->parseNullableFloat($validated['term_value']) ?? 0) - (float) ($currentTermValue ?? 0)) > 0.0001
+        ) {
+            return 'Không thể sửa thời hạn hợp đồng khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('expiry_date_manual_override', $validated)
+            && (bool) $validated['expiry_date_manual_override'] !== $currentManualExpiryOverride
+        ) {
+            return 'Không thể đổi cách tính ngày hết hiệu lực khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        if (
+            array_key_exists('items', $validated)
+            && is_array($validated['items'])
+            && $this->hasContractItemsMutation($contract, $validated['items'])
+        ) {
+            return 'Không thể sửa hạng mục khi hợp đồng đã có kỳ thanh toán.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $incomingItems
+     */
+    private function hasContractItemsMutation(Contract $contract, array $incomingItems): bool
+    {
+        if (! $this->support->hasTable('contract_items')) {
+            return $incomingItems !== [];
+        }
+
+        $columns = ['product_id', 'quantity', 'unit_price'];
+        foreach (['product_package_id', 'product_name', 'unit', 'vat_rate', 'vat_amount'] as $column) {
+            if ($this->support->hasColumn('contract_items', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        $currentItems = DB::table('contract_items')
+            ->where('contract_id', $contract->getKey())
+            ->orderBy('id')
+            ->get($columns)
+            ->map(fn ($row): array => (array) $row)
+            ->all();
+
+        return $this->normalizeContractItemSnapshot($currentItems) !== $this->normalizeContractItemSnapshot($incomingItems);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, float|int|string|null>>
+     */
+    private function normalizeContractItemSnapshot(array $items): array
+    {
+        $normalized = collect($items)
+            ->map(function (array $item): array {
+                return [
+                    'product_id' => (int) ($this->support->parseNullableInt($item['product_id'] ?? null) ?? 0),
+                    'product_package_id' => $this->support->parseNullableInt($item['product_package_id'] ?? null),
+                    'product_name' => $this->support->normalizeNullableString($item['product_name'] ?? null),
+                    'unit' => $this->support->normalizeNullableString($item['unit'] ?? null),
+                    'quantity' => (float) ($this->parseNullableFloat($item['quantity'] ?? null) ?? 0),
+                    'unit_price' => (float) ($this->parseNullableFloat($item['unit_price'] ?? null) ?? 0),
+                    'vat_rate' => $this->parseNullableFloat($item['vat_rate'] ?? null),
+                    'vat_amount' => $this->parseNullableFloat($item['vat_amount'] ?? null),
+                ];
+            })
+            ->values()
+            ->all();
+
+        usort($normalized, static fn (array $left, array $right): int => strcmp(json_encode($left), json_encode($right)));
+
+        return $normalized;
     }
 
     private function validateContractTermState(

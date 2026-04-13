@@ -154,7 +154,9 @@ export const normalizeProjectInvestmentMode = (value: unknown): InvestmentMode |
 export const requiresProjectPaymentCycle = (investmentMode: unknown): boolean => {
   const normalizedMode = normalizeProjectInvestmentMode(investmentMode);
 
-  return normalizedMode === 'DAU_TU' || normalizedMode === 'THUE_DICH_VU_COSAN';
+  return normalizedMode === 'DAU_TU'
+    || normalizedMode === 'THUE_DICH_VU_DACTHU'
+    || normalizedMode === 'THUE_DICH_VU_COSAN';
 };
 
 export const PROJECT_FORM_SUBMIT_TIMEOUT_MS = 16000;

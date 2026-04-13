@@ -37,6 +37,9 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertJsonPath('data.recipient_name', 'BỆNH VIỆN ĐA KHOA CẦN THƠ');
         $response->assertJsonPath('data.latest_version_no', 0);
         $response->assertJsonCount(2, 'data.items');
+        $this->assertSame(211000000.0, (float) $response->json('data.subtotal'));
+        $this->assertSame(21100000.0, (float) $response->json('data.vat_amount'));
+        $this->assertSame(232100000.0, (float) $response->json('data.total_amount'));
 
         $quotationId = (int) $response->json('data.id');
 
@@ -83,6 +86,9 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertJsonPath('data.recipient_name', 'BỆNH VIỆN PHỔI HẬU GIANG');
         $response->assertJsonCount(1, 'data.items');
         $response->assertJsonPath('data.items.0.product_name', 'VNPT EMR');
+        $this->assertSame(126000000.0, (float) $response->json('data.subtotal'));
+        $this->assertSame(10080000.0, (float) $response->json('data.vat_amount'));
+        $this->assertSame(136080000.0, (float) $response->json('data.total_amount'));
 
         $this->assertSame(1, DB::table('product_quotation_items')->where('quotation_id', $quotationId)->count());
         $this->assertDatabaseHas('product_quotation_events', [
@@ -96,26 +102,44 @@ class ProductQuotationPersistenceTest extends TestCase
         ]);
     }
 
-    public function test_it_stores_empty_product_quotation_draft_with_defaults(): void
+    public function test_it_rejects_zero_amount_product_quotation_draft(): void
     {
         $response = $this->postJson('/api/v5/products/quotations', [
             'recipient_name' => '',
             'items' => [],
         ]);
 
-        $response->assertCreated();
-        $response->assertJsonPath('data.recipient_name', '');
-        $response->assertJsonPath('data.scope_summary', 'phục vụ triển khai các sản phẩm/dịch vụ theo nhu cầu của Quý đơn vị');
-        $response->assertJsonPath('data.validity_days', 90);
-        $response->assertJsonPath('data.items', []);
+        $response->assertStatus(422);
+        $response->assertJsonPath(
+            'message',
+            'Không lưu nháp báo giá 0 đồng. Vui lòng nhập ít nhất một hạng mục có thành tiền lớn hơn 0.'
+        );
+        $this->assertSame(0, DB::table('product_quotations')->count());
+        $this->assertSame(0, DB::table('product_quotation_items')->count());
+    }
 
-        $quotationId = (int) $response->json('data.id');
+    public function test_it_rejects_updating_product_quotation_draft_to_zero_amount(): void
+    {
+        $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
+        $quotationId = (int) $createResponse->json('data.id');
+
+        $response = $this->putJson("/api/v5/products/quotations/{$quotationId}", [
+            'recipient_name' => 'BỆNH VIỆN 0 ĐỒNG',
+            'items' => [],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath(
+            'message',
+            'Không lưu nháp báo giá 0 đồng. Vui lòng nhập ít nhất một hạng mục có thành tiền lớn hơn 0.'
+        );
+
         $this->assertDatabaseHas('product_quotations', [
             'id' => $quotationId,
-            'recipient_name' => '',
+            'recipient_name' => 'BỆNH VIỆN ĐA KHOA CẦN THƠ',
             'status' => 'DRAFT',
         ]);
-        $this->assertSame(0, DB::table('product_quotation_items')->where('quotation_id', $quotationId)->count());
+        $this->assertSame(2, DB::table('product_quotation_items')->where('quotation_id', $quotationId)->count());
     }
 
     public function test_it_creates_sequential_versions_every_time_the_word_print_endpoint_is_called(): void
@@ -134,7 +158,7 @@ class ProductQuotationPersistenceTest extends TestCase
         $versions = DB::table('product_quotation_versions')
             ->where('quotation_id', $quotationId)
             ->orderBy('version_no')
-            ->get(['version_no', 'status', 'content_hash']);
+            ->get(['version_no', 'status', 'content_hash', 'subtotal', 'vat_amount', 'total_amount']);
 
         $this->assertCount(2, $versions);
         $this->assertSame(1, (int) $versions[0]->version_no);
@@ -142,6 +166,10 @@ class ProductQuotationPersistenceTest extends TestCase
         $this->assertSame('SUCCESS', $versions[0]->status);
         $this->assertSame('SUCCESS', $versions[1]->status);
         $this->assertSame((string) $versions[0]->content_hash, (string) $versions[1]->content_hash);
+        $this->assertSame(211000000.0, (float) $versions[0]->subtotal);
+        $this->assertSame(21100000.0, (float) $versions[0]->vat_amount);
+        $this->assertSame(232100000.0, (float) $versions[0]->total_amount);
+        $this->assertSame(232100000.0, (float) $versions[1]->total_amount);
 
         $this->assertSame(2, DB::table('product_quotation_events')
             ->where('quotation_id', $quotationId)
@@ -152,6 +180,7 @@ class ProductQuotationPersistenceTest extends TestCase
         $this->assertNotNull($quotation);
         $this->assertSame(2, (int) $quotation->latest_version_no);
         $this->assertNotNull($quotation->last_printed_at);
+        $this->assertSame(232100000.0, (float) $quotation->total_amount);
     }
 
     public function test_it_sends_archival_email_after_print_word_confirmation_succeeds(): void
@@ -254,6 +283,24 @@ class ProductQuotationPersistenceTest extends TestCase
 
         $response->assertOk();
         $response->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        $response->assertHeader('X-Quotation-Email-Status', 'SUCCESS');
+        $response->assertHeader('X-Quotation-Email-Message', rawurlencode('Đã gửi email lưu trữ bản in báo giá.'));
+    }
+
+    public function test_it_returns_failed_email_header_when_archival_email_cannot_be_sent(): void
+    {
+        Config::set('audit.product_quotation_print_notification_recipients', [
+            'pvro86@gmail.com',
+        ]);
+
+        $createResponse = $this->postJson('/api/v5/products/quotations', $this->quotationPayload());
+        $quotationId = (int) $createResponse->json('data.id');
+
+        $response = $this->post("/api/v5/products/quotations/{$quotationId}/print-word");
+
+        $response->assertOk();
+        $response->assertHeader('X-Quotation-Email-Status', 'FAILED');
+        $response->assertHeader('X-Quotation-Email-Message', rawurlencode('Chưa có cấu hình Email SMTP.'));
     }
 
     public function test_it_lists_versions_and_events_for_a_product_quotation(): void
@@ -373,10 +420,19 @@ class ProductQuotationPersistenceTest extends TestCase
             'recipient_name' => 'BỆNH VIỆN CÓ GIÁ',
         ]))->assertCreated();
 
-        $this->postJson('/api/v5/products/quotations', [
+        $legacyZeroDraft = $this->postJson('/api/v5/products/quotations', array_merge($this->quotationPayload(), [
+            'recipient_name' => 'BỆNH VIỆN LEGACY',
+        ]));
+        $legacyZeroDraft->assertCreated();
+        $legacyZeroDraftId = (int) $legacyZeroDraft->json('data.id');
+
+        DB::table('product_quotations')->where('id', $legacyZeroDraftId)->update([
             'recipient_name' => 'BỆNH VIỆN 0 ĐỒNG',
-            'items' => [],
-        ])->assertCreated();
+            'subtotal' => 0,
+            'vat_amount' => 0,
+            'total_amount' => 0,
+            'updated_at' => Carbon::now()->subDay(),
+        ]);
 
         $response = $this->getJson('/api/v5/products/quotations?filters[history_only]=1');
 

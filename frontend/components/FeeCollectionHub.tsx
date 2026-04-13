@@ -7,13 +7,12 @@ import {
 } from '../services/v5Api';
 import { queryClient } from '../shared/queryClient';
 import { queryKeys } from '../shared/queryKeys';
+import { FeeCollectionSubView, useFeeCollectionStore } from '../shared/stores/feeCollectionStore';
 import { hasPermission } from '../utils/authorization';
 import { FeeCollectionDashboard } from './fee-collection/FeeCollectionDashboard';
 import { InvoiceList } from './fee-collection/InvoiceList';
 import { ReceiptList } from './fee-collection/ReceiptList';
 import { DebtAgingReport } from './fee-collection/DebtAgingReport';
-
-type SubView = 'DASHBOARD' | 'INVOICES' | 'RECEIPTS' | 'DEBT_REPORT';
 
 interface PeriodPreset {
   label: string;
@@ -52,7 +51,7 @@ interface FeeCollectionHubProps {
   addToast?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
-const SUB_VIEWS: { id: SubView; label: string; icon: string }[] = [
+const SUB_VIEWS: { id: FeeCollectionSubView; label: string; icon: string }[] = [
   { id: 'DASHBOARD', label: 'Tổng quan', icon: 'dashboard' },
   { id: 'INVOICES', label: 'Hóa đơn', icon: 'receipt_long' },
   { id: 'RECEIPTS', label: 'Phiếu thu', icon: 'payments' },
@@ -67,40 +66,33 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   const canEdit = canEditProp ?? hasPermission(currentUser, 'fee_collection.write');
   const canDelete = canDeleteProp ?? hasPermission(currentUser, 'fee_collection.delete');
   const presets = useMemo(() => buildPresets(), []);
-  const [activeView, setActiveView] = useState<SubView>('DASHBOARD');
-  const [periodFrom, setPeriodFrom] = useState(presets[0].from);
-  const [periodTo, setPeriodTo] = useState(presets[0].to);
-  const [selectedPreset, setSelectedPreset] = useState<string>(presets[0].label);
+  const {
+    activeView,
+    periodFrom,
+    periodTo,
+    setActiveView,
+    setPeriod,
+    syncFromUrl,
+  } = useFeeCollectionStore();
 
   // Invoice filter carry-over from Dashboard navigation
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('');
 
-  // URL state sync
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const view = params.get('fc_view') as SubView | null;
-    const from = params.get('fc_period_from');
-    const to = params.get('fc_period_to');
-    if (view && SUB_VIEWS.some((v) => v.id === view)) setActiveView(view);
-    if (from) setPeriodFrom(from);
-    if (to) setPeriodTo(to);
-  }, []);
+    syncFromUrl();
+  }, [syncFromUrl]);
 
-  const updateUrl = useCallback((view: SubView, from: string, to: string) => {
-    const params = new URLSearchParams(window.location.search);
-    params.set('fc_view', view);
-    params.set('fc_period_from', from);
-    params.set('fc_period_to', to);
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  }, []);
+  const selectedPreset = useMemo(
+    () => presets.find((preset) => preset.from === periodFrom && preset.to === periodTo)?.label ?? '',
+    [periodFrom, periodTo, presets]
+  );
 
-  const handleViewChange = useCallback((v: SubView) => {
+  const handleViewChange = useCallback((v: FeeCollectionSubView) => {
     setActiveView(v);
-    updateUrl(v, periodFrom, periodTo);
-  }, [periodFrom, periodTo, updateUrl]);
+  }, [setActiveView]);
 
-  const handlePrefetchView = useCallback((view: SubView) => {
+  const handlePrefetchView = useCallback((view: FeeCollectionSubView) => {
     if (view === 'DASHBOARD') {
       const filters = { period_from: periodFrom, period_to: periodTo };
       void queryClient.prefetchQuery({
@@ -159,11 +151,8 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   }, [invoiceCustomerFilter, invoiceStatusFilter, periodFrom, periodTo]);
 
   const handlePreset = useCallback((p: PeriodPreset) => {
-    setSelectedPreset(p.label);
-    setPeriodFrom(p.from);
-    setPeriodTo(p.to);
-    updateUrl(activeView, p.from, p.to);
-  }, [activeView, updateUrl]);
+    setPeriod(p.from, p.to);
+  }, [setPeriod]);
 
   const onNotify = useCallback((type: 'success' | 'error', title: string, message: string) => {
     addToast?.(type, title, message);
@@ -176,16 +165,12 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   }, [handleViewChange]);
 
   const handlePeriodFromChange = useCallback((value: string) => {
-    setPeriodFrom(value);
-    setSelectedPreset('');
-    updateUrl(activeView, value, periodTo);
-  }, [activeView, periodTo, updateUrl]);
+    setPeriod(value, periodTo);
+  }, [periodTo, setPeriod]);
 
   const handlePeriodToChange = useCallback((value: string) => {
-    setPeriodTo(value);
-    setSelectedPreset('');
-    updateUrl(activeView, periodFrom, value);
-  }, [activeView, periodFrom, updateUrl]);
+    setPeriod(periodFrom, value);
+  }, [periodFrom, setPeriod]);
 
   const showPeriodSelector = useMemo(() => activeView === 'DASHBOARD', [activeView]);
 
@@ -257,11 +242,7 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
                 </span>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Fee Collection</p>
                 <h2 className="text-sm font-bold leading-tight text-deep-teal">Thu cước &amp; Công nợ</h2>
-                <p className="text-[11px] leading-tight text-slate-400">
-                  Theo dõi hóa đơn, phiếu thu, công nợ và nhịp thu tiền theo từng kỳ vận hành.
-                </p>
               </div>
             </div>
 
@@ -303,7 +284,6 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
               <div className="mb-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-xs font-bold text-slate-700">Chu kỳ theo dõi</p>
-                  <p className="text-[10px] text-slate-400">Chọn preset hoặc tự đặt khoảng ngày để làm mới dashboard thu cước.</p>
                 </div>
                 <span className="inline-flex items-center rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
                   Dashboard

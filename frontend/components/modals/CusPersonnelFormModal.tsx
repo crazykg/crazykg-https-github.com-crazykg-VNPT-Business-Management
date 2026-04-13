@@ -185,11 +185,12 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
       maxHeightClass="max-h-[98vh]"
       disableClose={isSubmitting}
     >
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        <div className="col-span-2">
+      <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="lg:col-span-2">
           <SearchableSelect
             label="Khách hàng"
             required
+            size="sm"
             options={customers.map((customer) => ({ value: String(customer.id), label: `${customer.customer_code} - ${customer.customer_name}` }))}
             value={formData.customerId || ''}
             onChange={(value) => handleChange('customerId', value)}
@@ -198,19 +199,19 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
             disabled={isCustomerOptionsLoading}
             usePortal
           />
-          {isCustomerOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh mục khách hàng đang được nạp cho biểu mẫu này.</p>}
+          {isCustomerOptionsLoading && <p className="mt-1 text-[11px] text-slate-400">Danh mục khách hàng đang được nạp cho biểu mẫu này.</p>}
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Họ và tên <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-semibold text-neutral mb-1">Họ và tên <span className="text-error">*</span></label>
           <input
             type="text"
             value={formData.fullName}
             onChange={(e) => handleChange('fullName', e.target.value)}
             placeholder="Nhập họ và tên"
-            className={`w-full h-11 px-4 rounded-lg border ${errors.fullName ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+            className={`w-full h-8 px-3 rounded border text-xs bg-white text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:ring-1 focus:ring-primary/30 focus:border-primary ${errors.fullName ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
           />
-          {errors.fullName && <p className="text-xs text-red-500 mt-1">{errors.fullName}</p>}
+          {errors.fullName && <p className="text-[11px] text-error mt-0.5">{errors.fullName}</p>}
         </div>
 
         <div className="col-span-1">
@@ -227,6 +228,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
           <SearchableSelect
             label="Chức vụ"
             required
+            size="sm"
             options={positionOptions.map((position) => ({ value: position.value, label: position.label }))}
             value={String(formData.positionId || '')}
             onChange={(value) => {
@@ -240,12 +242,13 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
             disabled={isPositionOptionsLoading}
             usePortal
           />
-          {isPositionOptionsLoading && <p className="mt-1 text-xs text-slate-500">Danh mục chức vụ liên hệ đang được tải.</p>}
+          {isPositionOptionsLoading && <p className="mt-1 text-[11px] text-slate-400">Danh mục chức vụ liên hệ đang được tải.</p>}
         </div>
 
         <div className="col-span-1">
           <SearchableSelect
             label="Trạng thái"
+            size="sm"
             options={[
               { value: 'Active', label: 'Hoạt động' },
               { value: 'Inactive', label: 'Không hoạt động' },
@@ -258,10 +261,10 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Số điện thoại</label>
+          <label className="block text-xs font-semibold text-neutral mb-1">Số điện thoại</label>
           <input
             type="tel"
-            className="w-full h-11 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
+            className="w-full h-8 px-3 rounded border border-slate-300 text-xs bg-white text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:ring-1 focus:ring-primary/30 focus:border-primary"
             placeholder="091xxxxxxx"
             value={formData.phoneNumber || ''}
             onChange={(e) => handleChange('phoneNumber', e.target.value)}
@@ -269,31 +272,32 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
         </div>
 
         <div className="col-span-1">
-          <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+          <label className="block text-xs font-semibold text-neutral mb-1">Email</label>
           <input
             type="email"
-            className={`w-full h-11 px-4 rounded-lg border ${errors.email ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-300'} bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all`}
+            className={`w-full h-8 px-3 rounded border text-xs bg-white text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:ring-1 focus:ring-primary/30 focus:border-primary ${errors.email ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
             placeholder="example@domain.com"
             value={formData.email || ''}
             onChange={(e) => handleChange('email', e.target.value)}
           />
-          {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+          {errors.email && <p className="text-[11px] text-error mt-0.5">{errors.email}</p>}
         </div>
       </div>
-      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+      <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2 flex-shrink-0">
         <button
           onClick={onClose}
           disabled={isSubmitting}
-          className="px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Hủy
         </button>
         <button
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="px-6 py-2.5 rounded-lg bg-primary text-white font-bold hover:bg-deep-teal shadow-lg shadow-primary/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl text-white shadow-sm transition-colors disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
         >
-          <span className={`material-symbols-outlined text-lg ${isSubmitting ? 'animate-spin' : ''}`}>
+          <span className={`material-symbols-outlined ${isSubmitting ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
             {isSubmitting ? 'progress_activity' : 'check'}
           </span>
           {isSubmitting ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}

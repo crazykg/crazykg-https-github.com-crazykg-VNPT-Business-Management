@@ -126,7 +126,22 @@ class ProjectDomainService
         $query = Project::query()
             ->with(['customer' => fn ($query) => $query->select($this->support->customerRelationColumns())])
             ->when($this->support->hasColumn('projects', 'department_id') && $this->support->hasTable('departments'), function ($q): void {
-                $q->with(['department' => fn ($dq) => $dq->select(['id', 'department_code', 'department_name'])]);
+                $q->with(['department' => function ($dq): void {
+                    $selects = ['id'];
+                    if ($this->support->hasColumn('departments', 'department_code')) {
+                        $selects[] = 'department_code';
+                    } elseif ($this->support->hasColumn('departments', 'dept_code')) {
+                        $selects[] = DB::raw('dept_code as department_code');
+                    }
+
+                    if ($this->support->hasColumn('departments', 'department_name')) {
+                        $selects[] = 'department_name';
+                    } elseif ($this->support->hasColumn('departments', 'dept_name')) {
+                        $selects[] = DB::raw('dept_name as department_name');
+                    }
+
+                    $dq->select($selects);
+                }]);
             })
             ->when($this->support->hasTable('project_implementation_units'), function ($q): void {
                 $q->with('implementationUnit');
@@ -142,6 +157,7 @@ class ProjectDomainService
                 'start_date',
                 'expected_end_date',
                 'actual_end_date',
+                'opportunity_score',
                 'status',
                 'status_reason',
                 'payment_cycle',
@@ -206,6 +222,11 @@ class ProjectDomainService
 
         $this->applyReadScope($request, $query);
 
+        $overallEstimatedValue = null;
+        if ($this->support->hasColumn('projects', 'estimated_value')) {
+            $overallEstimatedValue = round((float) ((clone $query)->toBase()->sum('projects.estimated_value') ?? 0), 2);
+        }
+
         $sortBy = $this->support->resolveSortColumn($request, [
             'id' => 'projects.id',
             'project_code' => 'projects.project_code',
@@ -230,9 +251,14 @@ class ProjectDomainService
                     ->map(fn (Project $project): array => $this->support->serializeProject($project))
                     ->values();
 
+                $meta = $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages());
+                if ($overallEstimatedValue !== null) {
+                    $meta['kpis'] = ['total_estimated_value' => $overallEstimatedValue];
+                }
+
                 return [
                     'data' => $rows,
-                    'meta' => $this->support->buildSimplePaginationMeta($page, $perPage, (int) $rows->count(), $paginator->hasMorePages()),
+                    'meta' => $meta,
                 ];
             }
 
@@ -241,9 +267,14 @@ class ProjectDomainService
                 ->map(fn (Project $project): array => $this->support->serializeProject($project))
                 ->values();
 
+            $meta = $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total());
+            if ($overallEstimatedValue !== null) {
+                $meta['kpis'] = ['total_estimated_value' => $overallEstimatedValue];
+            }
+
             return [
                 'data' => $rows,
-                'meta' => $this->support->buildPaginationMeta($page, $perPage, (int) $paginator->total()),
+                'meta' => $meta,
             ];
         }
 
@@ -252,9 +283,14 @@ class ProjectDomainService
             ->map(fn (Project $project): array => $this->support->serializeProject($project))
             ->values();
 
+        $meta = $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count());
+        if ($overallEstimatedValue !== null) {
+            $meta['kpis'] = ['total_estimated_value' => $overallEstimatedValue];
+        }
+
         return [
             'data' => $rows,
-            'meta' => $this->support->buildPaginationMeta(1, max(1, (int) $rows->count()), (int) $rows->count()),
+            'meta' => $meta,
         ];
     }
 
@@ -398,6 +434,7 @@ class ProjectDomainService
             'start_date' => ['nullable', 'date'],
             'expected_end_date' => ['nullable', 'date'],
             'actual_end_date' => ['nullable', 'date'],
+            'opportunity_score' => ['nullable', 'integer', 'min:0', 'max:2'],
             'payment_cycle' => ['nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
             'implementation_user_id' => ['nullable', 'integer'],
             'data_scope' => ['nullable', 'string', 'max:255'],
@@ -436,11 +473,15 @@ class ProjectDomainService
             $resolvedStatus,
             $validated['status_reason'] ?? null
         );
+        $resolvedOpportunityScore = $this->resolveProjectOpportunityScore(
+            $resolvedStatus,
+            $validated['opportunity_score'] ?? null,
+            0
+        );
 
         $startDateInput = $validated['start_date'] ?? now()->toDateString();
         $expectedEndDateInput = $validated['expected_end_date'] ?? null;
-        $actualEndDateInput = $validated['actual_end_date'] ?? null;
-        $timelineError = $this->validateProjectTimeline($startDateInput, $expectedEndDateInput, $actualEndDateInput);
+        $timelineError = $this->validateProjectTimeline($startDateInput, $expectedEndDateInput);
         if ($timelineError instanceof JsonResponse) {
             return $timelineError;
         }
@@ -487,6 +528,7 @@ class ProjectDomainService
             $resolvedItems,
             $syncRaci,
             $resolvedRaci,
+            $resolvedOpportunityScore,
             $actorId,
             $implementationUnitContext
         ): void {
@@ -498,6 +540,7 @@ class ProjectDomainService
             $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_id', null);
             $this->support->setAttributeIfColumn($project, 'projects', 'investment_mode', $validated['investment_mode'] ?? 'DAU_TU');
             $this->support->setAttributeIfColumn($project, 'projects', 'payment_cycle', $validated['payment_cycle'] ?? null);
+            $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_score', $resolvedOpportunityScore);
 
             if ($this->support->hasColumn('projects', 'start_date')) {
                 $this->support->setAttributeIfColumn($project, 'projects', 'start_date', $startDateInput);
@@ -512,14 +555,10 @@ class ProjectDomainService
                 $this->support->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope'] ?? null);
             }
 
-            if ($this->support->hasColumn('projects', 'dept_id')) {
-                $this->support->setAttributeIfColumn(
-                    $project,
-                    'projects',
-                    'dept_id',
-                    null
-                );
-            }
+            $this->syncProjectOwnershipDepartmentColumns(
+                $project,
+                $implementationUnitContext['ownership_department_id'] ?? null
+            );
 
             if ($actorId !== null) {
                 $this->support->setAttributeIfColumn($project, 'projects', 'created_by', $actorId);
@@ -568,6 +607,7 @@ class ProjectDomainService
             return $scopeError;
         }
         $before = $this->accessAudit->toAuditArray($project);
+        $revenueScheduleCount = $this->countProjectRevenueSchedules((int) $project->getKey());
 
         $rules = [
             'project_code' => ['sometimes', 'required', 'string', 'max:100'],
@@ -579,6 +619,7 @@ class ProjectDomainService
             'start_date' => ['sometimes', 'nullable', 'date'],
             'expected_end_date' => ['sometimes', 'nullable', 'date'],
             'actual_end_date' => ['sometimes', 'nullable', 'date'],
+            'opportunity_score' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:2'],
             'payment_cycle' => ['sometimes', 'nullable', 'string', Rule::in(self::PAYMENT_CYCLES)],
             'implementation_user_id' => ['sometimes', 'nullable', 'integer'],
             'data_scope' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -625,6 +666,11 @@ class ProjectDomainService
                 ? $validated['status_reason']
                 : $project->getAttribute('status_reason')
         );
+        $resolvedOpportunityScore = $this->resolveProjectOpportunityScore(
+            $resolvedStatus,
+            array_key_exists('opportunity_score', $validated) ? $validated['opportunity_score'] : null,
+            $this->support->parseNullableInt($project->getAttribute('opportunity_score'))
+        );
 
         $resolvedStartDate = array_key_exists('start_date', $validated)
             ? $validated['start_date']
@@ -633,9 +679,9 @@ class ProjectDomainService
             ? $validated['expected_end_date']
             : ($project->getAttribute('expected_end_date') ? (string) $project->getAttribute('expected_end_date') : null);
         $resolvedActualEndDate = array_key_exists('actual_end_date', $validated)
-            ? $validated['actual_end_date']
-            : ($project->getAttribute('actual_end_date') ? (string) $project->getAttribute('actual_end_date') : null);
-        $timelineError = $this->validateProjectTimeline($resolvedStartDate, $resolvedExpectedEndDate, $resolvedActualEndDate);
+            ? $this->normalizeDatePortion($validated['actual_end_date'])
+            : $this->normalizeDatePortion($project->getAttribute('actual_end_date'));
+        $timelineError = $this->validateProjectTimeline($resolvedStartDate, $resolvedExpectedEndDate);
         if ($timelineError instanceof JsonResponse) {
             return $timelineError;
         }
@@ -673,21 +719,20 @@ class ProjectDomainService
         if (array_key_exists('actual_end_date', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'actual_end_date', $validated['actual_end_date']);
         }
+        $this->support->setAttributeIfColumn($project, 'projects', 'opportunity_score', $resolvedOpportunityScore);
         if ($this->support->hasColumn('projects', 'data_scope') && array_key_exists('data_scope', $validated)) {
             $this->support->setAttributeIfColumn($project, 'projects', 'data_scope', $validated['data_scope']);
-        }
-
-        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
-        if ($actorId !== null) {
-            $this->support->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
         }
 
         $syncItems = $this->shouldSyncCollection($validated, 'sync_items', 'items');
         $syncRaci = $this->shouldSyncCollection($validated, 'sync_raci', 'raci');
         $resolvedItems = $syncItems ? $this->resolveProjectItemsPayload($validated['items'] ?? []) : [];
         $resolvedRaci = $syncRaci ? $this->resolveProjectRaciPayload($validated['raci'] ?? []) : [];
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $shouldSyncImplementationUnit = array_key_exists('implementation_user_id', $validated);
         $implementationUnitContext = null;
+        $shouldSyncOwnershipDepartment = false;
+        $ownershipDepartmentId = null;
         if ($shouldSyncImplementationUnit) {
             $implementationUnitContext = $this->resolveProjectImplementationUnitContext(
                 $request,
@@ -696,9 +741,51 @@ class ProjectDomainService
             if ($implementationUnitContext instanceof JsonResponse) {
                 return $implementationUnitContext;
             }
+
+            $shouldSyncOwnershipDepartment = true;
+            $ownershipDepartmentId = $implementationUnitContext['ownership_department_id'] ?? null;
+        } else {
+            $currentOwnershipDepartmentId = $this->resolveProjectStoredOwnershipDepartmentId($project);
+            if ($currentOwnershipDepartmentId !== null) {
+                $shouldSyncOwnershipDepartment = true;
+                $ownershipDepartmentId = $currentOwnershipDepartmentId;
+            } else {
+                $ownershipDepartmentId = $this->resolveProjectOwnershipDepartmentIdFromExistingImplementationUnit((int) $project->getKey());
+                $shouldSyncOwnershipDepartment = $ownershipDepartmentId !== null;
+            }
         }
 
-        DB::transaction(function () use ($project, $syncItems, $resolvedItems, $syncRaci, $resolvedRaci, $actorId, $shouldSyncImplementationUnit, $implementationUnitContext): void {
+        if ($revenueScheduleCount > 0 && $this->projectUpdateTouchesRevenueLockedData(
+            $project,
+            $validated,
+            $syncItems,
+            $shouldSyncImplementationUnit,
+            $implementationUnitContext,
+            $resolvedStatus,
+            $resolvedStatusReason,
+            $resolvedOpportunityScore,
+            $resolvedStartDate,
+            $resolvedExpectedEndDate,
+            $resolvedActualEndDate
+        )) {
+            return response()->json([
+                'message' => $this->buildProjectRevenueScheduleUpdateBlockedMessage($revenueScheduleCount),
+                'data' => [
+                    'project_id' => (int) $project->getKey(),
+                    'revenue_schedule_count' => $revenueScheduleCount,
+                ],
+            ], 422);
+        }
+
+        if ($actorId !== null) {
+            $this->support->setAttributeIfColumn($project, 'projects', 'updated_by', $actorId);
+        }
+
+        DB::transaction(function () use ($project, $syncItems, $resolvedItems, $syncRaci, $resolvedRaci, $actorId, $shouldSyncImplementationUnit, $implementationUnitContext, $shouldSyncOwnershipDepartment, $ownershipDepartmentId): void {
+            if ($shouldSyncOwnershipDepartment) {
+                $this->syncProjectOwnershipDepartmentColumns($project, $ownershipDepartmentId);
+            }
+
             $project->save();
 
             if ($syncItems) {
@@ -737,7 +824,8 @@ class ProjectDomainService
      *   implementation_user_code:?string,
      *   implementation_full_name:?string,
      *   implementation_unit_code:?string,
-     *   implementation_unit_name:?string
+     *   implementation_unit_name:?string,
+     *   ownership_department_id:?int
      * }|JsonResponse|null
      */
     private function resolveProjectImplementationUnitContext(Request $request, mixed $rawImplementationUserId): array|JsonResponse|null
@@ -791,6 +879,11 @@ class ProjectDomainService
             $this->support->hasColumn('departments', 'dept_name')
                 ? 'dept.dept_name as dept_name'
                 : DB::raw('NULL as dept_name'),
+            $this->support->hasColumn('internal_users', 'department_id')
+                ? 'signer.department_id as department_id'
+                : ($this->support->hasColumn('internal_users', 'dept_id')
+                    ? 'signer.dept_id as department_id'
+                    : DB::raw('NULL as department_id')),
         ])->first();
 
         if ($record === null) {
@@ -812,12 +905,20 @@ class ProjectDomainService
             ], 422);
         }
 
+        $ownershipDepartmentId = null;
+        $departmentId = $this->support->parseNullableInt($record->department_id ?? null);
+        if ($departmentId !== null) {
+            $ownershipDepartment = $this->support->resolveOwnershipDepartmentById($departmentId);
+            $ownershipDepartmentId = $this->support->parseNullableInt($ownershipDepartment['id'] ?? null);
+        }
+
         return [
             'implementation_user_id' => $implementationUserId,
             'implementation_user_code' => $this->support->normalizeNullableString($record->user_code ?? null),
             'implementation_full_name' => $this->support->normalizeNullableString($record->full_name ?? null),
             'implementation_unit_code' => $unitCode,
             'implementation_unit_name' => $this->support->normalizeNullableString($record->dept_name ?? null),
+            'ownership_department_id' => $ownershipDepartmentId,
         ];
     }
 
@@ -827,7 +928,8 @@ class ProjectDomainService
      *   implementation_user_code:?string,
      *   implementation_full_name:?string,
      *   implementation_unit_code:?string,
-     *   implementation_unit_name:?string
+     *   implementation_unit_name:?string,
+     *   ownership_department_id:?int
      * }|null $context
      */
     private function syncProjectImplementationUnit(int $projectId, ?array $context, ?int $actorId): void
@@ -877,6 +979,73 @@ class ProjectDomainService
         }
 
         $table->update($payload);
+    }
+
+    private function syncProjectOwnershipDepartmentColumns(Project $project, ?int $departmentId): void
+    {
+        $this->support->setAttributeIfColumn($project, 'projects', 'department_id', $departmentId);
+        $this->support->setAttributeIfColumn($project, 'projects', 'dept_id', $departmentId);
+    }
+
+    private function resolveProjectStoredOwnershipDepartmentId(Project $project): ?int
+    {
+        $departmentId = $this->support->parseNullableInt($project->getAttribute('department_id'));
+        if ($departmentId !== null) {
+            return $departmentId;
+        }
+
+        return $this->support->parseNullableInt($project->getAttribute('dept_id'));
+    }
+
+    private function resolveProjectOwnershipDepartmentIdFromExistingImplementationUnit(int $projectId): ?int
+    {
+        if (! $this->support->hasTable('project_implementation_units')) {
+            return null;
+        }
+
+        $snapshot = DB::table('project_implementation_units')
+            ->where('project_id', $projectId)
+            ->select(['implementation_user_id', 'implementation_unit_code'])
+            ->first();
+
+        if ($snapshot === null) {
+            return null;
+        }
+
+        $departmentId = null;
+        $implementationUserId = $this->support->parseNullableInt($snapshot->implementation_user_id ?? null);
+        $userDepartmentColumn = $this->support->hasColumn('internal_users', 'department_id')
+            ? 'department_id'
+            : ($this->support->hasColumn('internal_users', 'dept_id') ? 'dept_id' : null);
+
+        if ($implementationUserId !== null && $userDepartmentColumn !== null && $this->support->hasTable('internal_users')) {
+            $userQuery = DB::table('internal_users')->where('id', $implementationUserId);
+            if ($this->support->hasColumn('internal_users', 'deleted_at')) {
+                $userQuery->whereNull('deleted_at');
+            }
+
+            $departmentId = $this->support->parseNullableInt($userQuery->value($userDepartmentColumn));
+        }
+
+        if ($departmentId === null && $this->support->hasTable('departments') && $this->support->hasColumn('departments', 'dept_code')) {
+            $implementationUnitCode = $this->support->normalizeNullableString($snapshot->implementation_unit_code ?? null);
+            if ($implementationUnitCode !== null) {
+                $departmentQuery = DB::table('departments')->where('dept_code', $implementationUnitCode);
+                if ($this->support->hasColumn('departments', 'deleted_at')) {
+                    $departmentQuery->whereNull('deleted_at');
+                }
+
+                $departmentId = $this->support->parseNullableInt($departmentQuery->value('id'));
+            }
+        }
+
+        if ($departmentId === null) {
+            return null;
+        }
+
+        $ownershipDepartment = $this->support->resolveOwnershipDepartmentById($departmentId);
+
+        return $this->support->parseNullableInt($ownershipDepartment['id'] ?? null) ?? $departmentId;
     }
 
     public function destroy(Request $request, int $id): JsonResponse
@@ -968,6 +1137,185 @@ class ProjectDomainService
         }
 
         return (int) $query->count();
+    }
+
+    private function countProjectRevenueSchedules(int $projectId): int
+    {
+        if (
+            ! $this->support->hasTable('project_revenue_schedules')
+            || ! $this->support->hasColumn('project_revenue_schedules', 'project_id')
+        ) {
+            return 0;
+        }
+
+        return (int) DB::table('project_revenue_schedules')
+            ->where('project_id', $projectId)
+            ->count();
+    }
+
+    /**
+     * @param array<string, mixed> $validated
+     * @param array{
+     *   implementation_user_id:int,
+     *   implementation_user_code:?string,
+     *   implementation_full_name:?string,
+     *   implementation_unit_code:?string,
+     *   implementation_unit_name:?string,
+     *   ownership_department_id:?int
+     * }|null $implementationUnitContext
+     */
+    private function projectUpdateTouchesRevenueLockedData(
+        Project $project,
+        array $validated,
+        bool $syncItems,
+        bool $shouldSyncImplementationUnit,
+        ?array $implementationUnitContext,
+        string $resolvedStatus,
+        ?string $resolvedStatusReason,
+        int $resolvedOpportunityScore,
+        ?string $resolvedStartDate,
+        ?string $resolvedExpectedEndDate,
+        ?string $resolvedActualEndDate
+    ): bool {
+        if ($syncItems) {
+            return true;
+        }
+
+        $currentProjectCode = trim((string) ($project->getOriginal('project_code') ?? ''));
+        $nextProjectCode = array_key_exists('project_code', $validated)
+            ? trim((string) ($validated['project_code'] ?? ''))
+            : $currentProjectCode;
+        if ($currentProjectCode !== $nextProjectCode) {
+            return true;
+        }
+
+        $currentProjectName = trim((string) ($project->getOriginal('project_name') ?? ''));
+        $nextProjectName = array_key_exists('project_name', $validated)
+            ? trim((string) ($validated['project_name'] ?? ''))
+            : $currentProjectName;
+        if ($currentProjectName !== $nextProjectName) {
+            return true;
+        }
+
+        $currentCustomerId = $this->support->parseNullableInt($project->getOriginal('customer_id'));
+        $nextCustomerId = array_key_exists('customer_id', $validated)
+            ? $this->support->parseNullableInt($validated['customer_id'])
+            : $currentCustomerId;
+        if ($currentCustomerId !== $nextCustomerId) {
+            return true;
+        }
+
+        $currentInvestmentMode = $this->normalizeSubmittedInvestmentMode(
+            $project->getOriginal('investment_mode'),
+            (string) ($project->getOriginal('investment_mode') ?? '')
+        ) ?? 'DAU_TU';
+        $nextInvestmentMode = array_key_exists('investment_mode', $validated)
+            ? ($this->normalizeSubmittedInvestmentMode(
+                $validated['investment_mode'],
+                (string) ($project->getOriginal('investment_mode') ?? '')
+            ) ?? $currentInvestmentMode)
+            : $currentInvestmentMode;
+        if ($currentInvestmentMode !== $nextInvestmentMode) {
+            return true;
+        }
+
+        $currentStatusRaw = trim((string) ($project->getOriginal('status') ?? ''));
+        $currentStatus = $currentStatusRaw !== ''
+            ? $this->support->toProjectStorageStatus($currentStatusRaw)
+            : $this->defaultProjectStatusForInvestmentMode(
+                (string) ($project->getOriginal('investment_mode') ?? '')
+            );
+        if ($currentStatus !== $resolvedStatus) {
+            return true;
+        }
+
+        $currentStatusReason = $this->support->normalizeNullableString($project->getOriginal('status_reason'));
+        if ($currentStatusReason !== $resolvedStatusReason) {
+            return true;
+        }
+
+        $currentOpportunityScore = $this->resolveProjectOpportunityScore(
+            $currentStatus,
+            null,
+            $this->support->parseNullableInt($project->getOriginal('opportunity_score'))
+        );
+        if ($currentOpportunityScore !== $resolvedOpportunityScore) {
+            return true;
+        }
+
+        $currentPaymentCycle = $this->normalizeProjectPaymentCycleForComparison(
+            $project->getOriginal('payment_cycle')
+        );
+        $nextPaymentCycle = array_key_exists('payment_cycle', $validated)
+            ? $this->normalizeProjectPaymentCycleForComparison($validated['payment_cycle'])
+            : $currentPaymentCycle;
+        if ($currentPaymentCycle !== $nextPaymentCycle) {
+            return true;
+        }
+
+        if ($this->normalizeDatePortion($project->getOriginal('start_date')) !== $resolvedStartDate) {
+            return true;
+        }
+
+        if ($this->normalizeDatePortion($project->getOriginal('expected_end_date')) !== $resolvedExpectedEndDate) {
+            return true;
+        }
+
+        if ($this->normalizeDatePortion($project->getOriginal('actual_end_date')) !== $resolvedActualEndDate) {
+            return true;
+        }
+
+        $currentDataScope = $this->support->normalizeNullableString($project->getOriginal('data_scope'));
+        $nextDataScope = array_key_exists('data_scope', $validated)
+            ? $this->support->normalizeNullableString($validated['data_scope'])
+            : $currentDataScope;
+        if ($currentDataScope !== $nextDataScope) {
+            return true;
+        }
+
+        return $shouldSyncImplementationUnit
+            && $this->projectImplementationUserHasChanged((int) $project->getKey(), $implementationUnitContext);
+    }
+
+    private function normalizeProjectPaymentCycleForComparison(mixed $value): ?string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    /**
+     * @param array{
+     *   implementation_user_id:int,
+     *   implementation_user_code:?string,
+     *   implementation_full_name:?string,
+     *   implementation_unit_code:?string,
+     *   implementation_unit_name:?string,
+     *   ownership_department_id:?int
+     * }|null $implementationUnitContext
+     */
+    private function projectImplementationUserHasChanged(int $projectId, ?array $implementationUnitContext): bool
+    {
+        if (! $this->support->hasTable('project_implementation_units')) {
+            return $implementationUnitContext !== null;
+        }
+
+        $currentUserId = $this->support->parseNullableInt(
+            DB::table('project_implementation_units')
+                ->where('project_id', $projectId)
+                ->value('implementation_user_id')
+        );
+        $nextUserId = $this->support->parseNullableInt($implementationUnitContext['implementation_user_id'] ?? null);
+
+        return $currentUserId !== $nextUserId;
+    }
+
+    private function buildProjectRevenueScheduleUpdateBlockedMessage(int $count): string
+    {
+        return sprintf(
+            'Dự án đang có %d phân kỳ doanh thu. Bạn vẫn có thể cập nhật đội ngũ dự án, nhưng muốn đổi thông tin chung hoặc hạng mục thì vui lòng xóa phân kỳ doanh thu trong modal cập nhật dự án trước.',
+            max(1, $count)
+        );
     }
 
     /**
@@ -1268,12 +1616,11 @@ class ProjectDomainService
 
     /**
      * @param array<int, array<string, mixed>> $items
-     * @return array<int, array{product_id:int, quantity:float, unit_price:float}>
+     * @return array<int, array{product_id:int, product_package_id:?int, quantity:float, unit_price:float}>
      */
     private function resolveProjectItemsPayload(array $items): array
     {
         $normalized = [];
-        $seen = [];
         foreach ($items as $index => $item) {
             $productId = $this->support->parseNullableInt($item['product_id'] ?? null);
             if ($productId === null || $productId <= 0) {
@@ -1282,13 +1629,7 @@ class ProjectDomainService
                 ]);
             }
 
-            if (isset($seen[$productId])) {
-                throw ValidationException::withMessages([
-                    "items.{$index}.product_id" => ['Không được chọn trùng sản phẩm trong cùng một dự án.'],
-                ]);
-            }
-            $seen[$productId] = true;
-
+            $productPackageId = $this->support->parseNullableInt($item['product_package_id'] ?? null);
             $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 1.0;
             if (! is_finite($quantity) || $quantity <= 0) {
                 throw ValidationException::withMessages([
@@ -1305,6 +1646,9 @@ class ProjectDomainService
 
             $normalized[] = [
                 'product_id' => $productId,
+                'product_package_id' => $productPackageId !== null && $productPackageId > 0
+                    ? $productPackageId
+                    : null,
                 'quantity' => round($quantity, 2),
                 'unit_price' => round($unitPrice, 2),
             ];
@@ -1320,7 +1664,6 @@ class ProjectDomainService
     private function resolveProjectRaciPayload(array $rows): array
     {
         $normalized = [];
-        $seen = [];
 
         foreach ($rows as $index => $row) {
             $userId = $this->support->parseNullableInt($row['user_id'] ?? null);
@@ -1336,14 +1679,6 @@ class ProjectDomainService
                     "raci.{$index}.raci_role" => ['Vai trò RACI không hợp lệ (chỉ nhận R/A/C/I).'],
                 ]);
             }
-
-            $identity = "{$userId}|{$role}";
-            if (isset($seen[$identity])) {
-                throw ValidationException::withMessages([
-                    "raci.{$index}" => ['Nhân sự đã được gán cùng vai trò RACI trong dự án này.'],
-                ]);
-            }
-            $seen[$identity] = true;
 
             $assignedDateInput = $row['assigned_date'] ?? null;
             $assignedDate = $this->normalizeDatePortion($assignedDateInput);
@@ -1361,14 +1696,70 @@ class ProjectDomainService
                 'user_id' => $userId,
                 'raci_role' => $role,
                 'assigned_date' => $assignedDate,
+                '_original_raci_role' => $role,
             ];
+        }
+
+        $lastAccountableIndex = null;
+        foreach ($normalized as $index => $row) {
+            if (($row['raci_role'] ?? null) === 'A') {
+                $lastAccountableIndex = $index;
+            }
+        }
+
+        if ($lastAccountableIndex !== null) {
+            foreach ($normalized as $index => &$row) {
+                if ($index !== $lastAccountableIndex && ($row['raci_role'] ?? null) === 'A') {
+                    $row['raci_role'] = 'R';
+                }
+            }
+            unset($row);
+        }
+
+        $stableIdentities = [];
+        $demotedIdentities = [];
+        $filtered = [];
+        for ($index = count($normalized) - 1; $index >= 0; $index--) {
+            $row = $normalized[$index];
+            $identity = "{$row['user_id']}|{$row['raci_role']}";
+            $wasDemoted = ($row['_original_raci_role'] ?? null) === 'A' && ($row['raci_role'] ?? null) === 'R';
+
+            if (! $wasDemoted) {
+                $stableIdentities[$identity] = true;
+                array_unshift($filtered, $row);
+                continue;
+            }
+
+            if (isset($stableIdentities[$identity]) || isset($demotedIdentities[$identity])) {
+                continue;
+            }
+
+            $demotedIdentities[$identity] = true;
+            array_unshift($filtered, $row);
+        }
+
+        $normalized = array_map(static function (array $row): array {
+            unset($row['_original_raci_role']);
+
+            return $row;
+        }, $filtered);
+
+        $seen = [];
+        foreach ($normalized as $index => $row) {
+            $identity = "{$row['user_id']}|{$row['raci_role']}";
+            if (isset($seen[$identity])) {
+                throw ValidationException::withMessages([
+                    "raci.{$index}" => ['Nhân sự đã được gán cùng vai trò RACI trong dự án này.'],
+                ]);
+            }
+            $seen[$identity] = true;
         }
 
         return $normalized;
     }
 
     /**
-     * @param array<int, array{product_id:int, quantity:float, unit_price:float}> $items
+     * @param array<int, array{product_id:int, product_package_id:?int, quantity:float, unit_price:float}> $items
      */
     private function syncProjectItems(int $projectId, array $items, ?int $actorId): void
     {
@@ -1386,9 +1777,64 @@ class ProjectDomainService
             }
         }
 
-        $productIds = collect($items)
-            ->pluck('product_id')
+        $productPackageIds = collect($items)
+            ->pluck('product_package_id')
+            ->filter(fn ($id): bool => is_numeric($id) && (int) $id > 0)
             ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        $packageProductIdsById = [];
+        if ($productPackageIds->isNotEmpty()) {
+            if (! $this->support->hasTable('product_packages')) {
+                throw ValidationException::withMessages([
+                    'items' => ['Hệ thống chưa hỗ trợ lưu hạng mục theo gói cước.'],
+                ]);
+            }
+
+            if (! $this->support->hasColumn('project_items', 'product_package_id')) {
+                throw ValidationException::withMessages([
+                    'items' => ['Bảng project_items thiếu cột product_package_id.'],
+                ]);
+            }
+
+            if (! $this->support->hasColumn('product_packages', 'product_id')) {
+                throw ValidationException::withMessages([
+                    'items' => ['Danh mục gói cước chưa hỗ trợ map sang sản phẩm cha.'],
+                ]);
+            }
+
+            $packageQuery = DB::table('product_packages')
+                ->whereIn('id', $productPackageIds->all());
+            if ($this->support->hasColumn('product_packages', 'deleted_at')) {
+                $packageQuery->whereNull('deleted_at');
+            }
+
+            $packageProductIdsById = $packageQuery
+                ->pluck('product_id', 'id')
+                ->mapWithKeys(fn ($productId, $packageId): array => [(int) $packageId => (int) $productId])
+                ->all();
+
+            $missingProductPackageIds = array_values(array_diff(
+                $productPackageIds->all(),
+                array_map('intval', array_keys($packageProductIdsById))
+            ));
+            if ($missingProductPackageIds !== []) {
+                throw ValidationException::withMessages([
+                    'items' => ['Không tìm thấy gói cước: '.implode(', ', $missingProductPackageIds).'.'],
+                ]);
+            }
+        }
+
+        $productIds = collect($items)
+            ->map(function (array $item) use ($packageProductIdsById): int {
+                $productPackageId = isset($item['product_package_id']) ? (int) $item['product_package_id'] : 0;
+                if ($productPackageId > 0 && isset($packageProductIdsById[$productPackageId])) {
+                    return (int) $packageProductIdsById[$productPackageId];
+                }
+
+                return (int) $item['product_id'];
+            })
             ->unique()
             ->values();
 
@@ -1415,10 +1861,18 @@ class ProjectDomainService
         $now = now();
         $rows = [];
         foreach ($items as $item) {
+            $productPackageId = isset($item['product_package_id']) ? (int) $item['product_package_id'] : 0;
+            $resolvedProductId = $productPackageId > 0 && isset($packageProductIdsById[$productPackageId])
+                ? (int) $packageProductIdsById[$productPackageId]
+                : (int) $item['product_id'];
             $row = [
                 'project_id' => $projectId,
-                'product_id' => $item['product_id'],
+                'product_id' => $resolvedProductId,
             ];
+
+            if ($this->support->hasColumn('project_items', 'product_package_id')) {
+                $row['product_package_id'] = $productPackageId > 0 ? $productPackageId : null;
+            }
 
             if ($this->support->hasColumn('project_items', 'quantity')) {
                 $row['quantity'] = $item['quantity'];
@@ -1507,6 +1961,31 @@ class ProjectDomainService
             }
         }
 
+        $currentUserIds = DB::table('raci_assignments')
+            ->where('entity_id', $projectId)
+            ->whereRaw('LOWER(entity_type) = ?', ['project'])
+            ->when(
+                $this->support->hasColumn('raci_assignments', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->pluck('user_id')
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+        $nextUserIds = $userIds->all();
+        $removedUserIds = array_values(array_diff($currentUserIds, $nextUserIds));
+
+        if ($removedUserIds !== []) {
+            $references = $this->collectProjectRaciMemberRemovalReferences($projectId, $removedUserIds);
+            if ($references !== []) {
+                throw ValidationException::withMessages([
+                    'raci' => [$this->buildProjectRaciMemberRemovalBlockedMessage($references)],
+                ]);
+            }
+        }
+
         DB::table('raci_assignments')
             ->where('entity_id', $projectId)
             ->whereRaw('LOWER(entity_type) = ?', ['project'])
@@ -1551,6 +2030,152 @@ class ProjectDomainService
         DB::table('raci_assignments')->insert($insertRows);
     }
 
+    /**
+     * @param array<int, int> $removedUserIds
+     * @return array<int, array{table:string,label:string,count:int}>
+     */
+    private function collectProjectRaciMemberRemovalReferences(int $projectId, array $removedUserIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(
+            array_map(fn ($id): int => (int) $id, $removedUserIds),
+            fn (int $id): bool => $id > 0
+        )));
+        if ($userIds === []) {
+            return [];
+        }
+
+        $references = [];
+
+        if (
+            $this->support->hasTable('project_procedure_raci')
+            && $this->support->hasTable('project_procedures')
+            && $this->support->hasColumn('project_procedure_raci', 'procedure_id')
+            && $this->support->hasColumn('project_procedure_raci', 'user_id')
+            && $this->support->hasColumn('project_procedures', 'project_id')
+        ) {
+            $query = DB::table('project_procedure_raci as ppr')
+                ->join('project_procedures as pp', 'pp.id', '=', 'ppr.procedure_id')
+                ->where('pp.project_id', $projectId)
+                ->whereIn('ppr.user_id', $userIds);
+
+            if ($this->support->hasColumn('project_procedure_raci', 'deleted_at')) {
+                $query->whereNull('ppr.deleted_at');
+            }
+            if ($this->support->hasColumn('project_procedures', 'deleted_at')) {
+                $query->whereNull('pp.deleted_at');
+            }
+
+            $count = (int) $query->count();
+            if ($count > 0) {
+                $references[] = [
+                    'table' => 'project_procedure_raci',
+                    'label' => 'phân công RACI thủ tục dự án',
+                    'count' => $count,
+                ];
+            }
+        }
+
+        if (
+            $this->support->hasTable('project_procedure_step_raci')
+            && $this->support->hasTable('project_procedure_steps')
+            && $this->support->hasTable('project_procedures')
+            && $this->support->hasColumn('project_procedure_step_raci', 'step_id')
+            && $this->support->hasColumn('project_procedure_step_raci', 'user_id')
+            && $this->support->hasColumn('project_procedure_steps', 'procedure_id')
+            && $this->support->hasColumn('project_procedures', 'project_id')
+        ) {
+            $query = DB::table('project_procedure_step_raci as ppsr')
+                ->join('project_procedure_steps as pps', 'pps.id', '=', 'ppsr.step_id')
+                ->join('project_procedures as pp', 'pp.id', '=', 'pps.procedure_id')
+                ->where('pp.project_id', $projectId)
+                ->whereIn('ppsr.user_id', $userIds);
+
+            if ($this->support->hasColumn('project_procedure_step_raci', 'deleted_at')) {
+                $query->whereNull('ppsr.deleted_at');
+            }
+            if ($this->support->hasColumn('project_procedure_steps', 'deleted_at')) {
+                $query->whereNull('pps.deleted_at');
+            }
+            if ($this->support->hasColumn('project_procedures', 'deleted_at')) {
+                $query->whereNull('pp.deleted_at');
+            }
+
+            $count = (int) $query->count();
+            if ($count > 0) {
+                $references[] = [
+                    'table' => 'project_procedure_step_raci',
+                    'label' => 'phân công RACI bước thủ tục',
+                    'count' => $count,
+                ];
+            }
+        }
+
+        if (
+            $this->support->hasTable('customer_request_cases')
+            && $this->support->hasColumn('customer_request_cases', 'project_id')
+        ) {
+            $userColumns = array_values(array_filter([
+                $this->support->hasColumn('customer_request_cases', 'received_by_user_id') ? 'received_by_user_id' : null,
+                $this->support->hasColumn('customer_request_cases', 'receiver_user_id') ? 'receiver_user_id' : null,
+                $this->support->hasColumn('customer_request_cases', 'dispatcher_user_id') ? 'dispatcher_user_id' : null,
+                $this->support->hasColumn('customer_request_cases', 'performer_user_id') ? 'performer_user_id' : null,
+                $this->support->hasColumn('customer_request_cases', 'estimated_by_user_id') ? 'estimated_by_user_id' : null,
+            ]));
+
+            if ($userColumns !== []) {
+                $query = DB::table('customer_request_cases')
+                    ->where('project_id', $projectId)
+                    ->where(function ($builder) use ($userColumns, $userIds): void {
+                        foreach ($userColumns as $index => $column) {
+                            if ($index === 0) {
+                                $builder->whereIn($column, $userIds);
+                                continue;
+                            }
+
+                            $builder->orWhereIn($column, $userIds);
+                        }
+                    });
+
+                if ($this->support->hasColumn('customer_request_cases', 'deleted_at')) {
+                    $query->whereNull('deleted_at');
+                }
+
+                $count = (int) $query->count();
+                if ($count > 0) {
+                    $references[] = [
+                        'table' => 'customer_request_cases',
+                        'label' => 'yêu cầu khách hàng',
+                        'count' => $count,
+                    ];
+                }
+            }
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<int, array{table:string,label:string,count:int}> $references
+     */
+    private function buildProjectRaciMemberRemovalBlockedMessage(array $references): string
+    {
+        $parts = collect($references)
+            ->map(function (array $reference): string {
+                $count = max(1, (int) ($reference['count'] ?? 0));
+                $label = trim((string) ($reference['label'] ?? 'bản ghi liên quan'));
+
+                return $count.' '.$label;
+            })
+            ->values()
+            ->all();
+
+        $detail = implode(', ', $parts);
+
+        return $detail !== ''
+            ? 'Không thể xóa nhân sự khỏi đội ngũ dự án vì đang có dữ liệu liên quan ('.$detail.'). Vui lòng gỡ các tham chiếu trước.'
+            : 'Không thể xóa nhân sự khỏi đội ngũ dự án vì đang có dữ liệu liên quan. Vui lòng gỡ các tham chiếu trước.';
+    }
+
     private function buildProjectItemsQuery(Request $request)
     {
         $query = DB::table('project_items as pi');
@@ -1559,6 +2184,12 @@ class ProjectDomainService
         }
         if ($this->support->hasTable('customers')) {
             $query->leftJoin('customers as c', 'p.customer_id', '=', 'c.id');
+        }
+        if (
+            $this->support->hasTable('product_packages')
+            && $this->support->hasColumn('project_items', 'product_package_id')
+        ) {
+            $query->leftJoin('product_packages as pp', 'pi.product_package_id', '=', 'pp.id');
         }
         if ($this->support->hasTable('products')) {
             $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
@@ -1580,6 +2211,18 @@ class ProjectDomainService
                 }
                 if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_name')) {
                     $builder->orWhere('p.project_name', 'like', $like);
+                }
+                if (
+                    $this->support->hasTable('product_packages')
+                    && $this->support->hasColumn('product_packages', 'package_code')
+                ) {
+                    $builder->orWhere('pp.package_code', 'like', $like);
+                }
+                if (
+                    $this->support->hasTable('product_packages')
+                    && $this->support->hasColumn('product_packages', 'package_name')
+                ) {
+                    $builder->orWhere('pp.package_name', 'like', $like);
                 }
                 if ($this->support->hasTable('products') && $this->support->hasColumn('products', 'product_code')) {
                     $builder->orWhere('pr.product_code', 'like', $like);
@@ -1641,6 +2284,7 @@ class ProjectDomainService
             'id',
             'project_id',
             'product_id',
+            'product_package_id',
             'quantity',
             'unit_price',
             'created_at',
@@ -1675,6 +2319,21 @@ class ProjectDomainService
             }
             if ($this->support->hasColumn('customers', 'company_name')) {
                 $selects[] = 'c.company_name as customer_company_name';
+            }
+        }
+
+        if (
+            $this->support->hasTable('product_packages')
+            && $this->support->hasColumn('project_items', 'product_package_id')
+        ) {
+            if ($this->support->hasColumn('product_packages', 'package_code')) {
+                $selects[] = 'pp.package_code as package_code';
+            }
+            if ($this->support->hasColumn('product_packages', 'package_name')) {
+                $selects[] = 'pp.package_name as package_name';
+            }
+            if ($this->support->hasColumn('product_packages', 'unit')) {
+                $selects[] = 'pp.unit as package_unit';
             }
         }
 
@@ -1871,11 +2530,13 @@ class ProjectDomainService
     {
         $projectId = $this->support->parseNullableInt($record['project_id'] ?? null);
         $productId = $this->support->parseNullableInt($record['product_id'] ?? null);
+        $productPackageId = $this->support->parseNullableInt($record['product_package_id'] ?? null);
         $customerId = $this->support->parseNullableInt($record['customer_id'] ?? null);
         $projectCode = $this->support->firstNonEmpty($record, ['project_code']);
         $projectName = $this->support->firstNonEmpty($record, ['project_name']);
-        $productCode = $this->support->firstNonEmpty($record, ['product_code']);
-        $productName = $this->support->firstNonEmpty($record, ['product_name']);
+        $productCode = $this->support->firstNonEmpty($record, ['package_code', 'product_code']);
+        $productName = $this->support->firstNonEmpty($record, ['package_name', 'product_name']);
+        $unit = $this->support->firstNonEmpty($record, ['package_unit', 'unit']);
 
         $projectCodeText = (string) ($projectCode ?? '');
         $projectNameText = (string) ($projectName ?? '');
@@ -1895,9 +2556,10 @@ class ProjectDomainService
             'customer_code' => $record['customer_code'] ?? null,
             'customer_name' => $this->support->firstNonEmpty($record, ['customer_name', 'customer_company_name']),
             'product_id' => $productId,
+            'product_package_id' => $productPackageId,
             'product_code' => $productCode,
             'product_name' => $productName,
-            'unit' => $record['unit'] ?? null,
+            'unit' => $unit,
             'quantity' => isset($record['quantity']) ? (float) $record['quantity'] : null,
             'unit_price' => isset($record['unit_price']) ? (float) $record['unit_price'] : null,
             'display_name' => $displayName !== '' ? $displayName : ('Hạng mục #'.($record['id'] ?? '--')),
@@ -2029,7 +2691,7 @@ class ProjectDomainService
     {
         $normalizedMode = strtoupper(trim((string) ($this->normalizeSubmittedInvestmentMode($investmentMode) ?? $investmentMode)));
 
-        return in_array($normalizedMode, ['DAU_TU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'], true);
+        return in_array($normalizedMode, ['DAU_TU', 'THUE_DICH_VU_DACTHU', 'THUE_DICH_VU_CO_SAN', 'THUE_DICH_VU_COSAN'], true);
     }
 
     private function validateRequiredProjectPaymentCycle(mixed $investmentMode, mixed $paymentCycle): ?JsonResponse
@@ -2048,6 +2710,17 @@ class ProjectDomainService
                 'payment_cycle' => ['Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.'],
             ],
         ], 422);
+    }
+
+    private function resolveProjectOpportunityScore(string $resolvedStatus, mixed $submittedScore, ?int $fallbackScore = null): int
+    {
+        $parsedSubmittedScore = $this->support->parseNullableInt($submittedScore);
+
+        if (strtoupper(trim($resolvedStatus)) === 'CO_HOI') {
+            return $parsedSubmittedScore ?? 0;
+        }
+
+        return $parsedSubmittedScore ?? $fallbackScore ?? 0;
     }
 
     private function normalizeSubmittedInvestmentMode(mixed $input, ?string $currentStoredValue = null): ?string
@@ -2148,11 +2821,10 @@ class ProjectDomainService
         return $reason;
     }
 
-    private function validateProjectTimeline(?string $startDate, ?string $expectedEndDate, ?string $actualEndDate): ?JsonResponse
+    private function validateProjectTimeline(?string $startDate, ?string $expectedEndDate): ?JsonResponse
     {
         $startTimestamp = $startDate ? strtotime($startDate) : false;
         $expectedEndTimestamp = $expectedEndDate ? strtotime($expectedEndDate) : false;
-        $actualEndTimestamp = $actualEndDate ? strtotime($actualEndDate) : false;
 
         if ($startTimestamp !== false && $expectedEndTimestamp !== false && $startTimestamp >= $expectedEndTimestamp) {
             return response()->json([
@@ -2160,16 +2832,6 @@ class ProjectDomainService
                 'errors' => [
                     'start_date' => ['Ngày bắt đầu phải nhỏ hơn ngày kết thúc dự án.'],
                     'expected_end_date' => ['Ngày kết thúc dự án phải lớn hơn ngày bắt đầu.'],
-                ],
-            ], 422);
-        }
-
-        if ($expectedEndTimestamp !== false && $actualEndTimestamp !== false && $expectedEndTimestamp > $actualEndTimestamp) {
-            return response()->json([
-                'message' => 'Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.',
-                'errors' => [
-                    'expected_end_date' => ['Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.'],
-                    'actual_end_date' => ['Ngày kết thúc thực tế phải lớn hơn hoặc bằng ngày kết thúc dự án.'],
                 ],
             ], 422);
         }

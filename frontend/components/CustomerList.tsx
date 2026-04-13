@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import { Customer, CustomerAggregateKpis, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
@@ -105,6 +106,29 @@ const CUSTOMER_VIEW_MODE_OPTIONS: Array<{
   { value: 'list', label: 'Danh sách', icon: 'view_list' },
 ];
 
+const CUSTOMER_VIEW_MODE_KEY = 'customers_view_mode';
+
+const readCustomerViewMode = (): CustomerCompactViewMode => {
+  if (typeof window === 'undefined' || typeof window.localStorage?.getItem !== 'function') {
+    return 'grid';
+  }
+
+  const storedValue = window.localStorage.getItem(CUSTOMER_VIEW_MODE_KEY);
+  return storedValue === 'list' ? 'list' : 'grid';
+};
+
+const persistCustomerViewMode = (value: CustomerCompactViewMode): void => {
+  if (typeof window === 'undefined' || typeof window.localStorage?.setItem !== 'function') {
+    return;
+  }
+
+  window.localStorage.setItem(CUSTOMER_VIEW_MODE_KEY, value);
+};
+
+const isCompactKpiViewport = (): boolean => (
+  typeof window !== 'undefined' ? window.innerWidth < 768 : false
+);
+
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
   onOpenModal,
@@ -126,14 +150,35 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [compactViewMode, setCompactViewMode] = useState<CustomerCompactViewMode>('grid');
+  const [compactViewMode, setCompactViewMode] = useState<CustomerCompactViewMode>(readCustomerViewMode);
   const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
+  const [kpiCollapsed, setKpiCollapsed] = useState(isCompactKpiViewport);
   const [selectedHealthcareFacilityType, setSelectedHealthcareFacilityType] = useState<HealthcareFacilityFilterValue | null>(null);
 
   useEscKey(() => {
     setShowImportMenu(false);
     setShowExportMenu(false);
   }, showImportMenu || showExportMenu);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_CUSTOMER'),
+    onUpdate: () => {
+      if (selectedRowId) {
+        const item = (customers ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('EDIT_CUSTOMER', item);
+      }
+    },
+    onDelete: () => {
+      if (selectedRowId) {
+        const item = (customers ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('DELETE_CUSTOMER', item);
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
   const showActionColumn = canEdit || canDelete;
   const hasActiveFilters = searchTerm.trim() !== '' || selectedCustomerSectors.length > 0 || selectedHealthcareFacilityType !== null;
@@ -661,6 +706,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           {canEdit ? (
             <button
               onClick={() => onOpenModal('ADD_CUSTOMER')}
+              title="Thêm khách hàng (Ctrl+N / ⌘N)"
               className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
@@ -671,117 +717,128 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       </div>
 
       {/* ── KPI cards ── */}
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
-      >
-        {/* Tổng số */}
-        <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold opacity-80">Tổng số khách hàng</span>
-            <div className="w-7 h-7 rounded bg-white/15 flex items-center justify-center">
-              <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>groups</span>
-            </div>
-          </div>
-          <p className="text-xl font-black leading-tight">{effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] opacity-70 mt-0.5">Tổng quy mô được hệ thống theo dõi</p>
-        </div>
-
-        {/* Y tế — clickable */}
-        <button
-          type="button"
-          aria-expanded={showHealthcareBreakdown}
-          onClick={() => {
-            if (effectiveAggregateKpis.healthcareCustomers === 0) return;
-            setShowHealthcareBreakdown((prev) => !prev);
-          }}
-          className={`rounded-lg p-3 text-left shadow-sm transition ${
-            effectiveAggregateKpis.healthcareCustomers > 0
-              ? showHealthcareBreakdown
-                ? 'border border-secondary/30 bg-secondary/10'
-                : 'border border-slate-200 bg-white hover:border-secondary/30 hover:bg-secondary/5'
-              : 'border border-slate-200 bg-white'
-          }`}
+      <div className={kpiCollapsed ? 'hidden' : 'block'}>
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Khách hàng Y tế</span>
-            <div className="flex items-center gap-1">
-              <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>local_hospital</span>
+          {/* Tổng số */}
+          <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold opacity-80">Tổng số khách hàng</span>
+              <div className="w-7 h-7 rounded bg-white/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>groups</span>
               </div>
-              {effectiveAggregateKpis.healthcareCustomers > 0 ? (
-                <span
-                  className="material-symbols-outlined text-slate-400 transition-transform duration-200"
-                  style={{ fontSize: 16, transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                >
-                  expand_more
-                </span>
-              ) : null}
             </div>
+            <p className="text-xl font-black leading-tight">{effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] opacity-70 mt-0.5">Tổng quy mô được hệ thống theo dõi</p>
           </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            {effectiveAggregateKpis.healthcareCustomers > 0 ? 'Nhấn để xem cơ cấu cơ sở y tế' : 'Chưa có dữ liệu y tế'}
-          </p>
-        </button>
 
-        {/* Chính quyền */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Chính quyền</span>
-            <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>account_balance</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Cơ quan, đơn vị hành chính</p>
-        </div>
-
-        {/* Cá nhân */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Cá nhân</span>
-            <div className="w-7 h-7 rounded bg-emerald-100 flex items-center justify-center">
-              <span className="material-symbols-outlined text-emerald-700" style={{ fontSize: 15 }}>person</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng cá nhân và mua lẻ</p>
-        </div>
-      </div>
-
-      {/* ── Healthcare breakdown ── */}
-      {showHealthcareBreakdown ? (
-        <section className="rounded-lg border border-secondary/20 bg-secondary/5 p-3" data-testid="customer-healthcare-kpi-breakdown">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
-            <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
-          </div>
-          <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+          {/* Y tế — clickable */}
+          <button
+            type="button"
+            aria-expanded={showHealthcareBreakdown}
+            onClick={() => {
+              if (effectiveAggregateKpis.healthcareCustomers === 0) return;
+              setShowHealthcareBreakdown((prev) => !prev);
+            }}
+            className={`rounded-lg p-3 text-left shadow-sm transition ${
+              effectiveAggregateKpis.healthcareCustomers > 0
+                ? showHealthcareBreakdown
+                  ? 'border border-secondary/30 bg-secondary/10'
+                  : 'border border-slate-200 bg-white hover:border-secondary/30 hover:bg-secondary/5'
+                : 'border border-slate-200 bg-white'
+            }`}
           >
-            {healthcareBreakdownItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]}
-                onClick={() => handleHealthcareBreakdownFilterToggle(item.key)}
-                className={`rounded border p-2.5 text-left transition ${
-                  selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]
-                    ? `${item.accentClassName} ring-2 ring-offset-1 ring-primary/30 shadow-sm`
-                    : `${item.accentClassName} hover:-translate-y-0.5 hover:shadow-sm`
-                }`}
-              >
-                <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
-                <p className="mt-1.5 text-xl font-black text-deep-teal">
-                  {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
-                </p>
-              </button>
-            ))}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Khách hàng Y tế</span>
+              <div className="flex items-center gap-1">
+                <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>local_hospital</span>
+                </div>
+                {effectiveAggregateKpis.healthcareCustomers > 0 ? (
+                  <span
+                    className="material-symbols-outlined text-slate-400 transition-transform duration-200"
+                    style={{ fontSize: 16, transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                  >
+                    expand_more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {effectiveAggregateKpis.healthcareCustomers > 0 ? 'Nhấn để xem cơ cấu cơ sở y tế' : 'Chưa có dữ liệu y tế'}
+            </p>
+          </button>
+
+          {/* Chính quyền */}
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Chính quyền</span>
+              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>account_balance</span>
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Cơ quan, đơn vị hành chính</p>
           </div>
-        </section>
-      ) : null}
+
+          {/* Cá nhân */}
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Cá nhân</span>
+              <div className="w-7 h-7 rounded bg-emerald-100 flex items-center justify-center">
+                <span className="material-symbols-outlined text-emerald-700" style={{ fontSize: 15 }}>person</span>
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng cá nhân và mua lẻ</p>
+          </div>
+        </div>
+
+        {/* ── Healthcare breakdown ── */}
+        {showHealthcareBreakdown ? (
+          <section className="rounded-lg border border-secondary/20 bg-secondary/5 p-3 mt-3" data-testid="customer-healthcare-kpi-breakdown">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
+              <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
+            </div>
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+            >
+              {healthcareBreakdownItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]}
+                  onClick={() => handleHealthcareBreakdownFilterToggle(item.key)}
+                  className={`rounded border p-2.5 text-left transition ${
+                    selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]
+                      ? `${item.accentClassName} ring-2 ring-offset-1 ring-primary/30 shadow-sm`
+                      : `${item.accentClassName} hover:-translate-y-0.5 hover:shadow-sm`
+                  }`}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
+                  <p className="mt-1.5 text-xl font-black text-deep-teal">
+                    {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
+      <button
+        onClick={() => setKpiCollapsed(prev => !prev)}
+        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors mt-1"
+      >
+        <span className="material-symbols-outlined text-sm">
+          {kpiCollapsed ? 'expand_more' : 'expand_less'}
+        </span>
+        {kpiCollapsed ? 'Hiện phân tích' : 'Ẩn phân tích'}
+      </button>
 
       {/* ── Table section ── */}
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -802,6 +859,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             <div className="relative w-full min-w-0">
               <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
@@ -839,7 +897,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => setCompactViewMode(option.value)}
+                      onClick={() => {
+                        setCompactViewMode(option.value);
+                        persistCustomerViewMode(option.value);
+                      }}
                       aria-pressed={isActive}
                       data-testid={`customer-view-mode-${option.value}`}
                       className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
@@ -904,7 +965,15 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2"
               >
                 {currentData.map((item) => (
-                  <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <article
+                    key={`customer-card-${String(item.id)}`}
+                    onClick={() => setSelectedRowId((prev) => (String(prev) === String(item.id) ? null : item.id))}
+                    className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition-colors ${
+                      String(selectedRowId) === String(item.id)
+                        ? 'border-primary/40 ring-1 ring-primary/30 bg-secondary/10'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1 space-y-2.5">
                         <div className="flex items-start gap-3 border-b border-slate-100 pb-2">

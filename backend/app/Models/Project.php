@@ -25,6 +25,7 @@ class Project extends Model
         'start_date',
         'expected_end_date',
         'actual_end_date',
+        'opportunity_score',
         'created_by',
         'updated_by',
     ];
@@ -33,6 +34,7 @@ class Project extends Model
         'start_date'        => 'date:Y-m-d',
         'expected_end_date' => 'date:Y-m-d',
         'actual_end_date'   => 'date:Y-m-d',
+        'opportunity_score' => 'integer',
     ];
 
     public function customer(): BelongsTo

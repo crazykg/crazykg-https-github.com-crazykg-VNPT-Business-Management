@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createProductPackage,
+  createProductPackagesBulk,
   createProductsBulk,
+  deleteProductPackage,
   exportProductQuotationPdf,
   fetchProductFeatureCatalogList,
+  fetchProductPackageFeatureCatalog,
+  fetchProductPackageFeatureCatalogList,
+  fetchProductPackages,
   fetchProductTargetSegments,
   syncProductTargetSegments,
+  updateProductPackageFeatureCatalog,
+  updateProductPackage,
 } from '../services/api/productApi';
 
 const fetchMock = vi.fn();
@@ -40,6 +48,48 @@ describe('productApi module', () => {
     expect(String(url)).toContain('per_page=25');
     expect(String(url)).toContain('group_id=core');
     expect(String(url)).toContain('search=his');
+  });
+
+  it('uses the product package feature catalog endpoints', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { groups: [], audit_logs: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { rows: [], group_filters: [], meta: { page: 1, per_page: 20, total: 0, total_pages: 1 } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { groups: [], audit_logs: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+    await fetchProductPackageFeatureCatalog(21);
+    await fetchProductPackageFeatureCatalogList(21, { page: 2, per_page: 20, group_id: 7, search: 'dang nhap' });
+    await updateProductPackageFeatureCatalog(21, {
+      groups: [
+        {
+          group_name: 'Nhóm package',
+          features: [{ feature_name: 'Tính năng A' }],
+        },
+      ],
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/v5/product-packages/21/feature-catalog');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api/v5/product-packages/21/feature-catalog/list?');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('page=2');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('per_page=20');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('group_id=7');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('search=dang+nhap');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/api/v5/product-packages/21/feature-catalog');
+    expect(fetchMock.mock.calls[2]?.[1]?.method).toBe('PUT');
   });
 
   it('falls back to a generated pdf filename when header is missing', async () => {
@@ -137,11 +187,10 @@ describe('productApi module', () => {
         service_group: 'GROUP_B',
         product_code: ' SP001 ',
         product_name: ' Gói Internet ',
-        package_name: ' Fiber Pro ',
+        product_short_name: ' Internet Pro ',
         domain_id: 10,
         vendor_id: 20,
         standard_price: 1200000,
-        unit: ' gói ',
         description: ' Gói cước mẫu ',
         is_active: false,
       },
@@ -157,14 +206,141 @@ describe('productApi module', () => {
         service_group: 'GROUP_B',
         product_code: 'SP001',
         product_name: 'Gói Internet',
-        package_name: 'Fiber Pro',
+        product_short_name: 'Internet Pro',
         domain_id: 10,
         vendor_id: 20,
         standard_price: 1200000,
-        unit: 'gói',
         description: 'Gói cước mẫu',
         is_active: false,
       }],
     });
+  });
+
+  it('sends normalized product package payloads to the dedicated package endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          id: 21,
+          product_id: 9,
+          package_code: 'PKG-001',
+          package_name: 'Gói triển khai',
+          standard_price: 880000,
+          unit: 'Tháng',
+          description: 'Mô tả gói',
+          is_active: true,
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await createProductPackage({
+      product_id: 9,
+      package_code: ' PKG-001 ',
+      package_name: ' Gói triển khai ',
+      standard_price: 880000,
+      unit: ' Tháng ',
+      description: ' Mô tả gói ',
+      is_active: true,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/product-packages');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'))).toEqual({
+      product_id: 9,
+      package_code: 'PKG-001',
+      package_name: 'Gói triển khai',
+      standard_price: 880000,
+      unit: 'Tháng',
+      description: 'Mô tả gói',
+      attachments: undefined,
+      is_active: true,
+    });
+  });
+
+  it('sends normalized bulk product package payloads to the dedicated bulk endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          results: [
+            { index: 0, success: true, data: { id: 1, package_code: 'PKG-001' } },
+          ],
+          created: [],
+          created_count: 1,
+          failed_count: 0,
+        },
+      }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await createProductPackagesBulk([
+      {
+        product_id: 9,
+        package_code: ' PKG-001 ',
+        package_name: ' Gói triển khai ',
+        standard_price: 880000,
+        unit: ' Tháng ',
+        description: ' Mô tả gói ',
+        is_active: true,
+      },
+    ]);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/product-packages/bulk');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'))).toEqual({
+      items: [
+        {
+          product_id: 9,
+          package_code: 'PKG-001',
+          package_name: 'Gói triển khai',
+          standard_price: 880000,
+          unit: 'Tháng',
+          description: 'Mô tả gói',
+          attachments: undefined,
+          is_active: true,
+        },
+      ],
+    });
+  });
+
+  it('uses the product package list/update/delete endpoints', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          data: {
+            id: 21,
+            package_name: 'Gói đã cập nhật',
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 204,
+        })
+      );
+
+    await fetchProductPackages();
+    await updateProductPackage(21, { package_name: ' Gói đã cập nhật ' });
+    await deleteProductPackage(21);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/v5/product-packages');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api/v5/product-packages/21');
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/api/v5/product-packages/21');
+    expect(fetchMock.mock.calls[2]?.[1]?.method).toBe('DELETE');
   });
 });

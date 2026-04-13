@@ -269,10 +269,10 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   );
 
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden" data-testid={`procedure-phase-group-${group.phase}`}>
-      <div className={`flex items-center justify-between px-4 py-3 ${stats.isAllDone ? 'bg-emerald-50 border-b border-emerald-100' : 'bg-slate-50 border-b border-slate-200'}`}>
+    <div className="border border-slate-200 rounded-lg overflow-hidden" data-testid={`procedure-phase-group-${group.phase}`}>
+      <div className={`flex items-center justify-between px-4 py-3 ${stats.isAllDone ? 'bg-success/8 border-b border-success/15' : 'bg-slate-50 border-b border-slate-200'}`}>
         <div className="flex items-center gap-3">
-          <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-sm ${stats.isAllDone ? 'bg-emerald-500 text-white' : 'bg-deep-teal text-white'}`}>
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-sm ${stats.isAllDone ? 'bg-success text-white' : 'bg-deep-teal text-white'}`}>
             {ROMAN[groupIndex] ?? groupIndex + 1}
           </span>
           <div>
@@ -287,7 +287,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     if (event.key === 'Enter') onSavePhaseLabel();
                     if (event.key === 'Escape') onCancelEditPhase();
                   }}
-                  className="h-7 min-w-0 w-40 rounded-lg border border-primary/60 bg-white px-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/25"
+                  className="h-7 min-w-0 w-40 rounded border border-primary/60 bg-white px-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/25"
                   placeholder="Tên giai đoạn..."
                   maxLength={255}
                   autoComplete="off"
@@ -296,7 +296,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <button
                   onClick={onSavePhaseLabel}
                   disabled={phaseLabelSaving}
-                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary text-white hover:bg-deep-teal disabled:opacity-50 transition-colors"
+                  className="flex items-center justify-center w-7 h-7 rounded bg-primary text-white hover:bg-deep-teal disabled:opacity-50 transition-colors"
                   title="Lưu tên giai đoạn"
                 >
                   <span className="material-symbols-outlined text-sm">{phaseLabelSaving ? 'progress_activity' : 'check'}</span>
@@ -304,7 +304,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <button
                   onClick={onCancelEditPhase}
                   disabled={phaseLabelSaving}
-                  className="flex items-center justify-center w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                  className="flex items-center justify-center w-7 h-7 rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors"
                   title="Hủy"
                 >
                   <span className="material-symbols-outlined text-sm">close</span>
@@ -343,7 +343,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
           </div>
           <div className="hidden sm:flex items-center gap-2 ml-2">
             <div className="w-20 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${stats.isAllDone ? 'bg-emerald-500' : 'bg-deep-teal'}`} style={{ width: `${stats.percent}%` }} />
+              <div className={`h-full rounded-full transition-all ${stats.isAllDone ? 'bg-success' : 'bg-deep-teal'}`} style={{ width: `${stats.percent}%` }} />
             </div>
             <span className="text-xs text-slate-400">{stats.percent}%</span>
           </div>
@@ -353,20 +353,20 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
             type="button"
             onClick={() => onToggleRaciMatrixPhase(group.phase)}
             data-testid={`phase-raci-${group.phase}`}
-            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium border rounded-lg transition-colors ${
+            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium border rounded transition-colors ${
               raciMatrixPhase === group.phase
-                ? 'text-violet-700 bg-violet-50 border-violet-200'
-                : 'text-violet-600 bg-white border-violet-200 hover:bg-violet-50'
+                ? 'text-primary bg-primary/8 border-primary/30'
+                : 'text-primary bg-white border-primary/25 hover:bg-primary/5'
             }`}
           >
-            <span className="material-symbols-outlined text-sm">group</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>group</span>
             Phân công
           </button>
           <button
             onClick={() => onToggleAddStep(group.phase)}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-deep-teal bg-white border border-deep-teal/30 rounded-lg hover:bg-deep-teal/5 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-deep-teal bg-white border border-deep-teal/30 rounded hover:bg-deep-teal/5 transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">{isAddingHere ? 'close' : 'add'}</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isAddingHere ? 'close' : 'add'}</span>
             {isAddingHere ? 'Hủy' : 'Thêm bước'}
           </button>
         </div>
@@ -382,8 +382,8 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[84px] text-center">Ngày</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Từ ngày</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[110px]">Đến ngày</th>
+              <th className="px-2 py-2 text-[10px] font-bold text-slate-400 uppercase w-[132px]">Từ ngày</th>
+              <th className="px-2 py-2 text-[10px] font-bold text-slate-400 uppercase w-[132px]">Đến ngày</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[120px]">Tiến độ</th>
               <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[140px]">
                 <span className="flex items-center gap-1">
@@ -485,7 +485,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
             ))}
 
             {isAddingHere && (
-              <tr className="bg-violet-50 border-t-2 border-violet-200">
+              <tr className="bg-primary/5 border-t-2 border-primary/20">
                 <td className="px-1 py-2" />
                 <td className="px-3 py-2 text-xs text-slate-400 text-center font-mono">+</td>
                 <td className="px-1 py-2" />
@@ -500,7 +500,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       if (event.key === 'Enter' && !isAddingStepSubmitting && newStepName.trim()) onAddStep(group.phase);
                     }}
                     placeholder="Tên bước mới..."
-                    className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-violet-300 bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-100 outline-none font-medium placeholder:text-slate-300"
+                    className="w-full px-2.5 py-1.5 rounded text-xs border border-primary/30 bg-white focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none font-medium placeholder:text-slate-300"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -510,7 +510,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     disabled={isAddingStepSubmitting}
                     onChange={(event) => onSetNewStepUnit(event.target.value)}
                     placeholder="ĐV chủ trì..."
-                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
+                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none placeholder:text-slate-300"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -520,7 +520,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     disabled={isAddingStepSubmitting}
                     onChange={(event) => onSetNewStepResult(event.target.value)}
                     placeholder="Kết quả dự kiến..."
-                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none placeholder:text-slate-300"
+                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none placeholder:text-slate-300"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -531,7 +531,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     onChange={(event) => onSetNewStepDays(event.target.value)}
                     placeholder="0"
                     min="0"
-                    className="w-full px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-center placeholder:text-slate-300"
+                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none text-center placeholder:text-slate-300"
                   />
                 </td>
                 <td colSpan={6} className="px-3 py-2">
@@ -540,7 +540,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       type="button"
                       onClick={() => onAddStep(group.phase)}
                       disabled={!newStepName.trim() || isAddingStepSubmitting}
-                      className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isAddingStepSubmitting ? 'Đang thêm...' : 'Thêm'}
                     </button>
@@ -548,7 +548,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       type="button"
                       disabled={isAddingStepSubmitting}
                       onClick={onResetAddStepForm}
-                      className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded hover:bg-slate-50 transition-colors"
                     >
                       Hủy
                     </button>

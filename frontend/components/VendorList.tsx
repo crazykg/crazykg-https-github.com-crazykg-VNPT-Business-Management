@@ -1,6 +1,7 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import type { ModalType } from '../types';
 import type { Vendor } from '../types/businessVendor';
 import { PaginationControls } from './PaginationControls';
@@ -32,6 +33,23 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: VendorSortKey; direction: VendorSortDirection } | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_VENDOR'),
+    onUpdate: () => {
+      if (!selectedRowId) return;
+      const item = vendors.find((v) => String(v.id) === String(selectedRowId));
+      if (item) onOpenModal('EDIT_VENDOR', item);
+    },
+    onDelete: () => {
+      if (!selectedRowId) return;
+      const item = vendors.find((v) => String(v.id) === String(selectedRowId));
+      if (item) onOpenModal('DELETE_VENDOR', item);
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
   
   // State for Menus
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -328,10 +346,11 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
           <div className="relative flex-1 max-w-sm">
             <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
+              ref={searchInputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              placeholder="Tìm mã hoặc tên đối tác..."
+              placeholder="Tìm mã hoặc tên đối tác... (Ctrl+F)"
               className="w-full h-8 pl-7 pr-3 text-xs rounded border border-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white placeholder:text-slate-400"
             />
           </div>
@@ -424,7 +443,7 @@ export const VendorList: React.FC<VendorListProps> = ({ vendors = [], onOpenModa
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentData.map((item) => (
-                    <tr key={String(item.id ?? item.vendor_code)} className="transition-colors hover:bg-slate-50/60">
+                    <tr key={String(item.id ?? item.vendor_code)} onClick={() => setSelectedRowId((prev) => String(prev) === String(item.id) ? null : (item.id ?? null))} className={`cursor-pointer transition-colors ${String(selectedRowId) === String(item.id) ? 'bg-secondary/10 ring-1 ring-inset ring-primary/30' : 'hover:bg-slate-50/60'}`}>
                       <td className="px-4 py-2 align-middle text-xs font-mono font-bold text-slate-500">{item.vendor_code}</td>
                       <td className="px-4 py-2 align-middle text-xs font-semibold text-slate-800">
                         <div className="max-w-[360px] whitespace-normal break-words leading-5">{item.vendor_name}</div>

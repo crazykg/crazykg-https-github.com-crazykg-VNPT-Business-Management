@@ -8,6 +8,7 @@ use App\Models\ProjectProcedureTemplateStep;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class ProjectProcedureTemplateService
@@ -288,7 +289,10 @@ class ProjectProcedureTemplateService
 
         // Guard: collect all step IDs in tree and check if any are referenced
         $allTreeIds = $this->collectTreeIds($templateId, $rootStepIds);
-        $usedCount = ProjectProcedureStep::whereIn('template_step_id', $allTreeIds)->count();
+        $usedCount = 0;
+        if (Schema::hasTable('project_procedure_steps')) {
+            $usedCount = ProjectProcedureStep::whereIn('template_step_id', $allTreeIds)->count();
+        }
         if ($usedCount > 0) {
             return response()->json([
                 'message' => "Một số bước đã được áp dụng cho {$usedCount} dự án và không thể xóa.",

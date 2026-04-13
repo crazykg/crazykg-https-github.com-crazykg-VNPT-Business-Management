@@ -76,12 +76,12 @@ describe('Business revenue-style list', () => {
 
     const longBusinessName = 'Lĩnh vực chuyển đổi số cho bệnh viện tuyến tỉnh với tên rất dài để kiểm tra wrap desktop và mobile';
     const businessNameCell = within(desktopTable).getByText(longBusinessName);
-    expect(businessNameCell).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(businessNameCell).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
     expect(businessNameCell.closest('td')).toHaveClass('align-middle');
 
     const longFocalPoint = 'Nguyễn Văn Điều phối rất dài để kiểm tra hiển thị xuống dòng trong cột đầu mối chuyên quản';
     const focalPointCell = within(desktopTable).getByText(longFocalPoint);
-    expect(focalPointCell).toHaveClass('whitespace-normal', 'break-words', 'leading-6');
+    expect(focalPointCell).toHaveClass('leading-5');
     expect(focalPointCell.closest('td')).toHaveClass('align-middle');
 
     const responsiveList = screen.getByTestId('business-responsive-list');

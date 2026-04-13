@@ -36,6 +36,8 @@ export interface SearchableSelectProps {
     state: { isSelected: boolean; isHighlighted: boolean }
   ) => React.ReactNode;
   renderDropdownHeader?: React.ReactNode;
+  triggerButtonRef?: React.Ref<HTMLDivElement>;
+  onTriggerKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }
 
 const normalizeSearchableSelectToken = (value: unknown): string =>
@@ -62,10 +64,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   className,
   triggerClassName,
   dropdownClassName,
-  usePortal = false,
+  usePortal = true,
   portalZIndex = 220,
   renderOptionContent,
   renderDropdownHeader,
+  triggerButtonRef,
+  onTriggerKeyDown,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
@@ -73,6 +77,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -126,6 +131,25 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     updateHighlightedIndex(-1);
     openHighlightModeRef.current = 'default';
   }, [updateHighlightedIndex]);
+  const setMergedTriggerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      triggerRef.current = node;
+
+      if (!triggerButtonRef) {
+        return;
+      }
+
+      if (typeof triggerButtonRef === 'function') {
+        triggerButtonRef(node);
+        return;
+      }
+
+      (
+        triggerButtonRef as React.MutableRefObject<HTMLDivElement | null>
+      ).current = node;
+    },
+    [triggerButtonRef]
+  );
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -257,6 +281,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
     onChange(String(option.value));
     closeDropdown();
+    triggerRef.current?.focus();
+    queueMicrotask(() => {
+      triggerRef.current?.focus();
+    });
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus();
+    });
   }, [closeDropdown, onChange]);
 
   const selectedOption = (options || []).find((opt) => String(opt.value) === normalizedValue);
@@ -426,13 +457,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   );
 
   return (
-    <div className={`col-span-1 flex flex-col gap-1.5 relative ${isOpen ? 'z-[110]' : 'z-10'} ${className || ''}`} ref={wrapperRef}>
+    <div className={`col-span-1 flex flex-col gap-1 relative ${isOpen ? 'z-[110]' : 'z-10'} ${className || ''}`} ref={wrapperRef}>
       {label ? (
-        <label className={labelClassName || 'block text-sm font-semibold text-slate-700'}>
+        <label className={labelClassName || 'text-xs font-semibold text-neutral'}>
           {label} {required ? <span className="text-red-500">*</span> : null}
         </label>
       ) : null}
       <div
+        ref={setMergedTriggerRef}
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-expanded={isOpen}
@@ -447,6 +479,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         onClick={toggleDropdown}
         onKeyDown={(event) => {
           if (disabled) {
+            return;
+          }
+
+          onTriggerKeyDown?.(event);
+          if (event.defaultPrevented) {
             return;
           }
 
@@ -487,7 +524,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }}
       >
         <span
-          className={`${size === 'sm' ? 'text-xs' : 'text-[15px]'} min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900 font-medium' : 'text-slate-400'}`}
+          className={`${size === 'sm' ? 'text-xs' : 'text-[15px]'} min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900' : 'text-slate-400'}`}
           title={String(currentLabel || placeholder || 'Chọn...')}
         >
           {currentLabel || placeholder || 'Chọn...'}
@@ -527,7 +564,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   error,
   required,
   disabled,
-  usePortal = false,
+  usePortal = true,
   portalZIndex = 220,
 }) => {
   const dropdownComfortHeight = 220;
@@ -798,7 +835,7 @@ export const FormSelect = ({ label, labelClassName, size, value, onChange, optio
     labelClassName={labelClassName}
     size={size}
     required={required}
-    value={String(value || '')}
+    value={value === null || value === undefined ? '' : String(value)}
     disabled={disabled}
     error={error}
     options={(options || []).map((option: any) => ({

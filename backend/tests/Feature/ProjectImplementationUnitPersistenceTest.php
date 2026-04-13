@@ -65,6 +65,96 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
         $this->assertSame('Phong giai phap 20', $stored->implementation_unit_name);
         $this->assertSame(1, (int) $stored->created_by);
         $this->assertSame(1, (int) $stored->updated_by);
+        $this->assertSame(2, (int) DB::table('projects')->where('id', $projectId)->value('department_id'));
+    }
+
+    public function test_it_recalculates_project_department_when_implementation_user_changes(): void
+    {
+        DB::table('projects')->insert([
+            'id' => 11,
+            'project_code' => 'DA-IMPL-011',
+            'project_name' => 'Du an doi don vi trien khai',
+            'customer_id' => 1,
+            'department_id' => 2,
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'QUARTERLY',
+            'status' => 'CHUAN_BI',
+            'start_date' => '2026-04-07',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        DB::table('project_implementation_units')->insert([
+            'project_id' => 11,
+            'implementation_user_id' => 2,
+            'implementation_user_code' => 'USR002',
+            'implementation_full_name' => 'Nhan su trien khai 2',
+            'implementation_unit_code' => 'P20',
+            'implementation_unit_name' => 'Phong giai phap 20',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->putJson('/api/v5/projects/11', [
+            'payment_cycle' => 'QUARTERLY',
+            'implementation_user_id' => 1,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.id', 11)
+            ->assertJsonPath('data.implementation_user_id', 1)
+            ->assertJsonPath('data.implementation_unit_code', 'P10')
+            ->assertJsonPath('data.department_id', 10);
+
+        $this->assertSame(10, (int) DB::table('projects')->where('id', 11)->value('department_id'));
+    }
+
+    public function test_it_heals_missing_project_department_from_existing_snapshot_on_update(): void
+    {
+        DB::table('projects')->insert([
+            'id' => 12,
+            'project_code' => 'DA-IMPL-012',
+            'project_name' => 'Du an cu chua co ownership department',
+            'customer_id' => 1,
+            'department_id' => null,
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'QUARTERLY',
+            'status' => 'CHUAN_BI',
+            'start_date' => '2026-04-07',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        DB::table('project_implementation_units')->insert([
+            'project_id' => 12,
+            'implementation_user_id' => 2,
+            'implementation_user_code' => 'USR002',
+            'implementation_full_name' => 'Nhan su trien khai 2',
+            'implementation_unit_code' => 'P20',
+            'implementation_unit_name' => 'Phong giai phap 20',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->putJson('/api/v5/projects/12', [
+            'payment_cycle' => 'QUARTERLY',
+            'project_name' => 'Du an cu da duoc heal',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.id', 12)
+            ->assertJsonPath('data.department_id', 2)
+            ->assertJsonPath('data.implementation_unit_code', 'P20');
+
+        $this->assertSame(2, (int) DB::table('projects')->where('id', 12)->value('department_id'));
     }
 
     public function test_it_deletes_project_implementation_unit_snapshot_when_selection_is_cleared(): void
@@ -74,6 +164,7 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
             'project_code' => 'DA-IMPL-010',
             'project_name' => 'Du an bo chon don vi trien khai',
             'customer_id' => 1,
+            'department_id' => 2,
             'investment_mode' => 'DAU_TU',
             'payment_cycle' => 'QUARTERLY',
             'status' => 'CHUAN_BI',
@@ -110,6 +201,9 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
         $this->assertNull(
             DB::table('project_implementation_units')->where('project_id', 10)->first()
         );
+        $this->assertNull(
+            DB::table('projects')->where('id', 10)->value('department_id')
+        );
     }
 
     private function setUpSchema(): void
@@ -125,6 +219,7 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
             $table->bigIncrements('id');
             $table->string('dept_code', 50)->nullable();
             $table->string('dept_name', 255)->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
             $table->timestamp('deleted_at')->nullable();
         });
 
@@ -194,9 +289,11 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
         });
 
         DB::table('departments')->insert([
-            ['id' => 10, 'dept_code' => 'P10', 'dept_name' => 'Phong giai phap 10', 'deleted_at' => null],
-            ['id' => 20, 'dept_code' => 'P20', 'dept_name' => 'Phong giai phap 20', 'deleted_at' => null],
-            ['id' => 30, 'dept_code' => 'P30', 'dept_name' => 'Phong giai phap 30', 'deleted_at' => null],
+            ['id' => 1, 'dept_code' => 'BGDVT', 'dept_name' => 'Ban giam doc Vien Thong', 'parent_id' => null, 'deleted_at' => null],
+            ['id' => 2, 'dept_code' => 'TTKDGP', 'dept_name' => 'Trung tam Kinh doanh Giai phap', 'parent_id' => 1, 'deleted_at' => null],
+            ['id' => 10, 'dept_code' => 'P10', 'dept_name' => 'Phong giai phap 10', 'parent_id' => 1, 'deleted_at' => null],
+            ['id' => 20, 'dept_code' => 'P20', 'dept_name' => 'Phong giai phap 20', 'parent_id' => 2, 'deleted_at' => null],
+            ['id' => 30, 'dept_code' => 'P30', 'dept_name' => 'Phong giai phap 30', 'parent_id' => 1, 'deleted_at' => null],
         ]);
 
         DB::table('internal_users')->insert([
@@ -240,6 +337,7 @@ class ProjectImplementationUnitPersistenceTest extends TestCase
 
         DB::table('user_dept_scopes')->insert([
             ['user_id' => 1, 'dept_id' => 10, 'scope_type' => 'DEPT_ONLY'],
+            ['user_id' => 1, 'dept_id' => 2, 'scope_type' => 'DEPT_ONLY'],
             ['user_id' => 1, 'dept_id' => 20, 'scope_type' => 'DEPT_ONLY'],
         ]);
 

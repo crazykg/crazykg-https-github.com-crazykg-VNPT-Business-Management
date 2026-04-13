@@ -103,9 +103,9 @@ class IntegrationSettingsController extends V5BaseController
         return $this->service->updateUserDeptHistory($request, $id);
     }
 
-    public function destroyUserDeptHistory(string $id): JsonResponse
+    public function destroyUserDeptHistory(Request $request, string $id): JsonResponse
     {
-        return $this->service->destroyUserDeptHistory($id);
+        return $this->service->destroyUserDeptHistory($request, $id);
     }
 
     public function contractRenewalSettings(): JsonResponse

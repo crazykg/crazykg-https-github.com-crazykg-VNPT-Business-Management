@@ -75,12 +75,19 @@ class DepartmentWeeklyScheduleDomainService
             return $missing;
         }
 
+        [$actorId, $isAdmin] = $this->resolveActorContext($request);
+
         [$validated, $errorResponse] = $this->validatePayload($request, null);
         if ($errorResponse !== null) {
             return $errorResponse;
         }
 
-        [$actorId, $isAdmin] = $this->resolveActorContext($request, $validated['actor_id']);
+        $actorId = $actorId ?? $validated['actor_id'];
+        $isAdmin = $actorId !== null && $this->userAccess->isAdmin($actorId);
+
+        if (($mutationError = $this->validateEntryMutationAccess($validated['entries'] ?? [], null, $actorId, $isAdmin)) !== null) {
+            return $mutationError;
+        }
 
         $departmentId = (int) $validated['department_id'];
         $weekStartDate = (string) $validated['week_start_date'];
@@ -119,12 +126,19 @@ class DepartmentWeeklyScheduleDomainService
 
         $schedule = DepartmentWeeklySchedule::query()->findOrFail($id);
 
+        [$actorId, $isAdmin] = $this->resolveActorContext($request);
+
         [$validated, $errorResponse] = $this->validatePayload($request, $schedule);
         if ($errorResponse !== null) {
             return $errorResponse;
         }
 
-        [$actorId, $isAdmin] = $this->resolveActorContext($request, $validated['actor_id']);
+        $actorId = $actorId ?? $validated['actor_id'];
+        $isAdmin = $actorId !== null && $this->userAccess->isAdmin($actorId);
+
+        if (($mutationError = $this->validateEntryMutationAccess($validated['entries'] ?? [], $schedule, $actorId, $isAdmin)) !== null) {
+            return $mutationError;
+        }
 
         $departmentId = (int) $validated['department_id'];
         $weekStartDate = (string) $validated['week_start_date'];
@@ -180,6 +194,10 @@ class DepartmentWeeklyScheduleDomainService
         $entry = DepartmentWeeklyScheduleEntry::query()
             ->where('schedule_id', $scheduleId)
             ->findOrFail($entryId);
+
+        if ($this->isEntryLocked((string) $entry->calendar_date, (string) $entry->session)) {
+            return response()->json(['message' => 'Lịch làm việc đã qua không thể xóa.'], 422);
+        }
 
         if (! $isAdmin && ($actorId === null || (int) $entry->created_by !== $actorId)) {
             return response()->json(['message' => 'Chỉ người đăng ký hoặc quản trị viên mới được xóa dòng này.'], 403);
@@ -296,6 +314,47 @@ class DepartmentWeeklyScheduleDomainService
             'actor_id' => $actorId,
             'existing_id' => $existing?->id,
         ], null];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     */
+    private function validateEntryMutationAccess(
+        array $entries,
+        ?DepartmentWeeklySchedule $existing,
+        ?int $actorId,
+        bool $isAdmin
+    ): ?JsonResponse {
+        foreach (array_values($entries) as $entryIndex => $entry) {
+            $calendarDate = $this->normalizeDateString($entry['calendar_date'] ?? null);
+            $session = (string) ($entry['session'] ?? '');
+            if (
+                $calendarDate !== null
+                && in_array($session, ['MORNING', 'AFTERNOON'], true)
+                && $this->isEntryLocked($calendarDate, $session)
+            ) {
+                return response()->json(['message' => "entries.{$entryIndex}: Lịch làm việc đã qua không thể chỉnh sửa."], 422);
+            }
+
+            $entryId = $this->support->parseNullableInt($entry['id'] ?? null);
+            if ($entryId === null || $existing === null) {
+                continue;
+            }
+
+            $existingEntry = DepartmentWeeklyScheduleEntry::query()
+                ->where('schedule_id', $existing->id)
+                ->find($entryId);
+
+            if ($existingEntry === null) {
+                continue;
+            }
+
+            if (! $isAdmin && ($actorId === null || (int) $existingEntry->created_by !== $actorId)) {
+                return response()->json(['message' => 'Chỉ người đăng ký hoặc quản trị viên mới được chỉnh sửa dòng này.'], 403);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -466,6 +525,9 @@ class DepartmentWeeklyScheduleDomainService
 
     private function serializeEntry(DepartmentWeeklyScheduleEntry $entry, ?int $actorId, bool $isAdmin): array
     {
+        $isLocked = $this->isEntryLocked((string) $entry->calendar_date, (string) $entry->session);
+        $canManage = ! $isLocked && ($isAdmin || ($actorId !== null && (int) $entry->created_by === $actorId));
+
         $participants = $entry->participants
             ->sortBy('sort_order')
             ->map(function (DepartmentWeeklyScheduleEntryParticipant $participant): array {
@@ -513,7 +575,9 @@ class DepartmentWeeklyScheduleDomainService
             'created_by_name' => $entry->creator?->full_name ?: $entry->creator?->username,
             'updated_by' => $entry->updated_by,
             'updated_by_name' => $entry->updater?->full_name ?: $entry->updater?->username,
-            'can_delete' => $isAdmin || ($actorId !== null && (int) $entry->created_by === $actorId),
+            'can_edit' => $canManage,
+            'can_delete' => $canManage,
+            'is_locked' => $isLocked,
         ];
     }
 
@@ -578,5 +642,23 @@ class DepartmentWeeklyScheduleDomainService
             7 => 'Bảy',
             default => 'CN',
         };
+    }
+
+    private function isEntryLocked(string $calendarDate, string $session): bool
+    {
+        $today = CarbonImmutable::now(config('app.timezone', 'Asia/Ho_Chi_Minh'));
+        $todayKey = $today->format('Y-m-d');
+
+        if ($calendarDate < $todayKey) {
+            return true;
+        }
+
+        if ($calendarDate > $todayKey) {
+            return false;
+        }
+
+        $cutoffHour = $session === 'MORNING' ? 12 : 18;
+
+        return (int) $today->format('H') >= $cutoffHour;
     }
 }

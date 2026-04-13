@@ -7,6 +7,11 @@ import { describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import type { ProcedureTemplate, Project } from '../types';
 
+const ROUTER_FUTURE_FLAGS = {
+  v7_startTransition: true,
+  v7_relativeSplatPath: true,
+} as const;
+
 const fetchAuthBootstrapMock = vi.hoisted(() => vi.fn());
 const fetchContractsMock = vi.hoisted(() => vi.fn());
 const fetchPaymentSchedulesMock = vi.hoisted(() => vi.fn());
@@ -14,6 +19,7 @@ const fetchProjectsMock = vi.hoisted(() => vi.fn());
 const fetchProjectItemsMock = vi.hoisted(() => vi.fn());
 const fetchCustomersMock = vi.hoisted(() => vi.fn());
 const fetchProjectDetailMock = vi.hoisted(() => vi.fn());
+const createProjectMock = vi.hoisted(() => vi.fn());
 const updateProjectMock = vi.hoisted(() => vi.fn());
 const registerTabEvictedHandlerMock = vi.hoisted(() => vi.fn());
 const unregisterTabEvictedHandlerMock = vi.hoisted(() => vi.fn());
@@ -52,21 +58,29 @@ vi.mock('../components/Toast', () => ({
 
 vi.mock('../AppPages', () => ({
   AppPages: ({ handleOpenModal }: { handleOpenModal: (type: string, item?: unknown) => void }) => (
-    <button
-      type="button"
-      onClick={() =>
-        handleOpenModal('EDIT_PROJECT', {
-          id: 7,
-          project_code: 'DA007',
-          project_name: 'Dự án summary',
-          customer_id: 1,
-          status: 'CHUAN_BI',
-          investment_mode: 'DAU_TU',
-        })
-      }
-    >
-      Mở sửa dự án
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          handleOpenModal('EDIT_PROJECT', {
+            id: 7,
+            project_code: 'DA007',
+            project_name: 'Dự án summary',
+            customer_id: 1,
+            status: 'CHUAN_BI',
+            investment_mode: 'DAU_TU',
+          })
+        }
+      >
+        Mở sửa dự án
+      </button>
+      <button
+        type="button"
+        onClick={() => handleOpenModal('ADD_PROJECT')}
+      >
+        Mở thêm dự án
+      </button>
+    </>
   ),
 }));
 
@@ -105,6 +119,14 @@ vi.mock('../hooks/useImportEmployeePartyProfiles', () => ({
   useImportEmployeePartyProfiles: () => ({ handleImportEmployeePartyProfiles: vi.fn() }),
 }));
 
+vi.mock('../hooks/useImportProducts', () => ({
+  useImportProducts: () => ({ handleImportProducts: vi.fn() }),
+}));
+
+vi.mock('../hooks/useImportProductPackages', () => ({
+  useImportProductPackages: () => ({ handleImportProductPackages: vi.fn() }),
+}));
+
 vi.mock('../services/v5Api', async () => {
   const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
 
@@ -117,6 +139,7 @@ vi.mock('../services/v5Api', async () => {
     fetchProjectItems: fetchProjectItemsMock,
     fetchCustomers: fetchCustomersMock,
     fetchProjectDetail: fetchProjectDetailMock,
+    createProject: createProjectMock,
     updateProject: updateProjectMock,
     fetchProcedureTemplates: fetchProcedureTemplatesMock,
     registerTabEvictedHandler: registerTabEvictedHandlerMock,
@@ -135,7 +158,7 @@ describe('Project edit detail loading', () => {
 
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
           <App />
         </MemoryRouter>
       </QueryClientProvider>
@@ -241,6 +264,61 @@ describe('Project edit detail loading', () => {
 
     expect(screen.queryByText('Tải dữ liệu thất bại')).not.toBeInTheDocument();
     expect(screen.queryByText('TAB_EVICTED')).not.toBeInTheDocument();
+  });
+
+  it('keeps the add modal open after a successful project create by switching into edit mode', async () => {
+    const user = userEvent.setup();
+
+    fetchAuthBootstrapMock.mockResolvedValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        full_name: 'Admin',
+        roles: ['ADMIN'],
+        permissions: ['*'],
+        password_change_required: false,
+      },
+      permissions: ['*'],
+      counters: {},
+    });
+    fetchContractsMock.mockResolvedValue([]);
+    fetchPaymentSchedulesMock.mockResolvedValue([]);
+    fetchProjectsMock.mockResolvedValue([]);
+    fetchProjectItemsMock.mockResolvedValue([]);
+    fetchCustomersMock.mockResolvedValue([]);
+    createProjectMock.mockResolvedValue({
+      id: 8,
+      project_code: 'DA008',
+      project_name: 'Dự án đã cập nhật và vẫn mở modal',
+      customer_id: 1,
+      status: 'CHUAN_BI',
+      investment_mode: 'DAU_TU',
+      items: [],
+      raci: [],
+    } satisfies Partial<Project>);
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Mở thêm dự án' }));
+
+    expect(await screen.findByTestId('project-form-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Lưu project mock' }));
+
+    await waitFor(() => {
+      expect(createProjectMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_name: 'Dự án đã cập nhật và vẫn mở modal',
+          sync_items: false,
+          sync_raci: false,
+        })
+      );
+    });
+
+    expect(screen.getByTestId('project-form-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('project-name')).toHaveTextContent('Dự án đã cập nhật và vẫn mở modal');
+    expect(screen.getByText('Thành công')).toBeInTheDocument();
+    expect(screen.getByText('Tạo dự án thành công.')).toBeInTheDocument();
   });
 
   it('keeps the edit modal open after a successful project update so tab work can continue', async () => {

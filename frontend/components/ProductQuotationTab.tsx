@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Customer, Product } from '../types';
+import type { Customer, Product, ProductPackage } from '../types';
 import {
   createProductQuotation,
   exportProductQuotationPdf,
@@ -28,11 +28,13 @@ interface ProductQuotationTabProps {
   currentUserId?: string | number | null;
   customers?: Customer[];
   products: Product[];
+  productPackages?: ProductPackage[];
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
 }
 
 interface ProductQuotationRow {
   id: string;
+  catalogValue: string;
   productId: string;
   productName: string;
   unit: string;
@@ -51,6 +53,22 @@ interface ProductQuotationSettings {
   signatoryTitle: string;
   signatoryUnit: string;
   signatoryName: string;
+}
+
+interface QuotationCatalogItem {
+  value: string;
+  source: 'package' | 'product';
+  productId: string;
+  productCode: string;
+  packageCode: string;
+  label: string;
+  productName: string;
+  productShortName: string;
+  packageName: string;
+  unit: string;
+  unitPrice: number;
+  description: string;
+  searchText: string;
 }
 
 type ProductQuotationRowField = 'product' | 'unit' | 'quantity' | 'unitPrice' | 'vatRate' | 'note';
@@ -74,6 +92,7 @@ const DEFAULT_SIGNATORY_UNIT = 'TRUNG TÂM KINH DOANH GIẢI PHÁP';
 const DEFAULT_SIGNATORY_NAME = '';
 const DUPLICATE_QUOTATION_ITEM_MESSAGE = 'Không được trùng hạng mục công việc với cùng đơn giá trong một báo giá.';
 const DUPLICATE_QUOTATION_ITEM_INLINE_MESSAGE = 'Trùng hạng mục với cùng đơn giá.';
+const ZERO_VALUE_QUOTATION_EXPORT_MESSAGE = 'Vui lòng nhập ít nhất một hạng mục có thành tiền lớn hơn 0 trước khi xem hoặc in báo giá.';
 const DEFAULT_SENDER_CITY = 'Cần Thơ';
 const DEFAULT_GLOBAL_VAT_RATE = 10;
 const DRAFT_AUTOSAVE_DELAY_MS = 250;
@@ -106,6 +125,7 @@ const createRowId = (): string => `quote-row-${Date.now().toString(36)}-${Math.r
 
 const createEmptyRow = (): ProductQuotationRow => ({
   id: createRowId(),
+  catalogValue: '',
   productId: '',
   productName: '',
   unit: '',
@@ -305,6 +325,21 @@ const formatQuantityInputValue = (value: number): string => sanitizeQuantityInpu
 const buildPayloadSnapshot = (payload: ProductQuotationDraftPayload): string =>
   JSON.stringify(payload);
 
+const calculateDraftPayloadSubtotal = (payload: ProductQuotationDraftPayload): number =>
+  (Array.isArray(payload.items) ? payload.items : []).reduce((sum, item) => {
+    const quantity = Number(item?.quantity ?? 0);
+    const unitPrice = Number(item?.unit_price ?? 0);
+
+    if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
+      return sum;
+    }
+
+    return sum + Math.max(0, quantity) * Math.max(0, unitPrice);
+  }, 0);
+
+const canPersistQuotationDraft = (payload: ProductQuotationDraftPayload): boolean =>
+  Array.isArray(payload.items) && payload.items.length > 0 && calculateDraftPayloadSubtotal(payload) > 0;
+
 const buildSnapshotFromDraftDetail = (draft: ProductQuotationDraft): string =>
   buildPayloadSnapshot({
     customer_id: draft.customer_id ?? null,
@@ -462,6 +497,99 @@ const formatDateTime = (value?: string | null): string => {
   }).format(parsed);
 };
 
+const resolveQuotationWorkItemLabel = (product?: Partial<Product> | null): string => {
+  const productShortName = String(product?.product_short_name || '').trim();
+  if (productShortName !== '') {
+    return productShortName;
+  }
+
+  const packageName = String(product?.package_name || '').trim();
+  if (packageName !== '') {
+    return packageName;
+  }
+
+  const productName = String(product?.product_name || '').trim();
+  if (productName !== '') {
+    return productName;
+  }
+
+  return String(product?.product_code || '').trim();
+};
+
+const resolveQuotationWorkItemNote = (product?: Partial<Product> | null): string => {
+  const workItemLabel = resolveQuotationWorkItemLabel(product);
+  const productName = String(product?.product_name || '').trim();
+  const description = String(product?.description || '').trim();
+
+  return [productName !== '' && productName !== workItemLabel ? productName : '', description]
+    .filter(Boolean)
+    .join('\n');
+};
+
+const resolveQuotationPackageLabel = (
+  productPackage?: Partial<ProductPackage> | null,
+  parentProduct?: Partial<Product> | null
+): string => {
+  const packageName = String(productPackage?.package_name || '').trim();
+  if (packageName !== '') {
+    return packageName;
+  }
+
+  const productShortName = String(parentProduct?.product_short_name || '').trim();
+  if (productShortName !== '') {
+    return productShortName;
+  }
+
+  const productName = String(productPackage?.product_name || parentProduct?.product_name || '').trim();
+  if (productName !== '') {
+    return productName;
+  }
+
+  return String(productPackage?.package_code || parentProduct?.product_code || '').trim();
+};
+
+const resolveQuotationPackageNote = (
+  productPackage?: Partial<ProductPackage> | null,
+  parentProduct?: Partial<Product> | null
+): string => {
+  const workItemLabel = resolveQuotationPackageLabel(productPackage, parentProduct);
+  const productName = String(productPackage?.product_name || parentProduct?.product_name || '').trim();
+  const description = String(productPackage?.description || '').trim();
+
+  return [productName !== '' && productName !== workItemLabel ? productName : '', description]
+    .filter(Boolean)
+    .join('\n');
+};
+
+const normalizeQuotationCatalogLookupValue = (value: unknown): string =>
+  String(value ?? '').trim().toLocaleLowerCase('vi-VN');
+
+const buildQuotationCatalogLookupKey = (productId: string, value: unknown): string => {
+  const normalizedProductId = String(productId || '').trim();
+  const normalizedValue = normalizeQuotationCatalogLookupValue(value);
+  if (normalizedProductId === '' || normalizedValue === '') {
+    return '';
+  }
+
+  return `${normalizedProductId}::${normalizedValue}`;
+};
+
+const buildQuotationCatalogLookupCandidates = (item: QuotationCatalogItem): string[] =>
+  Array.from(
+    new Set(
+      [
+        item.label,
+        item.productName,
+        item.productShortName,
+        item.packageName,
+        item.productCode,
+        item.packageCode,
+      ]
+        .map((value) => buildQuotationCatalogLookupKey(item.productId, value))
+        .filter(Boolean)
+    )
+  );
+
 const formatQuotationOptionLabel = (quotation: ProductQuotationDraftListItem): string => {
   const recipient = String(quotation.recipient_name || '').trim();
   return recipient !== '' ? recipient : `Báo giá #${quotation.id}`;
@@ -597,6 +725,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   currentUserId,
   customers = [],
   products = [],
+  productPackages = [],
   onNotify,
 }: ProductQuotationTabProps) => {
   const activeProducts = useMemo(
@@ -604,9 +733,236 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       [...products]
         .filter((product) => product.is_active !== false)
         .sort((left, right) =>
-          String(left.product_name || '').localeCompare(String(right.product_name || ''), 'vi')
+          resolveQuotationWorkItemLabel(left).localeCompare(resolveQuotationWorkItemLabel(right), 'vi')
         ),
     [products]
+  );
+
+  const allProductsById = useMemo(
+    () =>
+      new Map(
+        products.map((product) => [
+          String(product.id),
+          product,
+        ])
+      ),
+    [products]
+  );
+
+  const activeProductPackages = useMemo(
+    () =>
+      [...productPackages]
+        .filter((productPackage) => productPackage.is_active !== false)
+        .sort((left, right) => {
+          const leftParent = allProductsById.get(String(left.product_id));
+          const rightParent = allProductsById.get(String(right.product_id));
+
+          return resolveQuotationPackageLabel(left, leftParent).localeCompare(
+            resolveQuotationPackageLabel(right, rightParent),
+            'vi'
+          );
+        }),
+    [allProductsById, productPackages]
+  );
+
+  const quotationCatalog = useMemo<QuotationCatalogItem[]>(() => {
+    if (activeProductPackages.length > 0) {
+      const packageCatalogItems = activeProductPackages.map((productPackage) => {
+        const parentProduct = allProductsById.get(String(productPackage.product_id));
+        const label = resolveQuotationPackageLabel(productPackage, parentProduct);
+        const productName = String(productPackage.product_name || parentProduct?.product_name || '').trim();
+        const productShortName = String(parentProduct?.product_short_name || '').trim();
+        const packageName = String(productPackage.package_name || '').trim();
+        const productCode = String(parentProduct?.product_code || productPackage.parent_product_code || '').trim();
+        const packageCode = String(productPackage.package_code || '').trim();
+        const description = String(productPackage.description || '').trim();
+        const unitPrice = Number(productPackage.standard_price || 0);
+
+        return {
+          value: `package:${String(productPackage.id)}`,
+          source: 'package' as const,
+          productId: String(productPackage.product_id || ''),
+          productCode,
+          packageCode,
+          label,
+          productName,
+          productShortName,
+          packageName,
+          unit: String(productPackage.unit || '').trim(),
+          unitPrice,
+          description,
+          searchText: [
+            packageCode,
+            packageName,
+            productCode,
+            productShortName,
+            productName,
+            description,
+            String(productPackage.unit || ''),
+            String(unitPrice),
+            formatMoney(unitPrice),
+            `${formatMoney(unitPrice)} đ`,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        };
+      });
+
+      const packagedProductIds = new Set(packageCatalogItems.map((catalogItem) => catalogItem.productId));
+      const standaloneProductItems = activeProducts
+        .filter((product) => !packagedProductIds.has(String(product.id)))
+        .map((product) => {
+          const label = resolveQuotationWorkItemLabel(product);
+          const productName = String(product.product_name || '').trim();
+          const productShortName = String(product.product_short_name || '').trim();
+          const packageName = String(product.package_name || '').trim();
+          const productCode = String(product.product_code || '').trim();
+          const description = String(product.description || '').trim();
+          const unitPrice = Number(product.standard_price || 0);
+
+          return {
+            value: `product:${String(product.id)}`,
+            source: 'product' as const,
+            productId: String(product.id || ''),
+            productCode,
+            packageCode: '',
+            label,
+            productName,
+            productShortName,
+            packageName,
+            unit: String(product.unit || '').trim(),
+            unitPrice,
+            description,
+            searchText: [
+              productCode,
+              productShortName,
+              productName,
+              packageName,
+              description,
+              String(product.unit || ''),
+              String(unitPrice),
+              formatMoney(unitPrice),
+              `${formatMoney(unitPrice)} đ`,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          };
+        });
+
+      return [...packageCatalogItems, ...standaloneProductItems].sort((left, right) =>
+        left.label.localeCompare(right.label, 'vi')
+      );
+    }
+
+    return activeProducts.map((product) => {
+      const label = resolveQuotationWorkItemLabel(product);
+      const productName = String(product.product_name || '').trim();
+      const productShortName = String(product.product_short_name || '').trim();
+      const packageName = String(product.package_name || '').trim();
+      const productCode = String(product.product_code || '').trim();
+      const description = String(product.description || '').trim();
+      const unitPrice = Number(product.standard_price || 0);
+
+      return {
+        value: `product:${String(product.id)}`,
+        source: 'product' as const,
+        productId: String(product.id || ''),
+        productCode,
+        packageCode: '',
+        label,
+        productName,
+        productShortName,
+        packageName,
+        unit: String(product.unit || '').trim(),
+        unitPrice,
+        description,
+        searchText: [
+          productCode,
+          productShortName,
+          productName,
+          packageName,
+          description,
+          String(product.unit || ''),
+          String(unitPrice),
+          formatMoney(unitPrice),
+          `${formatMoney(unitPrice)} đ`,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      };
+    });
+  }, [activeProductPackages, activeProducts, allProductsById]);
+
+  const quotationCatalogByValue = useMemo(
+    () =>
+      new Map(
+        quotationCatalog.map((catalogItem) => [
+          catalogItem.value,
+          catalogItem,
+        ])
+      ),
+    [quotationCatalog]
+  );
+
+  const quotationCatalogValuesByProductId = useMemo(() => {
+    const nextMap = new Map<string, QuotationCatalogItem[]>();
+
+    quotationCatalog.forEach((catalogItem) => {
+      const entries = nextMap.get(catalogItem.productId) ?? [];
+      entries.push(catalogItem);
+      nextMap.set(catalogItem.productId, entries);
+    });
+
+    return nextMap;
+  }, [quotationCatalog]);
+
+  const quotationCatalogValueByLookupKey = useMemo(() => {
+    const nextMap = new Map<string, string>();
+
+    quotationCatalog.forEach((catalogItem) => {
+      buildQuotationCatalogLookupCandidates(catalogItem).forEach((lookupKey) => {
+        if (!nextMap.has(lookupKey)) {
+          nextMap.set(lookupKey, catalogItem.value);
+        }
+      });
+    });
+
+    return nextMap;
+  }, [quotationCatalog]);
+
+  const resolveDraftRowCatalogValue = useCallback(
+    (item: ProductQuotationDraft['items'][number]): string => {
+      const productId = item.product_id ? String(item.product_id) : '';
+      if (productId === '') {
+        return '';
+      }
+
+      const directMatch = quotationCatalogValueByLookupKey.get(
+        buildQuotationCatalogLookupKey(productId, item.product_name)
+      );
+      if (directMatch) {
+        return directMatch;
+      }
+
+      const unit = String(item.unit || '').trim();
+      const unitPrice = Number(item.unit_price || 0);
+      const catalogItems = quotationCatalogValuesByProductId.get(productId) ?? [];
+      const matchedByPricing = catalogItems.find(
+        (catalogItem) =>
+          catalogItem.unit === unit &&
+          Number(catalogItem.unitPrice || 0) === unitPrice
+      );
+      if (matchedByPricing) {
+        return matchedByPricing.value;
+      }
+
+      if (catalogItems.length === 1) {
+        return catalogItems[0].value;
+      }
+
+      return '';
+    },
+    [quotationCatalogValueByLookupKey, quotationCatalogValuesByProductId]
   );
 
   const productById = useMemo(
@@ -633,23 +989,12 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
   const productOptions = useMemo(
     () =>
-      activeProducts.map((product) => ({
-        value: String(product.id),
-        label: String(product.product_name || '').trim() || String(product.product_code || '').trim(),
-        searchText: [
-          product.product_code,
-          product.product_name,
-          product.package_name,
-          product.description,
-          product.unit,
-          String(product.standard_price ?? ''),
-          formatMoney(Number(product.standard_price || 0)),
-          `${formatMoney(Number(product.standard_price || 0))} đ`,
-        ]
-          .filter(Boolean)
-          .join(' '),
+      quotationCatalog.map((catalogItem) => ({
+        value: catalogItem.value,
+        label: catalogItem.label,
+        searchText: catalogItem.searchText,
       })),
-    [activeProducts]
+    [quotationCatalog]
   );
 
   const customerOptions = useMemo(
@@ -883,6 +1228,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     () => buildPayloadSnapshot(currentPayload),
     [currentPayload]
   );
+  const canPersistCurrentPayload = useMemo(
+    () => canPersistQuotationDraft(currentPayload),
+    [currentPayload]
+  );
 
   useEffect(() => {
     quotationIdRef.current = quotationId;
@@ -931,6 +1280,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
           .map((item) => ({
             id: String(item.id || createRowId()),
+            catalogValue: resolveDraftRowCatalogValue(item),
             productId: item.product_id ? String(item.product_id) : '',
             productName: String(item.product_name || ''),
             unit: String(item.unit || ''),
@@ -961,7 +1311,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setShowSettingsDrawer(false);
     setShowPrintConfirmModal(false);
     setShowExportMenu(false);
-  }, []);
+  }, [resolveDraftRowCatalogValue]);
 
   const loadQuotationList = useCallback(
     async ({ notifyOnError = false }: { notifyOnError?: boolean } = {}): Promise<ProductQuotationDraftListItem[]> => {
@@ -1038,6 +1388,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         const activeQuotationId = quotationIdRef.current;
 
         if (!force && snapshot === lastSavedSnapshotRef.current) {
+          return activeQuotationId;
+        }
+
+        if (!canPersistQuotationDraft(payload)) {
           return activeQuotationId;
         }
 
@@ -1244,6 +1598,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       return;
     }
 
+    if (!canPersistCurrentPayload) {
+      return;
+    }
+
     if (saveTimeoutRef.current !== null) {
       window.clearTimeout(saveTimeoutRef.current);
     }
@@ -1258,7 +1616,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         saveTimeoutRef.current = null;
       }
     };
-  }, [currentPayloadSnapshot, isInitializingDraft, persistDraft]);
+  }, [canPersistCurrentPayload, currentPayloadSnapshot, isInitializingDraft, persistDraft]);
 
   useEffect(() => {
     void loadQuotationHistory(quotationId);
@@ -1380,6 +1738,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     };
     const nextSnapshot = buildPayloadSnapshot(nextPayload);
     const hadUnsavedSettingsChange = nextSnapshot !== lastSavedSnapshotRef.current;
+    const shouldPersistDraftSettings = hadUnsavedSettingsChange && canPersistQuotationDraft(nextPayload);
 
     if (hasReusableDefaultSettings) {
       try {
@@ -1394,13 +1753,15 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       }
     }
 
-    const savedId = await persistDraftSnapshot(nextPayload, nextSnapshot, {
-      notifyOnError: true,
-      force: hadUnsavedSettingsChange,
-    });
+    if (shouldPersistDraftSettings) {
+      const savedId = await persistDraftSnapshot(nextPayload, nextSnapshot, {
+        notifyOnError: true,
+        force: hadUnsavedSettingsChange,
+      });
 
-    if (hadUnsavedSettingsChange && savedId === null) {
-      return;
+      if (savedId === null) {
+        return;
+      }
     }
 
     payloadRef.current = nextPayload;
@@ -1423,12 +1784,13 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     setRecipientName(nextValue);
   };
 
-  const handleProductChange = (rowId: string, productId: string) => {
-    const product = productById.get(productId);
+  const handleProductChange = (rowId: string, catalogValue: string) => {
+    const catalogItem = quotationCatalogByValue.get(catalogValue);
     updateRow(rowId, (current) => {
-      if (!product) {
+      if (!catalogItem) {
         return {
           ...current,
+          catalogValue: '',
           productId: '',
           productName: '',
           unit: '',
@@ -1437,18 +1799,26 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         };
       }
 
-      const nextNote = [String(product.package_name || '').trim(), String(product.description || '').trim()]
-        .filter(Boolean)
-        .join('\n');
-
       return {
         ...current,
-        productId,
-        productName: String(product.product_name || '').trim(),
-        unit: String(product.unit || '').trim(),
-        unitPrice: String(Number(product.standard_price || 0)),
+        catalogValue,
+        productId: catalogItem.productId,
+        productName: catalogItem.label,
+        unit: catalogItem.unit,
+        unitPrice: String(Number(catalogItem.unitPrice || 0)),
         vatRate: '10',
-        note: nextNote,
+        note:
+          catalogItem.source === 'package'
+            ? resolveQuotationPackageNote(
+                {
+                  package_code: catalogItem.packageCode,
+                  package_name: catalogItem.packageName,
+                  product_name: catalogItem.productName,
+                  description: catalogItem.description,
+                },
+                productById.get(catalogItem.productId)
+              )
+            : resolveQuotationWorkItemNote(productById.get(catalogItem.productId)),
       };
     });
   };
@@ -1471,7 +1841,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       setIsLoadingQuotationDetail(true);
 
       try {
-        if (payloadSnapshotRef.current !== lastSavedSnapshotRef.current) {
+        const shouldPersistCurrentDraft =
+          payloadSnapshotRef.current !== lastSavedSnapshotRef.current &&
+          canPersistQuotationDraft(payloadRef.current);
+        if (shouldPersistCurrentDraft) {
           const savedId = await flushPendingDraftSave(true);
           if (payloadSnapshotRef.current !== lastSavedSnapshotRef.current && savedId === null) {
             return;
@@ -1494,7 +1867,11 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   );
 
   const handleStartNewQuotation = useCallback(async () => {
-    if (quotationIdRef.current !== null && payloadSnapshotRef.current !== lastSavedSnapshotRef.current) {
+    const shouldPersistCurrentDraft =
+      quotationIdRef.current !== null &&
+      payloadSnapshotRef.current !== lastSavedSnapshotRef.current &&
+      canPersistQuotationDraft(payloadRef.current);
+    if (shouldPersistCurrentDraft) {
       const savedId = await flushPendingDraftSave(true);
       if (savedId === null) {
         return;
@@ -1517,6 +1894,11 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
     if (normalizedRows.length === 0) {
       onNotify?.('error', 'Báo giá', 'Vui lòng chọn ít nhất một sản phẩm trong bảng báo giá.');
+      return false;
+    }
+
+    if (!canPersistCurrentPayload) {
+      onNotify?.('error', 'Báo giá', ZERO_VALUE_QUOTATION_EXPORT_MESSAGE);
       return false;
     }
 
@@ -1579,6 +1961,16 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       setIsDownloadingWord(true);
       const result = await printStoredProductQuotationWord(savedDraftId);
       triggerBrowserDownload(result.blob, result.filename);
+      if (String(result.emailStatus || '').toUpperCase() === 'FAILED') {
+        const warningMessage = (result.emailMessage || '').trim();
+        onNotify?.(
+          'error',
+          'Báo giá',
+          warningMessage !== ''
+            ? `Đã tải file Word, nhưng email lưu trữ không gửi được: ${warningMessage}`
+            : 'Đã tải file Word, nhưng email lưu trữ không gửi được.'
+        );
+      }
       await loadQuotationHistory(savedDraftId);
     } catch (error) {
       onNotify?.(
@@ -1619,6 +2011,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     selectedCustomerId !== null && customerById.has(String(selectedCustomerId))
       ? String(selectedCustomerId)
       : recipientName;
+  const toolbarFieldLabelClassName =
+    'mb-1 text-[9px] font-bold uppercase tracking-[0.14em] leading-none';
+  const toolbarSelectTriggerClassName =
+    'h-8 rounded-lg border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 shadow-sm hover:bg-white';
 
   // ── UI-only state: row collapse + duplicate ──
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(() => new Set());
@@ -1647,13 +2043,16 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       <div className="pb-4 pt-0">
         {/* ── Command bar ── */}
         <div className="mb-3 rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col divide-y divide-slate-100 lg:flex-row lg:divide-x lg:divide-y-0">
+          <div
+            className="flex flex-col divide-y divide-slate-100 lg:flex-row lg:items-center lg:divide-x lg:divide-y-0"
+            data-testid="quotation-toolbar-row"
+          >
 
             {/* Zone 1+3 — Mở báo giá cũ + Actions (cùng hàng trên mobile) */}
-            <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 lg:w-[300px] lg:shrink-0">
-              <span className="material-symbols-outlined shrink-0 text-slate-400" style={{ fontSize: 18 }}>folder_open</span>
+            <div className="flex min-w-0 items-end gap-2 px-3 py-2.5 lg:w-[300px] lg:shrink-0">
+              <span className="material-symbols-outlined mb-1 shrink-0 text-slate-400" style={{ fontSize: 18 }}>folder_open</span>
               <div className="min-w-0 flex-1">
-                <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">Mở báo giá cũ</p>
+                <p className={`${toolbarFieldLabelClassName} text-slate-400`}>Mở báo giá cũ</p>
                 <SearchableSelect
                   className="w-full"
                   value={quotationSelectorValue}
@@ -1669,7 +2068,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                   portalMinWidth={460}
                   portalMaxWidth={620}
                   usePortal
-                  triggerClassName="h-7 rounded border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 hover:bg-white"
+                  triggerClassName={toolbarSelectTriggerClassName}
                   renderOptionContent={(option, state) => {
                     const quotation = quotationList.find((item) => String(item.id) === String(option.value));
                     return (
@@ -1693,7 +2092,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                 />
               </div>
               {/* Actions — hiển thị inline bên phải trên mobile, ẩn ở lg (Zone 3 riêng) */}
-              <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
+              <div className="mb-0.5 flex shrink-0 items-center gap-1.5 lg:hidden">
                 <button
                   type="button"
                   onClick={() => { void handleStartNewQuotation(); }}
@@ -1735,10 +2134,10 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             </div>
 
             {/* Zone 2 — Kính gửi */}
-            <div className={`flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 transition-colors lg:rounded-none ${
+            <div className={`flex min-w-0 flex-1 items-end gap-2.5 px-3 py-2.5 transition-colors lg:rounded-none ${
               canSelectRecipient ? 'bg-white' : 'bg-slate-50/60'
             }`}>
-              <span className={`material-symbols-outlined shrink-0 transition-colors ${
+              <span className={`material-symbols-outlined mb-1 shrink-0 transition-colors ${
                 selectedRecipientValue
                   ? 'text-emerald-500'
                   : canSelectRecipient
@@ -1748,7 +2147,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                 {selectedRecipientValue ? 'check_circle' : canSelectRecipient ? 'business' : 'lock'}
               </span>
               <div className="min-w-0 flex-1">
-                <p className={`mb-1 text-[9px] font-bold uppercase tracking-[0.14em] transition-colors ${
+                <p className={`${toolbarFieldLabelClassName} transition-colors ${
                   canSelectRecipient ? 'text-slate-400' : 'text-slate-300'
                 }`}>Kính gửi</p>
                 {canSelectRecipient ? (
@@ -1765,21 +2164,24 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                     portalMinWidth={360}
                     portalMaxWidth={620}
                     usePortal
-                    triggerClassName="h-7 rounded border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 hover:bg-white"
+                    triggerClassName={toolbarSelectTriggerClassName}
                   />
                 ) : (
-                  <p className="text-xs italic text-slate-400">Bấm <strong className="font-semibold not-italic text-slate-500">Thêm mới</strong> để bắt đầu</p>
+                  <p className="mb-1 h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs italic leading-8 text-slate-400 shadow-sm">Bấm <strong className="font-semibold not-italic text-slate-500">Thêm mới</strong> để bắt đầu</p>
                 )}
               </div>
             </div>
 
             {/* Zone 3 — Actions (chỉ lg+) */}
-            <div className="hidden shrink-0 items-center gap-2 px-3 py-2.5 lg:flex">
+            <div
+              className="hidden shrink-0 items-end gap-2 px-3 py-2.5 lg:ml-auto lg:flex"
+              data-testid="quotation-action-row"
+            >
               <button
                 type="button"
                 onClick={() => { void handleStartNewQuotation(); }}
                 disabled={isPersistingDraft || isLoadingQuotationDetail}
-                className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add_circle</span>
                 Thêm mới
@@ -1791,7 +2193,8 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                   disabled={isExporting || isLoadingQuotationDetail}
                   aria-haspopup="menu"
                   aria-expanded={showExportMenu}
-                  className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Xuất báo giá"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
                   {isExporting ? 'Đang chuẩn bị...' : 'Xuất'}
@@ -1936,7 +2339,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                       </td>
                       <td className="px-2 py-1.5">
                         <SearchableSelect
-                          value={row.productId}
+                          value={row.catalogValue}
                           options={productOptions}
                           onChange={(value) => handleProductChange(row.id, value)}
                           placeholder="Chọn sản phẩm từ danh mục"
@@ -1951,20 +2354,38 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                           label=""
                           triggerClassName={`h-[30px] rounded px-2.5 text-xs leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
                           renderOptionContent={(option, state) => {
-                            const product = productById.get(String(option.value));
-                            const packageName = String(product?.package_name || '').trim();
-                            const description = String(product?.description || '').trim();
-                            const unitPrice = Number(product?.standard_price || 0);
+                            const catalogItem = quotationCatalogByValue.get(String(option.value));
+                            const productShortName = String(catalogItem?.productShortName || '').trim();
+                            const packageName = String(catalogItem?.packageName || '').trim();
+                            const productName = String(catalogItem?.productName || '').trim();
+                            const description = String(catalogItem?.description || '').trim();
+                            const unitPrice = Number(catalogItem?.unitPrice || 0);
+                            const workItemLabel = String(catalogItem?.label || option.label).trim();
 
                             return (
                               <div className="flex min-h-[72px] items-start justify-between gap-4 py-1">
                                 <div className="min-w-0 flex-1 text-left">
                                   <p className="truncate text-sm font-semibold leading-5 text-slate-900">
-                                    {option.label}
+                                    {workItemLabel}
                                   </p>
-                                  {packageName ? (
+                                  {productName !== '' && productName !== workItemLabel ? (
+                                    <p className="mt-0.5 truncate text-xs leading-4 text-slate-500">
+                                      Sản phẩm: {productName}
+                                    </p>
+                                  ) : null}
+                                  {productShortName && productShortName !== workItemLabel ? (
+                                    <p className="mt-0.5 truncate text-xs leading-4 text-slate-500">
+                                      Tên ngắn: {productShortName}
+                                    </p>
+                                  ) : null}
+                                  {packageName && packageName !== workItemLabel ? (
                                     <p className="mt-0.5 truncate text-xs leading-4 text-slate-500">
                                       Gói cước: {packageName}
+                                    </p>
+                                  ) : null}
+                                  {catalogItem?.packageCode ? (
+                                    <p className="mt-0.5 truncate text-xs leading-4 text-slate-400">
+                                      Mã gói: {catalogItem.packageCode}
                                     </p>
                                   ) : null}
                                   {description ? (
@@ -2186,7 +2607,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                   <div>
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Hạng mục</p>
                     <SearchableSelect
-                      value={row.productId}
+                      value={row.catalogValue}
                       options={productOptions}
                       onChange={(value) => handleProductChange(row.id, value)}
                       placeholder="Chọn sản phẩm từ danh mục"
@@ -2199,14 +2620,30 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                       label=""
                       triggerClassName={`h-11 rounded px-3 text-sm leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
                       renderOptionContent={(option, state) => {
-                        const product = productById.get(String(option.value));
-                        const packageName = String(product?.package_name || '').trim();
-                        const unitPrice = Number(product?.standard_price || 0);
+                        const catalogItem = quotationCatalogByValue.get(String(option.value));
+                        const productShortName = String(catalogItem?.productShortName || '').trim();
+                        const packageName = String(catalogItem?.packageName || '').trim();
+                        const productName = String(catalogItem?.productName || '').trim();
+                        const description = String(catalogItem?.description || '').trim();
+                        const unitPrice = Number(catalogItem?.unitPrice || 0);
+                        const workItemLabel = String(catalogItem?.label || option.label).trim();
                         return (
                           <div className="flex min-h-[60px] items-center justify-between gap-3 py-1">
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold text-slate-900">{option.label}</p>
-                              {packageName ? <p className="mt-0.5 truncate text-xs text-slate-500">{packageName}</p> : null}
+                              <p className="truncate text-sm font-semibold text-slate-900">{workItemLabel}</p>
+                              {productName !== '' && productName !== workItemLabel ? (
+                                <p className="mt-0.5 truncate text-xs text-slate-500">Sản phẩm: {productName}</p>
+                              ) : null}
+                              {productShortName && productShortName !== workItemLabel ? (
+                                <p className="mt-0.5 truncate text-xs text-slate-500">Tên ngắn: {productShortName}</p>
+                              ) : null}
+                              {packageName && packageName !== workItemLabel ? (
+                                <p className="mt-0.5 truncate text-xs text-slate-500">Gói cước: {packageName}</p>
+                              ) : null}
+                              {catalogItem?.packageCode ? (
+                                <p className="mt-0.5 truncate text-xs text-slate-400">Mã gói: {catalogItem.packageCode}</p>
+                              ) : null}
+                              {description ? <p className="mt-0.5 line-clamp-2 text-xs text-slate-400">{description}</p> : null}
                             </div>
                             <p className={`shrink-0 whitespace-nowrap text-sm font-bold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
                               {formatMoney(unitPrice)} đ

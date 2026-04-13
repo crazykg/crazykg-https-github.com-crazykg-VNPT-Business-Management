@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { Contract, Customer, Project } from '../../types';
 import { CONTRACT_STATUSES } from '../../constants';
+import { useModalShortcuts } from '../../hooks/useModalShortcuts';
 import { FormSelect, SearchableSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
@@ -64,6 +65,8 @@ export const ContractFormModal: React.FC<ContractFormModalProps> = ({
       value: typeof formData.value === 'string' ? parseNumber(formData.value) : formData.value,
     });
   };
+
+  useModalShortcuts({ onSave: handleSubmit });
 
   const handleChange = (field: keyof Contract, value: any) => {
     setFormData((prev) => {

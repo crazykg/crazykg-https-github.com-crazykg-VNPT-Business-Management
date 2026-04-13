@@ -122,13 +122,17 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     userOptions,
     usersLoading,
     employeeCache,
+    existingAccountable,
+    showAccountableConfirm,
     raciSummaryBadge,
     setRaciUserId,
-    setRaciRole,
+    handleProcedureRaciRoleChange,
     setRaciNote,
     setUserSearch,
     resetProcedureRaci,
     reloadProcedureRaci,
+    handleConfirmAccountableReplacement,
+    handleCancelAccountableReplacement,
     handleAddRaci,
     handleRemoveRaci,
     handleAssignA,
@@ -465,19 +469,22 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   // ── RENDER ───────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto">
-      <div data-testid="project-procedure-modal" className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[96vh]">
+      <div data-testid="project-procedure-modal" className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[96vh]">
 
         {/* ══ Header ══ */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-deep-teal/5 to-white rounded-t-2xl shrink-0">
-          <div className="flex items-center gap-3">
-            <button onClick={handleClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
-              <span className="material-symbols-outlined text-xl">arrow_back</span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 rounded-t-xl shrink-0">
+          <div className="flex items-center gap-2">
+            <button onClick={handleClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
             </button>
+            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>account_tree</span>
+            </div>
             <div>
-              <h2 className="text-lg font-bold text-deep-teal">
+              <h2 className="text-sm font-bold text-deep-teal leading-tight">
                 Thủ tục: {project.project_code} — {project.project_name}
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] text-slate-400 leading-tight">
                 {(() => {
                   const code = String(project.investment_mode || '').trim().toUpperCase();
                   if (!code) return '';
@@ -493,10 +500,10 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {hasDirtyChanges && activeTab === 'steps' && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
-                <span className="material-symbols-outlined text-sm">edit_note</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit_note</span>
                 {Object.keys(drafts).length} thay đổi
               </span>
             )}
@@ -528,9 +535,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     setIsLoading(false);
                   }
                 }}
-                className="flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-tertiary hover:bg-tertiary/5 disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-sm">sync</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync</span>
                 Đồng bộ mẫu
               </button>
             )}
@@ -539,7 +546,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
         {/* ══ Tabs ══ */}
         {activeProcedure && (
-          <div className="flex items-center gap-1 px-6 pt-4 pb-0 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-0.5 px-4 pt-3 pb-0 border-b border-slate-100 shrink-0">
             {([
               { key: 'steps',           label: 'Bảng thủ tục',       icon: 'checklist' },
               { key: 'worklog',         label: 'Worklog',             icon: 'history' },
@@ -550,13 +557,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 data-testid={`procedure-tab-${tab.key}`}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 transition-all ${
                   activeTab === tab.key
                     ? 'border-deep-teal text-deep-teal'
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <span className="material-symbols-outlined text-base">{tab.icon}</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{tab.icon}</span>
                 {tab.label}
                 {tab.key === 'raci' && raciSummaryBadge && (
                   <span className="ml-0.5 text-[10px] font-normal opacity-60">
@@ -565,33 +572,33 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                 )}
               </button>
             ))}
-            <div className="ml-auto pb-2 text-xs text-slate-400 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-deep-teal" />
+            <div className="ml-auto pb-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-deep-teal" />
               {overallPercent}% hoàn thành
             </div>
           </div>
         )}
 
         {/* ══ Content ══ */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto px-4 py-4">
           {isLoading ? (
-            <div className="flex items-center justify-center py-24">
-              <div className="animate-spin w-8 h-8 border-[3px] border-deep-teal/20 border-t-deep-teal rounded-full" />
-              <span className="ml-3 text-slate-500">Đang tải...</span>
+            <div className="flex items-center justify-center py-16">
+              <div className="animate-spin w-7 h-7 border-2 border-deep-teal/20 border-t-deep-teal rounded-full" />
+              <span className="ml-3 text-sm text-slate-500">Đang tải...</span>
             </div>
 
           ) : !activeProcedure ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <span className="material-symbols-outlined text-6xl text-slate-300 mb-4">checklist</span>
+            <div className="flex flex-col items-center justify-center py-12">
+              <span className="material-symbols-outlined text-slate-300 mb-3" style={{ fontSize: 48 }}>checklist</span>
               {!project.investment_mode ? (
                 <>
-                  <h3 className="text-base font-semibold text-slate-700 mb-1">Chưa xác định loại dự án</h3>
-                  <p className="text-sm text-slate-500">Vui lòng cập nhật <strong>Loại dự án</strong> trong thông tin dự án.</p>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-1">Chưa xác định loại dự án</h3>
+                  <p className="text-xs text-slate-500">Vui lòng cập nhật <strong>Loại dự án</strong> trong thông tin dự án.</p>
                 </>
               ) : (
                 <>
-                  <h3 className="text-base font-semibold text-slate-700 mb-1">Đang khởi tạo thủ tục...</h3>
-                  <p className="text-sm text-slate-500">Vui lòng đóng và mở lại.</p>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-1">Đang khởi tạo thủ tục...</h3>
+                  <p className="text-xs text-slate-500">Vui lòng đóng và mở lại.</p>
                 </>
               )}
             </div>
@@ -600,23 +607,23 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
             /* ══════════════════════ TAB: BẢNG THỦ TỤC ══════════════════════ */
             <>
               {/* Progress bar */}
-              <div className="bg-gradient-to-r from-slate-50 to-white rounded-xl border border-slate-200 p-4 mb-5">
+              <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 mb-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-slate-700">Tiến độ tổng thể</span>
-                  <span className="text-2xl font-black text-deep-teal">{overallPercent}%</span>
+                  <span className="text-xs font-semibold text-neutral">Tiến độ tổng thể</span>
+                  <span className="text-xl font-black text-deep-teal">{overallPercent}%</span>
                 </div>
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden mb-3">
-                  <div className="h-full bg-gradient-to-r from-deep-teal to-emerald-500 rounded-full transition-all duration-500" style={{ width: `${overallPercent}%` }} />
+                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-2">
+                  <div className="h-full bg-gradient-to-r from-deep-teal to-success rounded-full transition-all duration-500" style={{ width: `${overallPercent}%` }} />
                 </div>
-                <div className="flex gap-5 text-xs text-slate-600">
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"/>Hoàn thành: <strong>{completedSteps}</strong></span>
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500"/>Đang TH: <strong>{inProgressSteps}</strong></span>
-                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-300"/>Chưa TH: <strong>{totalSteps - completedSteps - inProgressSteps}</strong></span>
+                <div className="flex gap-3 text-[11px] text-slate-600">
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success"/>Hoàn thành: <strong>{completedSteps}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning"/>Đang TH: <strong>{inProgressSteps}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"/>Chưa TH: <strong>{totalSteps - completedSteps - inProgressSteps}</strong></span>
                 </div>
               </div>
 
               {/* Phase groups */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {phaseGroups.map((group, gIdx) => (
                   <ProcedurePhaseGroupSection
                     key={group.phase}
@@ -743,10 +750,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               usersLoading={usersLoading}
               raciList={raciList}
               employeeCache={employeeCache}
+              existingAccountable={existingAccountable}
+              showAccountableConfirm={showAccountableConfirm}
               onRaciUserChange={setRaciUserId}
               onUserSearchChange={setUserSearch}
-              onRaciRoleChange={setRaciRole}
+              onRaciRoleChange={handleProcedureRaciRoleChange}
               onRaciNoteChange={setRaciNote}
+              onConfirmAccountableReplacement={handleConfirmAccountableReplacement}
+              onCancelAccountableReplacement={handleCancelAccountableReplacement}
               onAddRaci={handleAddRaci}
               onRemoveRaci={handleRemoveRaci}
             />
@@ -780,13 +791,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
         {/* ══ Footer ══ */}
         {activeProcedure && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50/50 rounded-b-2xl shrink-0">
-            <div className="text-xs text-slate-400">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl shrink-0">
+            <div className="text-[11px] text-slate-400">
               {totalSteps} bước chính • {completedSteps} hoàn thành • {overallPercent}%
               {raciList.length > 0 && <> • {raciList.length} phân công RACI</>}
             </div>
-            <div className="flex gap-3">
-              <button onClick={handleClose} className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+            <div className="flex gap-2">
+              <button onClick={handleClose} className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                 Đóng
               </button>
               {activeTab === 'steps' && (
@@ -794,13 +805,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                   data-testid="procedure-save"
                   onClick={handleSave}
                   disabled={!hasDirtyChanges || isSaving}
-                  className={`px-6 py-2 text-sm font-semibold rounded-lg transition-all ${
-                    hasDirtyChanges ? 'bg-deep-teal text-white hover:bg-deep-teal/90 shadow-sm' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors shadow-sm disabled:opacity-50 ${
+                    hasDirtyChanges ? 'bg-primary text-white hover:bg-deep-teal' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   }`}
                 >
                   {isSaving
-                    ? <span className="flex items-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-white/20 border-t-white rounded-full" />Đang lưu...</span>
-                    : <>Lưu thay đổi{hasDirtyChanges ? ` (${Object.keys(drafts).length})` : ''}</>
+                    ? <><span className="animate-spin w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full" />Đang lưu...</>
+                    : <><span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>Lưu{hasDirtyChanges ? ` (${Object.keys(drafts).length})` : ''}</>
                   }
                 </button>
               )}

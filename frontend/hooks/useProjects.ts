@@ -312,10 +312,17 @@ export function useProjects(
       projectByCode.set(token, project);
     });
 
-    const existingItemsByProject = new Map<string, Map<string, { product_id: number; quantity: number; unit_price: number }>>();
+    const existingItemsByProject = new Map<
+      string,
+      Map<
+        string,
+        { product_id: number; product_package_id?: number; quantity: number; unit_price: number }
+      >
+    >();
     (projectItems || []).forEach((item) => {
       const projectId = String(item.project_id || '');
       const productId = Number(item.product_id);
+      const productPackageId = Number(item.product_package_id);
       if (!projectId || !Number.isFinite(productId) || productId <= 0) {
         return;
       }
@@ -325,9 +332,22 @@ export function useProjects(
       const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
       const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
 
-      const byProduct = existingItemsByProject.get(projectId) || new Map<string, { product_id: number; quantity: number; unit_price: number }>();
-      byProduct.set(String(productId), {
+      const itemIdentity =
+        Number.isFinite(productPackageId) && productPackageId > 0
+          ? `package:${productPackageId}`
+          : `product:${productId}`;
+      const byProduct =
+        existingItemsByProject.get(projectId)
+        || new Map<
+          string,
+          { product_id: number; product_package_id?: number; quantity: number; unit_price: number }
+        >();
+      byProduct.set(itemIdentity, {
         product_id: productId,
+        product_package_id:
+          Number.isFinite(productPackageId) && productPackageId > 0
+            ? productPackageId
+            : undefined,
         quantity,
         unit_price: unitPrice,
       });
@@ -359,14 +379,18 @@ export function useProjects(
 
       const sourceItems = Array.isArray(group.items) ? group.items : [];
       const groupErrors: string[] = [];
-      const incomingByProduct = new Map<string, { product_id: number; quantity: number; unit_price: number }>();
+      const incomingByProduct = new Map<
+        string,
+        { product_id: number; product_package_id?: number; quantity: number; unit_price: number }
+      >();
       sourceItems.forEach((item, index) => {
         const productId = Number(item?.product_id);
+        const productPackageId = Number(item?.product_package_id);
         const quantity = Number(item?.quantity);
         const unitPrice = Number(item?.unit_price);
 
         if (!Number.isFinite(productId) || productId <= 0) {
-          groupErrors.push(`Dòng ${index + 1}: sản phẩm không hợp lệ.`);
+          groupErrors.push(`Dòng ${index + 1}: hạng mục không hợp lệ.`);
           return;
         }
         if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -378,8 +402,17 @@ export function useProjects(
           return;
         }
 
-        incomingByProduct.set(String(productId), {
+        const itemIdentity =
+          Number.isFinite(productPackageId) && productPackageId > 0
+            ? `package:${productPackageId}`
+            : `product:${productId}`;
+
+        incomingByProduct.set(itemIdentity, {
           product_id: productId,
+          product_package_id:
+            Number.isFinite(productPackageId) && productPackageId > 0
+              ? productPackageId
+              : undefined,
           quantity,
           unit_price: unitPrice,
         });

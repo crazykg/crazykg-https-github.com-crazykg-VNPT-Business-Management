@@ -173,6 +173,50 @@ class V5DomainSupportService
     }
 
     /**
+     * @return array{id:int,dept_code:?string,dept_name:?string}|null
+     */
+    public function resolveOwnershipDepartmentById(?int $departmentId): ?array
+    {
+        if ($departmentId === null || ! $this->hasTable('departments')) {
+            return null;
+        }
+
+        $department = Department::query()
+            ->select(['id', 'dept_code', 'dept_name', 'parent_id'])
+            ->when(
+                $this->hasColumn('departments', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->find($departmentId);
+
+        if (! $department instanceof Department) {
+            return null;
+        }
+
+        $ownershipDepartment = $department;
+        $parentDepartmentId = $this->parseNullableInt($department->parent_id);
+        if ($parentDepartmentId !== null) {
+            $parentDepartment = Department::query()
+                ->select(['id', 'dept_code', 'dept_name', 'parent_id'])
+                ->when(
+                    $this->hasColumn('departments', 'deleted_at'),
+                    fn ($query) => $query->whereNull('deleted_at')
+                )
+                ->find($parentDepartmentId);
+
+            if ($this->isSolutionCenterDepartment($parentDepartment)) {
+                $ownershipDepartment = $parentDepartment;
+            }
+        }
+
+        return [
+            'id' => (int) $ownershipDepartment->id,
+            'dept_code' => $this->normalizeNullableString($ownershipDepartment->dept_code),
+            'dept_name' => $this->normalizeNullableString($ownershipDepartment->dept_name),
+        ];
+    }
+
+    /**
      * @return array{0:?int,1:?string}
      */
     public function resolveDepartmentParentIdForWrite(string $deptCode, ?int $parentId, ?int $currentDepartmentId): array
@@ -455,8 +499,8 @@ class V5DomainSupportService
 
         // Flatten department info for frontend convenience
         if (isset($data['department']) && is_array($data['department'])) {
-            $data['department_name'] = (string) ($data['department']['department_name'] ?? '');
-            $data['department_code'] = (string) ($data['department']['department_code'] ?? '');
+            $data['department_name'] = (string) $this->firstNonEmpty($data['department'], ['department_name', 'dept_name'], '');
+            $data['department_code'] = (string) $this->firstNonEmpty($data['department'], ['department_code', 'dept_code'], '');
         } else {
             $data['department_name'] = $data['department_name'] ?? null;
             $data['department_code'] = $data['department_code'] ?? null;
@@ -499,14 +543,21 @@ class V5DomainSupportService
         $items = $this->fetchProjectItemsByProjectIds([$projectId]);
         $data['items'] = collect($items)
             ->map(function (array $item): array {
+                $productId = $this->parseNullableInt($item['product_id'] ?? null);
+                $productPackageId = $this->parseNullableInt($item['product_package_id'] ?? null);
                 $quantity = (float) ($item['quantity'] ?? 0);
                 $unitPrice = (float) ($item['unit_price'] ?? 0);
                 $lineTotal = round($quantity * $unitPrice, 2);
+                $productCode = $this->normalizeNullableString($item['product_code'] ?? null);
+                $productName = $this->normalizeNullableString($item['product_name'] ?? null);
+                $unit = $this->normalizeNullableString($item['unit'] ?? null);
 
                 return [
                     'id' => (string) ($item['id'] ?? uniqid('ITEM_', true)),
-                    'productId' => (string) ($item['product_id'] ?? ''),
-                    'product_id' => $item['product_id'] ?? null,
+                    'productId' => $productId !== null ? (string) $productId : '',
+                    'product_id' => $productId,
+                    'productPackageId' => $productPackageId !== null ? (string) $productPackageId : null,
+                    'product_package_id' => $productPackageId,
                     'quantity' => $quantity,
                     'unitPrice' => $unitPrice,
                     'unit_price' => $unitPrice,
@@ -514,8 +565,9 @@ class V5DomainSupportService
                     'discountAmount' => 0,
                     'lineTotal' => $lineTotal,
                     'line_total' => $lineTotal,
-                    'product_code' => $item['product_code'] ?? null,
-                    'product_name' => $item['product_name'] ?? null,
+                    'product_code' => $productCode,
+                    'product_name' => $productName,
+                    'unit' => $unit,
                 ];
             })
             ->values()
@@ -823,18 +875,32 @@ class V5DomainSupportService
 
         if ($contract->relationLoaded('items')) {
             $data['items'] = $contract->items
-                ->map(fn ($item): array => [
-                    'id' => $item->id,
-                    'contract_id' => $item->contract_id,
-                    'product_id' => $item->product_id,
-                    'product_code' => $item->product?->product_code,
-                    'product_name' => $item->product?->product_name,
-                    'unit' => $item->product?->unit,
-                    'quantity' => (float) $item->quantity,
-                    'unit_price' => (float) $item->unit_price,
-                    'vat_rate' => $item->vat_rate !== null ? (float) $item->vat_rate : null,
-                    'vat_amount' => $item->vat_amount !== null ? (float) $item->vat_amount : null,
-                ])
+                ->map(function ($item): array {
+                    $productPackageId = $this->hasColumn('contract_items', 'product_package_id')
+                        ? $this->parseNullableInt($item->getAttribute('product_package_id'))
+                        : null;
+                    $snapshotProductName = $this->hasColumn('contract_items', 'product_name')
+                        ? $this->normalizeNullableString($item->getAttribute('product_name'))
+                        : null;
+                    $snapshotUnit = $this->hasColumn('contract_items', 'unit')
+                        ? $this->normalizeNullableString($item->getAttribute('unit'))
+                        : null;
+
+                    return [
+                        'id' => $item->id,
+                        'contract_id' => $item->contract_id,
+                        'product_id' => $item->product_id,
+                        'productPackageId' => $productPackageId !== null ? (string) $productPackageId : null,
+                        'product_package_id' => $productPackageId,
+                        'product_code' => $item->productPackage?->package_code ?? $item->product?->product_code,
+                        'product_name' => $snapshotProductName ?? $item->productPackage?->package_name ?? $item->productPackage?->product_name ?? $item->product?->product_name,
+                        'unit' => $snapshotUnit ?? $item->productPackage?->unit ?? $item->product?->unit,
+                        'quantity' => (float) $item->quantity,
+                        'unit_price' => (float) $item->unit_price,
+                        'vat_rate' => $item->vat_rate !== null ? (float) $item->vat_rate : null,
+                        'vat_amount' => $item->vat_amount !== null ? (float) $item->vat_amount : null,
+                    ];
+                })
                 ->values()
                 ->all();
 
@@ -916,12 +982,23 @@ class V5DomainSupportService
             $query->whereNull('pi.deleted_at');
         }
 
+        $hasProductPackages = $this->hasTable('product_packages')
+            && $this->hasColumn('project_items', 'product_package_id');
+        if ($hasProductPackages) {
+            $query->leftJoin('product_packages as pp', 'pi.product_package_id', '=', 'pp.id');
+        }
+
         $hasProducts = $this->hasTable('products');
         if ($hasProducts) {
             $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
         }
 
         $selects = ['pi.project_id as project_id', 'pi.product_id as product_id'];
+        if ($this->hasColumn('project_items', 'product_package_id')) {
+            $selects[] = 'pi.product_package_id as product_package_id';
+        } else {
+            $selects[] = DB::raw('NULL as product_package_id');
+        }
         if ($this->hasColumn('project_items', 'id')) {
             $selects[] = 'pi.id as id';
         } else {
@@ -936,6 +1013,21 @@ class V5DomainSupportService
             $selects[] = 'pi.unit_price as unit_price';
         } else {
             $selects[] = DB::raw('0 as unit_price');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'package_code')) {
+            $selects[] = 'pp.package_code as package_code';
+        } else {
+            $selects[] = DB::raw('NULL as package_code');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'package_name')) {
+            $selects[] = 'pp.package_name as package_name';
+        } else {
+            $selects[] = DB::raw('NULL as package_name');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'unit')) {
+            $selects[] = 'pp.unit as package_unit';
+        } else {
+            $selects[] = DB::raw('NULL as package_unit');
         }
         if ($hasProducts && $this->hasColumn('products', 'product_code')) {
             $selects[] = 'pr.product_code as product_code';
@@ -971,11 +1063,12 @@ class V5DomainSupportService
                     'id' => $this->parseNullableInt($row['id'] ?? null),
                     'project_id' => $this->parseNullableInt($row['project_id'] ?? null),
                     'product_id' => $this->parseNullableInt($row['product_id'] ?? null),
+                    'product_package_id' => $this->parseNullableInt($row['product_package_id'] ?? null),
                     'quantity' => is_numeric($row['quantity'] ?? null) ? (float) $row['quantity'] : 0.0,
                     'unit_price' => is_numeric($row['unit_price'] ?? null) ? (float) $row['unit_price'] : 0.0,
-                    'product_code' => $this->normalizeNullableString($row['product_code'] ?? null),
-                    'product_name' => $this->normalizeNullableString($row['product_name'] ?? null),
-                    'unit' => $this->normalizeNullableString($row['unit'] ?? null),
+                    'product_code' => $this->normalizeNullableString($row['package_code'] ?? $row['product_code'] ?? null),
+                    'product_name' => $this->normalizeNullableString($row['package_name'] ?? $row['product_name'] ?? null),
+                    'unit' => $this->normalizeNullableString($row['package_unit'] ?? $row['unit'] ?? null),
                 ];
             })
             ->values()
@@ -1038,6 +1131,20 @@ class V5DomainSupportService
         }
 
         return null;
+    }
+    private function isSolutionCenterDepartment(?Department $department): bool
+    {
+        if (! $department instanceof Department) {
+            return false;
+        }
+
+        $codeToken = $this->normalizeDepartmentCodeToken((string) $department->dept_code);
+        if (in_array($codeToken, self::SOLUTION_CENTER_CODE_TOKENS, true)) {
+            return true;
+        }
+
+        $nameToken = $this->normalizeDepartmentNameToken((string) ($department->dept_name ?? ''));
+        return str_contains($nameToken, self::SOLUTION_CENTER_NAME_TOKEN);
     }
     private function isSolutionDepartmentCode(string $deptCode): bool
     {

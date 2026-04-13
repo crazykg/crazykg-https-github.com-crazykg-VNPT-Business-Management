@@ -8,9 +8,12 @@ import {
   fetchBackblazeB2IntegrationSettings,
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
+  fetchEmailSmtpIntegrationSettings,
   fetchGoogleDriveIntegrationSettings,
+  testEmailSmtpIntegrationSettings,
   testGoogleDriveIntegrationSettings,
   updateBackblazeB2IntegrationSettings,
+  updateEmailSmtpIntegrationSettings,
 } from '../services/api/adminApi';
 
 vi.mock('../services/api/adminApi', () => ({
@@ -20,6 +23,7 @@ vi.mock('../services/api/adminApi', () => ({
   fetchBackblazeB2IntegrationSettings: vi.fn(),
   fetchContractExpiryAlertSettings: vi.fn(),
   fetchContractPaymentAlertSettings: vi.fn(),
+  fetchEmailSmtpIntegrationSettings: vi.fn(),
   fetchFeedbackById: vi.fn(),
   fetchFeedbacks: vi.fn(),
   fetchFeedbacksPage: vi.fn(),
@@ -31,10 +35,12 @@ vi.mock('../services/api/adminApi', () => ({
   fetchUserDeptHistoryPage: vi.fn(),
   respondFeedback: vi.fn(),
   testBackblazeB2IntegrationSettings: vi.fn(),
+  testEmailSmtpIntegrationSettings: vi.fn(),
   testGoogleDriveIntegrationSettings: vi.fn(),
   updateBackblazeB2IntegrationSettings: vi.fn(),
   updateContractExpiryAlertSettings: vi.fn(),
   updateContractPaymentAlertSettings: vi.fn(),
+  updateEmailSmtpIntegrationSettings: vi.fn(),
   updateGoogleDriveIntegrationSettings: vi.fn(),
   updateUserAccessDeptScopes: vi.fn(),
   updateUserAccessPermissions: vi.fn(),
@@ -92,6 +98,20 @@ describe('useIntegrationSettings', () => {
     vi.mocked(fetchContractPaymentAlertSettings).mockResolvedValue({
       warning_days: 15,
     } as never);
+    vi.mocked(fetchEmailSmtpIntegrationSettings).mockResolvedValue({
+      is_enabled: true,
+      host: 'smtp.vnpt.test',
+      port: 587,
+      encryption: 'tls',
+      username: 'smtp-user',
+      password: null,
+      from_name: 'VNPT Business',
+      from_email: 'noreply@vnpt.test',
+      test_recipient: 'qa@vnpt.test',
+      last_test_status: null,
+      last_test_message: null,
+      last_tested_at: null,
+    } as never);
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useIntegrationSettings(undefined, { enabled: true }), { wrapper });
@@ -132,6 +152,20 @@ describe('useIntegrationSettings', () => {
     } as never);
     vi.mocked(fetchContractExpiryAlertSettings).mockResolvedValue({ warning_days: 30 } as never);
     vi.mocked(fetchContractPaymentAlertSettings).mockResolvedValue({ warning_days: 10 } as never);
+    vi.mocked(fetchEmailSmtpIntegrationSettings).mockResolvedValue({
+      is_enabled: true,
+      host: 'smtp.vnpt.test',
+      port: 587,
+      encryption: 'tls',
+      username: 'smtp-user',
+      password: null,
+      from_name: 'VNPT Business',
+      from_email: 'noreply@vnpt.test',
+      test_recipient: 'qa@vnpt.test',
+      last_test_status: null,
+      last_test_message: null,
+      last_tested_at: null,
+    } as never);
     vi.mocked(updateBackblazeB2IntegrationSettings).mockResolvedValue({
       is_enabled: true,
       access_key_id: 'key-2',
@@ -148,6 +182,26 @@ describe('useIntegrationSettings', () => {
       message: 'Connected',
       tested_at: '2026-03-29T10:00:00.000Z',
       user_email: 'new@vnpt.test',
+    } as never);
+    vi.mocked(updateEmailSmtpIntegrationSettings).mockResolvedValue({
+      is_enabled: true,
+      host: 'smtp.vnpt.test',
+      port: 587,
+      encryption: 'tls',
+      username: 'smtp-user',
+      password: null,
+      from_name: 'VNPT Business',
+      from_email: 'noreply@vnpt.test',
+      test_recipient: 'qa@vnpt.test',
+      last_test_status: null,
+      last_test_message: null,
+      last_tested_at: null,
+    } as never);
+    vi.mocked(testEmailSmtpIntegrationSettings).mockResolvedValue({
+      status: 'SUCCESS',
+      message: 'SMTP connected',
+      tested_at: '2026-03-29T10:00:00.000Z',
+      persisted: true,
     } as never);
 
     const { wrapper } = createWrapper();

@@ -6,7 +6,6 @@ import {
   deleteProduct,
 } from '../services/api/productApi';
 import type { Product } from '../types/product';
-import { normalizeProductUnitForSave } from '../utils/productUnit';
 import { DEFAULT_PRODUCT_SERVICE_GROUP, normalizeProductServiceGroup } from '../utils/productServiceGroup';
 
 interface UseProductsReturn {
@@ -34,7 +33,6 @@ export function useProducts(addToast?: (type: 'success' | 'error', title: string
     package_name: typeof product.package_name === 'string'
       ? product.package_name
       : (product.package_name ?? null),
-    unit: normalizeProductUnitForSave(product.unit),
     description: typeof product.description === 'string'
       ? product.description
       : (product.description ?? null),
@@ -84,7 +82,6 @@ export function useProducts(addToast?: (type: 'success' | 'error', title: string
         ...data,
         service_group: normalizeProductServiceGroup(data.service_group || DEFAULT_PRODUCT_SERVICE_GROUP),
         package_name: typeof data.package_name === 'string' ? data.package_name : null,
-        unit: normalizeProductUnitForSave(data.unit),
         description: typeof data.description === 'string' ? data.description : null,
         is_active: data.is_active !== false,
         standard_price: Number.isFinite(Number(data.standard_price)) ? Number(data.standard_price) : 0,

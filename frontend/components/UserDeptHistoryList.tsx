@@ -4,6 +4,11 @@ import { PaginationControls } from './PaginationControls';
 import { getEmployeeCode, getEmployeeLabel as formatEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { findUserDeptHistoryDepartment, getUserDeptHistoryDepartmentLabel } from '../utils/userDeptHistoryDepartmentDisplay';
+import {
+  getUserDeptHistoryTransferTypeBadgeClassName,
+  getUserDeptHistoryTransferTypeLabel,
+  normalizeUserDeptHistoryTransferType,
+} from '../utils/userDeptHistoryTransferType';
 
 interface UserDeptHistoryListProps {
   history: UserDeptHistory[];
@@ -77,9 +82,11 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
     return (history || []).filter(item => {
       const transferCode = normalizeTransferCode(item.id).toLowerCase();
       const empName = getEmployeeLabel(item).toLowerCase();
+      const transferType = getUserDeptHistoryTransferTypeLabel(item.transferType).toLowerCase();
       const matchesSearch = 
         transferCode.includes(normalizedSearch) || 
-        empName.includes(normalizedSearch);
+        empName.includes(normalizedSearch) ||
+        transferType.includes(normalizedSearch);
       
       return matchesSearch;
     });
@@ -104,8 +111,8 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
     <div className="p-3 pb-6 space-y-3">
       <div className="flex flex-col md:flex-row md:items-center justify-between md:gap-2">
         <div>
-          <h2 className="text-sm font-bold text-deep-teal">Lịch sử luân chuyển</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử điều chuyển nhân sự giữa các đơn vị</p>
+          <h2 className="text-sm font-bold text-deep-teal">Lịch sử điều động nhân sự</h2>
+          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử luân chuyển và biệt phái giữa các đơn vị</p>
         </div>
         <button
           onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY')}
@@ -122,7 +129,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
           <input
             type="text"
-            placeholder="Tìm kiếm theo mã LC, tên nhân viên..."
+            placeholder="Tìm kiếm theo mã, loại hình, tên nhân viên..."
             className="w-full h-8 pl-8 pr-3 rounded border border-slate-300 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none transition-all text-xs"
             value={searchTerm}
             onChange={(e) => {
@@ -139,65 +146,90 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LC</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LS</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Loại hình</th>
                 <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
                 <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
                 <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
-                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày luân chuyển</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày hiệu lực</th>
                 <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
                 <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {currentData.length > 0 ? (
-                currentData.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-2">
-                      <span className="font-mono font-medium text-primary text-xs">{normalizeTransferCode(item.id)}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-slate-900 text-xs">{getEmployeeLabel(item)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 text-xs">
-                      {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary">
-                        {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 text-xs">
-                      {formatDateDdMmYyyy(item.transferDate)}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
-                      {item.reason}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => onOpenModal('EDIT_USER_DEPT_HISTORY', item)}
-                          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
-                          title="Chỉnh sửa"
+                currentData.map((item) => {
+                  const canDelete = item.canDelete !== false;
+                  const deleteTitle = canDelete
+                    ? 'Xóa'
+                    : (item.deleteRestrictionMessage || 'Chỉ người tạo dòng hoặc admin mới được xóa.');
+
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-3 py-2">
+                        <span className="font-mono font-medium text-primary text-xs">{normalizeTransferCode(item.id)}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getUserDeptHistoryTransferTypeBadgeClassName(item.transferType)}`}
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
-                        </button>
-                        <button
-                          onClick={() => onOpenModal('DELETE_USER_DEPT_HISTORY', item)}
-                          className="p-1.5 text-slate-400 hover:text-error hover:bg-error/10 rounded transition-all"
-                          title="Xóa"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {getUserDeptHistoryTransferTypeLabel(item.transferType)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900 text-xs">{getEmployeeLabel(item)}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">
+                        {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          normalizeUserDeptHistoryTransferType(item.transferType) === 'BIET_PHAI' ? 'bg-amber-100 text-amber-700' : 'bg-primary/10 text-primary'
+                        }`}>
+                          {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">
+                        {formatDateDdMmYyyy(item.transferDate)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
+                        {item.reason}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => onOpenModal('EDIT_USER_DEPT_HISTORY', item)}
+                            className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                            title="Chỉnh sửa"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!canDelete) return;
+                              onOpenModal('DELETE_USER_DEPT_HISTORY', item);
+                            }}
+                            disabled={!canDelete}
+                            className={`p-1.5 rounded transition-all ${
+                              canDelete
+                                ? 'text-slate-400 hover:text-error hover:bg-error/10'
+                                : 'text-slate-300 cursor-not-allowed'
+                            }`}
+                            title={deleteTitle}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
                     <div className="flex flex-col items-center gap-2">
                       <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>history_edu</span>
-                      <p className="text-xs">Không tìm thấy dữ liệu luân chuyển nào.</p>
+                      <p className="text-xs">Không tìm thấy dữ liệu điều động nào.</p>
                     </div>
                   </td>
                 </tr>

@@ -239,6 +239,9 @@ export const normalizeVpnImport = (value: string): Employee['vpn_status'] => {
 export const normalizeProductRecord = (product: Product): Product => ({
   ...product,
   service_group: normalizeProductServiceGroup(product.service_group),
+  product_short_name: typeof product.product_short_name === 'string'
+    ? product.product_short_name
+    : (product.product_short_name ?? null),
   package_name: typeof product.package_name === 'string'
     ? product.package_name
     : (product.package_name ?? null),

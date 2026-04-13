@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Department, Employee, UserDeptHistory } from '../../types';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../../utils/employeeDisplay';
 import { getUserDeptHistoryDepartmentLabel } from '../../utils/userDeptHistoryDepartmentDisplay';
+import {
+  DEFAULT_USER_DEPT_HISTORY_TRANSFER_TYPE,
+  getUserDeptHistoryTransferTypeLabel,
+  normalizeUserDeptHistoryTransferType,
+  USER_DEPT_HISTORY_TRANSFER_TYPE_OPTIONS,
+} from '../../utils/userDeptHistoryTransferType';
 import { SearchableSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
@@ -57,6 +63,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     toDeptId: resolveDeptId(data?.toDeptId),
     transferDate: data?.transferDate || new Date().toISOString().split('T')[0],
     decisionNumber: data?.decisionNumber || '',
+    transferType: normalizeUserDeptHistoryTransferType(data?.transferType),
     reason: data?.reason || '',
   });
 
@@ -75,7 +82,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     const nextErrors: Record<string, string> = {};
     if (!formData.userId) nextErrors.userId = 'Vui lòng chọn nhân sự';
     if (!formData.toDeptId) nextErrors.toDeptId = 'Vui lòng chọn đơn vị mới';
-    if (!formData.transferDate) nextErrors.transferDate = 'Ngày luân chuyển là bắt buộc';
+    if (!formData.transferDate) nextErrors.transferDate = 'Ngày hiệu lực là bắt buộc';
     if (formData.fromDeptId === formData.toDeptId) nextErrors.toDeptId = 'Đơn vị mới phải khác đơn vị hiện tại';
 
     setErrors(nextErrors);
@@ -163,17 +170,20 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     return normalizeTransferCode(formData.id || data?.id || '');
   }, [type, formData.id, data?.id]);
 
+  const transferType = normalizeUserDeptHistoryTransferType(formData.transferType);
+  const transferTypeLabel = getUserDeptHistoryTransferTypeLabel(transferType);
+
   return (
     <ModalWrapper
       onClose={onClose}
-      title={type === 'ADD' ? 'Thêm mới Luân chuyển' : 'Cập nhật Luân chuyển'}
+      title={type === 'ADD' ? `Thêm mới ${transferTypeLabel}` : `Cập nhật ${transferTypeLabel}`}
       icon="history_edu"
       width="max-w-md"
     >
       <div className="space-y-2 p-3">
         {type === 'EDIT' ? (
           <div className="flex flex-col gap-1">
-            <label className={fieldLabelClassName}>Mã luân chuyển</label>
+            <label className={fieldLabelClassName}>Mã lịch sử</label>
             <input
               type="text"
               value={transferCodeDisplay}
@@ -184,8 +194,19 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         ) : null}
 
         <SearchableSelect
+          label="Loại hình"
+          labelClassName={fieldLabelClassName}
+          size="sm"
+          options={USER_DEPT_HISTORY_TRANSFER_TYPE_OPTIONS}
+          value={transferType || DEFAULT_USER_DEPT_HISTORY_TRANSFER_TYPE}
+          onChange={(value) => handleChange('transferType', value)}
+          placeholder="Chọn loại hình"
+        />
+
+        <SearchableSelect
           label="Nhân sự"
           labelClassName={fieldLabelClassName}
+          size="sm"
           required
           options={employeeOptions}
           value={formData.userId || ''}
@@ -209,6 +230,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         <SearchableSelect
           label="Đến đơn vị"
           labelClassName={fieldLabelClassName}
+          size="sm"
           required
           options={toDepartmentOptions}
           value={formData.toDeptId || ''}
@@ -218,7 +240,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         />
 
         <FormInput
-          label="Ngày luân chuyển"
+          label="Ngày hiệu lực"
           labelClassName={fieldLabelClassName}
           inputClassName={fieldInputClassName}
           type="date"
@@ -243,7 +265,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
             className="min-h-[80px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
             value={formData.reason}
             onChange={(e) => handleChange('reason', e.target.value)}
-            placeholder="Nhập lý do điều chuyển..."
+            placeholder="Nhập lý do / ghi chú..."
           />
         </div>
       </div>

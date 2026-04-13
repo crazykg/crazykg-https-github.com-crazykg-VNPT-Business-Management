@@ -10,6 +10,7 @@ import {
   Business,
   Vendor,
   Product,
+  ProductPackage,
   Customer,
   CustomerPersonnel,
   Project,
@@ -23,6 +24,7 @@ import {
   SupportServiceGroup,
   SupportContactPosition,
   ProductUnitMaster,
+  ContractSignerMaster,
   SupportRequestStatusOption,
   ProjectTypeOption,
   WorklogActivityTypeOption,
@@ -66,6 +68,9 @@ const UserDeptHistoryList = lazy(() =>
 const BusinessList = lazy(() => import('./components/BusinessList').then((module) => ({ default: module.BusinessList })));
 const VendorList = lazy(() => import('./components/VendorList').then((module) => ({ default: module.VendorList })));
 const ProductList = lazy(() => import('./components/ProductList').then((module) => ({ default: module.ProductList })));
+const ProductPackageList = lazy(() =>
+  import('./components/ProductPackageList').then((module) => ({ default: module.ProductPackageList }))
+);
 const CustomerList = lazy(() => import('./components/CustomerList').then((module) => ({ default: module.CustomerList })));
 const CusPersonnelList = lazy(() =>
   import('./components/CusPersonnelList').then((module) => ({ default: module.CusPersonnelList }))
@@ -104,6 +109,9 @@ const AccessControlList = lazy(() =>
   import('./components/AccessControlList').then((module) => ({ default: module.AccessControlList }))
 );
 
+const isProjectLinkedContract = (contract: Contract): boolean =>
+  String(contract.project_id ?? '').trim() !== '';
+
 type CustomerRequestHubContext = {
   customers: Customer[];
   customerPersonnel: CustomerPersonnel[];
@@ -136,6 +144,7 @@ export interface AppPagesProps {
   businesses: Business[];
   vendors: Vendor[];
   products: Product[];
+  productPackages: ProductPackage[];
   customers: Customer[];
   cusPersonnel: CustomerPersonnel[];
   projects: Project[];
@@ -149,6 +158,7 @@ export interface AppPagesProps {
   supportServiceGroups: SupportServiceGroup[];
   supportContactPositions: SupportContactPosition[];
   productUnitMasters?: ProductUnitMaster[];
+  contractSignerMasters?: ContractSignerMaster[];
   supportRequestStatuses: SupportRequestStatusOption[];
   projectTypes: ProjectTypeOption[];
   worklogActivityTypes: WorklogActivityTypeOption[];
@@ -163,6 +173,7 @@ export interface AppPagesProps {
   dashboardStats: DashboardStats;
   hrStatistics: HRStatistics;
   contractAggregateKpis: ContractAggregateKpis;
+  passContractAggregateKpis: ContractAggregateKpis;
   customerAggregateKpis: CustomerAggregateKpis;
 
   // Paginated Rows & Meta
@@ -190,6 +201,11 @@ export interface AppPagesProps {
   contractsPageLoading: boolean;
   handleContractsPageQueryChange: (query: PaginatedQuery) => void;
 
+  passContractsPageRows: Contract[];
+  passContractsPageMeta?: PaginationMeta;
+  passContractsPageLoading: boolean;
+  handlePassContractsPageQueryChange: (query: PaginatedQuery) => void;
+
   documentsPageRows: Document[];
   documentsPageMeta?: PaginationMeta;
   documentsPageLoading: boolean;
@@ -212,6 +228,7 @@ export interface AppPagesProps {
   exportProjectsByCurrentQuery: () => Promise<Project[]>;
   exportProjectRaciByProjectIds: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
   exportContractsByCurrentQuery: () => Promise<Contract[]>;
+  exportPassContractsByCurrentQuery: () => Promise<Contract[]>;
 
   // Support Master Handlers
   handleCreateSupportServiceGroup: (
@@ -231,6 +248,10 @@ export interface AppPagesProps {
     payload: Partial<ProductUnitMaster>,
     options?: { silent?: boolean }
   ) => Promise<ProductUnitMaster>;
+  handleCreateContractSignerMaster?: (
+    payload: Partial<ContractSignerMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ContractSignerMaster>;
   handleCreateSupportContactPositionsBulk: (
     items: Array<Partial<SupportContactPosition>>,
     options?: { silent?: boolean }
@@ -245,6 +266,11 @@ export interface AppPagesProps {
     payload: Partial<ProductUnitMaster>,
     options?: { silent?: boolean }
   ) => Promise<ProductUnitMaster>;
+  handleUpdateContractSignerMaster?: (
+    id: string | number,
+    payload: Partial<ContractSignerMaster>,
+    options?: { silent?: boolean }
+  ) => Promise<ContractSignerMaster>;
   handleCreateSupportRequestStatus: (
     payload: Partial<SupportRequestStatusOption>,
     options?: { silent?: boolean }
@@ -387,6 +413,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   businesses,
   vendors,
   products,
+  productPackages,
   customers,
   cusPersonnel,
   projects,
@@ -398,6 +425,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   supportServiceGroups,
   supportContactPositions,
   productUnitMasters = [],
+  contractSignerMasters = [],
   supportRequestStatuses,
   projectTypes,
   worklogActivityTypes,
@@ -408,6 +436,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   dashboardStats,
   hrStatistics,
   contractAggregateKpis,
+  passContractAggregateKpis,
   customerAggregateKpis,
   employeesPageRows,
   employeesPageMeta,
@@ -429,6 +458,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
   contractsPageMeta,
   contractsPageLoading,
   handleContractsPageQueryChange,
+  passContractsPageRows,
+  passContractsPageMeta,
+  passContractsPageLoading,
+  handlePassContractsPageQueryChange,
   documentsPageRows,
   documentsPageMeta,
   documentsPageLoading,
@@ -447,13 +480,16 @@ export const AppPages: React.FC<AppPagesProps> = ({
   exportProjectsByCurrentQuery,
   exportProjectRaciByProjectIds,
   exportContractsByCurrentQuery,
+  exportPassContractsByCurrentQuery,
   handleCreateSupportServiceGroup,
   handleUpdateSupportServiceGroup,
   handleCreateSupportContactPosition,
   handleCreateProductUnitMaster,
+  handleCreateContractSignerMaster,
   handleCreateSupportContactPositionsBulk,
   handleUpdateSupportContactPosition,
   handleUpdateProductUnitMaster,
+  handleUpdateContractSignerMaster,
   handleCreateSupportRequestStatus,
   handleUpdateSupportRequestStatusDefinition,
   handleCreateProjectType,
@@ -497,6 +533,15 @@ export const AppPages: React.FC<AppPagesProps> = ({
   handleTestGoogleDriveIntegration,
   handleTestEmailSmtpIntegration,
 }) => {
+  const projectLinkedContracts = React.useMemo(
+    () => (contracts || []).filter((contract) => isProjectLinkedContract(contract)),
+    [contracts]
+  );
+  const initialContracts = React.useMemo(
+    () => (contracts || []).filter((contract) => !isProjectLinkedContract(contract)),
+    [contracts]
+  );
+
   return (
     <>
       {activeTab === 'dashboard' && (
@@ -512,6 +557,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
 
       {(activeTab === 'internal_user_dashboard' || activeTab === 'internal_user_list' || activeTab === 'internal_user_party_members') && (
         <InternalUserModuleTabs
+          authUser={authUser}
           employees={employees}
           departments={departments}
           hrStatistics={hrStatistics}
@@ -554,9 +600,10 @@ export const AppPages: React.FC<AppPagesProps> = ({
         <VendorList vendors={vendors} onOpenModal={handleOpenModal} canImport={canImportModule(authUser, 'vendors')} />
       )}
 
-      {activeTab === 'products' && (
+      {(activeTab === 'products' || activeTab === 'product_quotes') && (
         <ProductList
           products={products}
+          productPackages={productPackages}
           businesses={businesses}
           vendors={vendors}
           customers={customers}
@@ -566,6 +613,20 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canDelete={hasPermission(authUser, 'products.delete')}
           canImport={canImportModule(authUser, 'products')}
           canUploadDocument={hasPermission(authUser, 'documents.write')}
+          onNotify={addToast}
+        />
+      )}
+
+      {activeTab === 'product_packages' && (
+        <ProductPackageList
+          productPackages={productPackages}
+          products={products}
+          businesses={businesses}
+          vendors={vendors}
+          onOpenModal={handleOpenModal}
+          canEdit={hasPermission(authUser, 'products.write')}
+          canDelete={hasPermission(authUser, 'products.delete')}
+          canImport={canImportModule(authUser, 'product_packages')}
           onNotify={addToast}
         />
       )}
@@ -603,6 +664,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           projects={projectsPageRows}
           customers={customers}
           departments={departments}
+          authUser={authUser}
           projectTypes={projectTypes}
           onOpenModal={handleOpenModal}
           onCreateContract={handleCreateContractFromProject}
@@ -620,7 +682,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
 
       {activeTab === 'contracts' && (
         <ContractList
-          contracts={contracts}
+          contracts={projectLinkedContracts}
           contractsPageRows={contractsPageRows}
           paginationMeta={contractsPageMeta}
           isLoading={contractsPageLoading}
@@ -634,6 +696,27 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canDelete={hasPermission(authUser, 'contracts.delete')}
           onNotify={addToast}
           aggregateKpis={contractAggregateKpis}
+          fixedSourceMode="PROJECT"
+        />
+      )}
+
+      {activeTab === 'pass_contract' && (
+        <ContractList
+          contracts={initialContracts}
+          contractsPageRows={passContractsPageRows}
+          paginationMeta={passContractsPageMeta}
+          isLoading={passContractsPageLoading}
+          onQueryChange={handlePassContractsPageQueryChange}
+          onExportContracts={exportPassContractsByCurrentQuery}
+          projects={projects}
+          customers={customers}
+          onOpenModal={handleOpenModal}
+          canAdd={hasPermission(authUser, 'contracts.write')}
+          canEdit={hasPermission(authUser, 'contracts.write')}
+          canDelete={hasPermission(authUser, 'contracts.delete')}
+          onNotify={addToast}
+          aggregateKpis={passContractAggregateKpis}
+          fixedSourceMode="INITIAL"
         />
       )}
 
@@ -707,7 +790,12 @@ export const AppPages: React.FC<AppPagesProps> = ({
           customers={customers}
           supportServiceGroups={supportServiceGroups}
           supportContactPositions={supportContactPositions}
+          products={products}
+          productPackages={productPackages}
+          departments={departments}
+          employees={employees}
           productUnitMasters={productUnitMasters}
+          contractSignerMasters={contractSignerMasters}
           supportRequestStatuses={supportRequestStatuses}
           projectTypes={projectTypes}
           worklogActivityTypes={worklogActivityTypes}
@@ -716,9 +804,11 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onUpdateSupportServiceGroup={handleUpdateSupportServiceGroup}
           onCreateSupportContactPosition={handleCreateSupportContactPosition}
           onCreateProductUnitMaster={handleCreateProductUnitMaster}
+          onCreateContractSignerMaster={handleCreateContractSignerMaster}
           onCreateSupportContactPositionsBulk={handleCreateSupportContactPositionsBulk}
           onUpdateSupportContactPosition={handleUpdateSupportContactPosition}
           onUpdateProductUnitMaster={handleUpdateProductUnitMaster}
+          onUpdateContractSignerMaster={handleUpdateContractSignerMaster}
           onCreateSupportRequestStatus={handleCreateSupportRequestStatus}
           onUpdateSupportRequestStatus={handleUpdateSupportRequestStatusDefinition}
           onCreateProjectType={handleCreateProjectType}
@@ -730,13 +820,17 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canReadCustomers={hasPermission(authUser, 'customers.read')}
           canReadServiceGroups={hasPermission(authUser, 'support_service_groups.read')}
           canReadContactPositions={hasPermission(authUser, 'support_contact_positions.read')}
+          canReadProducts={hasPermission(authUser, 'products.read')}
           canReadProductUnitMasters={hasPermission(authUser, 'support_requests.read') || hasPermission(authUser, 'products.read')}
+          canReadContractSigners={hasPermission(authUser, 'contracts.read') && hasPermission(authUser, 'support_requests.read')}
           canReadStatuses={hasPermission(authUser, 'support_requests.read')}
           canReadWorklogActivityTypes={hasPermission(authUser, 'support_requests.read')}
           canReadSlaConfigs={hasPermission(authUser, 'support_requests.read')}
           canWriteServiceGroups={hasPermission(authUser, 'support_service_groups.write')}
           canWriteContactPositions={hasPermission(authUser, 'support_contact_positions.write')}
+          canWriteProducts={hasPermission(authUser, 'products.write')}
           canWriteProductUnitMasters={hasPermission(authUser, 'support_requests.write') || hasPermission(authUser, 'products.write')}
+          canWriteContractSigners={hasPermission(authUser, 'contracts.write') && hasPermission(authUser, 'support_requests.write')}
           canWriteStatuses={hasPermission(authUser, 'support_requests.write')}
           canWriteWorklogActivityTypes={hasPermission(authUser, 'support_requests.write')}
           canWriteSlaConfigs={hasPermission(authUser, 'support_requests.write')}
@@ -744,6 +838,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canReadProjectTypes={hasPermission(authUser, 'projects.read')}
           canWriteWorkCalendar={hasPermission(authUser, 'support_requests.write')}
           canReadWorkCalendar={hasPermission(authUser, 'support_requests.read')}
+          onNotify={addToast}
         />
       )}
 

@@ -209,18 +209,19 @@ class WorkflowTransitionService
                 'is_active' => $validated['is_active'] ?? true,
             ]);
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $transition->id,
-                action: 'INSERT',
-                details: [
+                request(),
+                'INSERT',
+                'customer_request_status_transitions',
+                $transition->id,
+                null,
+                [
+                    'workflow_definition_id' => $workflow->id,
                     'workflow_code' => $workflow->code,
-                    'from_status' => $transition->from_status_code,
-                    'to_status' => $transition->to_status_code,
-                    'allowed_roles' => json_encode($transition->allowed_roles),
-                ],
-                actorId: $userId
+                    'from_status_code' => $transition->from_status_code,
+                    'to_status_code' => $transition->to_status_code,
+                    'allowed_roles' => $transition->allowed_roles,
+                ]
             );
             
             return $transition;
@@ -286,13 +287,13 @@ class WorkflowTransitionService
             
             $transition->update($validated);
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $transition->id,
-                action: 'UPDATE',
-                details: $validated,
-                actorId: $userId
+                request(),
+                'UPDATE',
+                'customer_request_status_transitions',
+                $transition->id,
+                null,
+                $validated
             );
             
             return $transition;
@@ -323,17 +324,17 @@ class WorkflowTransitionService
             
             $transition->delete();
 
-            // Audit log
             $this->auditService->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $transitionId,
-                action: 'DELETE',
-                details: [
+                request(),
+                'DELETE',
+                'customer_request_status_transitions',
+                $transitionId,
+                [
                     'workflow_code' => $workflowCode,
-                    'from_status' => $transition->from_status_code,
-                    'to_status' => $transition->to_status_code,
+                    'from_status_code' => $transition->from_status_code,
+                    'to_status_code' => $transition->to_status_code,
                 ],
-                actorId: $userId
+                null
             );
         });
 
@@ -404,19 +405,7 @@ class WorkflowTransitionService
                 $transitions[] = $transition;
             }
             
-            // Audit log for bulk create
-            $this->auditService->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $workflow->id,
-                action: 'BULK_INSERT',
-                details: [
-                    'workflow_code' => $workflow->code,
-                    'transitions_count' => count($transitions),
-                ],
-                actorId: $userId
-            );
-            
-            return collect($transitions);
+            return new Collection($transitions);
         });
 
         return $createdTransitions;
@@ -519,21 +508,6 @@ class WorkflowTransitionService
                 }
             }
 
-            // Audit log
-            $this->auditService->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $workflow->id,
-                action: 'BULK_IMPORT',
-                details: [
-                    'workflow_code' => $workflow->code,
-                    'total_rows' => count($excelData),
-                    'success' => $stats['success'],
-                    'skipped' => $stats['skipped'],
-                    'updated' => $stats['updated'],
-                    'errors_count' => count($stats['errors']),
-                ],
-                actorId: $userId
-            );
         });
 
         return $stats;

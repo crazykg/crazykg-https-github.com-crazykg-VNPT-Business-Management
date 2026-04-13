@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type {
+  ContractCycleDraftInstallmentInput,
   ContractPaymentAllocationMode,
   GenerateContractPaymentsPayload,
   GenerateContractPaymentsResult,
@@ -8,9 +9,13 @@ import type {
 import type { Contract, PaymentSchedule } from '../../../types';
 import {
   ALLOCATION_MODE_OPTIONS,
+  buildCycleDraftInstallments,
+  buildCyclePreviewRows,
+  buildPaymentMilestoneName,
   buildMilestoneInstallmentDrafts,
   buildMilestonePreviewRows,
   clampPercentage,
+  type CycleDraftInstallmentDraft,
   inferAllocationModeFromSchedules,
   type MilestoneInputMode,
   type MilestoneInstallmentDraft,
@@ -75,6 +80,28 @@ interface UseContractPaymentGenerationResult {
     onRemoveMilestoneInstallment: (index: number) => void;
   };
   preview: {
+    hasCollectedSchedules: boolean;
+    isPreviewDirty: boolean;
+    showCyclePreview: boolean;
+    cyclePreviewTab: 'PROPOSAL' | 'EDIT';
+    cyclePreview: {
+      error: string;
+      rows: MilestonePreviewRow[];
+    };
+    cycleDraftRows: CycleDraftInstallmentDraft[];
+    cycleDraftError: string;
+    cycleDraftTotal: number;
+    cycleDraftStatusLabel: string;
+    isCycleDraftDirty: boolean;
+    onCyclePreviewTabChange: (nextTab: 'PROPOSAL' | 'EDIT') => void;
+    onCycleDraftRowChange: (
+      index: number,
+      field: keyof CycleDraftInstallmentDraft,
+      value: string
+    ) => void;
+    onAddCycleDraftRow: () => void;
+    onRemoveCycleDraftRow: (index: number) => void;
+    onResetCycleDraftRows: () => void;
     showMilestonePreview: boolean;
     customInstallmentPreviewRows: MilestonePreviewRow[];
     milestonePreview: {
@@ -93,6 +120,15 @@ interface UseContractPaymentGenerationResult {
 
 const DEFAULT_RETENTION_PERCENTAGE = '5';
 const DEFAULT_INSTALLMENT_COUNT = '3';
+const AUTO_SYNC_INLINE_NOTICE = 'Đã tự đồng bộ lại kỳ thanh toán theo tổng hạng mục hợp đồng.';
+
+const parseDraftExpectedAmount = (value: unknown): number => {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/[^\d.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
 const buildGeneratePayload = ({
   allocationMode,
@@ -101,6 +137,7 @@ const buildGeneratePayload = ({
   installmentCount,
   milestoneInputMode,
   normalizedMilestoneInstallments,
+  normalizedCycleDraftInstallments,
 }: {
   allocationMode: ContractPaymentAllocationMode;
   advancePercentage: string;
@@ -112,6 +149,7 @@ const buildGeneratePayload = ({
     percentage: number;
     expected_date: string | null;
   }>;
+  normalizedCycleDraftInstallments: ContractCycleDraftInstallmentInput[];
 }): GenerateContractPaymentsPayload => {
   const parsedAdvancePercentage = Number(advancePercentage);
   const normalizedAdvancePercentage = Number.isFinite(parsedAdvancePercentage)
@@ -138,6 +176,13 @@ const buildGeneratePayload = ({
           label: installment.label,
           percentage: Number(installment.percentage),
           expected_date: installment.expected_date || null,
+        }))
+      : undefined,
+    draft_installments: allocationMode === 'EVEN'
+      ? normalizedCycleDraftInstallments.map((installment) => ({
+          label: installment.label,
+          expected_date: installment.expected_date,
+          expected_amount: installment.expected_amount,
         }))
       : undefined,
   };
@@ -170,17 +215,15 @@ export const useContractPaymentGeneration = ({
   const [installmentCount, setInstallmentCount] = useState<string>(DEFAULT_INSTALLMENT_COUNT);
   const [milestoneInputMode, setMilestoneInputMode] = useState<MilestoneInputMode>('AUTO');
   const [milestoneInstallments, setMilestoneInstallments] = useState<MilestoneInstallmentDraft[]>([]);
+  const [cyclePreviewTab, setCyclePreviewTab] = useState<'PROPOSAL' | 'EDIT'>('PROPOSAL');
+  const [cycleDraftRows, setCycleDraftRows] = useState<CycleDraftInstallmentDraft[]>([]);
+  const [isCycleDraftDirty, setIsCycleDraftDirty] = useState<boolean>(false);
   const [previewDirty, setPreviewDirty] = useState<boolean>(true);
 
   const previewTrackingReadyRef = useRef(false);
+  const cyclePreviewTrackingReadyRef = useRef(false);
   const paymentModeHydrationRef = useRef(false);
   const scheduleModeAutoDetectedRef = useRef(false);
-  const paymentScheduleAutoSyncRef = useRef('');
-
-  const scheduleExpectedTotal = useMemo(
-    () => roundMoney(schedules.reduce((sum, schedule) => sum + Number(schedule.expected_amount || 0), 0)),
-    [schedules]
-  );
   const hasCollectedSchedules = useMemo(
     () => schedules.some((schedule) => {
       const actualPaidAmount = Number(schedule.actual_paid_amount || 0);
@@ -193,10 +236,10 @@ export const useContractPaymentGeneration = ({
   const allocationModeLockMessage = isInvestmentProject
     ? 'Dự án Đầu tư chỉ hỗ trợ cách phân bổ Tạm ứng + Đợt đầu tư.'
     : '';
-  const generateButtonLockMessage = hasCollectedSchedules
+  const baseGenerateButtonLockMessage = hasCollectedSchedules
     ? 'Đã có kỳ được xác nhận thu tiền. Không thể sinh lại kỳ thanh toán để tránh lệch dữ liệu thực thu.'
     : '';
-  const isGenerateButtonDisabled = !contractId || !onGenerateSchedules || isGenerating || hasCollectedSchedules;
+  const baseGenerateButtonDisabled = !contractId || !onGenerateSchedules || isGenerating || hasCollectedSchedules;
   const isAllocationModeSelectionDisabled = isInvestmentProject;
 
   useEffect(() => {
@@ -206,11 +249,14 @@ export const useContractPaymentGeneration = ({
     setInstallmentCount(DEFAULT_INSTALLMENT_COUNT);
     setMilestoneInputMode('AUTO');
     setMilestoneInstallments([]);
+    setCyclePreviewTab('PROPOSAL');
+    setCycleDraftRows([]);
+    setIsCycleDraftDirty(false);
     setPreviewDirty(schedules.length === 0);
     previewTrackingReadyRef.current = false;
+    cyclePreviewTrackingReadyRef.current = false;
     paymentModeHydrationRef.current = true;
     scheduleModeAutoDetectedRef.current = false;
-    paymentScheduleAutoSyncRef.current = '';
   }, [
     defaultAdvancePercentage,
     defaultAllocationMode,
@@ -255,6 +301,9 @@ export const useContractPaymentGeneration = ({
       setInstallmentCount(DEFAULT_INSTALLMENT_COUNT);
       setMilestoneInputMode('AUTO');
       setMilestoneInstallments([]);
+      setCyclePreviewTab('PROPOSAL');
+      setCycleDraftRows([]);
+      setIsCycleDraftDirty(false);
       return;
     }
 
@@ -262,6 +311,7 @@ export const useContractPaymentGeneration = ({
     setInstallmentCount(DEFAULT_INSTALLMENT_COUNT);
     setMilestoneInputMode('AUTO');
     setMilestoneInstallments([]);
+    setCyclePreviewTab('PROPOSAL');
     if (allocationMode === 'MILESTONE') {
       setAllocationMode('EVEN');
     }
@@ -306,67 +356,16 @@ export const useContractPaymentGeneration = ({
   }, [advancePercentage, normalizedMilestoneInstallments, retentionPercentage]);
 
   useEffect(() => {
-    if (
-      activeTab !== 'PAYMENT'
-      || !contractId
-      || !onGenerateSchedules
-      || isGenerating
-      || isPaymentLoading
-      || schedules.length === 0
-    ) {
+    if (activeTab !== 'PAYMENT') {
       return;
     }
 
-    const hasMismatch = Math.abs(scheduleExpectedTotal - contractValueNumber) > 0.5;
-    if (!hasMismatch || hasCollectedSchedules) {
-      return;
-    }
-
-    const syncKey = [contractId, contractValueNumber, scheduleExpectedTotal, schedules.length].join(':');
-    if (paymentScheduleAutoSyncRef.current === syncKey) {
-      return;
-    }
-    paymentScheduleAutoSyncRef.current = syncKey;
-
-    setIsGenerating(true);
-    Promise.resolve(onGenerateSchedules(
-      contractId,
-      buildGeneratePayload({
-        allocationMode,
-        advancePercentage,
-        retentionPercentage,
-        installmentCount,
-        milestoneInputMode,
-        normalizedMilestoneInstallments,
-      })
-    ))
-      .then(() => {
-        setInlineNotice('Đã tự đồng bộ lại kỳ thanh toán theo tổng hạng mục hợp đồng.');
-      })
-      .catch(() => {
-        // Toast/error is handled at App level.
-      })
-      .finally(() => {
-        setIsGenerating(false);
-      });
-  }, [
-    activeTab,
-    advancePercentage,
-    allocationMode,
-    contractId,
-    contractValueNumber,
-    hasCollectedSchedules,
-    installmentCount,
-    isGenerating,
-    isPaymentLoading,
-    milestoneInputMode,
-    normalizedMilestoneInstallments,
-    onGenerateSchedules,
-    retentionPercentage,
-    scheduleExpectedTotal,
-    schedules.length,
-    setInlineNotice,
-  ]);
+    setInlineNotice((currentNotice) => (
+      currentNotice === AUTO_SYNC_INLINE_NOTICE
+        ? ''
+        : currentNotice
+    ));
+  }, [activeTab, setInlineNotice]);
 
   const syncMilestoneInstallmentsFromAuto = () => {
     const startIso = resolveContractGenerationStartIso(formData) || todayIsoDate();
@@ -442,6 +441,27 @@ export const useContractPaymentGeneration = ({
     milestoneInputMode,
     milestoneInstallments,
     retentionPercentage,
+  ]);
+
+  useEffect(() => {
+    if (allocationMode !== 'EVEN') {
+      cyclePreviewTrackingReadyRef.current = false;
+      return;
+    }
+
+    if (!cyclePreviewTrackingReadyRef.current) {
+      cyclePreviewTrackingReadyRef.current = true;
+      return;
+    }
+
+    setPreviewDirty(true);
+  }, [
+    allocationMode,
+    formData.effective_date,
+    formData.expiry_date,
+    formData.payment_cycle,
+    formData.sign_date,
+    formData.value,
   ]);
 
   const milestonePreview = useMemo(() => {
@@ -563,7 +583,177 @@ export const useContractPaymentGeneration = ({
     retentionPercentage,
   ]);
 
+  const cyclePreview = useMemo(() => {
+    if (allocationMode !== 'EVEN') {
+      return { rows: [] as MilestonePreviewRow[], error: '' };
+    }
+
+    const startIso = resolveContractGenerationStartIso(formData);
+    if (!startIso) {
+      return { rows: [] as MilestonePreviewRow[], error: 'Cần có Ngày hiệu lực hoặc Ngày ký để dự thảo kỳ thanh toán.' };
+    }
+    if (contractValueNumber <= 0) {
+      return { rows: [] as MilestonePreviewRow[], error: 'Giá trị hợp đồng phải lớn hơn 0 để dự thảo kỳ thanh toán.' };
+    }
+
+    const normalizedCycle = String(formData.payment_cycle || '').trim().toUpperCase() || 'ONCE';
+    const expiryIso = String(formData.expiry_date || '').trim();
+
+    return {
+      rows: buildCyclePreviewRows(
+        contractValueNumber,
+        normalizedCycle,
+        startIso,
+        parseIsoDate(expiryIso) ? expiryIso : null,
+        selectedProjectInvestmentModeCode
+      ),
+      error: '',
+    };
+  }, [
+    allocationMode,
+    contractValueNumber,
+    formData,
+    selectedProjectInvestmentModeCode,
+  ]);
+
+  const normalizedCycleDraftInstallments = useMemo<ContractCycleDraftInstallmentInput[]>(
+    () => cycleDraftRows.map((row) => ({
+      label: String(row.label || '').trim(),
+      expected_date: String(row.expected_date || '').trim(),
+      expected_amount: roundMoney(parseDraftExpectedAmount(row.expected_amount)),
+    })),
+    [cycleDraftRows]
+  );
+
+  const normalizedCycle = String(formData.payment_cycle || '').trim().toUpperCase() || 'ONCE';
+
+  const resetCycleDraftRows = () => {
+    setCycleDraftRows(buildCycleDraftInstallments(cyclePreview.rows));
+    setIsCycleDraftDirty(false);
+    setCyclePreviewTab('EDIT');
+  };
+
+  useEffect(() => {
+    if (allocationMode !== 'EVEN') {
+      return;
+    }
+
+    if (cyclePreview.error) {
+      if (!isCycleDraftDirty) {
+        setCycleDraftRows([]);
+      }
+      return;
+    }
+
+    if (!isCycleDraftDirty) {
+      setCycleDraftRows(buildCycleDraftInstallments(cyclePreview.rows));
+      setIsCycleDraftDirty(false);
+    }
+  }, [allocationMode, cycleDraftRows.length, cyclePreview.error, cyclePreview.rows, isCycleDraftDirty]);
+
+  const cycleDraftTotal = useMemo(
+    () => roundMoney(normalizedCycleDraftInstallments.reduce((sum, row) => sum + row.expected_amount, 0)),
+    [normalizedCycleDraftInstallments]
+  );
+
+  const cycleDraftError = useMemo(() => {
+    if (allocationMode !== 'EVEN') {
+      return '';
+    }
+
+    if (cyclePreview.error) {
+      return cyclePreview.error;
+    }
+
+    if (normalizedCycleDraftInstallments.length === 0) {
+      return 'Hãy thêm ít nhất 1 kỳ dự thảo trước khi sinh kỳ thanh toán.';
+    }
+
+    const missingLabelIndex = normalizedCycleDraftInstallments.findIndex((row) => row.label === '');
+    if (missingLabelIndex >= 0) {
+      return `Tên kỳ ở dòng ${missingLabelIndex + 1} không được để trống.`;
+    }
+
+    const invalidDateIndex = normalizedCycleDraftInstallments.findIndex((row) => !parseIsoDate(row.expected_date));
+    if (invalidDateIndex >= 0) {
+      return `Ngày dự kiến ở dòng ${invalidDateIndex + 1} không hợp lệ.`;
+    }
+
+    const invalidAmountIndex = normalizedCycleDraftInstallments.findIndex((row) => row.expected_amount <= 0);
+    if (invalidAmountIndex >= 0) {
+      return `Số tiền dự kiến ở dòng ${invalidAmountIndex + 1} phải lớn hơn 0.`;
+    }
+
+    if (Math.abs(cycleDraftTotal - contractValueNumber) > 0.5) {
+      return `Tổng dự thảo phải bằng ${roundMoney(contractValueNumber).toLocaleString('vi-VN')} đ để sinh kỳ thanh toán.`;
+    }
+
+    return '';
+  }, [
+    allocationMode,
+    contractValueNumber,
+    cycleDraftTotal,
+    cyclePreview.error,
+    normalizedCycleDraftInstallments,
+  ]);
+
+  const isPreviewDirty = previewDirty || schedules.length === 0;
+  const cycleDraftStatusLabel = isCycleDraftDirty
+    ? 'Đã chỉnh tay'
+    : isPreviewDirty
+      ? 'Chưa chốt lại'
+      : 'Theo cấu hình hiện tại';
+  const generateButtonLockMessage = baseGenerateButtonLockMessage || (
+    allocationMode === 'EVEN'
+      ? cycleDraftError
+      : ''
+  );
+  const isGenerateButtonDisabled = baseGenerateButtonDisabled || (
+    allocationMode === 'EVEN' && cycleDraftError !== ''
+  );
+  const showCyclePreview = allocationMode === 'EVEN';
   const showMilestonePreview = allocationMode === 'MILESTONE' && (previewDirty || schedules.length === 0);
+
+  const handleCyclePreviewTabChange = (nextTab: 'PROPOSAL' | 'EDIT') => {
+    setCyclePreviewTab(nextTab);
+  };
+
+  const handleCycleDraftRowChange = (
+    index: number,
+    field: keyof CycleDraftInstallmentDraft,
+    value: string
+  ) => {
+    setCyclePreviewTab('EDIT');
+    setIsCycleDraftDirty(true);
+    setCycleDraftRows((prev) => prev.map((row, rowIndex) => (
+      rowIndex === index
+        ? { ...row, [field]: value }
+        : row
+    )));
+  };
+
+  const handleAddCycleDraftRow = () => {
+    const nextIndex = cycleDraftRows.length + 1;
+    const fallbackStartDate = resolveContractGenerationStartIso(formData) || todayIsoDate();
+    const lastExpectedDate = cycleDraftRows[cycleDraftRows.length - 1]?.expected_date || fallbackStartDate;
+
+    setCyclePreviewTab('EDIT');
+    setIsCycleDraftDirty(true);
+    setCycleDraftRows((prev) => [
+      ...prev,
+      {
+        label: buildPaymentMilestoneName(normalizedCycle, nextIndex, selectedProjectInvestmentModeCode),
+        expected_date: lastExpectedDate,
+        expected_amount: '0',
+      },
+    ]);
+  };
+
+  const handleRemoveCycleDraftRow = (index: number) => {
+    setCyclePreviewTab('EDIT');
+    setIsCycleDraftDirty(true);
+    setCycleDraftRows((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
+  };
 
   const handleGenerateSchedules = async () => {
     if (!contractId || !onGenerateSchedules) {
@@ -579,6 +769,11 @@ export const useContractPaymentGeneration = ({
 
     if (allocationMode === 'MILESTONE' && milestonePreview.error) {
       window.alert(milestonePreview.error);
+      return;
+    }
+
+    if (allocationMode === 'EVEN' && cycleDraftError) {
+      window.alert(cycleDraftError);
       return;
     }
 
@@ -600,6 +795,7 @@ export const useContractPaymentGeneration = ({
           installmentCount,
           milestoneInputMode,
           normalizedMilestoneInstallments,
+          normalizedCycleDraftInstallments,
         })
       );
       setPreviewDirty(false);
@@ -639,6 +835,21 @@ export const useContractPaymentGeneration = ({
       onRemoveMilestoneInstallment: handleRemoveMilestoneInstallment,
     },
     preview: {
+      hasCollectedSchedules,
+      isPreviewDirty,
+      showCyclePreview,
+      cyclePreviewTab,
+      cyclePreview,
+      cycleDraftRows,
+      cycleDraftError,
+      cycleDraftTotal,
+      cycleDraftStatusLabel,
+      isCycleDraftDirty,
+      onCyclePreviewTabChange: handleCyclePreviewTabChange,
+      onCycleDraftRowChange: handleCycleDraftRowChange,
+      onAddCycleDraftRow: handleAddCycleDraftRow,
+      onRemoveCycleDraftRow: handleRemoveCycleDraftRow,
+      onResetCycleDraftRows: resetCycleDraftRows,
       showMilestonePreview,
       customInstallmentPreviewRows,
       milestonePreview,

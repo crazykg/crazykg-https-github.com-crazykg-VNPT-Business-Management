@@ -18,10 +18,11 @@ class ProductDomainService
 {
     use ResolvesValidatedInput;
 
-    private const PRODUCT_CACHE_KEY = 'v5:products:list:v1';
+    private const PRODUCT_CACHE_KEY = 'v5:products:list:v2';
     private const DEFAULT_SERVICE_GROUP = 'GROUP_B';
     private const SERVICE_GROUP_VALUES = ['GROUP_A', 'GROUP_B', 'GROUP_C'];
     private const PRODUCT_DELETE_REFERENCE_SOURCES = [
+        ['table' => 'product_packages', 'column' => 'product_id', 'label' => 'gói cước sản phẩm'],
         ['table' => 'contract_items', 'column' => 'product_id', 'label' => 'hạng mục hợp đồng'],
         ['table' => 'project_items', 'column' => 'product_id', 'label' => 'hạng mục dự án'],
         ['table' => 'document_product_links', 'column' => 'product_id', 'label' => 'liên kết tài liệu'],
@@ -61,11 +62,10 @@ class ProductDomainService
                     'service_group',
                     'product_code',
                     'product_name',
-                    'package_name',
+                    'product_short_name',
                     'domain_id',
                     'vendor_id',
                     'standard_price',
-                    'unit',
                     'description',
                     'is_active',
                     'created_at',
@@ -90,8 +90,8 @@ class ProductDomainService
                     if ($this->support->hasColumn('products', 'product_name')) {
                         $builder->orWhere('product_name', 'like', $like);
                     }
-                    if ($this->support->hasColumn('products', 'package_name')) {
-                        $builder->orWhere('package_name', 'like', $like);
+                    if ($this->support->hasColumn('products', 'product_short_name')) {
+                        $builder->orWhere('product_short_name', 'like', $like);
                     }
                 });
             }
@@ -118,11 +118,21 @@ class ProductDomainService
                         ->values()
                         ->all()
                 );
+                $hasPackageMap = $this->loadProductHasPackageMap(
+                    $rawRows
+                        ->pluck('id')
+                        ->map(fn (mixed $value): int => (int) $value)
+                        ->filter(fn (int $value): bool => $value > 0)
+                        ->values()
+                        ->all(),
+                    $rawRows->all()
+                );
                 $rows = $rawRows
                     ->map(fn (array $item): array => $this->serializeProductRecord(
                         $item,
                         $attachmentMap[(string) ($item['id'] ?? '')] ?? [],
-                        $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
+                        $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null,
+                        $hasPackageMap[(string) ($item['id'] ?? '')] ?? null
                     ))
                     ->values();
 
@@ -152,11 +162,21 @@ class ProductDomainService
                     ->values()
                     ->all()
             );
+            $hasPackageMap = $this->loadProductHasPackageMap(
+                $rawRows
+                    ->pluck('id')
+                    ->map(fn (mixed $value): int => (int) $value)
+                    ->filter(fn (int $value): bool => $value > 0)
+                    ->values()
+                    ->all(),
+                $rawRows->all()
+            );
             $rows = $rawRows
                 ->map(fn (array $item): array => $this->serializeProductRecord(
                     $item,
                     $attachmentMap[(string) ($item['id'] ?? '')] ?? [],
-                    $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
+                    $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null,
+                    $hasPackageMap[(string) ($item['id'] ?? '')] ?? null
                 ))
                 ->values();
 
@@ -173,11 +193,10 @@ class ProductDomainService
                     'service_group',
                     'product_code',
                     'product_name',
-                    'package_name',
+                    'product_short_name',
                     'domain_id',
                     'vendor_id',
                     'standard_price',
-                    'unit',
                     'description',
                     'is_active',
                     'created_at',
@@ -221,11 +240,24 @@ class ProductDomainService
                 ->values()
                 ->all()
         );
+        $hasPackageMap = $this->loadProductHasPackageMap(
+            $rows
+                ->pluck('id')
+                ->map(fn (mixed $value): int => (int) $value)
+                ->filter(fn (int $value): bool => $value > 0)
+                ->values()
+                ->all(),
+            $rows->all()
+        );
         $rows = $rows
-            ->map(fn (array $item): array => $this->mergeProductStandardPriceLockMeta(
-                $item,
-                $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
-            ))
+            ->map(function (array $item) use ($standardPriceLockMap, $hasPackageMap): array {
+                $item['has_product_packages'] = (bool) ($hasPackageMap[(string) ($item['id'] ?? '')] ?? false);
+
+                return $this->mergeProductStandardPriceLockMeta(
+                    $item,
+                    $standardPriceLockMap[(string) ($item['id'] ?? '')] ?? null
+                );
+            })
             ->values();
 
         return response()->json(['data' => $rows]);
@@ -241,11 +273,10 @@ class ProductDomainService
             'service_group' => ['nullable', 'string', Rule::in(self::SERVICE_GROUP_VALUES)],
             'product_code' => ['required', 'string', 'max:100'],
             'product_name' => ['required', 'string', 'max:255'],
-            'package_name' => ['nullable', 'string', 'max:255'],
+            'product_short_name' => ['nullable', 'string', 'max:255'],
             'domain_id' => ['required', 'integer'],
             'vendor_id' => ['required', 'integer'],
             'standard_price' => ['nullable', 'numeric', 'min:0'],
-            'unit' => ['nullable', 'string', 'max:50'],
             'description' => ['nullable', 'string', 'max:2000'],
             'is_active' => ['nullable', 'boolean'],
         ];
@@ -277,11 +308,10 @@ class ProductDomainService
             'service_group' => $this->resolveServiceGroup($validated['service_group'] ?? null),
             'product_code' => trim((string) $validated['product_code']),
             'product_name' => trim((string) $validated['product_name']),
-            'package_name' => $this->support->normalizeNullableString($validated['package_name'] ?? null),
+            'product_short_name' => $this->support->normalizeNullableString($validated['product_short_name'] ?? null),
             'domain_id' => $domainId,
             'vendor_id' => $vendorId,
             'standard_price' => max(0, (float) ($validated['standard_price'] ?? 0)),
-            'unit' => $this->support->normalizeNullableString($validated['unit'] ?? null),
             'description' => $this->support->normalizeNullableString($validated['description'] ?? null),
             'is_active' => array_key_exists('is_active', $validated) ? (bool) $validated['is_active'] : true,
             'created_by' => $actorId,
@@ -301,12 +331,13 @@ class ProductDomainService
         } catch (QueryException $exception) {
             return response()->json([
                 'message' => $this->isUniqueConstraintViolation($exception)
-                    ? 'Mã sản phẩm đã tồn tại.'
+                    ? 'Mã định danh đã tồn tại.'
                     : 'Không thể tạo sản phẩm.',
             ], 422);
         }
 
         Cache::forget(self::PRODUCT_CACHE_KEY);
+        $this->syncProductHasPackageFlags([$insertId]);
         $this->insightService->invalidateAllInsightCaches();
 
         $record = $this->loadProductById($insertId);
@@ -412,11 +443,10 @@ class ProductDomainService
             'service_group' => ['sometimes', 'string', Rule::in(self::SERVICE_GROUP_VALUES)],
             'product_code' => ['sometimes', 'string', 'max:100'],
             'product_name' => ['sometimes', 'string', 'max:255'],
-            'package_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'product_short_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'domain_id' => ['sometimes', 'integer'],
             'vendor_id' => ['sometimes', 'integer'],
             'standard_price' => ['sometimes', 'numeric', 'min:0'],
-            'unit' => ['sometimes', 'nullable', 'string', 'max:50'],
             'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'is_active' => ['sometimes', 'boolean'],
         ];
@@ -446,8 +476,8 @@ class ProductDomainService
         if (array_key_exists('product_name', $validated)) {
             $payload['product_name'] = trim((string) $validated['product_name']);
         }
-        if (array_key_exists('package_name', $validated)) {
-            $payload['package_name'] = $this->support->normalizeNullableString($validated['package_name']);
+        if (array_key_exists('product_short_name', $validated)) {
+            $payload['product_short_name'] = $this->support->normalizeNullableString($validated['product_short_name']);
         }
         if (array_key_exists('domain_id', $validated)) {
             $domainId = $this->support->parseNullableInt($validated['domain_id']);
@@ -483,9 +513,6 @@ class ProductDomainService
 
             $payload['standard_price'] = $incomingStandardPrice;
         }
-        if (array_key_exists('unit', $validated)) {
-            $payload['unit'] = $this->support->normalizeNullableString($validated['unit']);
-        }
         if (array_key_exists('description', $validated)) {
             $payload['description'] = $this->support->normalizeNullableString($validated['description']);
         }
@@ -514,8 +541,8 @@ class ProductDomainService
                 DB::table('products')->where('id', $id)->update($payload);
             } catch (QueryException $exception) {
                 return response()->json([
-                    'message' => $this->isUniqueConstraintViolation($exception)
-                        ? 'Mã sản phẩm đã tồn tại.'
+                'message' => $this->isUniqueConstraintViolation($exception)
+                        ? 'Mã định danh đã tồn tại.'
                         : 'Không thể cập nhật sản phẩm.',
                 ], 422);
             }
@@ -526,6 +553,7 @@ class ProductDomainService
         }
 
         Cache::forget(self::PRODUCT_CACHE_KEY);
+        $this->syncProductHasPackageFlags([$id]);
         $this->insightService->invalidateAllInsightCaches();
         $this->insightService->invalidateProductDetailCaches($id);
 
@@ -743,14 +771,20 @@ class ProductDomainService
     /**
      * @param array{locked:bool,message:string|null,references:array<int, array{table:string,label:string,count:int}>}|null $standardPriceLockMeta
      */
-    private function serializeProductRecord(array $record, array $attachments = [], ?array $standardPriceLockMeta = null): array
+    private function serializeProductRecord(
+        array $record,
+        array $attachments = [],
+        ?array $standardPriceLockMeta = null,
+        ?bool $hasProductPackages = null
+    ): array
     {
         return $this->mergeProductStandardPriceLockMeta([
             'id' => $record['id'] ?? null,
             'service_group' => $this->resolveServiceGroup($record['service_group'] ?? null),
             'product_code' => (string) ($record['product_code'] ?? ''),
             'product_name' => (string) ($record['product_name'] ?? ''),
-            'package_name' => $this->support->normalizeNullableString($record['package_name'] ?? null),
+            'product_short_name' => $this->support->normalizeNullableString($record['product_short_name'] ?? null),
+            'has_product_packages' => $hasProductPackages ?? $this->resolveHasProductPackagesFromRecord($record, false),
             'domain_id' => $record['domain_id'] ?? null,
             'vendor_id' => $record['vendor_id'] ?? null,
             'standard_price' => (float) ($record['standard_price'] ?? 0),
@@ -777,11 +811,10 @@ class ProductDomainService
                 'service_group',
                 'product_code',
                 'product_name',
-                'package_name',
+                'product_short_name',
                 'domain_id',
                 'vendor_id',
                 'standard_price',
-                'unit',
                 'description',
                 'is_active',
                 'created_at',
@@ -799,12 +832,113 @@ class ProductDomainService
 
         $attachmentMap = $this->loadProductAttachmentMap([$id]);
         $standardPriceLockMap = $this->loadProductStandardPriceLockMetaMap([$id]);
+        $hasPackageMap = $this->loadProductHasPackageMap([$id], [(array) $record]);
 
         return $this->serializeProductRecord(
             (array) $record,
             $attachmentMap[(string) $id] ?? [],
-            $standardPriceLockMap[(string) $id] ?? null
+            $standardPriceLockMap[(string) $id] ?? null,
+            $hasPackageMap[(string) $id] ?? null
         );
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, bool>
+     */
+    private function loadProductHasPackageMap(array $productIds, array $rows): array
+    {
+        $normalizedIds = collect($productIds)
+            ->map(fn (mixed $value): int => (int) $value)
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedIds === []) {
+            return [];
+        }
+
+        $packageCountMap = [];
+        if ($this->support->hasTable('product_packages') && $this->support->hasColumn('product_packages', 'product_id')) {
+            $query = DB::table('product_packages')
+                ->selectRaw('product_id, COUNT(*) as aggregate_count')
+                ->whereIn('product_id', $normalizedIds)
+                ->groupBy('product_id');
+
+            if ($this->support->hasColumn('product_packages', 'deleted_at')) {
+                $query->whereNull('deleted_at');
+            }
+
+            foreach ($query->get() as $row) {
+                $packageCountMap[(string) ($row->product_id ?? '')] = (int) ($row->aggregate_count ?? 0);
+            }
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $id = (string) ($row['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+
+            $map[$id] = $this->resolveHasProductPackagesFromRecord($row, (($packageCountMap[$id] ?? 0) > 0));
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     */
+    private function resolveHasProductPackagesFromRecord(array $record, bool $hasPackageRows): bool
+    {
+        return $hasPackageRows;
+    }
+
+    /**
+     * @param array<int, int> $productIds
+     */
+    public function syncProductHasPackageFlags(array $productIds): void
+    {
+        if (
+            ! $this->support->hasTable('products')
+            || ! $this->support->hasColumn('products', 'has_product_packages')
+        ) {
+            return;
+        }
+
+        $normalizedIds = collect($productIds)
+            ->map(fn (mixed $value): int => (int) $value)
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($normalizedIds === []) {
+            return;
+        }
+
+        $rows = DB::table('products')
+            ->select($this->support->selectColumns('products', ['id']))
+            ->whereIn('id', $normalizedIds)
+            ->when($this->support->hasColumn('products', 'deleted_at'), fn ($query) => $query->whereNull('deleted_at'))
+            ->get()
+            ->map(fn (object $item): array => (array) $item)
+            ->values()
+            ->all();
+
+        $hasPackageMap = $this->loadProductHasPackageMap($normalizedIds, $rows);
+        foreach ($normalizedIds as $productId) {
+            DB::table('products')
+                ->where('id', $productId)
+                ->update($this->support->filterPayloadByTableColumns('products', [
+                    'has_product_packages' => (bool) ($hasPackageMap[(string) $productId] ?? false),
+                ]));
+        }
+
+        Cache::forget(self::PRODUCT_CACHE_KEY);
     }
 
     /**

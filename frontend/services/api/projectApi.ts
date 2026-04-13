@@ -156,7 +156,7 @@ const normalizeNullableProjectInvestmentMode = (value: unknown): string | null =
 
 const normalizeProjectItems = (
   items: Partial<Project>['items']
-): Array<{ product_id: number; quantity: number; unit_price: number }> | undefined => {
+): Array<{ product_id: number; product_package_id?: number; quantity: number; unit_price: number }> | undefined => {
   if (!Array.isArray(items)) {
     return undefined;
   }
@@ -173,13 +173,22 @@ const normalizeProjectItems = (
         return null;
       }
 
+      const productPackageId = normalizeNullableNumber(
+        source.productPackageId ?? source.product_package_id
+      );
+
       return {
         product_id: productId,
+        ...(productPackageId !== null && productPackageId > 0
+          ? { product_package_id: productPackageId }
+          : {}),
         quantity: normalizeNumber(source.quantity, 1),
         unit_price: normalizeNumber(source.unitPrice ?? source.unit_price, 0),
       };
     })
-    .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null);
+    .filter((
+      item
+    ): item is { product_id: number; product_package_id?: number; quantity: number; unit_price: number } => item !== null);
 };
 
 const normalizeProjectRaci = (
@@ -338,6 +347,7 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       status: payload.status,
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
+      opportunity_score: normalizeNullableNumber(payload.opportunity_score),
       investment_mode: normalizeNullableProjectInvestmentMode(payload.investment_mode),
       payment_cycle: normalizeNullablePaymentCycle(payload.payment_cycle),
       implementation_user_id: Object.prototype.hasOwnProperty.call(payload, 'implementation_user_id')
@@ -375,6 +385,7 @@ export const updateProject = async (
       status: payload.status,
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
+      opportunity_score: normalizeNullableNumber(payload.opportunity_score),
       investment_mode: normalizeNullableProjectInvestmentMode(payload.investment_mode),
       payment_cycle: normalizeNullablePaymentCycle(payload.payment_cycle),
       implementation_user_id: Object.prototype.hasOwnProperty.call(payload, 'implementation_user_id')

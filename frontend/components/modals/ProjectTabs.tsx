@@ -1,7 +1,33 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RACI_ROLES } from '../../constants';
-import type { Department, Employee, Product, Project, ProjectItem, ProjectRACI } from '../../types';
+import { useEscKey } from '../../hooks/useEscKey';
+import type { Department, Employee, Project, ProjectItem, ProjectRACI } from '../../types';
 import { SearchableSelect, type SearchableSelectOption } from './selectPrimitives';
+import { resolveProjectItemCatalogValue } from './projectImportUtils';
+
+const PROJECT_ITEM_SELECT_TRIGGER_CLASS_NAME =
+  'border-slate-300 bg-white text-slate-900 text-xs leading-5 shadow-sm focus:ring-1 focus:ring-primary/30';
+const PROJECT_ITEM_INPUT_CLASS_NAME =
+  'h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-xs leading-5 text-slate-900 shadow-sm transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
+const PROJECT_ITEM_CENTER_INPUT_CLASS_NAME = `${PROJECT_ITEM_INPUT_CLASS_NAME} text-center`;
+const PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME = `${PROJECT_ITEM_INPUT_CLASS_NAME} text-right`;
+const PROJECT_ITEM_READONLY_BOX_CLASS_NAME =
+  'flex h-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-center text-xs font-medium leading-5 text-slate-600';
+const PROJECT_RACI_CONTROL_TRIGGER_CLASS_NAME =
+  'border-slate-300 bg-white text-slate-900 shadow-sm focus:ring-1 focus:ring-primary/30';
+const PROJECT_RACI_DATE_INPUT_CLASS_NAME =
+  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-center text-xs leading-5 text-slate-900 shadow-sm outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
+const PROJECT_RACI_READONLY_BOX_CLASS_NAME =
+  'flex h-8 w-full items-center rounded border border-slate-200 bg-slate-50 px-3 text-xs font-medium leading-5 text-slate-700';
+const PROJECT_ITEM_FIELD_ORDER = [
+  'catalog',
+  'quantity',
+  'unitPrice',
+  'discountPercent',
+  'discountAmount',
+] as const;
+
+type ProjectItemField = (typeof PROJECT_ITEM_FIELD_ORDER)[number];
 
 export interface ProjectImportSummary {
   success: number;
@@ -11,16 +37,19 @@ export interface ProjectImportSummary {
 }
 
 interface ProjectItemsTabProps {
+  duplicateItemIds: Set<string>;
   errors: Record<string, string>;
   formData: Partial<Project>;
   formatCurrency: (value: number) => string;
   formatNumber: (num: number | string | undefined | null) => string;
   formatPercent: (value: number) => string;
-  handleAddItem: () => void;
+  handleAddItem: () => string | null;
+  handleCopyItem: (itemId: string) => string | null;
   handleDownloadProjectItemTemplate: () => void;
   handleItemBlur: (itemId: string, field: keyof ProjectItem) => void;
   handleRemoveItem: (itemId: string) => void;
   handleUpdateItem: (itemId: string, field: keyof ProjectItem, value: any) => void;
+  isEditingLocked: boolean;
   isItemImportSaving: boolean;
   isProjectProductOptionsLoading: boolean;
   itemImportMenuRef: React.RefObject<HTMLDivElement | null>;
@@ -31,13 +60,22 @@ interface ProjectItemsTabProps {
     lineTotal: number;
   };
   parseNumber: (str: string | number) => number;
-  productById: Map<string, Product>;
+  projectItemCatalogMetaByValue: Map<
+    string,
+    {
+      code: string;
+      name: string;
+      unit?: string | null;
+      standardPrice: number;
+    }
+  >;
   projectProductDropdownHeader: React.ReactNode;
   projectProductSelectOptions: SearchableSelectOption[];
   renderProjectProductOption: (
     option: SearchableSelectOption,
     state: { isSelected: boolean; isHighlighted: boolean }
   ) => React.ReactNode;
+  lockMessage?: string | null;
   showItemImportMenu: boolean;
   toggleItemImportMenu: () => void;
   totalDiscountPercent: number;
@@ -46,41 +84,182 @@ interface ProjectItemsTabProps {
 }
 
 export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
+  duplicateItemIds,
   errors,
   formData,
   formatCurrency,
   formatNumber,
   formatPercent,
   handleAddItem,
+  handleCopyItem,
   handleDownloadProjectItemTemplate,
   handleItemBlur,
   handleRemoveItem,
   handleUpdateItem,
+  isEditingLocked,
   isItemImportSaving,
   isProjectProductOptionsLoading,
   itemImportMenuRef,
   itemImportSummary,
   itemSummary,
   parseNumber,
-  productById,
+  projectItemCatalogMetaByValue,
   projectProductDropdownHeader,
   projectProductSelectOptions,
   renderProjectProductOption,
+  lockMessage,
   showItemImportMenu,
   toggleItemImportMenu,
   totalDiscountPercent,
   triggerProjectItemImport,
   onOpenQuotationPicker,
 }) => {
+  const itemFieldRefs = useRef<Record<string, HTMLElement | null>>({});
+  const [pendingFocusTarget, setPendingFocusTarget] = useState<{
+    rowId: string;
+    field: ProjectItemField;
+  } | null>(null);
+
+  const buildItemFieldRefKey = useCallback(
+    (rowId: string, field: ProjectItemField): string => `${rowId}:${field}`,
+    []
+  );
+  const setItemFieldRef = useCallback(
+    (rowId: string, field: ProjectItemField) => (node: HTMLElement | null) => {
+      const key = buildItemFieldRefKey(rowId, field);
+      if (node) {
+        itemFieldRefs.current[key] = node;
+        return;
+      }
+
+      delete itemFieldRefs.current[key];
+    },
+    [buildItemFieldRefKey]
+  );
+  const focusItemField = useCallback(
+    (rowId: string, field: ProjectItemField) => {
+      const key = buildItemFieldRefKey(rowId, field);
+      itemFieldRefs.current[key]?.focus();
+      window.requestAnimationFrame(() => {
+        itemFieldRefs.current[key]?.focus();
+        window.requestAnimationFrame(() => {
+          itemFieldRefs.current[key]?.focus();
+        });
+      });
+    },
+    [buildItemFieldRefKey]
+  );
+
+  useEffect(() => {
+    if (!pendingFocusTarget) {
+      return;
+    }
+
+    const key = buildItemFieldRefKey(pendingFocusTarget.rowId, pendingFocusTarget.field);
+    if (!itemFieldRefs.current[key]) {
+      return;
+    }
+
+    focusItemField(pendingFocusTarget.rowId, pendingFocusTarget.field);
+    setPendingFocusTarget(null);
+  }, [buildItemFieldRefKey, focusItemField, formData.items, pendingFocusTarget]);
+
+  const focusNextItemCatalogField = useCallback(
+    (rowIndex: number) => {
+      const nextRow = formData.items?.[rowIndex + 1];
+      if (nextRow) {
+        focusItemField(nextRow.id, 'catalog');
+        return;
+      }
+
+      const nextRowId = handleAddItem();
+      if (nextRowId) {
+        setPendingFocusTarget({ rowId: nextRowId, field: 'catalog' });
+      }
+    },
+    [focusItemField, formData.items, handleAddItem]
+  );
+  const focusNextItemField = useCallback(
+    (rowIndex: number, field: ProjectItemField) => {
+      const currentFieldIndex = PROJECT_ITEM_FIELD_ORDER.indexOf(field);
+      if (currentFieldIndex < 0) {
+        return;
+      }
+
+      if (currentFieldIndex === PROJECT_ITEM_FIELD_ORDER.length - 1) {
+        focusNextItemCatalogField(rowIndex);
+        return;
+      }
+
+      const currentRow = formData.items?.[rowIndex];
+      const nextField = PROJECT_ITEM_FIELD_ORDER[currentFieldIndex + 1];
+      if (!currentRow || !nextField) {
+        return;
+      }
+
+      focusItemField(currentRow.id, nextField);
+    },
+    [focusItemField, focusNextItemCatalogField, formData.items]
+  );
+  const handleItemFieldEnter = useCallback(
+    (
+      event: React.KeyboardEvent<HTMLElement>,
+      rowIndex: number,
+      field: ProjectItemField
+    ) => {
+      if (
+        event.key !== 'Enter' ||
+        event.shiftKey ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) {
+        return;
+      }
+
+      const nativeEvent = event.nativeEvent as KeyboardEvent | undefined;
+      if (nativeEvent?.isComposing) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      focusNextItemField(rowIndex, field);
+    },
+    [focusNextItemField]
+  );
+  const handleAddItemAndFocus = useCallback(() => {
+    if (isEditingLocked) {
+      return;
+    }
+    const newItemId = handleAddItem();
+    if (newItemId) {
+      setPendingFocusTarget({ rowId: newItemId, field: 'catalog' });
+    }
+  }, [handleAddItem, isEditingLocked]);
+  const handleCopyItemAndFocus = useCallback(
+    (itemId: string) => {
+      if (isEditingLocked) {
+        return;
+      }
+      const newItemId = handleCopyItem(itemId);
+      if (newItemId) {
+        setPendingFocusTarget({ rowId: newItemId, field: 'catalog' });
+      }
+    },
+    [handleCopyItem, isEditingLocked]
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-bold text-slate-700">Danh sách sản phẩm/dịch vụ</h3>
+        <h3 className="text-sm font-bold text-slate-700">Danh sách hạng mục dự án</h3>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onOpenQuotationPicker}
-            className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors"
+            disabled={isEditingLocked}
+            className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="material-symbols-outlined text-sm text-primary">receipt_long</span>
             Lấy từ Báo giá
@@ -89,14 +268,14 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
             <button
               type="button"
               onClick={toggleItemImportMenu}
-              disabled={isItemImportSaving}
+              disabled={isItemImportSaving || isEditingLocked}
               className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-sm">upload</span>
               {isItemImportSaving ? 'Đang nhập...' : 'Nhập'}
               <span className="material-symbols-outlined text-sm">expand_more</span>
             </button>
-            {showItemImportMenu && (
+            {showItemImportMenu && !isEditingLocked && (
               <div className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-[120] overflow-hidden">
                 <button
                   type="button"
@@ -119,11 +298,22 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
               </div>
             )}
           </div>
-          <button onClick={handleAddItem} className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-100 font-medium">
+          <button
+            type="button"
+            onClick={handleAddItemAndFocus}
+            disabled={isEditingLocked}
+            className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-100 font-medium disabled:cursor-not-allowed disabled:opacity-60"
+          >
             <span className="material-symbols-outlined text-sm">add</span> Thêm hạng mục
           </button>
         </div>
       </div>
+
+      {isEditingLocked && lockMessage ? (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          {lockMessage}
+        </div>
+      ) : null}
 
       {itemImportSummary && (
         <div className="space-y-2">
@@ -158,87 +348,118 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
           {errors.items}
         </div>
       )}
+      {duplicateItemIds.size > 0 && !errors.items && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          Có hạng mục đang bị trùng trong cùng dự án. Hệ thống chỉ cảnh báo để bạn kiểm tra lại,
+          nhưng vẫn cho phép cập nhật dự án.
+        </div>
+      )}
 
       <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 overflow-visible">
         <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[38%]">Sản phẩm</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[36%]">Hạng mục</th>
               <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Đơn vị tính</th>
               <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[6%] text-center whitespace-nowrap">SL</th>
               <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[13%] text-right whitespace-nowrap">Đơn giá</th>
               <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[7%] text-right whitespace-nowrap">% CK</th>
               <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Giảm giá</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Thành tiền</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[4%] text-center whitespace-nowrap">Xóa</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-right whitespace-nowrap">Thành tiền</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Tác vụ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {formData.items && formData.items.length > 0 ? (
-              formData.items.map((item) => {
-                const selectedProduct = productById.get(String(item.productId ?? item.product_id ?? '').trim());
+              formData.items.map((item, index) => {
+                const selectedCatalogItem = projectItemCatalogMetaByValue.get(
+                  resolveProjectItemCatalogValue(item)
+                );
+                const isDuplicateItem = duplicateItemIds.has(item.id);
+                const duplicateFieldClassName = isDuplicateItem
+                  ? 'border-rose-300 ring-1 ring-rose-200'
+                  : '';
 
                 return (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="p-2">
+                  <tr
+                    key={item.id}
+                    className={`align-middle hover:bg-slate-50 ${isDuplicateItem ? 'bg-rose-50/70' : ''}`}
+                  >
+                    <td className="px-2 py-1.5">
                       <SearchableSelect
-                        compact
-                        value={item.productId}
+                        size="sm"
+                        value={resolveProjectItemCatalogValue(item)}
                         options={projectProductSelectOptions}
-                        placeholder="Chọn sản phẩm"
-                        onChange={(value) => handleUpdateItem(item.id, 'productId', value)}
-                        disabled={isProjectProductOptionsLoading}
-                        triggerClassName="w-full text-sm border border-slate-300 rounded-md focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm h-9"
+                        placeholder="Chọn hạng mục"
+                        onChange={(value) => handleUpdateItem(item.id, 'catalogValue', value)}
+                        disabled={isProjectProductOptionsLoading || isEditingLocked}
+                        triggerButtonRef={setItemFieldRef(item.id, 'catalog')}
+                        onTriggerKeyDown={(event) => handleItemFieldEnter(event, index, 'catalog')}
+                        triggerClassName={`w-full ${PROJECT_ITEM_SELECT_TRIGGER_CLASS_NAME} ${duplicateFieldClassName}`}
                         dropdownClassName="min-w-[760px] max-w-[920px]"
                         renderOptionContent={renderProjectProductOption}
                         renderDropdownHeader={projectProductDropdownHeader}
                         usePortal
                       />
                     </td>
-                    <td className="p-2">
-                      <div className="flex h-9 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 text-center text-sm font-medium text-slate-600">
-                        <span className="line-clamp-2">{selectedProduct?.unit || '—'}</span>
+                    <td className="px-2 py-1.5">
+                      <div className={PROJECT_ITEM_READONLY_BOX_CLASS_NAME}>
+                        <span className="line-clamp-2">{selectedCatalogItem?.unit || '—'}</span>
                       </div>
                     </td>
-                    <td className="p-2">
+                    <td className="px-2 py-1.5">
                       <input
+                        ref={setItemFieldRef(item.id, 'quantity')}
+                        aria-label={`Số lượng hạng mục dòng ${index + 1}`}
                         type="number"
                         min="0"
                         step="0.01"
-                        className="w-full text-sm border border-slate-300 rounded-md text-center focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm"
+                        disabled={isEditingLocked}
+                        className={`${PROJECT_ITEM_CENTER_INPUT_CLASS_NAME} ${duplicateFieldClassName}`}
                         value={item.quantity === 0 ? '' : item.quantity}
                         onChange={(e) => handleUpdateItem(item.id, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                        onKeyDown={(event) => handleItemFieldEnter(event, index, 'quantity')}
                         placeholder="0"
                       />
                     </td>
-                    <td className="p-2">
+                    <td className="px-2 py-1.5">
                       <input
+                        ref={setItemFieldRef(item.id, 'unitPrice')}
+                        aria-label={`Đơn giá hạng mục dòng ${index + 1}`}
                         type="text"
-                        className="w-full text-sm border border-slate-300 rounded-md text-right focus:ring-primary focus:border-primary py-1.5 bg-white text-slate-900 shadow-sm pr-4"
+                        disabled={isEditingLocked}
+                        className={`${PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME} pr-4 ${duplicateFieldClassName}`}
                         value={formatNumber(item.unitPrice)}
                         onChange={(e) => handleUpdateItem(item.id, 'unitPrice', parseNumber(e.target.value))}
+                        onKeyDown={(event) => handleItemFieldEnter(event, index, 'unitPrice')}
                       />
                     </td>
-                    <td className="p-2">
+                    <td className="px-2 py-1.5">
                       <input
+                        ref={setItemFieldRef(item.id, 'discountPercent')}
+                        aria-label={`Phần trăm chiết khấu hạng mục dòng ${index + 1}`}
                         type="text"
-                        disabled={item.discountMode === 'AMOUNT'}
-                        className={`w-full text-sm border border-slate-300 rounded-md text-right focus:ring-primary focus:border-primary py-1.5 shadow-sm pr-4 ${item.discountMode === 'AMOUNT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'}`}
+                        disabled={item.discountMode === 'AMOUNT' || isEditingLocked}
+                        className={`${PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME} pr-4 ${item.discountMode === 'AMOUNT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${duplicateFieldClassName}`}
                         value={item.discountPercent === 0 ? '' : item.discountPercent}
                         onChange={(e) => handleUpdateItem(item.id, 'discountPercent', e.target.value)}
                         onBlur={() => handleItemBlur(item.id, 'discountPercent')}
+                        onKeyDown={(event) => handleItemFieldEnter(event, index, 'discountPercent')}
                         placeholder="0"
                       />
                     </td>
-                    <td className="p-2">
+                    <td className="px-2 py-1.5">
                       <div className="relative">
                         <input
+                          ref={setItemFieldRef(item.id, 'discountAmount')}
+                          aria-label={`Giảm giá hạng mục dòng ${index + 1}`}
                           type="text"
-                          disabled={item.discountMode === 'PERCENT'}
-                          className={`w-full text-sm border border-slate-300 rounded-md text-right focus:ring-primary focus:border-primary py-1.5 shadow-sm pr-8 ${item.discountMode === 'PERCENT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'}`}
+                          disabled={item.discountMode === 'PERCENT' || isEditingLocked}
+                          className={`${PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME} pr-8 ${item.discountMode === 'PERCENT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${duplicateFieldClassName}`}
                           value={parseNumber(item.discountAmount) <= 0 ? '' : formatNumber(parseNumber(item.discountAmount))}
                           onChange={(e) => handleUpdateItem(item.id, 'discountAmount', e.target.value)}
                           onBlur={() => handleItemBlur(item.id, 'discountAmount')}
+                          onKeyDown={(event) => handleItemFieldEnter(event, index, 'discountAmount')}
                           placeholder="0"
                         />
                         <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs ${item.discountMode === 'PERCENT' ? 'text-slate-300' : 'text-slate-400'}`}>
@@ -246,16 +467,32 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                         </span>
                       </div>
                     </td>
-                    <td className="p-2 text-right text-sm font-bold text-slate-900 whitespace-nowrap">
+                    <td className="px-2 py-1.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap align-middle">
                       {formatCurrency(item.lineTotal || 0)}
                     </td>
-                    <td className="p-2 text-center">
-                      <button
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                      >
-                        <span className="material-symbols-outlined text-lg">delete</span>
-                      </button>
+                    <td className="px-2 py-1.5 text-center align-middle">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyItemAndFocus(item.id)}
+                          disabled={isEditingLocked}
+                          className="text-slate-400 hover:text-primary transition-colors p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Sao chép hạng mục"
+                          aria-label={`Sao chép hạng mục dòng ${index + 1}`}
+                        >
+                          <span className="material-symbols-outlined text-lg">content_copy</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          disabled={isEditingLocked}
+                          className="text-slate-400 hover:text-red-500 transition-colors p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Xóa hạng mục"
+                          aria-label={`Xóa hạng mục dòng ${index + 1}`}
+                        >
+                          <span className="material-symbols-outlined text-lg">delete</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -293,6 +530,7 @@ interface ProjectRaciTabProps {
   employees: Employee[];
   employeeOptions: SearchableSelectOption[];
   formData: Partial<Project>;
+  existingAccountableLabel: string;
   handleAddRACI: () => void;
   handleCopyRACI: (raciId: string) => void;
   handleDownloadProjectRaciTemplate: () => void;
@@ -303,9 +541,12 @@ interface ProjectRaciTabProps {
   isDepartmentsLoading: boolean;
   isProjectEmployeeOptionsLoading: boolean;
   isRaciImportSaving: boolean;
+  onCancelAccountableReplacement: () => void;
+  onConfirmAccountableReplacement: () => void;
   raciImportMenuRef: React.RefObject<HTMLDivElement | null>;
   raciImportSummary: ProjectImportSummary | null;
   resolveEmployeeDepartment: (employee: Partial<Employee> | null | undefined) => Department | null;
+  showAccountableConfirm: boolean;
   showRaciImportMenu: boolean;
   toggleRaciImportMenu: () => void;
   triggerProjectRaciImport: () => void;
@@ -315,6 +556,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
   employees,
   employeeOptions,
   formData,
+  existingAccountableLabel,
   handleAddRACI,
   handleCopyRACI,
   handleDownloadProjectRaciTemplate,
@@ -325,13 +567,26 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
   isDepartmentsLoading,
   isProjectEmployeeOptionsLoading,
   isRaciImportSaving,
+  onCancelAccountableReplacement,
+  onConfirmAccountableReplacement,
   raciImportMenuRef,
   raciImportSummary,
   resolveEmployeeDepartment,
+  showAccountableConfirm,
   showRaciImportMenu,
   toggleRaciImportMenu,
   triggerProjectRaciImport,
 }) => {
+  const dismissAccountableConfirm = useCallback(() => {
+    onCancelAccountableReplacement();
+  }, [onCancelAccountableReplacement]);
+
+  useEscKey(() => {
+    if (showAccountableConfirm) {
+      dismissAccountableConfirm();
+    }
+  }, showAccountableConfirm);
+
   return (
     <div className="space-y-3">
       {/* ── Header ── */}
@@ -455,66 +710,71 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                     : String(employee?.department_id ?? employee?.department ?? '---');
 
                   return (
-                    <tr key={raci.id} className={duplicateRaciIds.has(raci.id) ? 'bg-red-50 ring-1 ring-inset ring-red-300' : 'hover:bg-slate-50 align-middle'}>
-                      <td className="px-2 py-1.5">
+                    <tr key={raci.id} className={duplicateRaciIds.has(raci.id) ? 'bg-red-50 ring-1 ring-inset ring-red-300' : 'align-middle hover:bg-slate-50'}>
+                      <td className="px-2 py-1.5 align-middle">
                         <SearchableSelect
-                          compact
+                          size="sm"
                           value={raci.userId}
                           options={employeeOptions}
                           onChange={(value) => handleUpdateRACI(raci.id, 'userId', value)}
                           disabled={isProjectEmployeeOptionsLoading || employees.length === 0}
-                          triggerClassName="w-full border border-slate-300 rounded focus:ring-primary focus:border-primary bg-white text-slate-900 h-[30px] text-xs px-2"
+                          className="w-full"
+                          triggerClassName={PROJECT_RACI_CONTROL_TRIGGER_CLASS_NAME}
                           dropdownClassName="min-w-[380px] max-w-[680px]"
                           usePortal
                         />
                       </td>
-                      <td className="px-2 py-1.5">
-                        <span className="block truncate text-xs font-medium text-slate-700" title={departmentTitle}>{departmentLabel}</span>
+                      <td className="px-2 py-1.5 align-middle">
+                        <div className={PROJECT_RACI_READONLY_BOX_CLASS_NAME} title={departmentTitle}>
+                          <span className="block w-full truncate">{departmentLabel}</span>
+                        </div>
                       </td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-1.5 align-middle">
                         <div className="flex items-center gap-1.5">
-                          <div className={`w-6 h-6 rounded flex items-center justify-center font-bold text-[10px] shrink-0 ${RACI_ROLES.find((role) => role.value === raci.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
+                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded font-bold text-[10px] ${RACI_ROLES.find((role) => role.value === raci.roleType)?.color || 'bg-slate-100 text-slate-700'}`}>
                             {raci.roleType}
                           </div>
                           <SearchableSelect
-                            compact
-                            className="flex-1"
+                            size="sm"
+                            className="min-w-0 flex-1"
                             value={raci.roleType}
                             options={RACI_ROLES.map((role) => ({ value: role.value, label: role.label }))}
                             onChange={(value) => handleUpdateRACI(raci.id, 'roleType', value)}
-                            triggerClassName="flex-1 border border-slate-300 rounded focus:ring-primary focus:border-primary bg-white text-slate-900 h-[30px] text-xs px-2"
+                            triggerClassName={PROJECT_RACI_CONTROL_TRIGGER_CLASS_NAME}
                             dropdownClassName="min-w-[200px] max-w-[320px]"
                             usePortal
                           />
                         </div>
                       </td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-1.5 align-middle">
                         <input
                           type="text"
-                          className="w-full h-[30px] text-xs border border-slate-300 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary bg-white text-slate-900 px-2 text-center outline-none"
+                          className={PROJECT_RACI_DATE_INPUT_CLASS_NAME}
                           value={raci.assignedDate}
                           onChange={(e) => handleUpdateRACI(raci.id, 'assignedDate', e.target.value)}
                           onBlur={() => handleRaciAssignedDateBlur(raci.id)}
                           placeholder="dd/mm/yyyy"
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyRACI(raci.id)}
-                          title="Sao chép dòng này"
-                          className="rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveRACI(raci.id)}
-                          title="Xóa"
-                          className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                        </button>
+                      <td className="px-2 py-1.5 align-middle text-center">
+                        <div className="flex h-8 items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyRACI(raci.id)}
+                            title="Sao chép dòng này"
+                            className="rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRACI(raci.id)}
+                            title="Xóa"
+                            className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -530,6 +790,73 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
           </table>
         </div>
       </div>
+
+      {showAccountableConfirm && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={dismissAccountableConfirm}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-accountable-confirm-title"
+            className="relative w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/10">
+                <span className="material-symbols-outlined text-warning" style={{ fontSize: 20 }}>
+                  warning
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h4
+                  id="project-accountable-confirm-title"
+                  className="text-sm font-bold text-slate-800"
+                >
+                  Đã tồn tại người chịu trách nhiệm (A)
+                </h4>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  {existingAccountableLabel
+                    ? `Hiện tại ${existingAccountableLabel} đang giữ vai trò A trong dự án này.`
+                    : 'Dự án này đã có một người đang giữ vai trò A.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Đóng cảnh báo thay người chịu trách nhiệm A"
+                onClick={dismissAccountableConfirm}
+                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  close
+                </span>
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-xs leading-5 text-slate-500">
+                Bạn muốn tiếp tục thay đổi vai trò hay huỷ thao tác để giữ nguyên phân công hiện tại?
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={dismissAccountableConfirm}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                Huỷ thao tác
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmAccountableReplacement}
+                className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-deep-teal"
+              >
+                Tiếp tục
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

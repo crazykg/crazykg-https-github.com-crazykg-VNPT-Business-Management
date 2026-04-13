@@ -1,16 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEscKey } from '../hooks/useEscKey';
-import { Product, Business, Vendor, ModalType, Customer, Attachment } from '../types';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
+import { Product, ProductPackage, Business, Vendor, ModalType, Customer, Attachment } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { ProductQuotationTab } from './ProductQuotationTab';
 import { SearchableSelect } from './SearchableSelect';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
-import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
-import {
-  formatProductUnitForDisplay,
-  formatProductUnitForExport,
-} from '../utils/productUnit';
+import { exportCsv, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import {
   getProductServiceGroupLabel,
   getProductServiceGroupMeta,
@@ -20,9 +17,14 @@ import {
   PRODUCT_SERVICE_GROUP_OPTIONS,
   PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
 } from '../utils/productServiceGroup';
+import {
+  readPersistedProductListUiState,
+  writePersistedProductListUiState,
+} from '../shared/stores/productListUiState';
 
 interface ProductListProps {
   products: Product[];
+  productPackages?: ProductPackage[];
   businesses: Business[];
   vendors: Vendor[];
   customers?: Customer[];
@@ -38,14 +40,10 @@ interface ProductListProps {
 type ProductTableColumnKey =
   | 'stt'
   | 'product_code'
-  | 'package_name'
   | 'description'
-  | 'standard_price'
   | 'service_group'
   | 'product_name'
-  | 'domain_id'
   | 'vendor_id'
-  | 'unit'
   | 'is_active'
   | 'actions';
 
@@ -60,10 +58,11 @@ interface ProductTableColumn {
 
 type ProductModuleView = 'catalog' | 'quote';
 type ProductStatusFilter = 'ACTIVE' | 'INACTIVE';
+type ProductCatalogDisplayMode = 'table' | 'list';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_ROWS_PER_PAGE = 10;
-const PRODUCT_TABLE_MIN_WIDTH = 1636;
+const PRODUCT_TABLE_MIN_WIDTH = 960;
 const PRODUCT_DESKTOP_VIEWPORT_BREAKPOINT = 1280;
 const PRODUCT_HEADER_LAYOUT_BREAKPOINT = 1280;
 const PRODUCT_FILTER_LAYOUT_BREAKPOINT = 1040;
@@ -73,26 +72,35 @@ const PRODUCT_QUERY_KEYS = {
   status: 'products_status',
   domain: 'products_domain_id',
   serviceGroup: 'products_service_group',
+  display: 'products_display',
   sortKey: 'products_sort_key',
   sortDirection: 'products_sort_dir',
   page: 'products_page',
   rows: 'products_rows',
 } as const;
 
+const PRODUCT_CATALOG_DISPLAY_OPTIONS: Array<{
+  value: ProductCatalogDisplayMode;
+  label: string;
+  icon: string;
+}> = [
+  { value: 'table', label: 'Bảng', icon: 'table_rows' },
+  { value: 'list', label: 'Danh sách', icon: 'view_list' },
+];
+
 const toLookupKey = (value: unknown): string => String(value ?? '').trim();
 const normalizeProductStatusFilter = (value: string | null): ProductStatusFilter =>
   value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
+const normalizeProductCatalogDisplayMode = (value: string | null): ProductCatalogDisplayMode =>
+  value === 'list' ? 'list' : 'table';
+
 const PRODUCT_SORTABLE_KEYS: Array<keyof Product> = [
   'product_code',
-  'package_name',
   'description',
-  'standard_price',
   'service_group',
   'product_name',
-  'domain_id',
   'vendor_id',
-  'unit',
   'is_active',
 ];
 
@@ -132,55 +140,89 @@ const getBusinessDisplayName = (business: Business): string => {
   return domainCode || '-';
 };
 
-const getProductPackageSearchLabel = (product: Product): string => {
-  const packageName = String(product?.package_name ?? '').trim();
-  if (packageName) {
-    return packageName;
-  }
-
-  const productName = String(product?.product_name ?? '').trim();
-  return productName || '—';
+const getBusinessCompactName = (business: Business): string => {
+  const displayName = getBusinessDisplayName(business);
+  const compactName = displayName.replace(/^Phần mềm\s+/iu, '').trim();
+  return compactName || displayName;
 };
 
-const PRODUCT_TEMPLATE_HEADERS = [
-  'Mã nhóm',
-  'Mã sản phẩm',
+const getProductShortName = (product: Product): string => String(product?.product_short_name ?? '').trim();
+
+const getProductPackageAvailabilityMeta = (product: Product) =>
+  product?.has_product_packages
+    ? {
+        label: 'Có gói cước',
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      }
+    : {
+        label: 'Chưa có gói cước',
+        className: 'border-slate-200 bg-slate-100 text-slate-600',
+      };
+
+const PRODUCT_IMPORT_EXPORT_HEADERS = [
+  'Mã định danh',
   'Tên sản phẩm',
-  'Gói cước',
+  'Mô tả',
+  'Mã nhóm dịch vụ',
+  'Tên viết tắt',
   'Mã lĩnh vực',
   'Mã nhà cung cấp',
-  'Đơn giá chuẩn (VNĐ)',
-  'Đơn vị tính',
   'Trạng thái',
-  'Mô tả gói cước',
 ];
 
-const PRODUCT_SPREADSHEET_EXPORT_HEADERS = [
-  'Mã nhóm',
-  'Tên nhóm',
-  'Mã sản phẩm',
-  'Tên sản phẩm',
-  'Gói cước',
-  'Mã lĩnh vực',
-  'Tên lĩnh vực',
-  'Mã nhà cung cấp',
-  'Tên nhà cung cấp',
-  'Đơn giá chuẩn (VNĐ)',
-  'Đơn vị tính',
-  'Trạng thái',
-  'Mô tả gói cước',
+const PRODUCT_TEMPLATE_HEADERS = [...PRODUCT_IMPORT_EXPORT_HEADERS];
+
+const PRODUCT_SPREADSHEET_EXPORT_HEADERS = [...PRODUCT_IMPORT_EXPORT_HEADERS];
+
+const PRODUCT_TEMPLATE_GUIDE_ROWS = [
+  ['Mã định danh', 'Bắt buộc', 'Mã nhận diện duy nhất của sản phẩm. Ví dụ: VNPT_HIS'],
+  ['Tên sản phẩm', 'Bắt buộc', 'Tên hiển thị của sản phẩm.'],
+  ['Mô tả', 'Không bắt buộc', 'Mô tả ngắn về sản phẩm hoặc phạm vi cung cấp.'],
+  ['Mã nhóm dịch vụ', 'Không bắt buộc', 'Nhập GROUP_A, GROUP_B, GROUP_C hoặc tên nhóm tương ứng.'],
+  ['Tên viết tắt', 'Không bắt buộc', 'Tên ngắn gọn để tìm kiếm nội bộ.'],
+  ['Mã lĩnh vực', 'Bắt buộc', 'Dùng mã lĩnh vực có trong sheet LinhVuc.'],
+  ['Mã nhà cung cấp', 'Bắt buộc', 'Dùng mã nhà cung cấp có trong sheet NhaCungCap.'],
+  ['Trạng thái', 'Không bắt buộc', 'Hoạt động hoặc Ngưng hoạt động. Để trống mặc định là Hoạt động.'],
 ];
 
 const PRODUCT_PDF_EXPORT_HEADERS = [
   'Nhóm dịch vụ',
-  'Mã SP',
+  'Mã định danh',
   'Tên sản phẩm',
-  'Gói cước',
   'Lĩnh vực KD',
   'Nhà cung cấp',
-  'Đơn vị tính',
-  'Đơn giá',
   'Trạng thái',
+];
+
+const buildProductReferenceSheets = (businesses: Business[], vendors: Vendor[]) => [
+  {
+    name: 'HuongDan',
+    headers: ['Cột dữ liệu', 'Bắt buộc', 'Hướng dẫn nhập'],
+    rows: PRODUCT_TEMPLATE_GUIDE_ROWS,
+  },
+  {
+    name: 'NhomDichVu',
+    headers: ['Mã nhóm', 'Tên nhóm'],
+    rows: PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
+  },
+  {
+    name: 'TrangThai',
+    headers: ['Giá trị nhập', 'Ý nghĩa'],
+    rows: [
+      ['Hoạt động', 'Sản phẩm còn áp dụng'],
+      ['Ngưng hoạt động', 'Sản phẩm tạm dừng hoặc ngừng kinh doanh'],
+    ],
+  },
+  {
+    name: 'LinhVuc',
+    headers: ['ID', 'Mã lĩnh vực', 'Tên lĩnh vực'],
+    rows: (businesses || []).map((business) => [business.id, business.domain_code, business.domain_name]),
+  },
+  {
+    name: 'NhaCungCap',
+    headers: ['ID', 'Mã nhà cung cấp', 'Tên nhà cung cấp'],
+    rows: (vendors || []).map((vendor) => [vendor.id, vendor.vendor_code, vendor.vendor_name]),
+  },
 ];
 
 const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
@@ -194,35 +236,11 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
   },
   {
     key: 'product_code',
-    label: 'Mã SP',
-    sortable: true,
-    colStyle: { width: 112, minWidth: 112 },
-    headerClassName: 'w-[112px] min-w-[112px] whitespace-nowrap px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[112px] min-w-[112px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs font-semibold leading-5 text-slate-700',
-  },
-  {
-    key: 'package_name',
-    label: 'Gói cước',
+    label: 'Mã định danh',
     sortable: true,
     colStyle: { width: 144, minWidth: 144 },
     headerClassName: 'w-[144px] min-w-[144px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[144px] min-w-[144px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
-  },
-  {
-    key: 'description',
-    label: 'Mô tả gói cước',
-    sortable: true,
-    colStyle: { width: 200, minWidth: 200 },
-    headerClassName: 'w-[200px] min-w-[200px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
-  },
-  {
-    key: 'standard_price',
-    label: 'Đơn giá',
-    sortable: true,
-    colStyle: { width: 136, minWidth: 136 },
-    headerClassName: 'w-[136px] min-w-[136px] whitespace-nowrap pl-3 pr-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[136px] min-w-[136px] whitespace-nowrap pl-3 pr-4 py-1.5 text-right align-middle text-xs font-bold text-slate-900',
+    cellClassName: 'w-[144px] min-w-[144px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs font-semibold leading-5 text-slate-700',
   },
   {
     key: 'product_name',
@@ -233,36 +251,28 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
     cellClassName: 'w-[240px] min-w-[240px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs font-semibold leading-5 text-slate-900',
   },
   {
-    key: 'service_group',
-    label: 'Nhóm dịch vụ',
+    key: 'description',
+    label: 'Mô tả',
     sortable: true,
-    colStyle: { width: 112, minWidth: 112 },
-    headerClassName: 'w-[112px] min-w-[112px] whitespace-nowrap pl-4 pr-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[112px] min-w-[112px] whitespace-nowrap pl-4 pr-3 py-1.5 align-middle text-xs',
+    colStyle: { width: 200, minWidth: 200 },
+    headerClassName: 'hidden xl:table-cell w-[200px] min-w-[200px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'hidden xl:table-cell w-[200px] min-w-[200px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
-    key: 'domain_id',
-    label: 'Lĩnh vực KD',
+    key: 'service_group',
+    label: 'Phân nhóm',
     sortable: true,
-    colStyle: { width: 144, minWidth: 144 },
-    headerClassName: 'w-[144px] min-w-[144px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[144px] min-w-[144px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
+    colStyle: { width: 168, minWidth: 168 },
+    headerClassName: 'hidden lg:table-cell w-[168px] min-w-[168px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'hidden lg:table-cell w-[168px] min-w-[168px] px-3 py-1.5 align-middle text-xs',
   },
   {
     key: 'vendor_id',
     label: 'Nhà cung cấp',
     sortable: true,
     colStyle: { width: 168, minWidth: 168 },
-    headerClassName: 'w-[168px] min-w-[168px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[168px] min-w-[168px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
-  },
-  {
-    key: 'unit',
-    label: 'Đơn vị tính',
-    sortable: true,
-    colStyle: { width: 96, minWidth: 96 },
-    headerClassName: 'w-[96px] min-w-[96px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
-    cellClassName: 'w-[96px] min-w-[96px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
+    headerClassName: 'hidden md:table-cell w-[168px] min-w-[168px] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500',
+    cellClassName: 'hidden md:table-cell w-[168px] min-w-[168px] overflow-hidden whitespace-normal break-words [overflow-wrap:anywhere] px-3 py-1.5 align-middle text-xs leading-5 text-slate-600',
   },
   {
     key: 'is_active',
@@ -284,6 +294,7 @@ const BASE_PRODUCT_TABLE_COLUMNS: ProductTableColumn[] = [
 
 export const ProductList: React.FC<ProductListProps> = ({
   products = [],
+  productPackages = [],
   businesses = [],
   vendors = [],
   customers = [],
@@ -304,6 +315,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         statusFilter: 'ACTIVE' as ProductStatusFilter,
         domainFilterId: '',
         serviceGroupFilterId: '',
+        catalogDisplayMode: 'table' as ProductCatalogDisplayMode,
         currentPage: DEFAULT_PAGE,
         rowsPerPage: DEFAULT_ROWS_PER_PAGE,
         sortConfig: null as { key: keyof Product; direction: 'asc' | 'desc' } | null,
@@ -311,6 +323,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     }
 
     const params = new URLSearchParams(window.location.search);
+    const persistedUiState = readPersistedProductListUiState();
     const sortKey = params.get(PRODUCT_QUERY_KEYS.sortKey);
     const sortDirectionRaw = params.get(PRODUCT_QUERY_KEYS.sortDirection);
     const sortDirection: 'asc' | 'desc' = sortDirectionRaw === 'desc' ? 'desc' : 'asc';
@@ -321,8 +334,15 @@ export const ProductList: React.FC<ProductListProps> = ({
       statusFilter: normalizeProductStatusFilter(params.get(PRODUCT_QUERY_KEYS.status)),
       domainFilterId: params.get(PRODUCT_QUERY_KEYS.domain) ?? '',
       serviceGroupFilterId: isProductServiceGroupCode(serviceGroupFromQuery) ? serviceGroupFromQuery : '',
-      currentPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.page), DEFAULT_PAGE),
-      rowsPerPage: parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.rows), DEFAULT_ROWS_PER_PAGE),
+      catalogDisplayMode: params.has(PRODUCT_QUERY_KEYS.display)
+        ? normalizeProductCatalogDisplayMode(params.get(PRODUCT_QUERY_KEYS.display))
+        : (persistedUiState.catalogDisplayMode ?? 'table'),
+      currentPage: params.has(PRODUCT_QUERY_KEYS.page)
+        ? parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.page), DEFAULT_PAGE)
+        : (persistedUiState.currentPage ?? DEFAULT_PAGE),
+      rowsPerPage: params.has(PRODUCT_QUERY_KEYS.rows)
+        ? parsePositiveNumber(params.get(PRODUCT_QUERY_KEYS.rows), DEFAULT_ROWS_PER_PAGE)
+        : (persistedUiState.rowsPerPage ?? DEFAULT_ROWS_PER_PAGE),
       sortConfig: isProductSortableKey(sortKey) ? { key: sortKey, direction: sortDirection } : null,
     };
   }, []);
@@ -332,6 +352,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>(initialQueryState.statusFilter);
   const [domainFilterId, setDomainFilterId] = useState(initialQueryState.domainFilterId);
   const [serviceGroupFilterId, setServiceGroupFilterId] = useState(initialQueryState.serviceGroupFilterId);
+  const [catalogDisplayMode, setCatalogDisplayMode] = useState<ProductCatalogDisplayMode>(initialQueryState.catalogDisplayMode);
   const [currentPage, setCurrentPage] = useState(initialQueryState.currentPage);
   const [rowsPerPage, setRowsPerPage] = useState(initialQueryState.rowsPerPage);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>(
@@ -355,6 +376,8 @@ export const ProductList: React.FC<ProductListProps> = ({
   const swipeTouchStartY = React.useRef<number>(0);
   // Scroll-to-top: show button after scrolling 300px
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
 
   useEscKey(() => {
     setShowImportMenu(false);
@@ -362,6 +385,23 @@ export const ProductList: React.FC<ProductListProps> = ({
     setShowCompactKpiPanel(false);
     setSwipedCardId(null);
   }, showImportMenu || showExportMenu || showCompactKpiPanel || swipedCardId !== null);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_PRODUCT'),
+    onUpdate: () => {
+      if (selectedRowId) {
+        const item = (products ?? []).find((p) => String(p.id) === String(selectedRowId));
+        if (item) onOpenModal('EDIT_PRODUCT', item);
+      }
+    },
+    onDelete: () => {
+      if (selectedRowId) {
+        const item = (products ?? []).find((p) => String(p.id) === String(selectedRowId));
+        if (item) onOpenModal('DELETE_PRODUCT', item);
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -423,6 +463,9 @@ export const ProductList: React.FC<ProductListProps> = ({
   const isWideDesktopFilterLayout = isDesktopViewport && contentWidth >= PRODUCT_FILTER_LAYOUT_BREAKPOINT;
   const isCompactKpiLayout = viewportWidth < 1024;
   const isPhoneWidth = viewportWidth < 640;
+  const showCatalogDisplayModeToggle = activeView === 'catalog' && isDesktopCatalogLayout;
+  const showDesktopTableSurface = isDesktopCatalogLayout && catalogDisplayMode === 'table';
+  const showCatalogListSurface = !isDesktopCatalogLayout || catalogDisplayMode === 'list';
   const hasActiveFilters = searchTerm.trim() !== '' || statusFilter !== 'ACTIVE' || domainFilterId !== '' || serviceGroupFilterId !== '';
 
   const businessById = useMemo(
@@ -459,6 +502,20 @@ export const ProductList: React.FC<ProductListProps> = ({
     return getBusinessDisplayName(business);
   };
 
+  const getCompactDomainName = (id: string | number | null | undefined): string => {
+    const key = toLookupKey(id);
+    if (!key) {
+      return '-';
+    }
+
+    const business = businessById.get(key);
+    if (!business) {
+      return '-';
+    }
+
+    return getBusinessCompactName(business);
+  };
+
   const getVendorName = (id: string | number | null | undefined): string => {
     const key = toLookupKey(id);
     if (!key) {
@@ -471,23 +528,6 @@ export const ProductList: React.FC<ProductListProps> = ({
     return `${vendor.vendor_code} - ${vendor.vendor_name}`;
   };
 
-  const formatVnd = (value: unknown, options?: { suffix?: boolean }): string => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-      return options?.suffix === false ? '0' : '0 đ';
-    }
-
-    const hasDecimal = Math.abs(numeric % 1) > 0;
-    const formatted = numeric.toLocaleString('vi-VN', {
-      minimumFractionDigits: hasDecimal ? 2 : 0,
-      maximumFractionDigits: 2,
-    });
-
-    return options?.suffix === false ? formatted : `${formatted} đ`;
-  };
-
-  const formatVndFull = (value: unknown): string => formatVnd(value).replace(/ đ$/, ' đồng');
-
   const visibleTableColumns = useMemo(
     () => BASE_PRODUCT_TABLE_COLUMNS.filter((column) => showActionColumn || column.key !== 'actions'),
     [showActionColumn]
@@ -496,30 +536,51 @@ export const ProductList: React.FC<ProductListProps> = ({
   const renderDesktopTableCell = (column: ProductTableColumn, item: Product, stt: number) => {
     const isActive = item.is_active !== false;
     const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+    const packageAvailabilityMeta = getProductPackageAvailabilityMeta(item);
 
     switch (column.key) {
       case 'stt':
         return <td className={column.cellClassName}>{stt}</td>;
       case 'product_code':
         return <td className={column.cellClassName}>{item.product_code}</td>;
-      case 'product_name':
-        return <td className={column.cellClassName}>{item.product_name}</td>;
+      case 'product_name': {
+        const shortName = getProductShortName(item);
+        return (
+          <td className={column.cellClassName}>
+            <div className="flex flex-col gap-1">
+              <span>{item.product_name}</span>
+              {shortName ? <span className="text-[11px] font-medium text-slate-500">{shortName}</span> : null}
+              <span className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[10px] font-semibold ${packageAvailabilityMeta.className}`}>
+                {packageAvailabilityMeta.label}
+              </span>
+            </div>
+          </td>
+        );
+      }
       case 'service_group':
         return (
           <td className={column.cellClassName}>
-            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
-              {getProductServiceGroupShortLabel(item.service_group)}
-            </span>
+            <div className="flex flex-wrap items-center gap-1.5 leading-5">
+              <span className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
+                {getProductServiceGroupShortLabel(item.service_group)}
+              </span>
+              <span
+                aria-hidden="true"
+                className="text-[11px] font-semibold text-slate-300"
+              >
+                /
+              </span>
+              <span
+                className="text-[11px] font-semibold text-slate-700"
+                title={getDomainName(item.domain_id)}
+              >
+                {getCompactDomainName(item.domain_id)}
+              </span>
+            </div>
           </td>
         );
-      case 'package_name':
-        return <td className={column.cellClassName}>{getProductPackageSearchLabel(item)}</td>;
       case 'description':
         return <td className={column.cellClassName}>{String(item.description || '').trim() || '—'}</td>;
-      case 'standard_price':
-        return <td className={column.cellClassName}>{formatVnd(item.standard_price, { suffix: false })}</td>;
-      case 'domain_id':
-        return <td className={column.cellClassName}>{getDomainName(item.domain_id)}</td>;
       case 'vendor_id':
         return (
           <td className={column.cellClassName}>
@@ -528,8 +589,6 @@ export const ProductList: React.FC<ProductListProps> = ({
             </div>
           </td>
         );
-      case 'unit':
-        return <td className={column.cellClassName}>{formatProductUnitForDisplay(item.unit)}</td>;
       case 'is_active':
         return (
           <td className={column.cellClassName}>
@@ -553,10 +612,6 @@ export const ProductList: React.FC<ProductListProps> = ({
     }
   };
 
-  const activeCount = useMemo(
-    () => (products || []).filter((product) => product.is_active !== false).length,
-    [products]
-  );
   const summaryCards = useMemo(
     () => [
       {
@@ -568,17 +623,8 @@ export const ProductList: React.FC<ProductListProps> = ({
         iconToneClassName: 'bg-secondary/15',
         iconTextClassName: 'text-secondary',
       },
-      {
-        id: 'active',
-        label: 'Hoạt động',
-        value: activeCount,
-        helper: 'đang áp dụng',
-        iconName: 'check_circle',
-        iconToneClassName: 'bg-secondary/15',
-        iconTextClassName: 'text-success',
-      },
     ],
-    [activeCount, products.length]
+    [products.length]
   );
 
   const serviceGroupStats = useMemo(
@@ -636,11 +682,20 @@ export const ProductList: React.FC<ProductListProps> = ({
   const filteredProducts = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     let result = (products || []).filter((product) => {
-      const packageSearchLabel = getProductPackageSearchLabel(product).toLowerCase();
+      const productName = String(product.product_name || '').toLowerCase();
+      const productDescription = String(product.description || '').toLowerCase();
+      const serviceGroupLabel = getProductServiceGroupShortLabel(product.service_group).toLowerCase();
+      const domainName = getDomainName(product.domain_id).toLowerCase();
+      const compactDomainName = getCompactDomainName(product.domain_id).toLowerCase();
       const matchesSearch =
         normalizedSearch === '' ||
-        packageSearchLabel.includes(normalizedSearch) ||
-        String(product.product_code || '').toLowerCase().includes(normalizedSearch);
+        productName.includes(normalizedSearch) ||
+        String(product.product_code || '').toLowerCase().includes(normalizedSearch) ||
+        getProductShortName(product).toLowerCase().includes(normalizedSearch) ||
+        productDescription.includes(normalizedSearch) ||
+        serviceGroupLabel.includes(normalizedSearch) ||
+        domainName.includes(normalizedSearch) ||
+        compactDomainName.includes(normalizedSearch);
       const matchesStatus =
         statusFilter === 'ACTIVE'
           ? product.is_active !== false
@@ -664,23 +719,14 @@ export const ProductList: React.FC<ProductListProps> = ({
         let bValue = normalizeSortableValue(b[sortConfig.key]);
 
         if (sortConfig.key === 'service_group') {
-          aValue = getProductServiceGroupLabel(a.service_group);
-          bValue = getProductServiceGroupLabel(b.service_group);
-        } else if (sortConfig.key === 'package_name') {
-          aValue = getProductPackageSearchLabel(a);
-          bValue = getProductPackageSearchLabel(b);
+          aValue = `${getProductServiceGroupLabel(a.service_group)} ${getCompactDomainName(a.domain_id)}`;
+          bValue = `${getProductServiceGroupLabel(b.service_group)} ${getCompactDomainName(b.domain_id)}`;
         } else if (sortConfig.key === 'description') {
           aValue = String(a.description || '');
           bValue = String(b.description || '');
-        } else if (sortConfig.key === 'domain_id') {
-          aValue = getDomainName(a.domain_id);
-          bValue = getDomainName(b.domain_id);
         } else if (sortConfig.key === 'vendor_id') {
           aValue = getVendorName(a.vendor_id);
           bValue = getVendorName(b.vendor_id);
-        } else if (sortConfig.key === 'unit') {
-          aValue = formatProductUnitForDisplay(a.unit);
-          bValue = formatProductUnitForDisplay(b.unit);
         } else if (sortConfig.key === 'is_active') {
           aValue = a.is_active !== false ? 1 : 0;
           bValue = b.is_active !== false ? 1 : 0;
@@ -730,6 +776,14 @@ export const ProductList: React.FC<ProductListProps> = ({
   }, [currentPage, totalPages]);
 
   useEffect(() => {
+    writePersistedProductListUiState({
+      catalogDisplayMode,
+      currentPage,
+      rowsPerPage,
+    });
+  }, [catalogDisplayMode, currentPage, rowsPerPage]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -744,12 +798,13 @@ export const ProductList: React.FC<ProductListProps> = ({
     };
 
     params.delete('products_view');
+    params.delete(PRODUCT_QUERY_KEYS.display);
+    params.delete(PRODUCT_QUERY_KEYS.page);
+    params.delete(PRODUCT_QUERY_KEYS.rows);
     syncQueryValue(PRODUCT_QUERY_KEYS.search, searchTerm.trim());
     syncQueryValue(PRODUCT_QUERY_KEYS.status, statusFilter, 'ACTIVE');
     syncQueryValue(PRODUCT_QUERY_KEYS.domain, domainFilterId);
     syncQueryValue(PRODUCT_QUERY_KEYS.serviceGroup, serviceGroupFilterId);
-    syncQueryValue(PRODUCT_QUERY_KEYS.page, String(currentPage), String(DEFAULT_PAGE));
-    syncQueryValue(PRODUCT_QUERY_KEYS.rows, String(rowsPerPage), String(DEFAULT_ROWS_PER_PAGE));
     syncQueryValue(PRODUCT_QUERY_KEYS.sortKey, sortConfig?.key ? String(sortConfig.key) : '');
     syncQueryValue(PRODUCT_QUERY_KEYS.sortDirection, sortConfig?.direction || '');
 
@@ -765,7 +820,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         { replace: true }
       );
     }
-  }, [searchTerm, statusFilter, domainFilterId, serviceGroupFilterId, currentPage, rowsPerPage, sortConfig, location.pathname, location.search, location.hash, navigate]);
+  }, [searchTerm, statusFilter, domainFilterId, serviceGroupFilterId, catalogDisplayMode, currentPage, rowsPerPage, sortConfig, location.pathname, location.search, location.hash, navigate]);
 
   const currentData = filteredProducts.slice(
     (effectiveCurrentPage - 1) * rowsPerPage,
@@ -801,6 +856,22 @@ export const ProductList: React.FC<ProductListProps> = ({
     return <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 14 }}>unfold_more</span>;
   };
 
+  const buildImportExportSpreadsheetRow = (row: Product) => {
+    const business = businessById.get(toLookupKey(row.domain_id));
+    const vendor = vendorById.get(toLookupKey(row.vendor_id));
+
+    return [
+      row.product_code,
+      row.product_name,
+      String(row.description ?? '').trim(),
+      normalizeProductServiceGroup(row.service_group),
+      getProductShortName(row),
+      business?.domain_code || '',
+      vendor?.vendor_code || '',
+      row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
+    ];
+  };
+
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
     const defaultDomainCode = businesses?.[0]?.domain_code || 'KD001';
@@ -808,87 +879,49 @@ export const ProductList: React.FC<ProductListProps> = ({
 
     downloadExcelWorkbook('mau_nhap_san_pham', [
       {
-        name: 'Products',
+        name: 'SanPham',
         headers: PRODUCT_TEMPLATE_HEADERS,
         rows: [
           [
-            'GROUP_A',
             'VNPT_HIS',
             'Giải pháp VNPT HIS',
-            'Gói VNPT HIS 1',
+            'Nền tảng HIS phục vụ quản lý bệnh viện.',
+            'GROUP_A',
+            'HIS',
             defaultDomainCode,
             defaultVendorCode,
-            '150000000',
-            'Gói',
             'Hoạt động',
-            'Nền tảng HIS phục vụ quản lý bệnh viện.',
           ],
           [
-            'GROUP_B',
             'SOC_MONITOR',
             'Dịch vụ giám sát SOC',
-            'Gói SOC Monitor Pro',
+            'Gói giám sát an toàn thông tin chuyên sâu.',
+            'GROUP_B',
+            'SOC',
             defaultDomainCode,
             defaultVendorCode,
-            '80000000',
-            'Gói',
             'Ngưng hoạt động',
-            'Gói giám sát an toàn thông tin chuyên sâu.',
           ],
         ],
       },
-      {
-        name: 'NhomDichVu',
-        headers: ['Mã nhóm', 'Tên nhóm'],
-        rows: PRODUCT_SERVICE_GROUP_TEMPLATE_ROWS,
-      },
-      {
-        name: 'TrangThai',
-        headers: ['Giá trị nhập', 'Ý nghĩa'],
-        rows: [
-          ['Hoạt động', 'Sản phẩm còn áp dụng'],
-          ['Ngưng hoạt động', 'Sản phẩm tạm dừng hoặc ngừng kinh doanh'],
-        ],
-      },
-      {
-        name: 'LinhVuc',
-        headers: ['ID', 'Mã lĩnh vực', 'Tên lĩnh vực'],
-        rows: (businesses || []).map((business) => [business.id, business.domain_code, business.domain_name]),
-      },
-      {
-        name: 'NhaCungCap',
-        headers: ['ID', 'Mã nhà cung cấp', 'Tên nhà cung cấp'],
-        rows: (vendors || []).map((vendor) => [vendor.id, vendor.vendor_code, vendor.vendor_name]),
-      },
+      ...buildProductReferenceSheets(businesses, vendors),
     ]);
   };
 
   const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
     setShowExportMenu(false);
     const fileName = `ds_san_pham_${isoDateStamp()}`;
-    const spreadsheetRows = filteredProducts.map((row) => {
-      const business = businessById.get(toLookupKey(row.domain_id));
-      const vendor = vendorById.get(toLookupKey(row.vendor_id));
-
-      return [
-        normalizeProductServiceGroup(row.service_group),
-        getProductServiceGroupLabel(row.service_group),
-        row.product_code,
-        row.product_name,
-        String(row.package_name ?? '').trim(),
-        business?.domain_code || '',
-        business ? getBusinessDisplayName(business) : '',
-        vendor?.vendor_code || '',
-        vendor?.vendor_name || '',
-        Number.isFinite(Number(row.standard_price)) ? Number(row.standard_price) : 0,
-        formatProductUnitForExport(row.unit),
-        row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
-        String(row.description ?? '').trim(),
-      ];
-    });
+    const spreadsheetRows = filteredProducts.map(buildImportExportSpreadsheetRow);
 
     if (type === 'excel') {
-      exportExcel(fileName, 'SanPham', PRODUCT_SPREADSHEET_EXPORT_HEADERS, spreadsheetRows);
+      downloadExcelWorkbook(fileName, [
+        {
+          name: 'SanPham',
+          headers: PRODUCT_SPREADSHEET_EXPORT_HEADERS,
+          rows: spreadsheetRows,
+        },
+        ...buildProductReferenceSheets(businesses, vendors),
+      ]);
       return;
     }
 
@@ -901,11 +934,8 @@ export const ProductList: React.FC<ProductListProps> = ({
       getProductServiceGroupLabel(row.service_group),
       row.product_code,
       row.product_name,
-      String(row.package_name ?? '').trim(),
       getDomainName(row.domain_id),
       getVendorName(row.vendor_id),
-      formatProductUnitForExport(row.unit),
-      formatVnd(row.standard_price),
       row.is_active !== false ? 'Hoạt động' : 'Ngưng hoạt động',
     ]);
 
@@ -947,10 +977,13 @@ export const ProductList: React.FC<ProductListProps> = ({
 
   const isEmptyData = products.length === 0;
   const isEmptyFiltered = products.length > 0 && filteredProducts.length === 0;
+  const catalogCardListClassName = showCatalogListSurface && isDesktopCatalogLayout
+    ? 'grid grid-cols-1 gap-3 p-3'
+    : 'grid grid-cols-1 gap-3 p-3 md:grid-cols-2';
 
   // ── Skeleton card (loading state) ──
-  const renderSkeletonCards = () => (
-    <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
+  const renderSkeletonCards = (className = 'grid grid-cols-1 gap-3 p-3 md:grid-cols-2') => (
+    <div className={className}>
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="animate-pulse rounded-lg border border-slate-200 bg-white p-3">
           <div className="flex items-center gap-2 mb-2">
@@ -1006,15 +1039,6 @@ export const ProductList: React.FC<ProductListProps> = ({
       >
         <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
       </button>
-      {canEdit && (
-        <button
-          onClick={() => onOpenModal('PRODUCT_TARGET_SEGMENT', item)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-tertiary/30 hover:bg-slate-100 hover:text-tertiary"
-          title="Cấu hình đề xuất bán hàng"
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>target</span>
-        </button>
-      )}
       {canEdit && (
         <button
           onClick={() => onOpenModal('EDIT_PRODUCT', item)}
@@ -1079,7 +1103,7 @@ export const ProductList: React.FC<ProductListProps> = ({
       {/* ── Page header with tabs ── */}
       <div
         data-testid="products-toolbar"
-        className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between"
+        className="mb-3 flex flex-col gap-2 xl:-mx-3 xl:sticky xl:top-0 xl:z-20 xl:flex-row xl:items-center xl:justify-between xl:border-b xl:border-slate-200/70 xl:bg-[#f8f4eb]/95 xl:px-3 xl:py-3 xl:shadow-sm xl:backdrop-blur-sm"
       >
         {/* Title row */}
         <div className="flex items-center gap-2 xl:shrink-0">
@@ -1209,9 +1233,41 @@ export const ProductList: React.FC<ProductListProps> = ({
 
               </div>
 
+              {showCatalogDisplayModeToggle && (
+                <div
+                  className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5"
+                  role="group"
+                  aria-label="Chế độ hiển thị sản phẩm"
+                  data-testid="product-view-mode-toggle"
+                >
+                  {PRODUCT_CATALOG_DISPLAY_OPTIONS.map((option) => {
+                    const isActive = catalogDisplayMode === option.value;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setCatalogDisplayMode(option.value)}
+                        aria-pressed={isActive}
+                        data-testid={`product-view-mode-${option.value}`}
+                        className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                          isActive
+                            ? 'bg-white text-primary shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{option.icon}</span>
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {canEdit && (
                 <button
                   onClick={() => onOpenModal('ADD_PRODUCT')}
+                  title="Thêm sản phẩm (Ctrl+N / ⌘N)"
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 hover:bg-deep-teal"
                   style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                 >
@@ -1229,13 +1285,14 @@ export const ProductList: React.FC<ProductListProps> = ({
           currentUserId={currentUserId}
           customers={customers}
           products={products}
+          productPackages={productPackages}
           onNotify={onNotify}
         />
       ) : (
         <>
       {/* ── KPI strip ── */}
       {!isCompactKpiLayout && (
-        <div data-testid="products-kpi-grid" className="mb-3 grid grid-cols-2 gap-3 xl:grid-cols-5">
+        <div data-testid="products-kpi-grid" className="mb-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
           {summaryCards.map((item) => (
             <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between">
@@ -1289,10 +1346,11 @@ export const ProductList: React.FC<ProductListProps> = ({
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={searchInput}
                   onChange={(event) => { setSearchInput(event.target.value); }}
-                  placeholder="Tìm mã sản phẩm hoặc tên gói cước..."
+                  placeholder="Tìm mã định danh, tên sản phẩm, phân nhóm, tên viết tắt hoặc mô tả..."
                   className="h-8 w-full rounded border border-slate-300 bg-white pl-7 pr-3 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
                 />
               </div>
@@ -1389,241 +1447,250 @@ export const ProductList: React.FC<ProductListProps> = ({
 
         {filteredProducts.length === 0 ? (
           catalogEmptyState
-        ) : isDesktopCatalogLayout ? (
-          <div className="overflow-x-auto">
-            <table
-              className="w-full table-fixed border-collapse text-left"
-              style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
-            >
-              <colgroup>
-                {visibleTableColumns.map((column) => (
-                  <col key={column.key} style={column.colStyle} />
-                ))}
-              </colgroup>
-              <thead className="bg-slate-50">
-                <tr className="border-b border-slate-200">
-                  {visibleTableColumns.map((column) => (
-                    <th
-                      key={column.key}
-                      className={`${column.headerClassName} ${
-                        column.sortable ? 'cursor-pointer transition-colors hover:bg-slate-100' : ''
-                      } ${column.key === 'actions' ? 'sticky right-0 bg-slate-50' : ''}`}
-                      onClick={() => {
-                        if (column.sortable) {
-                          handleSort(column.key as keyof Product);
-                        }
-                      }}
-                    >
-                      {column.sortable ? (
-                        <div className={`flex items-center gap-1 ${column.key === 'standard_price' ? 'justify-end' : ''}`}>
-                          <span className="text-deep-teal">{column.label}</span>
-                          {renderSortIcon(column.key as keyof Product)}
-                        </div>
-                      ) : (
-                        column.label
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {currentData.map((item, index) => {
-                  const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
-
-                  return (
-                    <tr key={String(item.id || item.product_code)} className="transition-colors hover:bg-slate-50/80">
-                      {visibleTableColumns.map((column) => (
-                        <React.Fragment key={`${String(item.id || item.product_code)}-${column.key}`}>
-                          {renderDesktopTableCell(column, item, stt)}
-                        </React.Fragment>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          // isLoading prop không có trực tiếp ở đây, dùng products.length === 0 && !isEmptyData làm proxy
-          // → skeleton render khi chuyển filter và currentData tạm trống
-          currentData.length === 0 && !isEmptyFiltered && !isEmptyData ? (
-            renderSkeletonCards()
-          ) : (
-          <div data-testid="product-catalog-card-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2">
-            {currentData.map((item) => {
-              const isActive = item.is_active !== false;
-              const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
-              const productDescription = String(item.description || '').trim() || '—';
-              const packageName = getProductPackageSearchLabel(item);
-              const cardId = getCompactCardId(item);
-              const isDetailsExpanded = expandedCompactCardIds.includes(cardId);
-              const isSwipeOpen = swipedCardId === cardId;
-              const domainName = getDomainName(item.domain_id);
-              const vendorName = getVendorName(item.vendor_id);
-              const unitLabel = formatProductUnitForDisplay(item.unit);
+          <>
+            <div
+              data-testid="product-table-view"
+              className={showDesktopTableSurface ? 'block' : 'hidden'}
+            >
+              {showDesktopTableSurface ? (
+                <div className="overflow-x-auto">
+                  <table
+                    className="w-full table-fixed border-collapse text-left"
+                    style={{ minWidth: PRODUCT_TABLE_MIN_WIDTH }}
+                  >
+                    <colgroup>
+                      {visibleTableColumns.map((column) => (
+                        <col key={column.key} style={column.colStyle} />
+                      ))}
+                    </colgroup>
+                    <thead className="bg-slate-50">
+                      <tr className="border-b border-slate-200">
+                        {visibleTableColumns.map((column) => (
+                          <th
+                            key={column.key}
+                            className={`${column.headerClassName} ${
+                              column.sortable ? 'cursor-pointer transition-colors hover:bg-slate-100' : ''
+                            } ${column.key === 'actions' ? 'sticky right-0 bg-slate-50' : ''}`}
+                            onClick={() => {
+                              if (column.sortable) {
+                                handleSort(column.key as keyof Product);
+                              }
+                            }}
+                          >
+                            {column.sortable ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-deep-teal">{column.label}</span>
+                                {renderSortIcon(column.key as keyof Product)}
+                              </div>
+                            ) : (
+                              column.label
+                            )}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {currentData.map((item, index) => {
+                        const stt = (effectiveCurrentPage - 1) * rowsPerPage + index + 1;
 
-              return (
-                <article
-                  key={String(item.id || item.product_code)}
-                  data-testid="product-catalog-card"
-                  className="relative overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
-                  onTouchStart={(e) => isPhoneWidth && handleSwipeTouchStart(e, cardId)}
-                  onTouchEnd={(e) => isPhoneWidth && handleSwipeTouchEnd(e, cardId)}
-                >
-                  {/* Swipe-to-action backdrop (phone only) */}
-                  {isSwipeOpen && isPhoneWidth && (
-                    <div
-                      className="absolute inset-0 z-10"
-                      onClick={() => setSwipedCardId(null)}
-                    />
-                  )}
+                        return (
+                          <tr
+                            key={String(item.id || item.product_code)}
+                            onClick={() => setSelectedRowId((prev) => (String(prev) === String(item.id) ? null : item.id))}
+                            className={`cursor-pointer transition-colors ${
+                              String(selectedRowId) === String(item.id)
+                                ? 'bg-secondary/10 ring-1 ring-inset ring-primary/30'
+                                : 'hover:bg-slate-50/80'
+                            }`}
+                          >
+                            {visibleTableColumns.map((column) => (
+                              <React.Fragment key={`${String(item.id || item.product_code)}-${column.key}`}>
+                                {renderDesktopTableCell(column, item, stt)}
+                              </React.Fragment>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
 
-                  {/* Swipe action strip — revealed when swiped left on phone */}
-                  {isPhoneWidth && (canEdit || canDelete) && (
-                    <div
-                      aria-hidden={!isSwipeOpen}
-                      className={`absolute right-0 top-0 z-20 flex h-full flex-col items-center justify-center gap-2 bg-white px-3 shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.08)] transition-transform duration-200 ${
-                        isSwipeOpen ? 'translate-x-0' : 'translate-x-full'
-                      }`}
-                    >
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => { setSwipedCardId(null); onOpenModal('EDIT_PRODUCT', item); }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
-                          aria-label="Chỉnh sửa"
+            <div
+              data-testid="product-list-view"
+              className={showCatalogListSurface ? 'block' : 'hidden'}
+            >
+              {showCatalogListSurface ? (
+                // isLoading prop không có trực tiếp ở đây, dùng products.length === 0 && !isEmptyData làm proxy
+                // → skeleton render khi chuyển filter và currentData tạm trống
+                currentData.length === 0 && !isEmptyFiltered && !isEmptyData ? (
+                  renderSkeletonCards(catalogCardListClassName)
+                ) : (
+                  <div data-testid="product-catalog-card-list" className={catalogCardListClassName}>
+                    {currentData.map((item) => {
+                      const isActive = item.is_active !== false;
+                      const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+                      const productDescription = String(item.description || '').trim() || '—';
+                      const cardId = getCompactCardId(item);
+                      const isDetailsExpanded = expandedCompactCardIds.includes(cardId);
+                      const isSwipeOpen = swipedCardId === cardId;
+                      const domainName = getDomainName(item.domain_id);
+                      const vendorName = getVendorName(item.vendor_id);
+                      const packageAvailabilityMeta = getProductPackageAvailabilityMeta(item);
+
+                      return (
+                        <article
+                          key={String(item.id || item.product_code)}
+                          data-testid="product-catalog-card"
+                          className="relative overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                          onTouchStart={(e) => isPhoneWidth && handleSwipeTouchStart(e, cardId)}
+                          onTouchEnd={(e) => isPhoneWidth && handleSwipeTouchEnd(e, cardId)}
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          type="button"
-                          onClick={() => { setSwipedCardId(null); onOpenModal('DELETE_PRODUCT', item); }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-red-100 bg-red-50/60 text-error transition-colors hover:bg-red-50 hover:border-error/30"
-                          aria-label="Xóa"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                          {/* Swipe-to-action backdrop (phone only) */}
+                          {isSwipeOpen && isPhoneWidth && (
+                            <div
+                              className="absolute inset-0 z-10"
+                              onClick={() => setSwipedCardId(null)}
+                            />
+                          )}
 
-                  {/* Card nội dung chính */}
-                  <div className={`p-3 transition-transform duration-200 ${isSwipeOpen && isPhoneWidth ? '-translate-x-16' : ''}`}>
-                    {/* Header — mã + badge, gói cước + status dot */}
-                    <div className="flex flex-col gap-1.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-xs font-medium leading-5 text-on-surface-variant">
-                            <span className="text-[10px] font-semibold text-neutral">Mã:</span>{' '}
-                            <span className="text-[13px] font-semibold text-deep-teal">{item.product_code}</span>
-                          </p>
-                          <span className={`inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
-                            {getProductServiceGroupShortLabel(item.service_group)}
-                          </span>
-                        </div>
-                        <div className="mt-1">
-                          <p className="text-xs leading-5 text-on-surface-variant line-clamp-2">
-                            <span className="text-[10px] font-semibold text-neutral">Gói cước:</span>{' '}
-                            <span className="text-[13px] font-semibold text-primary">{packageName}</span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                          {/* Swipe action strip — revealed when swiped left on phone */}
+                          {isPhoneWidth && (canEdit || canDelete) && (
+                            <div
+                              aria-hidden={!isSwipeOpen}
+                              className={`absolute right-0 top-0 z-20 flex h-full flex-col items-center justify-center gap-2 bg-white px-3 shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.08)] transition-transform duration-200 ${
+                                isSwipeOpen ? 'translate-x-0' : 'translate-x-full'
+                              }`}
+                            >
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setSwipedCardId(null); onOpenModal('EDIT_PRODUCT', item); }}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
+                                  aria-label="Chỉnh sửa"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
+                                </button>
+                              )}
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setSwipedCardId(null); onOpenModal('DELETE_PRODUCT', item); }}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded border border-red-100 bg-red-50/60 text-error transition-colors hover:bg-red-50 hover:border-error/30"
+                                  aria-label="Xóa"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
 
-                    {/* Thông tin chính */}
-                    <div className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                      <h3 className="mb-2 min-w-0 break-words text-[13px] font-bold leading-5 text-on-surface">
-                        {item.product_name}
-                      </h3>
-                      {isPhoneWidth ? (
-                        <div className="space-y-1 text-[11px] leading-5 text-on-surface-variant">
-                          <p className="min-w-0">
-                            <span className="font-semibold">ĐVT:</span>{' '}
-                            <span className="font-medium text-on-surface">{unitLabel}</span>
-                          </p>
-                          <p className="min-w-0">
-                            <span className="font-semibold">Đơn giá:</span>{' '}
-                            <span className="font-semibold text-deep-teal">{formatVndFull(item.standard_price)}</span>
-                          </p>
-                          <p className="min-w-0 break-words">
-                            <span className="font-semibold">Lĩnh vực KD:</span>{' '}
-                            <span className="font-medium text-on-surface">{domainName}</span>
-                          </p>
-                          <p className="min-w-0 break-words">
-                            <span className="font-semibold">Mô tả gói cước:</span>{' '}
-                            <span className="font-medium text-on-surface">{productDescription}</span>
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5 text-[11px] leading-5 text-on-surface-variant">
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="min-w-0">
-                              <span className="font-semibold">ĐVT:</span>{' '}
-                              <span className="font-medium text-on-surface">{unitLabel}</span>
-                            </p>
-                            <p className="min-w-0 shrink-0 text-right">
-                              <span className="font-semibold">Đơn giá:</span>{' '}
-                              <span className="font-semibold text-deep-teal">{formatVndFull(item.standard_price)}</span>
-                            </p>
+                          {/* Card nội dung chính */}
+                          <div className={`p-3 transition-transform duration-200 ${isSwipeOpen && isPhoneWidth ? '-translate-x-16' : ''}`}>
+                            {/* Header — mã định danh + badge */}
+                            <div className="flex flex-col gap-1.5">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="min-w-0 truncate text-xs font-medium leading-5 text-on-surface-variant">
+                                    <span className="text-[10px] font-semibold text-neutral">Mã định danh:</span>{' '}
+                                    <span className="text-[13px] font-semibold text-deep-teal">{item.product_code}</span>
+                                  </p>
+                                  <span className={`inline-flex shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
+                                    {getProductServiceGroupShortLabel(item.service_group)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Thông tin chính */}
+                            <div className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                              <h3 className="mb-2 min-w-0 break-words text-[13px] font-bold leading-5 text-on-surface">
+                                {item.product_name}
+                              </h3>
+                              {getProductShortName(item) ? (
+                                <p className="-mt-1 mb-2 min-w-0 break-words text-[11px] font-medium leading-4 text-slate-500">
+                                  {getProductShortName(item)}
+                                </p>
+                              ) : null}
+                              <div className="mb-2">
+                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${packageAvailabilityMeta.className}`}>
+                                  {packageAvailabilityMeta.label}
+                                </span>
+                              </div>
+                              {isPhoneWidth ? (
+                                <div className="space-y-1 text-[11px] leading-5 text-on-surface-variant">
+                                  <p className="min-w-0 break-words">
+                                    <span className="font-semibold">Lĩnh vực KD:</span>{' '}
+                                    <span className="font-medium text-on-surface">{domainName}</span>
+                                  </p>
+                                  <p className="min-w-0 break-words">
+                                    <span className="font-semibold">Mô tả:</span>{' '}
+                                    <span className="font-medium text-on-surface">{productDescription}</span>
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="space-y-1.5 text-[11px] leading-5 text-on-surface-variant">
+                                  <p className="min-w-0 break-words">
+                                    <span className="font-semibold">Lĩnh vực KD:</span>{' '}
+                                    <span className="font-medium text-on-surface">{domainName}</span>
+                                  </p>
+                                  <p className="min-w-0 break-words">
+                                    <span className="font-semibold">Mô tả:</span>{' '}
+                                    <span className="font-medium text-on-surface">{productDescription}</span>
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Toggle chi tiết */}
+                            <button
+                              type="button"
+                              data-testid={`product-catalog-card-toggle-${cardId}`}
+                              onClick={() => toggleCompactCardDetails(cardId)}
+                              aria-expanded={isDetailsExpanded}
+                              className="mt-2.5 inline-flex h-8 w-full items-center justify-between rounded border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                            >
+                              <span>{isDetailsExpanded ? 'Thu gọn chi tiết' : 'Xem chi tiết'}</span>
+                              <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 15 }}>
+                                {isDetailsExpanded ? 'expand_less' : 'expand_more'}
+                              </span>
+                            </button>
+
+                            {/* Chi tiết mở rộng */}
+                            {isDetailsExpanded && (
+                              <div
+                                data-testid={`product-catalog-card-details-${cardId}`}
+                                className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/70 p-3"
+                              >
+                                <p className="break-words text-xs leading-5 text-on-surface-variant">
+                                  <span className="font-semibold text-neutral">Nhà cung cấp:</span>{' '}
+                                  <span className="font-medium text-on-surface">{vendorName}</span>
+                                </p>
+                                <button
+                                  type="button"
+                                  data-testid={`product-catalog-card-feature-link-${cardId}`}
+                                  onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
+                                  className="mt-2 flex w-full items-center justify-between gap-3 border-t border-slate-200 pt-2 text-left text-xs text-on-surface-variant transition-colors hover:text-primary"
+                                >
+                                  <span className="min-w-0 break-words">
+                                    <span className="font-semibold text-neutral">Chức năng:</span>{' '}
+                                    <span className="font-medium text-on-surface">Xem danh mục chức năng</span>
+                                  </span>
+                                  <span className="material-symbols-outlined shrink-0 text-slate-400" style={{ fontSize: 15 }}>chevron_right</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          <p className="min-w-0 break-words">
-                            <span className="font-semibold">Lĩnh vực KD:</span>{' '}
-                            <span className="font-medium text-on-surface">{domainName}</span>
-                          </p>
-                          <p className="min-w-0 break-words">
-                            <span className="font-semibold">Mô tả gói cước:</span>{' '}
-                            <span className="font-medium text-on-surface">{productDescription}</span>
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Toggle chi tiết */}
-                    <button
-                      type="button"
-                      data-testid={`product-catalog-card-toggle-${cardId}`}
-                      onClick={() => toggleCompactCardDetails(cardId)}
-                      aria-expanded={isDetailsExpanded}
-                      className="mt-2.5 inline-flex h-8 w-full items-center justify-between rounded border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-                    >
-                      <span>{isDetailsExpanded ? 'Thu gọn chi tiết' : 'Xem chi tiết'}</span>
-                      <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 15 }}>
-                        {isDetailsExpanded ? 'expand_less' : 'expand_more'}
-                      </span>
-                    </button>
-
-                    {/* Chi tiết mở rộng */}
-                    {isDetailsExpanded && (
-                      <div
-                        data-testid={`product-catalog-card-details-${cardId}`}
-                        className="mt-2.5 rounded-lg border border-slate-100 bg-slate-50/70 p-3"
-                      >
-                        <p className="break-words text-xs leading-5 text-on-surface-variant">
-                          <span className="font-semibold text-neutral">Nhà cung cấp:</span>{' '}
-                          <span className="font-medium text-on-surface">{vendorName}</span>
-                        </p>
-                        <button
-                          type="button"
-                          data-testid={`product-catalog-card-feature-link-${cardId}`}
-                          onClick={() => onOpenModal('PRODUCT_FEATURE_CATALOG', item)}
-                          className="mt-2 flex w-full items-center justify-between gap-3 border-t border-slate-200 pt-2 text-left text-xs text-on-surface-variant transition-colors hover:text-primary"
-                        >
-                          <span className="min-w-0 break-words">
-                            <span className="font-semibold text-neutral">Chức năng:</span>{' '}
-                            <span className="font-medium text-on-surface">Xem danh mục chức năng</span>
-                          </span>
-                          <span className="material-symbols-outlined shrink-0 text-slate-400" style={{ fontSize: 15 }}>chevron_right</span>
-                        </button>
-                      </div>
-                    )}
+                        </article>
+                      );
+                    })}
                   </div>
-                </article>
-              );
-            })}
-          </div>
-          )
+                )
+              ) : null}
+            </div>
+          </>
         )}
 
         <PaginationControls

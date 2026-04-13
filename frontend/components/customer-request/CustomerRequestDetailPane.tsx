@@ -108,7 +108,7 @@ type CustomerRequestDetailPaneProps = {
   onOpenNotifyCustomerModal: () => void;
   canOpenWorklogModal: boolean;
   onOpenWorklogModal: () => void;
-  onOpenDetailStatusWorklogModal: (action: 'in_progress' | 'paused') => void;
+  onOpenDetailStatusWorklogModal: (action: 'in_progress' | 'paused' | 'completed') => void;
   onEditWorklog: (worklog: YeuCauWorklog) => void;
   isSubmittingWorklog: boolean;
   canOpenEstimateModal: boolean;
@@ -280,9 +280,29 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
   const transitionCtaLabel = 'Chuyển →';
-  const currentDetailStatus = normalizeText(processDetail?.current_detail_status).toLowerCase();
+  const rawDetailStatus = processDetail?.current_detail_status;
+  // Map Vietnamese status values to English equivalents
+  const mapVietnameseToEnglishStatus = (status: string | null | undefined): string => {
+    if (!status) return '';
+    const normalized = normalizeText(status).toLowerCase();
+    switch (normalized) {
+      case 'mở':
+        return 'open';
+      case 'đang thực hiện':
+        return 'in_progress';
+      case 'tạm ngưng':
+        return 'paused';
+      case 'hoàn thành':
+        return 'completed';
+      default:
+        return normalized; // Return as-is if not a known Vietnamese term
+    }
+  };
+  const currentDetailStatus = mapVietnameseToEnglishStatus(rawDetailStatus);
   const isDetailInProgress = currentDetailStatus === 'in_progress';
   const isDetailPaused = currentDetailStatus === 'paused';
+  const isDetailOpen = currentDetailStatus === 'open';
+  const isDetailCompleted = currentDetailStatus === 'completed';
   const quickStats = [
     { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
     { label: 'Tệp', value: formAttachments.length },
@@ -827,6 +847,17 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       <span className="material-symbols-outlined text-[16px]">pause_circle</span>
                       Tạm ngưng
                     </button>
+                    {/* {!isDetailOpen && !isDetailCompleted && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenDetailStatusWorklogModal('completed')}
+                        disabled={isSaving || isSubmittingWorklog}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        Hoàn thành text
+                      </button>
+                    )} */}
                   </>
                 ) : null}
 
@@ -841,16 +872,18 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
                 {canTransitionActiveRequest ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={onOpenTransitionModal}
-                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                      Hoàn thành
-                    </button>
-                    {canOpenCreatorFeedbackModal ? (
+                    {!isDetailOpen && (
+                      <button
+                        type="button"
+                        onClick={onOpenTransitionModal}
+                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+                        Hoàn thành
+                      </button>
+                    )}
+                    {/* {canOpenCreatorFeedbackModal ? (
                       <button
                         type="button"
                         onClick={onOpenCreatorFeedbackModal}
@@ -860,8 +893,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         <span className="material-symbols-outlined text-[16px]">fact_check</span>
                         Đánh giá KH
                       </button>
-                    ) : null}
-                    {canOpenNotifyCustomerModal ? (
+                    ) : null} */}
+                    {/* {canOpenNotifyCustomerModal ? (
                       <button
                         type="button"
                         onClick={onOpenNotifyCustomerModal}
@@ -871,30 +904,32 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         <span className="material-symbols-outlined text-[16px]">campaign</span>
                         Báo KH
                       </button>
-                    ) : null}
-                    <select
-                      value={transitionStatusCode}
-                      onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
-                      disabled={isSaving || !canTransitionActiveRequest}
-                      className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-                    >
-                      {transitionOptions.length > 0 ? (
-                        transitionOptions.map((option) => {
-                          const meta = resolveTransitionStatusMeta(option);
-                          return (
-                            <option key={option.process_code} value={option.process_code}>
-                              {meta.label}
-                            </option>
-                          );
-                        })
-                      ) : (
-                        <option value="">-- Không có bước tiếp theo --</option>
-                      )}
-                    </select>
+                    ) : null} */}
+                    {!isDetailOpen && (
+                      <select
+                        value={transitionStatusCode}
+                        onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                        disabled={isSaving || !canTransitionActiveRequest}
+                        className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                      >
+                        {transitionOptions.length > 0 ? (
+                          transitionOptions.map((option) => {
+                            const meta = resolveTransitionStatusMeta(option);
+                            return (
+                              <option key={option.process_code} value={option.process_code}>
+                                {meta.label}
+                              </option>
+                            );
+                          })
+                        ) : (
+                          <option value="">-- Không có bước tiếp theo --</option>
+                        )}
+                      </select>
+                    )}
                   </>
                 ) : null}
 
-                {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
+                {/* {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
                   <button
                     type="button"
                     onClick={onOpenCreatorFeedbackModal}
@@ -915,7 +950,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     <span className="material-symbols-outlined text-[16px]">campaign</span>
                     Báo KH
                   </button>
-                ) : null}
+                ) : null} */}
 
                 {canTransitionActiveRequest && transitionOptions.length === 0 ? (
                   <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>

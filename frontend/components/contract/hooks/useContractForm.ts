@@ -6,8 +6,11 @@ import type {
   ContractItem,
   ContractTermUnit,
   Product,
+  ProductPackage,
   Project,
+  ProjectItemMaster,
 } from '../../../types';
+import { parseContractItemCatalogValue } from '../contractItemCatalogUtils';
 
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
 
@@ -15,9 +18,11 @@ interface UseContractFormParams {
   type: 'ADD' | 'EDIT';
   data?: Contract | null;
   initialFormData: Partial<Contract>;
+  fixedSourceMode?: ContractSourceMode | null;
   projects: Project[];
   projectTotals: Map<string, number>;
   productById: Map<string, Product>;
+  packageById: Map<string, ProductPackage>;
   businessById: Map<string, Business>;
   contractId?: string | number;
   areScheduleSourceFieldsLocked: boolean;
@@ -42,6 +47,11 @@ interface UseContractFormParams {
   roundMoney: (value: number) => number;
 }
 
+const normalizeSnapshotText = (value: unknown): string | null => {
+  const normalized = String(value ?? '').trim();
+  return normalized !== '' ? normalized : null;
+};
+
 interface UseContractFormResult {
   errors: Record<string, string>;
   inlineNotice: string;
@@ -59,6 +69,7 @@ interface UseContractFormResult {
   handleDraftItemChange: (index: number, field: keyof ContractItem, value: unknown) => void;
   handleDraftProductChange: (index: number, nextProductId: string) => void;
   handleDraftVatAmountChange: (index: number, rawValue: string) => void;
+  handleImportProjectItems: (projectItems: ProjectItemMaster[]) => void;
   handleExpiryDateChange: (value: string) => void;
   handleRecalculateExpiryDate: () => void;
   handleToggleProjectItemsReference: () => void;
@@ -69,9 +80,11 @@ export const useContractForm = ({
   type,
   data,
   initialFormData,
+  fixedSourceMode = null,
   projects,
   projectTotals,
   productById,
+  packageById,
   businessById,
   contractId,
   areScheduleSourceFieldsLocked,
@@ -95,7 +108,7 @@ export const useContractForm = ({
   const [inlineNotice, setInlineNotice] = useState('');
   const [formData, setFormData] = useState<Partial<Contract>>(initialFormData);
   const [contractSourceMode, setContractSourceMode] = useState<ContractSourceMode>(
-    String(initialFormData.project_id || '').trim() !== '' ? 'PROJECT' : 'INITIAL'
+    fixedSourceMode ?? (String(initialFormData.project_id || '').trim() !== '' ? 'PROJECT' : 'INITIAL')
   );
   const [draftItems, setDraftItems] = useState<ContractItem[]>([]);
   const [isProjectItemsReferenceOpen, setIsProjectItemsReferenceOpen] = useState(false);
@@ -103,12 +116,25 @@ export const useContractForm = ({
     Boolean(initialFormData.expiry_date_manual_override)
   );
 
+  const resolveDraftItemSources = (item: Pick<ContractItem, 'product_id' | 'product_package_id' | 'productPackageId'>) => {
+    const productPackageId = String(item.productPackageId ?? item.product_package_id ?? '').trim();
+    const productPackage = productPackageId ? packageById.get(productPackageId) || null : null;
+    const resolvedProductId = String(productPackage?.product_id ?? item.product_id ?? '').trim();
+    const product = resolvedProductId ? productById.get(resolvedProductId) || null : null;
+
+    return {
+      productPackage,
+      product,
+    };
+  };
+
   useEffect(() => {
     const initialDraftItems = Array.isArray(data?.items) && data.items.length > 0
       ? data.items.map((item) => ({
           id: item.id,
           contract_id: item.contract_id,
           product_id: item.product_id,
+          product_package_id: item.productPackageId ?? item.product_package_id ?? null,
           product_code: item.product_code || null,
           product_name: item.product_name || null,
           unit: item.unit || null,
@@ -124,7 +150,7 @@ export const useContractForm = ({
       : [];
 
     setFormData(initialFormData);
-    setContractSourceMode(String(initialFormData.project_id || '').trim() !== '' ? 'PROJECT' : 'INITIAL');
+    setContractSourceMode(fixedSourceMode ?? (String(initialFormData.project_id || '').trim() !== '' ? 'PROJECT' : 'INITIAL'));
     setDraftItems(initialDraftItems);
     setIsProjectItemsReferenceOpen(false);
     setErrors({});
@@ -132,10 +158,14 @@ export const useContractForm = ({
     setExpiryDateManualOverride(Boolean(initialFormData.expiry_date_manual_override));
   }, [
     data?.items,
+    fixedSourceMode,
     initialFormData,
     normalizeVatRate,
     resolveEffectiveVatAmount,
   ]);
+
+  const resolveValidationSourceMode = (explicitMode?: ContractSourceMode): ContractSourceMode =>
+    explicitMode ?? fixedSourceMode ?? contractSourceMode;
 
   useEffect(() => {
     if (expiryDateManualOverride) {
@@ -221,9 +251,13 @@ export const useContractForm = ({
     return 'Đơn vị thời hạn đã tự chọn theo hình thức dự án.';
   };
 
-  const validateField = (field: keyof Contract, source: Partial<Contract>): string => {
+  const validateField = (
+    field: keyof Contract,
+    source: Partial<Contract>,
+    sourceMode: ContractSourceMode = resolveValidationSourceMode()
+  ): string => {
     const isDraftStatus = String(source.status || 'DRAFT').trim().toUpperCase() === 'DRAFT';
-    const isInitialMode = String(source.project_id || '').trim() === '';
+    const isInitialMode = sourceMode === 'INITIAL';
     const normalizedTermUnit = String(source.term_unit || '').trim().toUpperCase();
     const hasTermUnit = normalizedTermUnit === 'MONTH' || normalizedTermUnit === 'DAY';
     const hasTermValue = source.term_value !== null && source.term_value !== undefined && String(source.term_value).trim() !== '';
@@ -398,7 +432,7 @@ export const useContractForm = ({
 
   const applyNextFormState = (field: keyof Contract, next: Partial<Contract>, notice: string) => {
     setFormData(next);
-    if (field === 'project_id') {
+    if (field === 'project_id' && !fixedSourceMode) {
       setContractSourceMode(String(next.project_id || '').trim() !== '' ? 'PROJECT' : 'INITIAL');
     }
     setInlineNotice(notice);
@@ -419,14 +453,17 @@ export const useContractForm = ({
     ];
     if (inlineValidateFields.includes(field)) {
       const dateErrors = validateDateConstraints(next);
+      const nextSourceMode = field === 'project_id' && !fixedSourceMode
+        ? (String(next.project_id || '').trim() !== '' ? 'PROJECT' : contractSourceMode)
+        : resolveValidationSourceMode();
       setErrors((prev) => ({
         ...prev,
-        [field]: validateField(field, next),
-        signer_user_id: validateField('signer_user_id', next),
-        customer_id: validateField('customer_id', next),
-        project_id: validateField('project_id', next),
-        project_type_code: validateField('project_type_code', next),
-        value: validateField('value', next),
+        [field]: validateField(field, next, nextSourceMode),
+        signer_user_id: validateField('signer_user_id', next, nextSourceMode),
+        customer_id: validateField('customer_id', next, nextSourceMode),
+        project_id: validateField('project_id', next, nextSourceMode),
+        project_type_code: validateField('project_type_code', next, nextSourceMode),
+        value: validateField('value', next, nextSourceMode),
         effective_date: dateErrors.effective_date,
         expiry_date: dateErrors.expiry_date,
       }));
@@ -444,7 +481,7 @@ export const useContractForm = ({
   };
 
   const handleContractSourceModeChange = (nextMode: ContractSourceMode) => {
-    if (areScheduleSourceFieldsLocked || nextMode === contractSourceMode) {
+    if (fixedSourceMode || areScheduleSourceFieldsLocked || nextMode === contractSourceMode) {
       return;
     }
 
@@ -473,6 +510,9 @@ export const useContractForm = ({
     id: `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     contract_id: contractId || 0,
     product_id: 0,
+    product_package_id: null,
+    product_name: null,
+    unit: null,
     quantity: 1,
     unit_price: 0,
     vat_rate: null,
@@ -499,7 +539,7 @@ export const useContractForm = ({
       };
 
       if (field === 'quantity' || field === 'unit_price') {
-        const product = productById.get(String(nextItem.product_id || '')) || null;
+        const { product } = resolveDraftItemSources(nextItem);
         const fallbackVatRate = resolveVatRateByBusiness(
           businessById.get(String(product?.domain_id || '')) || null
         );
@@ -535,16 +575,69 @@ export const useContractForm = ({
   };
 
   const handleDraftProductChange = (index: number, nextProductId: string) => {
-    const product = productById.get(String(nextProductId)) || null;
-    const defaultVatRate = resolveVatRateByBusiness(
-      businessById.get(String(product?.domain_id || '')) || null
-    );
+    const parsedCatalog = parseContractItemCatalogValue(nextProductId);
     setDraftItems((prev) => prev.map((item, itemIndex) => {
       if (itemIndex !== index) {
         return item;
       }
 
+      if (!parsedCatalog.id) {
+        return {
+          ...item,
+          product_id: 0,
+          product_package_id: null,
+          product_code: null,
+          product_name: null,
+          unit: null,
+          unit_price: 0,
+          vat_rate: null,
+          vat_amount: null,
+        };
+      }
+
       const currentUnitPrice = Number(item.unit_price || 0);
+      if (parsedCatalog.kind === 'package') {
+        const productPackage = packageById.get(parsedCatalog.id) || null;
+        if (!productPackage) {
+          return item;
+        }
+
+        const productId = String(productPackage.product_id ?? '').trim();
+        const product = productById.get(productId) || null;
+        const defaultVatRate = resolveVatRateByBusiness(
+          businessById.get(String(product?.domain_id || '')) || null
+        );
+        const nextUnitPrice = currentUnitPrice === 0 && Number(productPackage.standard_price || 0) > 0
+          ? Number(productPackage.standard_price || 0)
+          : currentUnitPrice;
+        const amountBeforeVat = roundMoney(
+          Math.max(0, Number(item.quantity || 0) * Number(nextUnitPrice || 0))
+        );
+
+        return {
+          ...item,
+          product_id: productId,
+          product_package_id: parsedCatalog.id,
+          product_code: productPackage.package_code || product?.product_code || null,
+          product_name:
+            normalizeSnapshotText(productPackage.package_name)
+            ?? normalizeSnapshotText(productPackage.product_name)
+            ?? normalizeSnapshotText(product?.product_name),
+          unit: normalizeSnapshotText(productPackage.unit) ?? normalizeSnapshotText(product?.unit),
+          unit_price: nextUnitPrice,
+          vat_rate: defaultVatRate,
+          vat_amount: computeVatAmountByRate(amountBeforeVat, defaultVatRate),
+        };
+      }
+
+      const product = productById.get(parsedCatalog.id) || null;
+      if (!product) {
+        return item;
+      }
+
+      const defaultVatRate = resolveVatRateByBusiness(
+        businessById.get(String(product?.domain_id || '')) || null
+      );
       const nextUnitPrice = currentUnitPrice === 0 && Number(product?.standard_price || 0) > 0
         ? Number(product?.standard_price || 0)
         : currentUnitPrice;
@@ -554,7 +647,8 @@ export const useContractForm = ({
 
       return {
         ...item,
-        product_id: nextProductId,
+        product_id: parsedCatalog.id,
+        product_package_id: null,
         product_code: product?.product_code || null,
         product_name: product?.product_name || null,
         unit: product?.unit || null,
@@ -567,7 +661,7 @@ export const useContractForm = ({
 
   const handleDraftVatAmountChange = (index: number, rawValue: string) => {
     const currentItem = draftItems[index];
-    const currentProduct = productById.get(String(currentItem?.product_id || '')) || null;
+    const currentProduct = currentItem ? resolveDraftItemSources(currentItem).product : null;
     const fallbackVatRate = resolveVatRateByBusiness(
       businessById.get(String(currentProduct?.domain_id || '')) || null
     );
@@ -582,8 +676,77 @@ export const useContractForm = ({
     handleDraftItemVatState(index, nextVatRate, vatAmount);
   };
 
+  const handleImportProjectItems = (projectItems: ProjectItemMaster[]) => {
+    if (!isItemsEditable) {
+      return;
+    }
+
+    const importedItems: ContractItem[] = [];
+
+    projectItems.forEach((sourceItem, index) => {
+      const productIdToken = String(sourceItem?.product_id ?? '').trim();
+      const productId = Number(productIdToken);
+      if (!Number.isFinite(productId) || productId <= 0) {
+        return;
+      }
+
+      const quantityRaw = Number(sourceItem?.quantity ?? 0);
+      const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const unitPriceRaw = Number(sourceItem?.unit_price ?? 0);
+      const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0
+        ? unitPriceRaw
+        : 0;
+      const productPackageId = String(sourceItem?.product_package_id ?? '').trim();
+      const productPackage = productPackageId ? packageById.get(productPackageId) || null : null;
+      const product = productPackage
+        ? productById.get(String(productPackage.product_id ?? '').trim()) || productById.get(productIdToken) || null
+        : productById.get(productIdToken) || null;
+      const amountBeforeVat = roundMoney(Math.max(0, quantity * unitPrice));
+      const vatRate = resolveVatRateByBusiness(
+        businessById.get(String(product?.domain_id || '')) || null
+      );
+
+      importedItems.push({
+        id: `project-import-${Date.now().toString(36)}-${index}-${productIdToken}`,
+        contract_id: contractId || 0,
+        product_id: productIdToken,
+        product_package_id: productPackageId || null,
+        product_code: sourceItem?.product_code || productPackage?.package_code || product?.product_code || null,
+        product_name:
+          normalizeSnapshotText(sourceItem?.product_name)
+          ?? normalizeSnapshotText(productPackage?.package_name)
+          ?? normalizeSnapshotText(productPackage?.product_name)
+          ?? normalizeSnapshotText(product?.product_name),
+        unit:
+          normalizeSnapshotText(sourceItem?.unit)
+          ?? normalizeSnapshotText(productPackage?.unit)
+          ?? normalizeSnapshotText(product?.unit),
+        quantity,
+        unit_price: roundMoney(unitPrice),
+        vat_rate: vatRate,
+        vat_amount: computeVatAmountByRate(amountBeforeVat, vatRate),
+      });
+    });
+
+    if (importedItems.length === 0) {
+      setInlineNotice('Dự án liên kết chưa có hạng mục hợp lệ để đưa vào hợp đồng.');
+      return;
+    }
+
+    if (
+      draftItems.length > 0
+      && !window.confirm('Các hạng mục hợp đồng hiện tại sẽ được thay bằng dữ liệu lấy từ dự án. Bạn có muốn tiếp tục?')
+    ) {
+      return;
+    }
+
+    setDraftItems(importedItems);
+    setInlineNotice(`Đã lấy ${importedItems.length} hạng mục từ dự án vào hợp đồng.`);
+  };
+
   const validate = (): boolean => {
     const nextErrors: Record<string, string> = {};
+    const activeSourceMode = resolveValidationSourceMode();
 
     ([
       'contract_code',
@@ -597,7 +760,7 @@ export const useContractForm = ({
       'term_unit',
       'term_value',
     ] as Array<keyof Contract>).forEach((field) => {
-      const errorMessage = validateField(field, formData);
+      const errorMessage = validateField(field, formData, activeSourceMode);
       if (errorMessage) {
         nextErrors[field] = errorMessage;
       }
@@ -627,14 +790,35 @@ export const useContractForm = ({
       ? draftItems
           .filter((item) => Number(item.product_id || 0) > 0)
           .map((item) => {
-            const product = productById.get(String(item.product_id || '')) || null;
+            const { product, productPackage } = resolveDraftItemSources(item);
             const fallbackVatRate = resolveVatRateByBusiness(
               businessById.get(String(product?.domain_id || '')) || null
             );
             const normalizedVatRate = normalizeVatRate(item.vat_rate) ?? fallbackVatRate;
+            const snapshotProductName =
+              normalizeSnapshotText(item.product_name)
+              ?? normalizeSnapshotText(productPackage?.package_name)
+              ?? normalizeSnapshotText(productPackage?.product_name)
+              ?? normalizeSnapshotText(product?.product_name);
+            const snapshotUnit =
+              normalizeSnapshotText(item.unit)
+              ?? normalizeSnapshotText(productPackage?.unit)
+              ?? normalizeSnapshotText(product?.unit);
+            const normalizedProductPackageId = String(
+              item.productPackageId ?? item.product_package_id ?? ''
+            ).trim();
+            const parsedProductPackageId = normalizedProductPackageId !== ''
+              ? Number(normalizedProductPackageId)
+              : null;
 
             return {
               product_id: Number(item.product_id),
+              product_package_id:
+                parsedProductPackageId !== null && Number.isFinite(parsedProductPackageId) && parsedProductPackageId > 0
+                  ? parsedProductPackageId
+                  : null,
+              product_name: snapshotProductName,
+              unit: snapshotUnit,
               quantity: Number(item.quantity || 0),
               unit_price: Number(item.unit_price || 0),
               vat_rate: normalizedVatRate,
@@ -646,17 +830,52 @@ export const useContractForm = ({
             } as ContractItem;
           })
       : undefined;
+    const activeSourceMode = resolveValidationSourceMode();
+    const normalizedFormData: Partial<Contract> = activeSourceMode === 'PROJECT'
+      ? {
+          ...formData,
+          project_type_code: null,
+        }
+      : {
+          ...formData,
+          project_id: null,
+        };
+    const payload: Partial<Contract> = {
+      ...normalizedFormData,
+      attachments: normalizedFormData.attachments,
+      items: normalizedDraftItems,
+      expiry_date_manual_override: expiryDateManualOverride,
+    };
 
-    await Promise.resolve(
-      onSave({
-        ...formData,
-        value: parseCurrency(formData.value || 0),
-        term_unit: hasTermUnit ? (normalizedTermUnit as ContractTermUnit) : null,
-        term_value: Number.isFinite(normalizedTermValue) ? normalizedTermValue : null,
-        expiry_date_manual_override: expiryDateManualOverride,
-        items: normalizedDraftItems,
-      })
-    );
+    if (areScheduleSourceFieldsLocked) {
+      delete payload.customer_id;
+      delete payload.project_id;
+      delete payload.project_type_code;
+      delete payload.payment_cycle;
+      delete payload.value;
+      delete payload.sign_date;
+      delete payload.effective_date;
+      delete payload.expiry_date;
+      delete payload.term_unit;
+      delete payload.term_value;
+      delete payload.expiry_date_manual_override;
+      delete payload.items;
+    } else {
+      payload.value = parseCurrency(normalizedFormData.value || 0);
+      payload.term_unit = hasTermUnit ? (normalizedTermUnit as ContractTermUnit) : null;
+      payload.term_value = Number.isFinite(normalizedTermValue) ? normalizedTermValue : null;
+      payload.expiry_date_manual_override = expiryDateManualOverride;
+      payload.items = normalizedDraftItems;
+    }
+
+    try {
+      await Promise.resolve(
+        onSave(payload)
+      );
+      setInlineNotice('');
+    } catch (error) {
+      setInlineNotice(error instanceof Error ? error.message : 'Không thể lưu hợp đồng. Vui lòng thử lại.');
+    }
   };
 
   const handleExpiryDateChange = (value: string) => {
@@ -698,6 +917,7 @@ export const useContractForm = ({
     handleDraftItemChange,
     handleDraftProductChange,
     handleDraftVatAmountChange,
+    handleImportProjectItems,
     handleExpiryDateChange,
     handleRecalculateExpiryDate,
     handleToggleProjectItemsReference,

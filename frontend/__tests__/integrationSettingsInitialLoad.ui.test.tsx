@@ -50,6 +50,10 @@ vi.mock('../hooks/useImportProducts', () => ({
   useImportProducts: () => ({ handleImportProducts: vi.fn() }),
 }));
 
+vi.mock('../hooks/useImportProductPackages', () => ({
+  useImportProductPackages: () => ({ handleImportProductPackages: vi.fn() }),
+}));
+
 vi.mock('../hooks/useCustomerPersonnel', () => ({
   useCustomerPersonnel: () => ({
     customerPersonnel: [],

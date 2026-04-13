@@ -25,6 +25,7 @@ interface ProjectInfoTabProps {
   implementationUnitOptionsError: string;
   isCustomerOptionsLoading: boolean;
   isImplementationUnitOptionsLoading: boolean;
+  isOpportunityStatusSelected: boolean;
   isPaymentCycleRequired: boolean;
   isProjectTypeOptionsLoading: boolean;
   isSpecialStatusSelected: boolean;
@@ -34,11 +35,15 @@ interface ProjectInfoTabProps {
   statusOptions: SearchableSelectOption[];
   statusReasonFieldId: string;
   type: 'ADD' | 'EDIT';
-  actualEndDateMin: string;
 }
 
+const OPPORTUNITY_SCORE_OPTIONS = [
+  { value: '0', label: '0 điểm - Thấp' },
+  { value: '1', label: '1 điểm - Trung bình' },
+  { value: '2', label: '2 điểm - Cao' },
+];
+
 export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
-  actualEndDateMin,
   customers,
   data,
   errors,
@@ -52,6 +57,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   implementationUnitOptionsError,
   isCustomerOptionsLoading,
   isImplementationUnitOptionsLoading,
+  isOpportunityStatusSelected,
   isPaymentCycleRequired,
   isProjectTypeOptionsLoading,
   isSpecialStatusSelected,
@@ -106,6 +112,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
       <div className="space-y-1">
         <FormSelect
           label="Loại dự án"
+          labelClassName="text-xs font-semibold text-neutral"
           size="sm"
           value={formData.investment_mode}
           onChange={(event: any) => handleChange('investment_mode', event.target.value)}
@@ -173,10 +180,29 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
         ) : null}
       </div>
 
+      {isOpportunityStatusSelected ? (
+        <div className="col-span-1">
+          <FormSelect
+            label="Điểm cơ hội"
+            labelClassName="text-xs font-semibold text-neutral"
+            size="sm"
+            value={formData.opportunity_score ?? '0'}
+            onChange={(event: any) => handleChange('opportunity_score', event.target.value)}
+            options={OPPORTUNITY_SCORE_OPTIONS}
+            required
+            error={errors.opportunity_score}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Thang điểm cơ hội từ thấp đến cao để ưu tiên xử lý dự án.
+          </p>
+        </div>
+      ) : null}
+
       {isPaymentCycleRequired ? (
         <div className="col-span-1">
           <SearchableSelect
             label="Chu kỳ thanh toán"
+            labelClassName="text-xs font-semibold text-neutral"
             size="sm"
             value={formData.payment_cycle || ''}
             onChange={(value) => handleChange('payment_cycle', value || null)}
@@ -217,34 +243,26 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
         max={expectedEndDateMax}
       />
 
-      <FormInput
-        label="Ngày kết thúc thực tế"
-        type="date"
-        value={formData.actual_end_date}
-        onChange={(event: any) => handleChange('actual_end_date', event.target.value)}
-        error={errors.actual_end_date}
-        min={actualEndDateMin}
-      />
-
       <div className="col-span-1">
         <SearchableSelect
-          label="Đơn vị triển khai"
+          label="Người phụ trách"
+          labelClassName="text-xs font-semibold text-neutral"
           size="sm"
           value={formData.implementation_user_id || ''}
           onChange={(value) => handleChange('implementation_user_id', value || null)}
           placeholder={
             isImplementationUnitOptionsLoading
-              ? 'Đang tải đơn vị triển khai...'
-              : 'Chọn đơn vị triển khai'
+              ? 'Đang tải người phụ trách...'
+              : 'Chọn người phụ trách'
           }
-          searchPlaceholder="Tìm đơn vị triển khai..."
+          searchPlaceholder="Tìm người phụ trách..."
           disabled={isImplementationUnitOptionsLoading}
           options={implementationUnitOptions}
           usePortal
         />
         {isImplementationUnitOptionsLoading ? (
           <p className="mt-1 text-xs text-slate-500">
-            Đang tải danh sách đơn vị triển khai.
+            Đang tải danh sách người phụ trách.
           </p>
         ) : implementationUnitOptionsError ? (
           <p className="mt-1 text-xs text-red-500">
@@ -264,8 +282,10 @@ interface ProjectFormLayoutProps {
   activeTab: ProjectFormActiveTab;
   content: React.ReactNode;
   disableClose: boolean;
+  disableBackdropClose?: boolean;
   importDialogs?: React.ReactNode;
   isPersistedProject: boolean;
+  isSubmitDisabled?: boolean;
   isSubmitting: boolean;
   itemCount: number;
   onClose: () => void;
@@ -273,6 +293,7 @@ interface ProjectFormLayoutProps {
   onTabSwitch: (tab: ProjectFormActiveTab) => void;
   raciCount: number;
   saveNotice: ProjectFormSaveNotice;
+  submitDisabledMessage?: string | null;
   type: 'ADD' | 'EDIT';
 }
 
@@ -280,8 +301,10 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
   activeTab,
   content,
   disableClose,
+  disableBackdropClose = false,
   importDialogs,
   isPersistedProject,
+  isSubmitDisabled = false,
   isSubmitting,
   itemCount,
   onClose,
@@ -289,6 +312,7 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
   onTabSwitch,
   raciCount,
   saveNotice,
+  submitDisabledMessage,
   type,
 }) => {
   return (
@@ -300,6 +324,7 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
         width="max-w-7xl"
         maxHeightClass="max-h-[94vh]"
         disableClose={disableClose}
+        disableBackdropClose={disableBackdropClose}
       >
         <div className="flex border-b border-slate-200">
           <button
@@ -381,9 +406,10 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
             </button>
             <button
               onClick={() => void onSubmit()}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isSubmitDisabled}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-white shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
               style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
+              title={isSubmitDisabled ? submitDisabledMessage || undefined : undefined}
             >
               <span className={`material-symbols-outlined ${isSubmitting ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
                 {isSubmitting ? 'progress_activity' : 'check'}

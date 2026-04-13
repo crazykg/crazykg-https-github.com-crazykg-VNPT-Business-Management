@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useModalShortcuts } from '../../hooks/useModalShortcuts';
 import {
   ContractSignerOption,
   Department,
   Employee,
   Customer,
   Product,
+  ProductPackage,
   Project,
   ProjectItem,
   ProjectItemMaster,
+  ProjectRevenueSchedule,
   ProjectRACI,
   ProjectTypeOption,
   ProcedureTemplate,
@@ -22,7 +25,10 @@ import {
 } from '../../constants';
 import { getEmployeeLabel } from '../../utils/employeeDisplay';
 import { fetchProjectImplementationUnitOptions } from '../../services/api/projectApi';
-import { fetchProcedureTemplates } from '../../services/v5Api';
+import {
+  fetchProcedureTemplates,
+  fetchProjectRevenueSchedules,
+} from '../../services/v5Api';
 import { resolveHealthcareFacilityType } from '../../utils/customerClassification';
 import { ProjectRevenueSchedulePanel } from '../ProjectRevenueSchedulePanel';
 import { ImportModal } from './ImportModal';
@@ -39,9 +45,13 @@ import {
 import {
   downloadProjectItemImportTemplate,
   downloadProjectRaciImportTemplate,
+  buildProjectPackageCatalogValue,
+  buildProjectProductCatalogValue,
   mergeImportedProjectItems,
   mergeImportedProjectRaci,
   normalizeProjectItemImportToken,
+  parseProjectItemCatalogValue,
+  resolveProjectItemCatalogValue,
 } from './projectImportUtils';
 import type {
   ImportPayload,
@@ -81,6 +91,7 @@ export interface ProjectFormModalProps {
   initialTab?: ProjectFormActiveTab;
   customers: Customer[];
   products: Product[];
+  productPackages?: ProductPackage[];
   projectItems?: ProjectItemMaster[];
   employees: Employee[];
   departments: Department[];
@@ -102,12 +113,44 @@ export interface ProjectFormModalProps {
   onViewProcedure?: (project: Project) => void;
 }
 
+const normalizeProjectStatusValue = (value: unknown): string =>
+  String(value ?? '').trim().toUpperCase();
+
+const collectDuplicateProjectItemIds = (
+  items: ProjectItem[] | null | undefined
+): Set<string> => {
+  const itemIdsByKey = new Map<string, string[]>();
+
+  for (const item of items || []) {
+    const productKey = resolveProjectItemCatalogValue(item);
+    if (!productKey) {
+      continue;
+    }
+
+    const itemIds = itemIdsByKey.get(productKey) ?? [];
+    itemIds.push(item.id);
+    itemIdsByKey.set(productKey, itemIds);
+  }
+
+  return new Set(
+    Array.from(itemIdsByKey.values())
+      .filter((itemIds) => itemIds.length > 1)
+      .flat()
+  );
+};
+
+interface PendingProjectAccountableChange {
+  existingAccountableId: string | null;
+  nextRows: ProjectRACI[];
+}
+
 export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   type,
   data,
   initialTab = 'info',
   customers,
   products,
+  productPackages = [],
   projectItems = [],
   employees,
   departments,
@@ -148,6 +191,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       const normalizedProductId = String(
         source.productId ?? source.product_id ?? ''
       ).trim();
+      const normalizedProductPackageId = String(
+        source.productPackageId ?? source.product_package_id ?? ''
+      ).trim();
       const quantityRaw = Number(source.quantity ?? 1);
       const quantity =
         Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
@@ -165,7 +211,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       return {
         id: String(source.id ?? `ITEM_${Date.now()}_${index}`),
         productId: normalizedProductId,
+        productPackageId: normalizedProductPackageId || null,
+        catalogValue: normalizedProductPackageId
+          ? buildProjectPackageCatalogValue(normalizedProductPackageId)
+          : buildProjectProductCatalogValue(normalizedProductId),
         product_id: normalizedProductId || null,
+        product_package_id: normalizedProductPackageId || null,
         quantity,
         unitPrice,
         unit_price: unitPrice,
@@ -178,22 +229,154 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     });
   };
 
+  const normalizeProjectRaciRole = (
+    value: unknown
+  ): ProjectRACI['roleType'] => {
+    const normalizedRole = String(value ?? 'R').trim().toUpperCase();
+    return ['R', 'A', 'C', 'I'].includes(normalizedRole)
+      ? (normalizedRole as ProjectRACI['roleType'])
+      : 'R';
+  };
+
+  const normalizeProjectAccountableRows = (
+    rows: ProjectRACI[] | undefined,
+    preferredAccountableId?: string | null
+  ): ProjectRACI[] | undefined => {
+    if (!rows || rows.length <= 1) {
+      return rows;
+    }
+
+    const isAssignedAccountableRow = (row: ProjectRACI) =>
+      normalizeProjectRaciRole(row.roleType ?? row.raci_role) === 'A'
+      && String(row.userId ?? row.user_id ?? '').trim() !== '';
+
+    const accountableIndexes = rows.reduce<number[]>((accumulator, row, index) => {
+      if (isAssignedAccountableRow(row)) {
+        accumulator.push(index);
+      }
+      return accumulator;
+    }, []);
+
+    if (accountableIndexes.length <= 1) {
+      return rows;
+    }
+
+    const preferredIndex =
+      preferredAccountableId
+        ? rows.findIndex(
+            (row) =>
+              row.id === preferredAccountableId &&
+              isAssignedAccountableRow(row)
+          )
+        : -1;
+    const keepIndex =
+      preferredIndex >= 0
+        ? preferredIndex
+        : accountableIndexes[accountableIndexes.length - 1];
+
+    const transformedRows = rows.map((row, index) => {
+      const role = normalizeProjectRaciRole(row.roleType ?? row.raci_role);
+      const nextRole =
+        role === 'A' && index !== keepIndex ? 'R' : role;
+
+      return {
+        row:
+          row.roleType === nextRole && row.raci_role === nextRole
+            ? row
+            : {
+                ...row,
+                roleType: nextRole,
+                raci_role: nextRole,
+              },
+        wasDemoted: role === 'A' && nextRole === 'R',
+        identity: `${String(row.userId ?? row.user_id ?? '').trim()}|${nextRole}`,
+      };
+    });
+
+    const stableIdentities = new Set<string>();
+    const demotedIdentities = new Set<string>();
+    const filtered: ProjectRACI[] = [];
+
+    for (let index = transformedRows.length - 1; index >= 0; index -= 1) {
+      const entry = transformedRows[index];
+
+      if (!entry.wasDemoted) {
+        if (entry.identity !== '|') {
+          stableIdentities.add(entry.identity);
+        }
+        filtered.unshift(entry.row);
+        continue;
+      }
+
+      if (
+        entry.identity === '|'
+        || stableIdentities.has(entry.identity)
+        || demotedIdentities.has(entry.identity)
+      ) {
+        continue;
+      }
+
+      demotedIdentities.add(entry.identity);
+      filtered.unshift(entry.row);
+    }
+
+    return filtered;
+  };
+
+  const collectProjectRaciConflictState = (
+    rows: ProjectRACI[] | undefined
+  ): {
+    conflictingIds: Set<string>;
+    hasDuplicateAssignments: boolean;
+    hasMultipleAccountables: boolean;
+  } => {
+    const conflictingIds = new Set<string>();
+    const seen = new Map<string, string>();
+    const accountableIds: string[] = [];
+
+    for (const row of rows || []) {
+      const userId = String(row.userId ?? row.user_id ?? '').trim();
+      const role = normalizeProjectRaciRole(row.roleType ?? row.raci_role);
+
+      if (!userId || !role) {
+        continue;
+      }
+
+      if (role === 'A') {
+        accountableIds.push(row.id);
+      }
+
+      const identity = `${userId}|${role}`;
+      if (seen.has(identity)) {
+        conflictingIds.add(row.id);
+        conflictingIds.add(seen.get(identity)!);
+      } else {
+        seen.set(identity, row.id);
+      }
+    }
+
+    if (accountableIds.length > 1) {
+      accountableIds.forEach((id) => conflictingIds.add(id));
+    }
+
+    return {
+      conflictingIds,
+      hasDuplicateAssignments: conflictingIds.size > 0 && accountableIds.length <= 1,
+      hasMultipleAccountables: accountableIds.length > 1,
+    };
+  };
+
   const normalizeProjectRaciRows = (rows: unknown): ProjectRACI[] | undefined => {
     if (!Array.isArray(rows)) {
       return undefined;
     }
 
-    return rows.map((row, index) => {
+    const normalizedRows = rows.map((row, index) => {
       const source = (row || {}) as Partial<ProjectRACI> &
         Record<string, unknown>;
-      const normalizedRole = String(source.roleType ?? source.raci_role ?? 'R')
-        .trim()
-        .toUpperCase();
-      const roleType: ProjectRACI['roleType'] = ['R', 'A', 'C', 'I'].includes(
-        normalizedRole
-      )
-        ? (normalizedRole as ProjectRACI['roleType'])
-        : 'R';
+      const roleType = normalizeProjectRaciRole(
+        source.roleType ?? source.raci_role
+      );
       const normalizedUserId = String(
         source.userId ?? source.user_id ?? ''
       ).trim();
@@ -213,6 +396,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         full_name: String(source.full_name ?? '').trim() || null,
       };
     });
+
+    return normalizeProjectAccountableRows(normalizedRows);
   };
 
   const buildProjectFormState = useCallback(
@@ -228,13 +413,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       investment_mode:
         normalizeProjectInvestmentMode(projectData?.investment_mode) || 'DAU_TU',
       payment_cycle: normalizeProjectPaymentCycle(projectData?.payment_cycle),
+      opportunity_score:
+        projectData?.opportunity_score === null || projectData?.opportunity_score === undefined
+          ? 0
+          : projectData.opportunity_score,
       start_date: projectData?.start_date || (type === 'ADD' ? todayIsoDate : ''),
       expected_end_date: projectData?.expected_end_date || '',
-      actual_end_date:
-        projectData?.actual_end_date || (type === 'ADD' ? todayIsoDate : ''),
+      actual_end_date: projectData?.actual_end_date || '',
       status:
-        projectData?.status ||
-        getDefaultProjectStatusForInvestmentMode(projectData?.investment_mode),
+        normalizeProjectStatusValue(projectData?.status) ||
+        normalizeProjectStatusValue(
+          getDefaultProjectStatusForInvestmentMode(projectData?.investment_mode)
+        ),
       status_reason: projectData?.status_reason || '',
       items: normalizeProjectItemRows(projectData?.items),
       raci: normalizeProjectRaciRows(projectData?.raci),
@@ -245,6 +435,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const [formData, setFormData] = useState<Partial<Project>>(() =>
     buildProjectFormState(data)
   );
+  const isOpportunityStatusSelected =
+    normalizeProjectStatusValue(formData.status) === 'CO_HOI';
   const isSpecialStatusSelected = isProjectSpecialStatus(
     String(formData.status || '')
   );
@@ -278,7 +470,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     useState<ProjectImportSummary | null>(null);
   const raciImportInFlightRef = useRef(false);
   const raciImportMenuRef = useRef<HTMLDivElement>(null);
-  const [duplicateRaciIds, setDuplicateRaciIds] = useState<Set<string>>(new Set());
+  const [showProjectAccountableConfirm, setShowProjectAccountableConfirm] =
+    useState(false);
+  const [pendingProjectAccountableChange, setPendingProjectAccountableChange] =
+    useState<PendingProjectAccountableChange | null>(null);
+  const [revenueSchedules, setRevenueSchedules] = useState<ProjectRevenueSchedule[]>(
+    []
+  );
 
   const [procedureTemplates, setProcedureTemplates] = useState<
     ProcedureTemplate[]
@@ -296,6 +494,33 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       .then((tmpl) => setProcedureTemplates(tmpl.filter((t) => t.is_active)))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (type !== 'EDIT' || !data?.id) {
+      setRevenueSchedules([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    void fetchProjectRevenueSchedules(data.id)
+      .then((response) => {
+        if (isMounted) {
+          setRevenueSchedules(response.data ?? []);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setRevenueSchedules([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [data?.id, type]);
 
   useEffect(() => {
     let isMounted = true;
@@ -340,7 +565,13 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       (t) => t.template_code === formData.investment_mode
     );
     const phaseOptions = tpl?.phases?.length
-      ? tpl.phases.map((ph) => ({ value: ph, label: PHASE_LABELS[ph] ?? ph }))
+      ? tpl.phases.map((ph) => {
+          const normalizedPhase = normalizeProjectStatusValue(ph);
+          return {
+            value: normalizedPhase,
+            label: PHASE_LABELS[normalizedPhase] ?? ph,
+          };
+        })
       : PROJECT_PHASE_OPTIONS;
 
     return [
@@ -381,7 +612,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   const implementationUnitSelectOptions = useMemo(
     () => [
-      { value: '', label: 'Chọn đơn vị triển khai' },
+      { value: '', label: 'Chọn người phụ trách' },
       ...projectImplementationOptions.map((option) => {
         const userCode = String(option.user_code || '').trim();
         const fullName = String(option.full_name || '').trim();
@@ -424,7 +655,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
     const segments = [
       selectedImplementationUnit.full_name
-        ? `Người triển khai: ${selectedImplementationUnit.full_name}`
+        ? `Người phụ trách: ${selectedImplementationUnit.full_name}`
         : null,
       selectedImplementationUnit.dept_code
         ? `Mã đơn vị: ${selectedImplementationUnit.dept_code}`
@@ -439,7 +670,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
   const isCustomerOptionsLoading = isCustomersLoading && customers.length === 0;
   const isProjectProductOptionsLoading =
-    isProductsLoading && products.length === 0;
+    isProductsLoading && productPackages.length === 0;
   const isProjectEmployeeOptionsLoading =
     isEmployeesLoading && employees.length === 0;
   const isProjectTypeOptionsLoading =
@@ -448,8 +679,53 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     formData.investment_mode
   );
 
+  const resetProjectAccountableConfirmState = useCallback(() => {
+    setShowProjectAccountableConfirm(false);
+    setPendingProjectAccountableChange(null);
+  }, []);
+  const raciConflictState = useMemo(
+    () => collectProjectRaciConflictState(formData.raci),
+    [formData.raci]
+  );
+  const duplicateRaciIds = raciConflictState.conflictingIds;
+  const existingProjectAccountableLabel = useMemo(() => {
+    const existingAccountableId =
+      pendingProjectAccountableChange?.existingAccountableId;
+    if (!existingAccountableId) {
+      return '';
+    }
+
+    const accountableRow =
+      formData.raci?.find((row) => row.id === existingAccountableId) ?? null;
+    if (!accountableRow) {
+      return '';
+    }
+
+    const employee = employees.find(
+      (candidate) =>
+        String(candidate.id) ===
+        String(accountableRow.userId ?? accountableRow.user_id ?? '').trim()
+    );
+    if (employee) {
+      return getEmployeeLabel(employee);
+    }
+
+    return (
+      [accountableRow.user_code, accountableRow.full_name, accountableRow.username]
+        .filter(Boolean)
+        .join(' - ')
+      || String(accountableRow.userId ?? accountableRow.user_id ?? '').trim()
+    );
+  }, [employees, formData.raci, pendingProjectAccountableChange?.existingAccountableId]);
+
   useEffect(() => {
-    if (statusOptions.length && !statusOptions.find((o) => o.value === formData.status)) {
+    const normalizedStatus = normalizeProjectStatusValue(formData.status);
+    if (
+      statusOptions.length
+      && !statusOptions.find(
+        (option) => normalizeProjectStatusValue(option.value) === normalizedStatus
+      )
+    ) {
       setFormData((prev) => ({
         ...prev,
         status: statusOptions[0]?.value ?? '',
@@ -463,7 +739,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     setErrors({});
     itemsDirtyRef.current = type === 'ADD';
     raciDirtyRef.current = type === 'ADD';
-  }, [buildProjectFormState, data, type]);
+    resetProjectAccountableConfirmState();
+  }, [buildProjectFormState, data, resetProjectAccountableConfirmState, type]);
 
   useEffect(() => {
     setSaveNotice({ status: 'idle' });
@@ -495,6 +772,22 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       status_reason: '',
     }));
   }, [formData.status, formData.status_reason]);
+
+  useEffect(() => {
+    if (!isOpportunityStatusSelected) {
+      return;
+    }
+
+    const normalizedOpportunityScore = String(formData.opportunity_score ?? '').trim();
+    if (normalizedOpportunityScore !== '') {
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      opportunity_score: 0,
+    }));
+  }, [formData.opportunity_score, isOpportunityStatusSelected]);
 
   useEffect(() => {
     if (!showItemImportMenu) {
@@ -580,20 +873,28 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   }, [selectedCustomer]);
 
   const shouldHideProjectProductForSelectedCustomer = useCallback(
-    (product: Product) => {
+    (productPackage: ProductPackage) => {
       if (!shouldHideHmisAndHsskProjectProducts) {
         return false;
       }
 
-      const productCode = String(product.product_code || '').trim().toUpperCase();
-      const productName = String(product.product_name || '').trim().toUpperCase();
-      const packageName = String(product.package_name || '').trim().toUpperCase();
+      const packageCode = String(productPackage.package_code || '').trim().toUpperCase();
+      const packageName = String(productPackage.package_name || '').trim().toUpperCase();
+      const productName = String(productPackage.product_name || '').trim().toUpperCase();
+      const parentProductCode = String(productPackage.parent_product_code || '')
+        .trim()
+        .toUpperCase();
 
-      const isHsskProduct = /^HSSK(?:[_-]|$)/.test(productCode);
+      const isHsskProduct =
+        /^HSSK(?:[_-]|$)/.test(packageCode) ||
+        /^HSSK(?:[_-]|$)/.test(parentProductCode) ||
+        packageName.includes('HSSK') ||
+        productName.includes('HSSK');
       const isHmisProduct =
-        productCode.includes('HMIS') ||
+        packageCode.includes('HMIS') ||
+        packageName.includes('HMIS') ||
         productName.includes('HMIS') ||
-        packageName.includes('HMIS');
+        parentProductCode.includes('HMIS');
 
       return isHmisProduct || isHsskProduct;
     },
@@ -601,23 +902,25 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   );
 
   const productLookupMap = useMemo(() => {
-    const lookup = new Map<string, Product>();
-    const register = (rawKey: unknown, product: Product) => {
+    const lookup = new Map<string, ProductPackage>();
+    const register = (rawKey: unknown, productPackage: ProductPackage) => {
       const key = normalizeProjectItemImportToken(rawKey);
       if (!key || lookup.has(key)) {
         return;
       }
-      lookup.set(key, product);
+      lookup.set(key, productPackage);
     };
 
-    (products || []).forEach((product) => {
-      register(product.id, product);
-      register(product.product_code, product);
-      register(product.product_name, product);
+    (productPackages || []).forEach((productPackage) => {
+      register(productPackage.id, productPackage);
+      register(productPackage.package_code, productPackage);
+      register(productPackage.package_name, productPackage);
+      register(productPackage.product_name, productPackage);
+      register(productPackage.parent_product_code, productPackage);
     });
 
     return lookup;
-  }, [products]);
+  }, [productPackages]);
 
   const productById = useMemo(() => {
     const lookup = new Map<string, Product>();
@@ -630,32 +933,189 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return lookup;
   }, [products]);
 
+  const packageById = useMemo(() => {
+    const lookup = new Map<string, ProductPackage>();
+    (productPackages || []).forEach((productPackage) => {
+      const key = String(productPackage.id ?? '').trim();
+      if (key) {
+        lookup.set(key, productPackage);
+      }
+    });
+    return lookup;
+  }, [productPackages]);
+
   const projectProductPriceFormatter = useMemo(
     () => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }),
-    []
+  []
   );
 
   const projectProductDropdownGridClassName =
     'grid grid-cols-[140px_minmax(0,1fr)_96px_128px] items-start gap-3';
 
+  const legacyProjectProductSelectOptions = useMemo(() => {
+    const options: SearchableSelectOption[] = [];
+    const seen = new Set<string>();
+
+    (formData.items || []).forEach((item) => {
+      const hasPackageSelection = String(
+        item.productPackageId ?? item.product_package_id ?? ''
+      ).trim();
+      if (hasPackageSelection) {
+        return;
+      }
+
+      const productId = String(item.productId ?? item.product_id ?? '').trim();
+      if (!productId) {
+        return;
+      }
+
+      const product = productById.get(productId);
+      if (!product) {
+        return;
+      }
+
+      const optionValue = buildProjectProductCatalogValue(product.id);
+      if (!optionValue || seen.has(optionValue)) {
+        return;
+      }
+      seen.add(optionValue);
+
+      const standardPrice = Number(product.standard_price || 0);
+      const rawPrice = Number.isFinite(standardPrice) ? String(standardPrice) : '';
+      const formattedPrice = Number.isFinite(standardPrice)
+        ? projectProductPriceFormatter.format(standardPrice)
+        : '';
+      const productCode = String(product.product_code || '').trim();
+      const productName = String(product.product_name || '').trim();
+
+      options.push({
+        value: optionValue,
+        label: productName || productCode,
+        searchText: [
+          productCode,
+          productName,
+          product.unit,
+          rawPrice,
+          formattedPrice,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      });
+    });
+
+    return options;
+  }, [formData.items, productById, projectProductPriceFormatter]);
+
+  const selectedProjectPackageIds = useMemo(
+    () =>
+      new Set(
+        (formData.items || [])
+          .map((item) => String(item.productPackageId ?? item.product_package_id ?? '').trim())
+          .filter(Boolean)
+      ),
+    [formData.items]
+  );
+
+  const projectItemCatalogMetaByValue = useMemo(() => {
+    const lookup = new Map<
+      string,
+      {
+        code: string;
+        name: string;
+        unit?: string | null;
+        standardPrice: number;
+      }
+    >();
+
+    (productPackages || [])
+      .filter((productPackage) => {
+        const packageId = String(productPackage.id ?? '').trim();
+        return (
+          selectedProjectPackageIds.has(packageId) ||
+          !shouldHideProjectProductForSelectedCustomer(productPackage)
+        );
+      })
+      .forEach((productPackage) => {
+        const optionValue = buildProjectPackageCatalogValue(productPackage.id);
+        if (!optionValue) {
+          return;
+        }
+
+        const productPackageId = String(productPackage.product_id ?? '').trim();
+        const parentProduct = productPackageId ? productById.get(productPackageId) : null;
+        const packageUnit = String(productPackage.unit || '').trim();
+        const fallbackUnit = String(parentProduct?.unit || '').trim();
+
+        lookup.set(optionValue, {
+          code: String(productPackage.package_code || '').trim(),
+          name:
+            String(productPackage.package_name || '').trim() ||
+            String(productPackage.product_name || '').trim(),
+          unit: packageUnit || fallbackUnit || null,
+          standardPrice: Number(productPackage.standard_price || 0),
+        });
+      });
+
+    legacyProjectProductSelectOptions.forEach((option) => {
+      const optionValue = String(option.value ?? '').trim();
+      const parsed = parseProjectItemCatalogValue(option.value);
+      const product = parsed.id ? productById.get(parsed.id) : null;
+      if (!product || lookup.has(optionValue)) {
+        return;
+      }
+
+      lookup.set(optionValue, {
+        code: String(product.product_code || '').trim(),
+        name: String(product.product_name || '').trim(),
+        unit: product.unit || null,
+        standardPrice: Number(product.standard_price || 0),
+      });
+    });
+
+    return lookup;
+  }, [
+    legacyProjectProductSelectOptions,
+    productById,
+    productPackages,
+    selectedProjectPackageIds,
+    shouldHideProjectProductForSelectedCustomer,
+  ]);
+
   const projectProductSelectOptions = useMemo(
     () => [
-      ...(products || [])
-        .filter((product) => !shouldHideProjectProductForSelectedCustomer(product))
-        .map((product) => {
-          const standardPrice = Number(product.standard_price || 0);
+      ...(productPackages || [])
+        .filter((productPackage) => {
+          const packageId = String(productPackage.id ?? '').trim();
+          return (
+            selectedProjectPackageIds.has(packageId) ||
+            !shouldHideProjectProductForSelectedCustomer(productPackage)
+          );
+        })
+        .map((productPackage) => {
+          const standardPrice = Number(productPackage.standard_price || 0);
           const rawPrice = Number.isFinite(standardPrice) ? String(standardPrice) : '';
           const formattedPrice = Number.isFinite(standardPrice)
             ? projectProductPriceFormatter.format(standardPrice)
             : '';
+          const packageCode = String(productPackage.package_code || '').trim();
+          const packageName = String(productPackage.package_name || '').trim();
+          const productName = String(productPackage.product_name || '').trim();
+          const displayName = packageName || productName || packageCode;
+          const productPackageId = String(productPackage.product_id ?? '').trim();
+          const parentProduct = productPackageId ? productById.get(productPackageId) : null;
+          const resolvedUnit =
+            String(productPackage.unit || '').trim() ||
+            String(parentProduct?.unit || '').trim();
 
           return {
-            value: String(product.id ?? ''),
-            label: `${product.product_code} - ${product.product_name}`,
+            value: buildProjectPackageCatalogValue(productPackage.id),
+            label: displayName,
             searchText: [
-              product.product_code,
-              product.product_name,
-              product.unit,
+              packageCode,
+              packageName,
+              productName,
+              productPackage.parent_product_code,
+              resolvedUnit,
               rawPrice,
               formattedPrice,
             ]
@@ -663,10 +1123,14 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               .join(' '),
           };
         }),
+      ...legacyProjectProductSelectOptions,
     ],
     [
-      products,
+      legacyProjectProductSelectOptions,
+      productById,
+      productPackages,
       projectProductPriceFormatter,
+      selectedProjectPackageIds,
       shouldHideProjectProductForSelectedCustomer,
     ]
   );
@@ -676,8 +1140,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       <div
         className={`${projectProductDropdownGridClassName} px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500`}
       >
-        <span>Mã SP</span>
-        <span>Tên SP</span>
+        <span>Mã gói</span>
+        <span>Tên hạng mục</span>
         <span className="text-center">ĐVT</span>
         <span className="text-right">Đơn giá</span>
       </div>
@@ -690,8 +1154,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       option: SearchableSelectOption,
       state: { isSelected: boolean; isHighlighted: boolean }
     ) => {
-      const product = productById.get(String(option.value ?? '').trim());
-      if (!product) {
+      const itemMeta = projectItemCatalogMetaByValue.get(String(option.value ?? '').trim());
+      if (!itemMeta) {
         return (
           <div className="flex items-center justify-between gap-3">
             <span className="min-w-0 flex-1 truncate text-left">{option.label}</span>
@@ -708,34 +1172,38 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         <div className={`${projectProductDropdownGridClassName} w-full`}>
           <span
             className="truncate font-medium text-left text-slate-700"
-            title={product.product_code}
+            title={itemMeta.code}
           >
-            {product.product_code}
+            {itemMeta.code}
           </span>
           <span
             className="truncate text-left text-slate-900"
-            title={product.product_name}
+            title={itemMeta.name}
           >
-            {product.product_name}
+            {itemMeta.name}
           </span>
           <span
             className="truncate text-center text-slate-600"
-            title={product.unit || '—'}
+            title={itemMeta.unit || '—'}
           >
-            {product.unit || '—'}
+            {itemMeta.unit || '—'}
           </span>
           <span
             className="truncate text-right font-medium text-slate-700"
             title={projectProductPriceFormatter.format(
-              Number(product.standard_price || 0)
+              Number(itemMeta.standardPrice || 0)
             )}
           >
-            {projectProductPriceFormatter.format(Number(product.standard_price || 0))}
+            {projectProductPriceFormatter.format(Number(itemMeta.standardPrice || 0))}
           </span>
         </div>
       );
     },
-    [productById, projectProductDropdownGridClassName, projectProductPriceFormatter]
+    [
+      projectItemCatalogMetaByValue,
+      projectProductDropdownGridClassName,
+      projectProductPriceFormatter,
+    ]
   );
 
   const employeeLookupMap = useMemo(() => {
@@ -809,6 +1277,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     return lookup;
   }, [projectItems]);
 
+  const duplicateItemIds = useMemo(
+    () => collectDuplicateProjectItemIds(formData.items),
+    [formData.items]
+  );
+
   const validate = () => {
     const newErrors: Record<string, string> = {};
     const effectiveProjectCode = String(
@@ -821,7 +1294,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       formData.start_date || data?.start_date || ''
     ).trim();
     const effectiveExpectedEndDate = String(formData.expected_end_date || '').trim();
-    const effectiveActualEndDate = String(formData.actual_end_date || '').trim();
+    const effectiveOpportunityScore = String(formData.opportunity_score ?? '').trim();
     const effectiveStatus = String(formData.status || '').trim().toUpperCase();
     const effectiveStatusReason = String(formData.status_reason || '').trim();
     const effectiveInvestmentMode =
@@ -833,6 +1306,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     if (!effectiveProjectCode) newErrors.project_code = 'Mã DA là bắt buộc';
     if (!effectiveProjectName) newErrors.project_name = 'Tên dự án là bắt buộc';
     if (!effectiveStartDate) newErrors.start_date = 'Ngày bắt đầu là bắt buộc';
+    if (effectiveStatus === 'CO_HOI' && !['0', '1', '2'].includes(effectiveOpportunityScore)) {
+      newErrors.opportunity_score = 'Điểm cơ hội chỉ nhận 0, 1 hoặc 2.';
+    }
     if (requiresProjectPaymentCycle(effectiveInvestmentMode) && !effectivePaymentCycle) {
       newErrors.payment_cycle =
         'Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.';
@@ -851,63 +1327,18 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       newErrors.expected_end_date =
         'Ngày kết thúc dự án phải lớn hơn ngày bắt đầu.';
     }
-    if (
-      effectiveExpectedEndDate &&
-      effectiveActualEndDate &&
-      effectiveExpectedEndDate > effectiveActualEndDate
-    ) {
-      newErrors.expected_end_date =
-        'Ngày kết thúc dự án phải nhỏ hơn hoặc bằng ngày kết thúc thực tế.';
-      newErrors.actual_end_date =
-        'Ngày kết thúc thực tế phải lớn hơn hoặc bằng ngày kết thúc dự án.';
-    }
-
-    const seenProducts = new Set<string>();
-    const hasDuplicateProducts = (formData.items || []).some((item) => {
-      const productKey = String(item?.productId ?? item?.product_id ?? '').trim();
-      if (!productKey) {
-        return false;
-      }
-      if (seenProducts.has(productKey)) {
-        return true;
-      }
-      seenProducts.add(productKey);
-      return false;
-    });
-
-    if (hasDuplicateProducts) {
-      newErrors.items = 'Không được chọn trùng sản phẩm trong cùng một dự án.';
-    }
-
-    const seenRaci = new Map<string, string>();
-    const conflictingRaciIds = new Set<string>();
-    for (const r of formData.raci || []) {
-      const uid = String(r.userId ?? '').trim();
-      const role = String(r.roleType ?? '').trim().toUpperCase();
-      if (!uid || !role) continue;
-      const key = `${uid}|${role}`;
-      if (seenRaci.has(key)) {
-        conflictingRaciIds.add(r.id);
-        conflictingRaciIds.add(seenRaci.get(key)!);
-      } else {
-        seenRaci.set(key, r.id);
-      }
-    }
-    if (conflictingRaciIds.size > 0) {
+    if (raciConflictState.hasMultipleAccountables) {
+      newErrors.raci =
+        'Vai trò A chỉ được gán cho 1 nhân sự duy nhất trong dự án.';
+    } else if (raciConflictState.hasDuplicateAssignments) {
       newErrors.raci = 'Có nhân sự được gán trùng vai trò RACI. Vui lòng kiểm tra lại.';
-      setDuplicateRaciIds(conflictingRaciIds);
-    } else {
-      setDuplicateRaciIds(new Set());
     }
 
     setErrors(newErrors);
     const isValid = Object.keys(newErrors).length === 0;
     if (!isValid && newErrors.raci) {
       if (activeTab !== 'raci') setActiveTab('raci');
-      onNotify?.('error', 'Vai trò RACI bị trùng', newErrors.raci);
-    } else if (!isValid && newErrors.items && activeTab !== 'items') {
-      setActiveTab('items');
-      onNotify?.('error', 'Sản phẩm bị trùng', newErrors.items);
+      onNotify?.('error', 'Vai trò RACI không hợp lệ', newErrors.raci);
     } else if (!isValid && activeTab !== 'info') {
       setActiveTab('info');
       onNotify?.(
@@ -921,7 +1352,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (isSubmitting || !validate()) {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (showProjectAccountableConfirm) {
       return;
     }
 
@@ -935,8 +1370,16 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     const normalizedActualEndDate = normalizeDateInputToIso(
       String(formData.actual_end_date || '').trim()
     );
+    const normalizedOpportunityScore = ['0', '1', '2'].includes(
+      String(formData.opportunity_score ?? '').trim()
+    )
+      ? Number(formData.opportunity_score)
+      : 0;
     const shouldSyncItems = type === 'ADD' || itemsDirtyRef.current;
     const shouldSyncRaci = type === 'ADD' || raciDirtyRef.current;
+    if (!validate()) {
+      return;
+    }
     const normalizedStatus = String(formData.status || '').trim().toUpperCase();
     const normalizedInvestmentMode =
       normalizeProjectInvestmentMode(formData.investment_mode) || 'DAU_TU';
@@ -982,6 +1425,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           start_date: normalizedStartDate,
           expected_end_date: normalizedExpectedEndDate,
           actual_end_date: normalizedActualEndDate,
+          opportunity_score: normalizedOpportunityScore,
           status: normalizedStatus,
           status_reason: isProjectSpecialStatus(String(formData.status || ''))
             ? String(formData.status_reason || '').trim()
@@ -1030,13 +1474,40 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
   };
 
+  useModalShortcuts({
+    onSave: handleSubmit,
+    enabled: !isSubmitting && !showProjectAccountableConfirm,
+  });
+
+  const handleConfirmProjectAccountableReplacement = useCallback(() => {
+    if (!pendingProjectAccountableChange) {
+      return;
+    }
+
+    raciDirtyRef.current = true;
+    setFormData((prev) => ({
+      ...prev,
+      raci: pendingProjectAccountableChange.nextRows,
+    }));
+    resetProjectAccountableConfirmState();
+  }, [pendingProjectAccountableChange, resetProjectAccountableConfirmState]);
+
+  const handleCancelProjectAccountableReplacement = useCallback(() => {
+    resetProjectAccountableConfirmState();
+  }, [resetProjectAccountableConfirmState]);
+
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => {
       if (field === 'status') {
-        const nextStatus = String(value || '').trim().toUpperCase();
+        const nextStatus = normalizeProjectStatusValue(value);
+        const normalizedOpportunityScore = String(prev.opportunity_score ?? '').trim();
         return {
           ...prev,
           status: nextStatus,
+          opportunity_score:
+            nextStatus === 'CO_HOI' && normalizedOpportunityScore === ''
+              ? 0
+              : prev.opportunity_score,
           status_reason: isProjectSpecialStatus(nextStatus)
             ? prev.status_reason || ''
             : '',
@@ -1074,7 +1545,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       setErrors((prev) => ({
         ...prev,
         [field]: '',
-        ...(field === 'status' ? { status_reason: '' } : {}),
+        ...(field === 'status' ? { status_reason: '', opportunity_score: '' } : {}),
         ...((field === 'investment_mode' || field === 'payment_cycle')
           ? { payment_cycle: '' }
           : {}),
@@ -1213,7 +1684,9 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           raciDirtyRef.current = true;
           setFormData((prev) => ({
             ...prev,
-            raci: mergeImportedProjectRaci(prev.raci || [], importedRaci),
+            raci: normalizeProjectAccountableRows(
+              mergeImportedProjectRaci(prev.raci || [], importedRaci)
+            ),
           }));
         },
         onNotify,
@@ -1240,19 +1713,23 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     }
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = (): string | null => {
     if (!isPersistedProject) {
       onNotify?.(
         'error',
         'Dự án chưa lưu',
         'Vui lòng lưu dự án thành công trước khi thêm hạng mục.'
       );
-      return;
+      return null;
     }
+    const newItemId = `ITEM_${Date.now()}`;
     const newItem: ProjectItem = {
-      id: `ITEM_${Date.now()}`,
+      id: newItemId,
       productId: '',
+      productPackageId: null,
+      catalogValue: '',
       product_id: null,
+      product_package_id: null,
       quantity: 1,
       unitPrice: 0,
       unit_price: 0,
@@ -1264,6 +1741,44 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     };
     itemsDirtyRef.current = true;
     setFormData((prev) => ({ ...prev, items: [...(prev.items || []), newItem] }));
+    return newItemId;
+  };
+
+  const handleCopyItem = (itemId: string): string | null => {
+    if (!isPersistedProject) {
+      onNotify?.(
+        'error',
+        'Dự án chưa lưu',
+        'Vui lòng lưu dự án thành công trước khi sao chép hạng mục.'
+      );
+      return null;
+    }
+
+    const source = formData.items?.find((item) => item.id === itemId);
+    if (!source) {
+      return null;
+    }
+
+    const newItemId = `ITEM_${Date.now()}`;
+    const copiedItem: ProjectItem = {
+      ...source,
+      id: newItemId,
+    };
+
+    itemsDirtyRef.current = true;
+    setFormData((prev) => {
+      const currentItems = [...(prev.items || [])];
+      const sourceIndex = currentItems.findIndex((item) => item.id === itemId);
+      if (sourceIndex < 0) {
+        currentItems.push(copiedItem);
+        return { ...prev, items: currentItems };
+      }
+
+      currentItems.splice(sourceIndex + 1, 0, copiedItem);
+      return { ...prev, items: currentItems };
+    });
+
+    return newItemId;
   };
 
   const handleImportFromQuotation = (newItems: ProjectItem[], mergeMode: 'merge' | 'replace') => {
@@ -1280,7 +1795,8 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       const existing = [...(prev.items || [])];
       for (const incoming of newItems) {
         const idx = existing.findIndex(
-          (ei) => String(ei.productId || ei.product_id) === String(incoming.productId)
+          (ei) =>
+            resolveProjectItemCatalogValue(ei) === resolveProjectItemCatalogValue(incoming)
         );
         if (idx >= 0) {
           const current = existing[idx];
@@ -1317,38 +1833,49 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
           const updatedItem: ProjectItem = { ...item, [field]: value };
 
-          if (field === 'productId') {
-            const normalizedProductId = String(value ?? '').trim();
-            const duplicateProduct = (prev.items || []).find(
-              (candidate) =>
-                candidate.id !== itemId &&
-                String(candidate.productId ?? candidate.product_id ?? '').trim() ===
-                  normalizedProductId
-            );
-            if (normalizedProductId && duplicateProduct) {
-              onNotify?.(
-                'error',
-                'Sản phẩm bị trùng',
-                'Không thể chọn cùng một sản phẩm nhiều lần trong cùng một dự án.'
-              );
-              return item;
-            }
+        if (field === 'catalogValue') {
+          const normalizedCatalogValue = String(value ?? '').trim();
+          updatedItem.catalogValue = normalizedCatalogValue;
+          const parsedCatalog = parseProjectItemCatalogValue(normalizedCatalogValue);
 
-            updatedItem.productId = normalizedProductId;
-            updatedItem.product_id = normalizedProductId || null;
-
-            const product = products.find(
-              (p) => String(p.id) === normalizedProductId
-            );
-            if (product) {
-              updatedItem.unitPrice = product.standard_price;
-              updatedItem.unit_price = product.standard_price;
+            if (!parsedCatalog.id) {
+              updatedItem.productId = '';
+              updatedItem.product_id = null;
+              updatedItem.productPackageId = null;
+              updatedItem.product_package_id = null;
+              updatedItem.unitPrice = 0;
+              updatedItem.unit_price = 0;
               updatedItem.discountPercent = 0;
               updatedItem.discountAmount = 0;
               updatedItem.discountMode = undefined;
-            } else if (!normalizedProductId) {
-              updatedItem.unitPrice = 0;
-              updatedItem.unit_price = 0;
+            } else if (parsedCatalog.kind === 'package') {
+              const productPackage = packageById.get(parsedCatalog.id);
+              if (!productPackage) {
+                return item;
+              }
+
+              const normalizedProductId = String(productPackage.product_id ?? '').trim();
+              updatedItem.productId = normalizedProductId;
+              updatedItem.product_id = normalizedProductId || null;
+              updatedItem.productPackageId = parsedCatalog.id;
+              updatedItem.product_package_id = parsedCatalog.id;
+              updatedItem.unitPrice = productPackage.standard_price;
+              updatedItem.unit_price = productPackage.standard_price;
+              updatedItem.discountPercent = 0;
+              updatedItem.discountAmount = 0;
+              updatedItem.discountMode = undefined;
+            } else {
+              const product = productById.get(parsedCatalog.id);
+              if (!product) {
+                return item;
+              }
+
+              updatedItem.productId = parsedCatalog.id;
+              updatedItem.product_id = parsedCatalog.id;
+              updatedItem.productPackageId = null;
+              updatedItem.product_package_id = null;
+              updatedItem.unitPrice = product.standard_price;
+              updatedItem.unit_price = product.standard_price;
               updatedItem.discountPercent = 0;
               updatedItem.discountAmount = 0;
               updatedItem.discountMode = undefined;
@@ -1587,47 +2114,34 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     )
       .trim()
       .toUpperCase();
+    const currentRoleType = normalizeProjectRaciRole(
+      currentRACI.roleType ?? currentRACI.raci_role
+    );
+    const currentUserId = String(currentRACI.userId ?? currentRACI.user_id ?? '').trim();
+    const conflictingAccountable =
+      nextRoleType === 'A'
+      && nextUserId
+      && (
+        (field === 'roleType' && currentRoleType !== 'A')
+        || (field === 'userId' && nextUserId !== currentUserId)
+      )
+        ? (formData.raci || []).find(
+            (row) =>
+              row.id !== raciId &&
+              normalizeProjectRaciRole(row.roleType ?? row.raci_role) === 'A' &&
+              String(row.userId ?? row.user_id ?? '').trim() !== nextUserId
+          ) ?? null
+        : null;
 
-    if (nextUserId && nextRoleType) {
-      const duplicate = formData.raci?.find(
-        (r) =>
-          r.id !== raciId &&
-          String(r.userId ?? '').trim() === nextUserId &&
-          String(r.roleType ?? '').trim().toUpperCase() === nextRoleType
-      );
-
-      if (duplicate) {
-        const roleLabel =
-          RACI_ROLES.find((role) => role.value === nextRoleType)?.label ||
-          nextRoleType;
-        onNotify?.(
-          'error',
-          'Vai trò bị trùng',
-          `Nhân sự này đã được phân công vai trò [${roleLabel}] trong dự án. Vui lòng chọn vai trò khác!`
-        );
-        setDuplicateRaciIds((prev) => new Set([...prev, raciId, duplicate.id]));
-        return;
-      }
-    }
-
-    setDuplicateRaciIds((prev) => {
-      if (!prev.has(raciId)) return prev;
-      const next = new Set(prev);
-      next.delete(raciId);
-      return next;
-    });
-
-    raciDirtyRef.current = true;
-    setFormData((prev) => ({
-      ...prev,
-      raci: prev.raci?.map((r) => {
-        if (r.id !== raciId) {
-          return r;
+    const nextRaciRows = normalizeProjectAccountableRows(
+      (formData.raci || []).map((row) => {
+        if (row.id !== raciId) {
+          return row;
         }
 
         if (field === 'userId') {
           return {
-            ...r,
+            ...row,
             userId: nextUserId,
             user_id: nextUserId || null,
           };
@@ -1635,14 +2149,42 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 
         if (field === 'roleType') {
           return {
-            ...r,
+            ...row,
             roleType: nextRoleType as ProjectRACI['roleType'],
             raci_role: nextRoleType as ProjectRACI['roleType'],
           };
         }
 
-        return { ...r, [field]: normalizedValue };
+        return { ...row, [field]: normalizedValue };
       }),
+      field === 'roleType' && nextRoleType === 'A' ? raciId : undefined
+    );
+
+    if (conflictingAccountable) {
+      setPendingProjectAccountableChange({
+        existingAccountableId: conflictingAccountable.id,
+        nextRows: nextRaciRows ?? [],
+      });
+      setShowProjectAccountableConfirm(true);
+      return;
+    }
+
+    resetProjectAccountableConfirmState();
+    const nextConflictState = collectProjectRaciConflictState(nextRaciRows);
+
+    if (nextConflictState.hasDuplicateAssignments) {
+      onNotify?.(
+        'error',
+        'Vai trò bị trùng',
+        'Có nhân sự được gán trùng vai trò RACI trong dự án. Vui lòng kiểm tra lại.'
+      );
+      return;
+    }
+
+    raciDirtyRef.current = true;
+    setFormData((prev) => ({
+      ...prev,
+      raci: nextRaciRows,
     }));
   };
 
@@ -1668,17 +2210,30 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const handleCopyRACI = (raciId: string) => {
     const source = formData.raci?.find((r) => r.id === raciId);
     if (!source) return;
+    const copiedRole =
+      normalizeProjectRaciRole(source.roleType ?? source.raci_role) === 'A'
+        ? 'R'
+        : normalizeProjectRaciRole(source.roleType ?? source.raci_role);
     const copy: ProjectRACI = {
       ...source,
       id: `RACI_${Date.now()}`,
+      userId: '',
+      roleType: copiedRole,
+      raci_role: copiedRole,
       user_id: null,
+      user_code: null,
+      username: null,
+      full_name: null,
     };
     raciDirtyRef.current = true;
     setFormData((prev) => {
       const idx = prev.raci?.findIndex((r) => r.id === raciId) ?? -1;
       const next = [...(prev.raci || [])];
       next.splice(idx + 1, 0, copy);
-      return { ...prev, raci: next };
+      return {
+        ...prev,
+        raci: normalizeProjectAccountableRows(next),
+      };
     });
   };
 
@@ -1707,6 +2262,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     itemSummary.baseTotal > 0
       ? (itemSummary.discountTotal / itemSummary.baseTotal) * 100
       : 0;
+  const hasRevenueSchedules = type === 'EDIT' && revenueSchedules.length > 0;
+  const revenueScheduleLockMessage = hasRevenueSchedules
+    ? `Dự án đang có ${revenueSchedules.length} phân kỳ doanh thu. Bạn vẫn có thể cập nhật đội ngũ dự án, nhưng muốn đổi thông tin chung hoặc hạng mục thì vui lòng vào tab Phân kỳ doanh thu và xóa trước.`
+    : null;
 
   const projectStartDateMax =
     shiftIsoDateByDays(String(formData.expected_end_date || ''), -1) ||
@@ -1714,15 +2273,11 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const projectExpectedEndDateMin =
     shiftIsoDateByDays(String(formData.start_date || data?.start_date || ''), 1) ||
     DATE_INPUT_MIN;
-  const projectExpectedEndDateMax =
-    String(formData.actual_end_date || '').trim() || DATE_INPUT_MAX;
-  const projectActualEndDateMin =
-    String(formData.expected_end_date || '').trim() || DATE_INPUT_MIN;
+  const projectExpectedEndDateMax = DATE_INPUT_MAX;
 
   const projectContent =
     activeTab === 'info' ? (
       <ProjectInfoTab
-        actualEndDateMin={projectActualEndDateMin}
         customers={customers}
         data={data}
         errors={errors}
@@ -1736,6 +2291,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         implementationUnitOptionsError={implementationUnitOptionsError}
         isCustomerOptionsLoading={isCustomerOptionsLoading}
         isImplementationUnitOptionsLoading={isImplementationUnitOptionsLoading}
+        isOpportunityStatusSelected={isOpportunityStatusSelected}
         isPaymentCycleRequired={isPaymentCycleRequired}
         isProjectTypeOptionsLoading={isProjectTypeOptionsLoading}
         isSpecialStatusSelected={isSpecialStatusSelected}
@@ -1748,23 +2304,27 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       />
     ) : activeTab === 'items' ? (
       <ProjectItemsTab
+        duplicateItemIds={duplicateItemIds}
         errors={errors}
         formData={formData}
         formatCurrency={formatCurrency}
         formatNumber={formatNumber}
         formatPercent={formatPercent}
         handleAddItem={handleAddItem}
+        handleCopyItem={handleCopyItem}
         handleDownloadProjectItemTemplate={handleDownloadProjectItemTemplate}
         handleItemBlur={handleItemBlur}
         handleRemoveItem={handleRemoveItem}
         handleUpdateItem={handleUpdateItem}
+        isEditingLocked={hasRevenueSchedules}
         isItemImportSaving={isItemImportSaving}
         isProjectProductOptionsLoading={isProjectProductOptionsLoading}
         itemImportMenuRef={itemImportMenuRef}
         itemImportSummary={itemImportSummary}
         itemSummary={itemSummary}
+        lockMessage={revenueScheduleLockMessage}
         parseNumber={parseNumber}
-        productById={productById}
+        projectItemCatalogMetaByValue={projectItemCatalogMetaByValue}
         projectProductDropdownHeader={renderProjectProductDropdownHeader}
         projectProductSelectOptions={projectProductSelectOptions}
         renderProjectProductOption={renderProjectProductOption}
@@ -1786,12 +2346,16 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         handleRemoveRACI={handleRemoveRACI}
         handleUpdateRACI={handleUpdateRACI}
         duplicateRaciIds={duplicateRaciIds}
+        existingAccountableLabel={existingProjectAccountableLabel}
         isDepartmentsLoading={isDepartmentsLoading}
         isProjectEmployeeOptionsLoading={isProjectEmployeeOptionsLoading}
         isRaciImportSaving={isRaciImportSaving}
+        onCancelAccountableReplacement={handleCancelProjectAccountableReplacement}
+        onConfirmAccountableReplacement={handleConfirmProjectAccountableReplacement}
         raciImportMenuRef={raciImportMenuRef}
         raciImportSummary={raciImportSummary}
         resolveEmployeeDepartment={resolveEmployeeDepartment}
+        showAccountableConfirm={showProjectAccountableConfirm}
         showRaciImportMenu={showRaciImportMenu}
         toggleRaciImportMenu={() => setShowRaciImportMenu((prev) => !prev)}
         triggerProjectRaciImport={triggerProjectRaciImport}
@@ -1805,7 +2369,10 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             formData.expected_end_date &&
             (formData.items?.length ?? 0) > 0
         )}
+        projectStartDate={String(formData.start_date || data?.start_date || '').trim() || null}
+        projectEndDate={String(formData.expected_end_date || data?.expected_end_date || '').trim() || null}
         onNotify={onNotify}
+        onSchedulesChange={setRevenueSchedules}
       />
     );
 
@@ -1858,6 +2425,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       activeTab={activeTab}
       content={projectContent}
       disableClose={isSubmitting || isItemImportSaving || isRaciImportSaving}
+      disableBackdropClose
       importDialogs={projectImportDialogs}
       isPersistedProject={isPersistedProject}
       isSubmitting={isSubmitting}

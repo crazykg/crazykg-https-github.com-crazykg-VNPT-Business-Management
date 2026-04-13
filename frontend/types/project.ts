@@ -7,6 +7,7 @@ export interface ProjectItemMaster {
   customer_code?: string | null;
   customer_name?: string | null;
   product_id: string | number;
+  product_package_id?: string | number | null;
   product_code?: string | null;
   product_name?: string | null;
   unit?: string | null;
@@ -42,12 +43,15 @@ export interface ProjectTypeOption {
 export interface ProjectItem {
   id: string;
   productId: string | number;
+  productPackageId?: string | number | null;
+  catalogValue?: string;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;
   discountAmount: number | string;
   lineTotal?: number;
   product_id?: string | number | null;
+  product_package_id?: string | number | null;
   unit_price?: number | null;
   line_total?: number | null;
   discountMode?: 'PERCENT' | 'AMOUNT';
@@ -92,6 +96,7 @@ export interface Project {
   start_date?: string | null;
   expected_end_date?: string | null;
   actual_end_date?: string | null;
+  opportunity_score?: string | number | null;
   status: ProjectStatus;
   status_reason?: string | null;
   investment_mode?: InvestmentMode | string | null;

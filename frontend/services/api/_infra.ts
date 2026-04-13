@@ -37,6 +37,8 @@ type ApiBulkMutationResponse<T> = {
 export type DownloadFileResult = {
   blob: Blob;
   filename: string;
+  emailStatus?: string | null;
+  emailMessage?: string | null;
 };
 
 const parseJson = async <T>(res: Response): Promise<ApiListResponse<T>> => {
@@ -77,6 +79,7 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
   const inProgress = Number(kpisRaw?.in_progress);
   const completed = Number(kpisRaw?.completed);
   const overdue = Number(kpisRaw?.overdue);
+  const totalEstimatedValue = Number(kpisRaw?.total_estimated_value);
   const totalContracts = Number(kpisRaw?.total_contracts);
   const signedContracts = Number(kpisRaw?.signed);
   const draftContracts = Number(kpisRaw?.draft);
@@ -140,6 +143,10 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
       in_progress: Number.isFinite(inProgress) && inProgress >= 0 ? Math.floor(inProgress) : 0,
       completed: Number.isFinite(completed) && completed >= 0 ? Math.floor(completed) : 0,
       overdue: Number.isFinite(overdue) && overdue >= 0 ? Math.floor(overdue) : 0,
+      total_estimated_value:
+        Number.isFinite(totalEstimatedValue) && totalEstimatedValue >= 0
+          ? totalEstimatedValue
+          : undefined,
       total_contracts: Number.isFinite(totalContracts) && totalContracts >= 0 ? Math.floor(totalContracts) : undefined,
       signed: Number.isFinite(signedContracts) && signedContracts >= 0 ? Math.floor(signedContracts) : undefined,
       draft: Number.isFinite(draftContracts) && draftContracts >= 0 ? Math.floor(draftContracts) : undefined,

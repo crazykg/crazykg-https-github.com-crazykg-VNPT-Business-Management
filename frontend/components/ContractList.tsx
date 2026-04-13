@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Contract,
   ContractAggregateKpis,
@@ -11,15 +11,37 @@ import {
 } from '../types';
 import { CONTRACT_STATUSES } from '../constants';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import { useAuthStore, useContractStore } from '../shared/stores';
 import { hasPermission } from '../utils/authorization';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
 import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import { ContractRevenueView } from './contract-revenue/ContractRevenueView';
+import { fetchContractDetail } from '../services/api/contractApi';
+import { formatVietnameseCurrencyValue } from '../utils/vietnameseCurrency';
 
 type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
 type ContractViewMode = 'CONTRACTS' | 'REVENUE';
+type ContractSourceMode = 'PROJECT' | 'INITIAL';
+type ContractContextMenuState = {
+  item: Contract;
+  x: number;
+  y: number;
+};
+
+const CONTRACT_VIEW_TITLES: Record<ContractViewMode, string> = {
+  CONTRACTS: 'Hợp đồng',
+  REVENUE: 'Doanh thu theo Hợp đồng',
+};
+
+const resolveContractSourceMode = (contract: Partial<Contract>): ContractSourceMode =>
+  String(contract.project_id ?? '').trim() !== '' ? 'PROJECT' : 'INITIAL';
+
+const matchesContractSourceMode = (
+  contract: Partial<Contract>,
+  sourceMode?: ContractSourceMode
+): boolean => !sourceMode || resolveContractSourceMode(contract) === sourceMode;
 
 interface ContractListQuery extends PaginatedQuery {
   filters?: {
@@ -27,6 +49,7 @@ interface ContractListQuery extends PaginatedQuery {
     type?: string;
     sign_date_from?: string;
     sign_date_to?: string;
+    source_mode?: ContractSourceMode;
   };
 }
 
@@ -45,6 +68,7 @@ interface ContractListProps {
   onExportContracts?: () => Promise<Contract[]>;
   onNotify?: (type: 'success' | 'error', title: string, message: string) => void;
   aggregateKpis?: ContractAggregateKpis;
+  fixedSourceMode?: ContractSourceMode;
 }
 
 const SEARCH_DEBOUNCE_MS = 150;
@@ -136,6 +160,7 @@ export const ContractList: React.FC<ContractListProps> = ({
   onExportContracts,
   onNotify,
   aggregateKpis,
+  fixedSourceMode,
 }: ContractListProps) => {
   const authUser = useAuthStore((state) => state.user);
   const storeContracts = useContractStore((state) => state.contracts);
@@ -164,11 +189,65 @@ export const ContractList: React.FC<ContractListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContractContextMenuState | null>(null);
+  const [detailDrawerContractId, setDetailDrawerContractId] = useState<string | number | null>(null);
+  const [detailDrawerData, setDetailDrawerData] = useState<Contract | null>(null);
+  const [isDetailDrawerLoading, setIsDetailDrawerLoading] = useState(false);
+  const [detailCache, setDetailCache] = useState<Record<string, Contract>>({});
 
   useEscKey(() => setShowExportMenu(false), showExportMenu);
+  useEscKey(() => setContextMenu(null), Boolean(contextMenu));
+  useEscKey(() => {
+    setDetailDrawerContractId(null);
+    setDetailDrawerData(null);
+  }, detailDrawerContractId !== null);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+  const detailRequestVersionRef = useRef(0);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_CONTRACT'),
+    onUpdate: () => {
+      if (selectedRowId) {
+        const item = (contracts ?? contractsPageRows ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('EDIT_CONTRACT', item);
+      }
+    },
+    onDelete: () => {
+      if (selectedRowId) {
+        const item = (contracts ?? contractsPageRows ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('DELETE_CONTRACT', item);
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
   const showActionColumn = canEdit || canDelete;
-  const tableColSpan = showActionColumn ? 10 : 9;
+  const showProjectColumn = fixedSourceMode !== 'PROJECT';
+  const tableColSpan = (showProjectColumn ? 9 : 8) + (showActionColumn ? 1 : 0);
+  const sourceColumnLabel = fixedSourceMode === 'INITIAL' ? 'Nguồn' : 'Dự án';
+  const contractTitle = fixedSourceMode === 'PROJECT'
+    ? 'Hợp đồng theo dự án'
+    : fixedSourceMode === 'INITIAL'
+      ? 'Hợp đồng đầu kỳ'
+      : CONTRACT_VIEW_TITLES.CONTRACTS;
+  const revenueTitle = fixedSourceMode === 'PROJECT'
+    ? 'Doanh thu HĐ theo dự án'
+    : fixedSourceMode === 'INITIAL'
+      ? 'Doanh thu HĐ đầu kỳ'
+      : CONTRACT_VIEW_TITLES.REVENUE;
+  const currentPageTitle = viewMode === 'CONTRACTS' ? contractTitle : revenueTitle;
+  const pageDescription = fixedSourceMode === 'PROJECT'
+    ? 'Quản lý hợp đồng gắn dự án và theo dõi doanh thu dự kiến, thực thu theo nguồn dự án.'
+    : fixedSourceMode === 'INITIAL'
+      ? 'Quản lý hợp đồng đầu kỳ tách riêng khỏi dự án để theo dõi doanh thu độc lập.'
+      : 'Quản lý hợp đồng, theo dõi doanh thu dự kiến và thực thu.';
+  const addButtonLabel = fixedSourceMode === 'INITIAL' ? 'Thêm HĐ đầu kỳ' : 'Thêm mới';
+  const emptyStateTitle = fixedSourceMode === 'INITIAL' ? 'Chưa có hợp đồng đầu kỳ nào.' : 'Chưa có hợp đồng nào.';
+  const emptyStateHint = fixedSourceMode === 'INITIAL'
+    ? 'Bắt đầu bằng cách thêm mới hợp đồng đầu kỳ đầu tiên.'
+    : 'Bắt đầu bằng cách thêm mới hợp đồng đầu tiên.';
   const hasActiveFilter =
     searchInput.trim() !== '' ||
     statusFilter !== '' ||
@@ -178,13 +257,21 @@ export const ContractList: React.FC<ContractListProps> = ({
   const { dateFrom, dateTo, label: periodLabel } = resolvePresetDates(periodPreset, customDateFrom, customDateTo);
 
   const getProjectName = (id: string | number | null | undefined) => {
+    const normalizedId = String(id ?? '').trim();
+    if (!normalizedId) {
+      return fixedSourceMode === 'INITIAL' ? 'Hợp đồng đầu kỳ' : 'Chưa gắn dự án';
+    }
     const project = (projects || []).find((item) => String(item.id) === String(id));
-    return project ? `${project.project_code} - ${project.project_name}` : String(id);
+    return project ? `${project.project_code} - ${project.project_name}` : normalizedId;
   };
 
   const getCustomerName = (id: string | number | null | undefined) => {
+    const normalizedId = String(id ?? '').trim();
+    if (!normalizedId) {
+      return '--';
+    }
     const customer = (customers || []).find((item) => String(item.id) === String(id));
-    return customer ? `${customer.customer_code} - ${customer.customer_name}` : String(id);
+    return customer ? `${customer.customer_code} - ${customer.customer_name}` : normalizedId;
   };
 
   const getStatusLabel = (status: string) => CONTRACT_STATUSES.find((item) => item.value === status)?.label || status;
@@ -203,6 +290,7 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value || 0);
+  const formatCurrencyLabel = (value: number) => formatVietnameseCurrencyValue(value, { fallback: '0 đ' });
 
   const formatDate = (value?: string | null) => {
     if (!value) return '-';
@@ -217,30 +305,32 @@ export const ContractList: React.FC<ContractListProps> = ({
     }
 
     const searchLower = debouncedSearchTerm.trim().toLowerCase();
-    let result = (contracts || []).filter((contract) => {
-      const projectName = getProjectName(contract.project_id).toLowerCase();
-      const customerName = getCustomerName(contract.customer_id).toLowerCase();
-      const contractCode = String(contract.contract_code || '').toLowerCase();
-      const contractName = String(contract.contract_name || '').toLowerCase();
-      const paymentCycle = getPaymentCycleLabel(contract.payment_cycle).toLowerCase();
+    let result = (contracts || [])
+      .filter((contract) => matchesContractSourceMode(contract, fixedSourceMode))
+      .filter((contract) => {
+        const projectName = getProjectName(contract.project_id).toLowerCase();
+        const customerName = getCustomerName(contract.customer_id).toLowerCase();
+        const contractCode = String(contract.contract_code || '').toLowerCase();
+        const contractName = String(contract.contract_name || '').toLowerCase();
+        const paymentCycle = getPaymentCycleLabel(contract.payment_cycle).toLowerCase();
 
-      const matchesSearch =
-        searchLower === '' ||
-        contractCode.includes(searchLower) ||
-        contractName.includes(searchLower) ||
-        customerName.includes(searchLower) ||
-        projectName.includes(searchLower) ||
-        paymentCycle.includes(searchLower);
-      const matchesStatus = statusFilter ? contract.status === statusFilter : true;
-      const matchesType =
-        typeFilter === ''
-          ? true
-          : typeFilter === 'ADDENDUM'
-            ? contract.parent_contract_id != null
-            : contract.parent_contract_id == null;
+        const matchesSearch =
+          searchLower === '' ||
+          contractCode.includes(searchLower) ||
+          contractName.includes(searchLower) ||
+          customerName.includes(searchLower) ||
+          projectName.includes(searchLower) ||
+          paymentCycle.includes(searchLower);
+        const matchesStatus = statusFilter ? contract.status === statusFilter : true;
+        const matchesType =
+          typeFilter === ''
+            ? true
+            : typeFilter === 'ADDENDUM'
+              ? contract.parent_contract_id != null
+              : contract.parent_contract_id == null;
 
-      return matchesSearch && matchesStatus && matchesType;
-    });
+        return matchesSearch && matchesStatus && matchesType;
+      });
 
     if (sortConfig !== null) {
       result = [...result].sort((left, right) => {
@@ -290,7 +380,7 @@ export const ContractList: React.FC<ContractListProps> = ({
     }
 
     return result;
-  }, [serverMode, contracts, debouncedSearchTerm, statusFilter, sortConfig, projects, customers, typeFilter]);
+  }, [serverMode, contracts, debouncedSearchTerm, statusFilter, sortConfig, projects, customers, typeFilter, fixedSourceMode]);
 
   const statusFilterOptions = useMemo(
     () => [
@@ -369,13 +459,14 @@ export const ContractList: React.FC<ContractListProps> = ({
       sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
       sort_dir: sortConfig?.direction || 'desc',
       filters: {
+        source_mode: fixedSourceMode,
         status: statusFilter,
         type: typeFilter || undefined,
         sign_date_from: dateFrom ?? undefined,
         sign_date_to: dateTo ?? undefined,
       },
     });
-  }, [viewMode, serverMode, handleContractsPageQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo]);
+  }, [viewMode, serverMode, handleContractsPageQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo, fixedSourceMode]);
 
   const currentData = serverMode
     ? (contractsPageRows || [])
@@ -440,7 +531,7 @@ export const ContractList: React.FC<ContractListProps> = ({
         'Mã HĐ',
         'Tên HĐ',
         'Khách hàng',
-        'Dự án',
+        sourceColumnLabel,
         'Chu kỳ',
         'Giá trị HĐ',
         'Ngày hiệu lực',
@@ -472,7 +563,7 @@ export const ContractList: React.FC<ContractListProps> = ({
 
       const canPrint = exportPdfTable({
         fileName,
-        title: 'Danh sách Hợp đồng',
+        title: currentPageTitle,
         headers,
         rows,
         subtitle: `Ngày xuất: ${new Date().toLocaleString('vi-VN')}`,
@@ -527,8 +618,8 @@ export const ContractList: React.FC<ContractListProps> = ({
             <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>description</span>
           </div>
           <div>
-            <h2 className="text-sm font-bold text-deep-teal leading-tight">Hợp đồng &amp; Doanh thu</h2>
-            <p className="text-[11px] text-slate-400 leading-tight">Quản lý hợp đồng, theo dõi doanh thu dự kiến và thực thu.</p>
+            <h2 className="text-sm font-bold text-deep-teal leading-tight">{currentPageTitle}</h2>
+            <p className="text-[11px] text-slate-400 leading-tight">{pageDescription}</p>
           </div>
         </div>
 
@@ -588,10 +679,11 @@ export const ContractList: React.FC<ContractListProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenModal('ADD_CONTRACT')}
+                  title="Thêm hợp đồng (Ctrl+N / ⌘N)"
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                  Thêm mới
+                  {addButtonLabel}
                 </button>
               )}
             </>
@@ -607,10 +699,11 @@ export const ContractList: React.FC<ContractListProps> = ({
               <div className="relative w-full md:flex-1">
                 <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Tìm theo mã/tên hợp đồng, khách hàng, dự án..."
+                  placeholder={showProjectColumn ? 'Tìm theo mã/tên hợp đồng, khách hàng, dự án...' : 'Tìm theo mã/tên hợp đồng, khách hàng...'}
                   className="w-full h-8 rounded border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary placeholder:text-slate-400"
                 />
                 {searchInput && (
@@ -820,14 +913,20 @@ export const ContractList: React.FC<ContractListProps> = ({
         {viewMode === 'CONTRACTS' ? (
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
-              <table className={`w-full border-collapse text-left ${showActionColumn ? 'min-w-[980px]' : 'min-w-[900px]'}`}>
+              <table
+                className={`w-full border-collapse text-left ${
+                  showProjectColumn
+                    ? (showActionColumn ? 'min-w-[1120px]' : 'min-w-[1040px]')
+                    : (showActionColumn ? 'min-w-[920px]' : 'min-w-[860px]')
+                }`}
+              >
                 <thead className="border-y border-slate-200 bg-slate-50">
                   <tr>
                     {[
                       { label: 'Mã HĐ', key: 'contract_code' },
                       { label: 'Tên hợp đồng', key: 'contract_name' },
                       { label: 'Khách hàng', key: 'customer_id' },
-                      { label: 'Dự án', key: 'project_id' },
+                      ...(showProjectColumn ? [{ label: sourceColumnLabel, key: 'project_id' as keyof Contract }] : []),
                       { label: 'Chu kỳ', key: 'payment_cycle' },
                       { label: 'Giá trị HĐ', key: 'value' },
                       { label: 'Hiệu lực', key: 'effective_date' },
@@ -857,7 +956,25 @@ export const ContractList: React.FC<ContractListProps> = ({
                     renderLoadingRows()
                   ) : currentData.length > 0 ? (
                     currentData.map((item) => (
-                      <tr key={item.id} className="transition-colors hover:bg-slate-50/70">
+                      <tr
+                        key={item.id}
+                        data-testid={`contract-row-${item.id}`}
+                        onClick={() => setSelectedRowId((prev) => (String(prev) === String(item.id) ? null : item.id))}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setSelectedRowId(item.id);
+                          setContextMenu({
+                            item,
+                            x: Math.min(event.clientX, Math.max(12, window.innerWidth - 248)),
+                            y: Math.min(event.clientY, Math.max(12, window.innerHeight - 84)),
+                          });
+                        }}
+                        className={`cursor-pointer transition-colors ${
+                          String(selectedRowId) === String(item.id)
+                            ? 'bg-secondary/10 ring-1 ring-inset ring-primary/30'
+                            : 'hover:bg-slate-50/70'
+                        }`}
+                      >
                         <td className="whitespace-nowrap px-3 py-2 text-xs font-mono font-bold text-slate-600">
                           {item.contract_code}
                           {item.parent_contract_id != null && (
@@ -869,17 +986,35 @@ export const ContractList: React.FC<ContractListProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-xs font-semibold text-slate-900">
-                          <div className="max-w-[200px] truncate" title={item.contract_name}>{item.contract_name}</div>
+                        <td className="px-3 py-2 align-top text-xs font-semibold text-slate-900">
+                          <div
+                            className={`whitespace-normal break-words leading-snug ${
+                              showProjectColumn ? 'min-w-[240px] max-w-[360px]' : 'min-w-[300px] max-w-[460px]'
+                            }`}
+                            title={item.contract_name}
+                            data-testid={`contract-name-cell-${item.id}`}
+                          >
+                            {item.contract_name}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-xs text-slate-600">
                           <div className="max-w-[180px] truncate" title={getCustomerName(item.customer_id)}>{getCustomerName(item.customer_id)}</div>
                         </td>
-                        <td className="px-3 py-2 text-xs text-slate-600">
-                          <div className="max-w-[180px] truncate" title={getProjectName(item.project_id)}>{getProjectName(item.project_id)}</div>
-                        </td>
+                        {showProjectColumn && (
+                          <td className="px-3 py-2 align-top text-xs text-slate-600">
+                            <div
+                              className="min-w-[220px] max-w-[340px] whitespace-normal break-words leading-snug"
+                              title={getProjectName(item.project_id)}
+                              data-testid={`contract-project-cell-${item.id}`}
+                            >
+                              {getProjectName(item.project_id)}
+                            </div>
+                          </td>
+                        )}
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{getPaymentCycleLabel(item.payment_cycle)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-900">{formatCurrency(resolveContractValue(item))}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-900" data-testid={`contract-value-cell-${item.id}`}>
+                          {formatCurrencyLabel(resolveContractValue(item))}
+                        </td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.effective_date || null)}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.expiry_date || null)}</td>
                         <td className="px-3 py-2">
@@ -922,8 +1057,8 @@ export const ContractList: React.FC<ContractListProps> = ({
                         <div className="flex flex-col items-center gap-2 text-slate-500">
                           <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>description</span>
                           <div>
-                            <p className="text-xs font-semibold text-slate-700">Chưa có hợp đồng nào.</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400">Bắt đầu bằng cách thêm mới hợp đồng đầu tiên.</p>
+                            <p className="text-xs font-semibold text-slate-700">{emptyStateTitle}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">{emptyStateHint}</p>
                           </div>
                           {canAdd && (
                             <button
@@ -932,7 +1067,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                               className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-deep-teal shadow-sm"
                             >
                               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                              Thêm mới
+                              {addButtonLabel}
                             </button>
                           )}
                         </div>
@@ -981,11 +1116,199 @@ export const ContractList: React.FC<ContractListProps> = ({
               periodFrom={dateFrom}
               periodTo={dateTo}
               periodLabel={periodLabel}
+              fixedSourceMode={fixedSourceMode}
               onNotify={onNotify}
             />
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setContextMenu(null)} />
+          <div
+            role="menu"
+            data-testid="contract-row-context-menu"
+            className="fixed z-40 min-w-[220px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
+              <p className="text-[11px] font-semibold text-slate-500">Tác vụ nhanh</p>
+              <p className="mt-0.5 text-xs font-bold text-slate-700">{contextMenu.item.contract_code}</p>
+            </div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary"
+              onClick={() => {
+                const cachedDetail = detailCache[String(contextMenu.item.id)];
+                setContextMenu(null);
+                setDetailDrawerContractId(contextMenu.item.id);
+                setDetailDrawerData(cachedDetail ?? contextMenu.item);
+
+                const requestVersion = detailRequestVersionRef.current + 1;
+                detailRequestVersionRef.current = requestVersion;
+                setIsDetailDrawerLoading(true);
+                void fetchContractDetail(contextMenu.item.id)
+                  .then((detail) => {
+                    if (detailRequestVersionRef.current !== requestVersion) {
+                      return;
+                    }
+                    setDetailDrawerData(detail);
+                    setDetailCache((previous) => ({
+                      ...previous,
+                      [String(contextMenu.item.id)]: detail,
+                    }));
+                  })
+                  .catch((error) => {
+                    if (detailRequestVersionRef.current !== requestVersion) {
+                      return;
+                    }
+                    const message = error instanceof Error ? error.message : 'Không thể tải chi tiết hợp đồng.';
+                    onNotify?.('error', 'Tải dữ liệu thất bại', message);
+                  })
+                  .finally(() => {
+                    if (detailRequestVersionRef.current === requestVersion) {
+                      setIsDetailDrawerLoading(false);
+                    }
+                  });
+              }}
+            >
+              <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>page_info</span>
+              Xem chi tiết tất cả thông tin
+            </button>
+          </div>
+        </>
+      )}
+
+      {detailDrawerContractId !== null && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-slate-900/35 backdrop-blur-[1px]"
+            onClick={() => {
+              setDetailDrawerContractId(null);
+              setDetailDrawerData(null);
+            }}
+          />
+          <aside
+            data-testid="contract-detail-drawer"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[840px] flex-col border-l border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Chi tiết hợp đồng</p>
+                <h3 className="mt-1 break-words text-lg font-bold text-deep-teal">
+                  {detailDrawerData?.contract_name || 'Đang tải hợp đồng'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {detailDrawerData?.contract_code || detailDrawerContractId}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailDrawerContractId(null);
+                  setDetailDrawerData(null);
+                }}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Đóng chi tiết hợp đồng"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {isDetailDrawerLoading && (
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  Đang tải đầy đủ thông tin hợp đồng...
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  { label: 'Mã hợp đồng', value: detailDrawerData?.contract_code || '--' },
+                  { label: 'Khách hàng', value: getCustomerName(detailDrawerData?.customer_id) },
+                  { label: 'Dự án', value: getProjectName(detailDrawerData?.project_id) },
+                  { label: 'Phòng ban', value: [detailDrawerData?.dept_code, detailDrawerData?.dept_name].filter(Boolean).join(' - ') || '--' },
+                  { label: 'Người ký', value: [detailDrawerData?.signer_user_code, detailDrawerData?.signer_full_name].filter(Boolean).join(' - ') || '--' },
+                  { label: 'Chu kỳ thanh toán', value: getPaymentCycleLabel(detailDrawerData?.payment_cycle) },
+                  { label: 'Giá trị hợp đồng', value: formatCurrencyLabel(resolveContractValue(detailDrawerData || ({} as Contract))) },
+                  { label: 'Trạng thái', value: detailDrawerData ? getStatusLabel(detailDrawerData.status) : '--' },
+                  { label: 'Loại dữ liệu', value: resolveContractSourceMode(detailDrawerData || {}) === 'INITIAL' ? 'Hợp đồng đầu kỳ' : 'Hợp đồng theo dự án' },
+                  { label: 'Ngày ký', value: formatDate(detailDrawerData?.sign_date || null) },
+                  { label: 'Hiệu lực', value: formatDate(detailDrawerData?.effective_date || null) },
+                  { label: 'Hết hạn', value: formatDate(detailDrawerData?.expiry_date || null) },
+                  { label: 'Kỳ hạn', value: detailDrawerData?.term_value ? `${detailDrawerData.term_value} ${detailDrawerData.term_unit === 'DAY' ? 'ngày' : 'tháng'}` : '--' },
+                  { label: 'Loại phụ lục', value: detailDrawerData?.addendum_type || '--' },
+                  { label: 'HĐ cha', value: detailDrawerData?.parent_contract ? `${detailDrawerData.parent_contract.contract_code} - ${detailDrawerData.parent_contract.contract_name}` : '--' },
+                  { label: 'Đầu tư', value: detailDrawerData?.project_type_code || '--' },
+                  { label: 'Phí phạt', value: detailDrawerData?.penalty_rate != null ? `${detailDrawerData.penalty_rate}%` : '--' },
+                  { label: 'Ngày tạo', value: formatDate(detailDrawerData?.created_at || null) },
+                  { label: 'Ngày cập nhật', value: formatDate(detailDrawerData?.updated_at || null) },
+                ].map((field) => (
+                  <div key={field.label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <p className="break-words text-sm leading-6 text-slate-800">
+                      <span className="font-semibold text-slate-500">{field.label}:</span>{' '}
+                      <span className="font-semibold text-slate-900">{field.value}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <h4 className="text-sm font-bold text-slate-700">
+                    Hạng mục hợp đồng ({detailDrawerData?.items?.length ?? 0})
+                  </h4>
+                </div>
+                {detailDrawerData?.items && detailDrawerData.items.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[520px] border-collapse">
+                      <thead className="bg-slate-50 text-left">
+                        <tr>
+                          <th className="px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Hạng mục</th>
+                          <th className="px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Đơn vị</th>
+                          <th className="px-4 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">SL</th>
+                          <th className="px-4 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
+                          <th className="px-4 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thành tiền</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {detailDrawerData.items.map((contractItem, index) => {
+                          const quantity = Number(contractItem.quantity || 0);
+                          const unitPrice = Number(contractItem.unit_price || 0);
+                          const lineTotal = Math.max(0, quantity * unitPrice);
+                          return (
+                            <tr key={`${contractItem.id}-${index}`}>
+                              <td className="px-4 py-3 text-sm text-slate-800">
+                                {contractItem.product_name || contractItem.product_code || contractItem.product_id}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-600">{contractItem.unit || '--'}</td>
+                              <td className="px-4 py-3 text-right text-sm text-slate-600">{quantity.toLocaleString('vi-VN')}</td>
+                              <td className="px-4 py-3 text-right text-sm text-slate-600">{formatCurrencyLabel(unitPrice)}</td>
+                              <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900">{formatCurrencyLabel(lineTotal)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="px-4 py-5 text-sm text-slate-500">Hợp đồng này chưa có hạng mục chi tiết để hiển thị.</div>
+                )}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                <h4 className="text-sm font-bold text-slate-700">Tệp đính kèm</h4>
+                <p className="mt-1 text-sm text-slate-600">
+                  {detailDrawerData?.attachments?.length
+                    ? `${detailDrawerData.attachments.length} tệp đính kèm`
+                    : 'Chưa có tệp đính kèm'}
+                </p>
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 };

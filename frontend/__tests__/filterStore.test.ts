@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useFilterStore } from '../shared/stores';
-import { FILTER_DEFAULTS } from '../shared/stores/filterStore';
+import { FILTER_DEFAULTS, getProjectsPageDefaultDateFilters } from '../shared/stores/filterStore';
 
 describe('useFilterStore', () => {
   beforeEach(() => {
@@ -12,6 +12,7 @@ describe('useFilterStore', () => {
         projectsPage: { ...FILTER_DEFAULTS.projectsPage, filters: { ...FILTER_DEFAULTS.projectsPage.filters } },
         productsPage: { ...FILTER_DEFAULTS.productsPage, filters: { ...FILTER_DEFAULTS.productsPage.filters } },
         contractsPage: { ...FILTER_DEFAULTS.contractsPage, filters: { ...FILTER_DEFAULTS.contractsPage.filters } },
+        passContractsPage: { ...FILTER_DEFAULTS.passContractsPage, filters: { ...FILTER_DEFAULTS.passContractsPage.filters } },
         documentsPage: { ...FILTER_DEFAULTS.documentsPage, filters: { ...FILTER_DEFAULTS.documentsPage.filters } },
         auditLogsPage: { ...FILTER_DEFAULTS.auditLogsPage, filters: { ...FILTER_DEFAULTS.auditLogsPage.filters } },
         feedbacksPage: { ...FILTER_DEFAULTS.feedbacksPage, filters: { ...FILTER_DEFAULTS.feedbacksPage.filters } },
@@ -20,6 +21,8 @@ describe('useFilterStore', () => {
   });
 
   it('returns repo-native defaults for each page key', () => {
+    const projectDefaultDates = getProjectsPageDefaultDateFilters();
+
     expect(useFilterStore.getState().getTabFilter('employeesPage')).toMatchObject({
       page: 1,
       per_page: 7,
@@ -32,6 +35,17 @@ describe('useFilterStore', () => {
       per_page: 10,
       sort_by: 'id',
       sort_dir: 'desc',
+    });
+
+    expect(useFilterStore.getState().getTabFilter('projectsPage')).toMatchObject({
+      page: 1,
+      per_page: 10,
+      sort_by: 'id',
+      sort_dir: 'desc',
+      filters: {
+        start_date_from: projectDefaultDates.start_date_from,
+        start_date_to: projectDefaultDates.start_date_to,
+      },
     });
   });
 
@@ -56,6 +70,8 @@ describe('useFilterStore', () => {
   });
 
   it('replaces and resets a stored filter snapshot deterministically', () => {
+    const projectDefaultDates = getProjectsPageDefaultDateFilters();
+
     useFilterStore.getState().replaceTabFilter('projectsPage', {
       page: 3,
       per_page: 50,
@@ -85,7 +101,10 @@ describe('useFilterStore', () => {
       q: '',
       sort_by: 'id',
       sort_dir: 'desc',
-      filters: {},
+      filters: {
+        start_date_from: projectDefaultDates.start_date_from,
+        start_date_to: projectDefaultDates.start_date_to,
+      },
     });
   });
 });

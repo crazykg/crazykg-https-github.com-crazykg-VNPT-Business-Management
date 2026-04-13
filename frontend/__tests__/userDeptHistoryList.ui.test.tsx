@@ -69,6 +69,7 @@ const history: UserDeptHistory[] = [
     userId: '101',
     fromDeptId: '3',
     toDeptId: '4',
+    transferType: 'LUAN_CHUYEN',
     transferDate: '2026-04-05',
     reason: 'Dieu chuyen noi bo',
     employeeCode: 'VNPT000101',
@@ -83,6 +84,7 @@ const history: UserDeptHistory[] = [
     userId: '101',
     fromDeptId: '5',
     toDeptId: '5',
+    transferType: 'BIET_PHAI',
     transferDate: '2026-04-04',
     reason: 'Dieu chuyen noi bo',
     employeeCode: 'VNPT000101',
@@ -107,6 +109,9 @@ describe('UserDeptHistoryList', () => {
 
     expect(screen.getByText('Từ đơn vị')).toBeInTheDocument();
     expect(screen.getByText('Đến đơn vị')).toBeInTheDocument();
+    expect(screen.getByText('Loại hình')).toBeInTheDocument();
+    expect(screen.getByText('Luân chuyển')).toBeInTheDocument();
+    expect(screen.getByText('Biệt phái')).toBeInTheDocument();
     expect(screen.getByText('Trung tam Kinh doanh')).toBeInTheDocument();
     expect(screen.getByText('Ky thuat van hanh')).toBeInTheDocument();
     expect(screen.queryByText('KTVH - Ky thuat van hanh')).not.toBeInTheDocument();
@@ -140,5 +145,32 @@ describe('UserDeptHistoryList', () => {
 
     expect(screen.getByText('Lý do 11')).toBeInTheDocument();
     expect(screen.queryByText('Lý do 1')).not.toBeInTheDocument();
+  });
+
+  it('disables delete action when the current user is not allowed to delete the row', async () => {
+    const user = userEvent.setup();
+    const onOpenModal = vi.fn();
+
+    render(
+      <UserDeptHistoryList
+        history={[{
+          ...history[0],
+          canDelete: false,
+          deleteRestrictionMessage: 'Chỉ người tạo dòng hoặc admin mới được xóa lịch sử luân chuyển này.',
+        }]}
+        employees={employees}
+        departments={departments}
+        onOpenModal={onOpenModal}
+      />
+    );
+
+    const deleteButton = screen.getByRole('button', { name: 'delete' });
+
+    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).toHaveAttribute('title', 'Chỉ người tạo dòng hoặc admin mới được xóa lịch sử luân chuyển này.');
+
+    await user.click(deleteButton);
+
+    expect(onOpenModal).not.toHaveBeenCalledWith('DELETE_USER_DEPT_HISTORY', expect.anything());
   });
 });

@@ -38,6 +38,7 @@ class ProjectPaymentCycleCrudTest extends TestCase
             'start_date' => '2026-02-25',
             'expected_end_date' => '2026-11-25',
             'actual_end_date' => null,
+            'opportunity_score' => 0,
             'status' => 'CHUAN_BI',
             'status_reason' => null,
             'payment_cycle' => null,
@@ -79,6 +80,7 @@ class ProjectPaymentCycleCrudTest extends TestCase
             'start_date' => '2026-02-25',
             'expected_end_date' => '2026-11-25',
             'actual_end_date' => null,
+            'opportunity_score' => 0,
             'status' => 'CHUAN_BI',
             'status_reason' => null,
             'payment_cycle' => null,
@@ -96,6 +98,166 @@ class ProjectPaymentCycleCrudTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('message', 'payment_cycle is required for the selected investment_mode.')
             ->assertJsonPath('errors.payment_cycle.0', 'Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.');
+    }
+
+    public function test_it_requires_payment_cycle_for_special_rental_projects(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 1,
+            'customer_code' => '93007',
+            'customer_name' => 'Benh vien San - Nhi Hau Giang',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 5,
+            'project_code' => 'DA005',
+            'project_name' => 'Du an thue dich vu dac thu',
+            'customer_id' => 1,
+            'investment_mode' => 'THUE_DICH_VU_DACTHU',
+            'start_date' => '2026-02-25',
+            'expected_end_date' => '2026-11-25',
+            'actual_end_date' => null,
+            'opportunity_score' => 0,
+            'status' => 'CHUAN_BI',
+            'status_reason' => null,
+            'payment_cycle' => null,
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $this->putJson('/api/v5/projects/5', [
+            'investment_mode' => 'THUE_DICH_VU_DACTHU',
+            'payment_cycle' => null,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'payment_cycle is required for the selected investment_mode.')
+            ->assertJsonPath('errors.payment_cycle.0', 'Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.');
+    }
+
+    public function test_it_persists_project_opportunity_score(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 7,
+            'customer_code' => '93099',
+            'customer_name' => 'Khach hang co diem co hoi',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 6,
+            'project_code' => 'DA006',
+            'project_name' => 'Du an co diem co hoi',
+            'customer_id' => 7,
+            'investment_mode' => 'DAU_TU',
+            'start_date' => '2026-02-25',
+            'expected_end_date' => '2026-11-25',
+            'actual_end_date' => null,
+            'opportunity_score' => 0,
+            'status' => 'CHUAN_BI',
+            'status_reason' => null,
+            'payment_cycle' => 'QUARTERLY',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $this->putJson('/api/v5/projects/6', [
+            'opportunity_score' => 2,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.id', 6)
+            ->assertJsonPath('data.opportunity_score', 2);
+
+        $this->assertSame(2, DB::table('projects')->where('id', 6)->value('opportunity_score'));
+    }
+
+    public function test_it_defaults_opportunity_score_to_zero_for_co_hoi_projects(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 8,
+            'customer_code' => '93100',
+            'customer_name' => 'Khach hang co hoi',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->postJson('/api/v5/projects', [
+            'project_code' => 'DA007',
+            'project_name' => 'Du an co hoi',
+            'customer_id' => 8,
+            'status' => 'CO_HOI',
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
+            'start_date' => '2026-02-25',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.status', 'CO_HOI')
+            ->assertJsonPath('data.opportunity_score', 0);
+
+        $this->assertSame(0, DB::table('projects')->where('project_code', 'DA007')->value('opportunity_score'));
+    }
+
+    public function test_it_rejects_invalid_opportunity_score_for_co_hoi_projects(): void
+    {
+        $this->postJson('/api/v5/projects', [
+            'project_code' => 'DA008',
+            'project_name' => 'Du an co hoi sai diem',
+            'status' => 'CO_HOI',
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'MONTHLY',
+            'start_date' => '2026-02-25',
+            'opportunity_score' => 9,
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['opportunity_score']);
+    }
+
+    public function test_it_keeps_existing_opportunity_score_when_project_leaves_co_hoi(): void
+    {
+        DB::table('customers')->insert([
+            'id' => 9,
+            'customer_code' => '93101',
+            'customer_name' => 'Khach hang roi co hoi',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 7,
+            'project_code' => 'DA009',
+            'project_name' => 'Du an roi co hoi',
+            'customer_id' => 9,
+            'investment_mode' => 'DAU_TU',
+            'start_date' => '2026-02-25',
+            'expected_end_date' => '2026-11-25',
+            'actual_end_date' => null,
+            'opportunity_score' => 2,
+            'status' => 'CO_HOI',
+            'status_reason' => null,
+            'payment_cycle' => 'QUARTERLY',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $this->putJson('/api/v5/projects/7', [
+            'status' => 'THUC_HIEN_DAU_TU',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'THUC_HIEN_DAU_TU')
+            ->assertJsonPath('data.opportunity_score', 2);
+
+        $this->assertSame(2, DB::table('projects')->where('id', 7)->value('opportunity_score'));
     }
 
     private function setUpSchema(): void
@@ -139,6 +301,7 @@ class ProjectPaymentCycleCrudTest extends TestCase
             $table->date('start_date')->nullable();
             $table->date('expected_end_date')->nullable();
             $table->date('actual_end_date')->nullable();
+            $table->unsignedTinyInteger('opportunity_score')->default(0);
             $table->string('status', 100)->default('CHUAN_BI');
             $table->text('status_reason')->nullable();
             $table->string('payment_cycle', 20)->nullable();

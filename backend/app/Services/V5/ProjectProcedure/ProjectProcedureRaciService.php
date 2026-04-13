@@ -62,22 +62,51 @@ class ProjectProcedureRaciService
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
-        $userId = $request->user()?->id;
-        $row = ProjectProcedureRaci::updateOrCreate(
-            [
-                'procedure_id' => $procedureId,
-                'user_id'      => $request->input('user_id'),
-                'raci_role'    => $request->input('raci_role'),
-            ],
-            [
-                'note'       => $request->input('note'),
-                'updated_by' => $userId,
-            ]
-        );
+        $actorId = $request->user()?->id;
+        $targetUserId = (int) $request->input('user_id');
+        $role = (string) $request->input('raci_role');
+        $row = DB::transaction(function () use ($actorId, $procedureId, $request, $role, $targetUserId): ProjectProcedureRaci {
+            $replacedAccountableUserIds = collect();
 
-        if ($row->wasRecentlyCreated) {
-            $row->update(['created_by' => $userId]);
-        }
+            if ($role === 'A') {
+                $replacedAccountableUserIds = ProjectProcedureRaci::query()
+                    ->where('procedure_id', $procedureId)
+                    ->where('raci_role', 'A')
+                    ->where('user_id', '!=', $targetUserId)
+                    ->pluck('user_id')
+                    ->map(fn ($id): int => (int) $id)
+                    ->unique()
+                    ->values();
+
+                if ($replacedAccountableUserIds->isNotEmpty()) {
+                    ProjectProcedureRaci::query()
+                        ->where('procedure_id', $procedureId)
+                        ->where('raci_role', 'A')
+                        ->where('user_id', '!=', $targetUserId)
+                        ->delete();
+                }
+            }
+
+            $row = ProjectProcedureRaci::updateOrCreate(
+                [
+                    'procedure_id' => $procedureId,
+                    'user_id'      => $targetUserId,
+                    'raci_role'    => $role,
+                ],
+                [
+                    'note'       => $request->input('note'),
+                    'updated_by' => $actorId,
+                ]
+            );
+
+            if ($row->wasRecentlyCreated) {
+                $row->update(['created_by' => $actorId]);
+            }
+
+            $this->removeStepRaciForOrphanedUsers($procedureId, $replacedAccountableUserIds);
+
+            return $row;
+        });
 
         $row->load('user:id,full_name,user_code,username');
 
@@ -443,5 +472,40 @@ class ProjectProcedureRaciService
                 );
             })
             ->values();
+    }
+
+    /**
+     * @param Collection<int, int> $candidateUserIds
+     */
+    private function removeStepRaciForOrphanedUsers(int $procedureId, Collection $candidateUserIds): void
+    {
+        if ($candidateUserIds->isEmpty()) {
+            return;
+        }
+
+        $remainingProcedureMemberIds = ProjectProcedureRaci::query()
+            ->where('procedure_id', $procedureId)
+            ->whereIn('user_id', $candidateUserIds)
+            ->pluck('user_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique();
+
+        $orphanedUserIds = $candidateUserIds->diff($remainingProcedureMemberIds)->values();
+        if ($orphanedUserIds->isEmpty()) {
+            return;
+        }
+
+        $stepIds = ProjectProcedureStep::query()
+            ->where('procedure_id', $procedureId)
+            ->pluck('id');
+
+        if ($stepIds->isEmpty()) {
+            return;
+        }
+
+        ProjectProcedureStepRaci::query()
+            ->whereIn('step_id', $stepIds)
+            ->whereIn('user_id', $orphanedUserIds)
+            ->delete();
     }
 }

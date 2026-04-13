@@ -21,4 +21,4 @@ React + Vite frontend for VNPT Business Management.
 Default local URLs:
 
 - Frontend: `http://127.0.0.1:5174`
-- API proxy target: `http://127.0.0.1:8002`
+- API proxy target: `http://127.0.0.1:8000`

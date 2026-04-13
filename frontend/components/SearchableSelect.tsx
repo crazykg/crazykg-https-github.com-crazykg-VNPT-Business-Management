@@ -83,7 +83,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   error,
   compact = false,
   denseLabel = false,
-  usePortal = false,
+  usePortal = true,
   portalZIndex = 2000,
   portalMinWidth,
   portalMaxWidth,

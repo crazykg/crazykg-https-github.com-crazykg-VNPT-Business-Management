@@ -7,6 +7,7 @@ import {
   type GenerateContractPaymentsResult,
 } from '../services/api/contractApi';
 import {
+  Attachment,
   Business,
   Contract,
   ContractSignerOption,
@@ -17,11 +18,13 @@ import {
   PaymentScheduleConfirmationPayload,
   PaymentScheduleStatus,
   Product,
+  ProductPackage,
   Project,
   ProjectItemMaster,
   ProjectTypeOption,
 } from '../types';
-import { ContractDetailsTab } from './contract/ContractDetailsTab';
+import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
+import { ContractDetailsTab, type ContractDraftItemComputedRow } from './contract/ContractDetailsTab';
 import {
   addUtcDays,
   addUtcMonths,
@@ -37,6 +40,10 @@ import {
 import { useContractForm } from './contract/hooks/useContractForm';
 import { useContractPaymentGeneration } from './contract/hooks/useContractPaymentGeneration';
 import { ContractPaymentTab } from './contract/ContractPaymentTab';
+import {
+  buildContractPackageCatalogValue,
+  buildContractProductCatalogValue,
+} from './contract/contractItemCatalogUtils';
 
 type ContractModalTab = 'CONTRACT' | 'PAYMENT';
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
@@ -45,10 +52,12 @@ interface ContractModalProps {
   type: 'ADD' | 'EDIT';
   data?: Contract | null;
   prefill?: Partial<Contract> | null;
+  fixedSourceMode?: ContractSourceMode | null;
   projects: Project[];
   projectTypes?: ProjectTypeOption[];
   businesses?: Business[];
   products?: Product[];
+  productPackages?: ProductPackage[];
   projectItems?: ProjectItemMaster[];
   customers: Customer[];
   paymentSchedules: PaymentSchedule[];
@@ -70,6 +79,7 @@ interface ContractModalProps {
     scheduleId: string | number,
     payload: PaymentScheduleConfirmationPayload
   ) => Promise<void>;
+  onDeletePaymentSchedule?: (scheduleId: string | number) => Promise<void>;
 }
 
 const PAYMENT_CYCLE_LABELS: Record<PaymentCycle, string> = {
@@ -100,6 +110,7 @@ const INVESTMENT_MODE_LABELS: Record<string, string> = {
 };
 
 const MAX_CONTRACT_VALUE_INTEGER_DIGITS = 16;
+const CONTRACT_ATTACHMENT_ACCEPT = '.pdf,application/pdf';
 
 const VI_DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
 const VI_SCALES = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
@@ -243,6 +254,14 @@ const resolveVatRateByBusiness = (business: Business | null): number | null => {
 };
 
 const normalizeVatRate = (value: unknown): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string' && value.trim() === '') {
+    return null;
+  }
+
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return null;
@@ -284,6 +303,42 @@ const resolveEffectiveVatAmount = (
   return computeVatAmountByRate(amountBeforeVat, vatRate) ?? 0;
 };
 
+const computeContractItemComputedRow = (
+  item: {
+    product_id: string | number | null | undefined;
+    quantity: number | null | undefined;
+    unit_price: number | null | undefined;
+    vat_rate?: number | null;
+    vat_amount?: number | null;
+  },
+  productById: Map<string, Product>,
+  businessById: Map<string, Business>
+): ContractDraftItemComputedRow => {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unit_price || 0);
+  const amountBeforeVat = roundMoney(
+    Math.max(0, (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(unitPrice) ? unitPrice : 0))
+  );
+  const product = productById.get(String(item.product_id || '')) || null;
+  const vatBusinessMeta = resolveVatMetaByBusiness(
+    businessById.get(String(product?.domain_id || '')) || null
+  );
+  const defaultVatRate = vatBusinessMeta.rate;
+  const vatRate = normalizeVatRate(item.vat_rate) ?? defaultVatRate;
+  const vatAmount = resolveEffectiveVatAmount(item.vat_amount, amountBeforeVat, vatRate);
+  const amountWithVat = roundMoney(amountBeforeVat + vatAmount);
+  const vatLabel = vatRate !== null ? `${formatPercentageString(vatRate)}%` : '--';
+
+  return {
+    product,
+    vatRate,
+    vatLabel,
+    amountBeforeVat,
+    vatAmount,
+    amountWithVat,
+  };
+};
+
 const parseCurrency = (value: number | string): number => {
   if (typeof value === 'number') return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
   const parsed = Number(normalizeCurrencyDigits(value));
@@ -297,6 +352,12 @@ const parseDateValue = (value: unknown): number | null => {
   return Number.isNaN(timestamp) ? null : timestamp;
 };
 
+const isPdfAttachmentFile = (file: File): boolean => {
+  const mimeType = String(file.type || '').trim().toLowerCase();
+  const fileName = String(file.name || '').trim().toLowerCase();
+  return mimeType === 'application/pdf' || fileName.endsWith('.pdf');
+};
+
 const resolveContractStartDate = (source: Partial<Contract>): Date => {
   const effectiveDate = parseIsoDate(source.effective_date);
   if (effectiveDate) return effectiveDate;
@@ -308,10 +369,10 @@ const resolveContractStartDate = (source: Partial<Contract>): Date => {
 };
 
 const modalActionButtonClass =
-  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50 disabled:cursor-not-allowed';
+  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50';
 
 const modalSecondaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
 
 const resolveContractExpiryByTerm = (source: Partial<Contract>): string | null => {
   const termUnitRaw = String(source.term_unit || '').trim().toUpperCase();
@@ -347,10 +408,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   type,
   data,
   prefill,
+  fixedSourceMode = null,
   projects = [],
   projectTypes = [],
   businesses = [],
   products = [],
+  productPackages = [],
   projectItems = [],
   customers = [],
   paymentSchedules = [],
@@ -366,11 +429,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   onGenerateSchedules,
   onRefreshSchedules,
   onConfirmPayment,
+  onDeletePaymentSchedule,
 }: ContractModalProps) => {
   const [activeTab, setActiveTab] = useState<ContractModalTab>('CONTRACT');
   const [signerOptions, setSignerOptions] = useState<ContractSignerOption[]>([]);
   const [isSignerOptionsLoading, setIsSignerOptionsLoading] = useState(false);
   const [signerOptionsError, setSignerOptionsError] = useState('');
+  const [isUploadingContractAttachment, setIsUploadingContractAttachment] = useState(false);
+  const [contractAttachmentError, setContractAttachmentError] = useState('');
+  const [contractAttachmentNotice, setContractAttachmentNotice] = useState('');
   const contractId = data?.id;
   const schedules = useMemo(
     () => paymentSchedules.filter((item) => String(item.contract_id) === String(contractId || '')),
@@ -419,9 +486,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       contract_code: source.contract_code || source.contract_number || '',
       contract_name: source.contract_name || '',
       signer_user_id: source.signer_user_id || '',
-      customer_id: source.customer_id || resolvedSourceProject?.customer_id || '',
-      project_id: source.project_id || resolvedSourceProject?.id || '',
-      project_type_code: normalizedSourceProjectTypeCode || null,
+      customer_id: fixedSourceMode === 'PROJECT'
+        ? (source.customer_id || resolvedSourceProject?.customer_id || '')
+        : (source.customer_id || ''),
+      project_id: fixedSourceMode === 'INITIAL'
+        ? ''
+        : (source.project_id || resolvedSourceProject?.id || ''),
+      project_type_code: fixedSourceMode === 'PROJECT'
+        ? null
+        : (normalizedSourceProjectTypeCode || null),
       value: source.value || source.total_value || 0,
       payment_cycle: source.payment_cycle || 'ONCE',
       status: source.status || 'DRAFT',
@@ -431,8 +504,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       term_unit: resolvedInitialTermUnit,
       term_value: resolvedInitialTermValue,
       expiry_date_manual_override: Boolean(source.expiry_date_manual_override),
+      attachments: Array.isArray(source.attachments) ? source.attachments : [],
     };
-  }, [type, prefill, data, projects]);
+  }, [type, prefill, data, projects, fixedSourceMode]);
 
   const initialProjectForPaymentSettings = useMemo(
     () => projects.find((item) => String(item.id) === String(initialFormData.project_id || '')) || null,
@@ -442,15 +516,31 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     initialProjectForPaymentSettings?.investment_mode || initialFormData.project_type_code || ''
   ).trim().toUpperCase();
 
-  const hasGeneratedSchedules = schedules.length > 0;
-  const isItemsEditable = !hasGeneratedSchedules;
-  const areScheduleSourceFieldsLocked = type === 'EDIT' && hasGeneratedSchedules;
+  const backendPaymentScheduleCount = Number(data?.payment_schedule_count || 0);
+  const effectivePaymentScheduleCount = Math.max(
+    0,
+    Number.isFinite(backendPaymentScheduleCount) ? backendPaymentScheduleCount : 0,
+    schedules.length
+  );
+  const hasGeneratedSchedules = Boolean(data?.has_generated_payment_schedules) || effectivePaymentScheduleCount > 0;
+  const isScheduleStatusPending = type === 'EDIT' && isPaymentLoading && !hasGeneratedSchedules;
+  const canEditScheduleSourceFields = type !== 'EDIT'
+    ? true
+    : !isScheduleStatusPending && !hasGeneratedSchedules && data?.can_edit_schedule_source_fields !== false;
+  const isItemsEditable = canEditScheduleSourceFields;
+  const areScheduleSourceFieldsLocked = type === 'EDIT' && !canEditScheduleSourceFields;
   const showEditLoadingState = type === 'EDIT' && isDetailLoading;
 
   useEscKey(onClose);
 
   useEffect(() => {
     setActiveTab('CONTRACT');
+  }, [initialFormData, type]);
+
+  useEffect(() => {
+    setIsUploadingContractAttachment(false);
+    setContractAttachmentError('');
+    setContractAttachmentNotice('');
   }, [initialFormData, type]);
 
   useEffect(() => {
@@ -616,6 +706,14 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     return next;
   }, [products]);
 
+  const packageById = useMemo(() => {
+    const next = new Map<string, ProductPackage>();
+    (productPackages || []).forEach((productPackage) => {
+      next.set(String(productPackage.id), productPackage);
+    });
+    return next;
+  }, [productPackages]);
+
   const businessById = useMemo(() => {
     const next = new Map<string, Business>();
     businesses.forEach((business) => {
@@ -641,6 +739,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     handleDraftItemChange,
     handleDraftProductChange,
     handleDraftVatAmountChange,
+    handleImportProjectItems,
     handleExpiryDateChange,
     handleRecalculateExpiryDate,
     handleToggleProjectItemsReference,
@@ -652,6 +751,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     projects,
     projectTotals,
     productById,
+    packageById,
     businessById,
     contractId,
     areScheduleSourceFieldsLocked,
@@ -670,11 +770,16 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     resolveEffectiveVatAmount,
     resolveVatRateByBusiness,
     roundMoney,
+    fixedSourceMode,
   });
 
   const selectedProject = useMemo(
     () => projects.find((item) => String(item.id) === String(formData.project_id || '')) || null,
     [projects, formData.project_id]
+  );
+  const contractAttachments = useMemo<Attachment[]>(
+    () => (Array.isArray(formData.attachments) ? formData.attachments : []),
+    [formData.attachments]
   );
 
   const selectedSigner = useMemo(
@@ -683,12 +788,85 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   );
 
   const productSelectOptions = useMemo(
-    () => (products || []).map((product) => ({
-      value: product.id,
-      label: product.product_name || product.product_code || `Sản phẩm #${product.id}`,
-      searchText: `${product.product_code || ''} ${product.product_name || ''}`.trim(),
-    })),
-    [products]
+    () => {
+      const options: Array<{
+        value: string;
+        label: string;
+        searchText: string;
+      }> = [];
+      const seen = new Set<string>();
+
+      (productPackages || []).forEach((productPackage) => {
+        const optionValue = buildContractPackageCatalogValue(productPackage.id);
+        if (!optionValue || seen.has(optionValue)) {
+          return;
+        }
+
+        const parentProduct = productById.get(String(productPackage.product_id ?? '').trim()) || null;
+        const packageName = String(productPackage.package_name || '').trim();
+        const fallbackName = String(productPackage.product_name || '').trim()
+          || String(parentProduct?.product_name || '').trim();
+        const label = packageName || fallbackName || String(productPackage.package_code || '').trim() || `Gói cước #${productPackage.id}`;
+        const resolvedUnit = String(productPackage.unit || '').trim() || String(parentProduct?.unit || '').trim();
+
+        options.push({
+          value: optionValue,
+          label,
+          searchText: [
+            productPackage.package_code,
+            productPackage.package_name,
+            productPackage.product_name,
+            productPackage.parent_product_code,
+            parentProduct?.product_code,
+            parentProduct?.product_name,
+            resolvedUnit,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        });
+        seen.add(optionValue);
+      });
+
+      draftItems.forEach((item) => {
+        const packageId = String(item.productPackageId ?? item.product_package_id ?? '').trim();
+        if (packageId) {
+          return;
+        }
+
+        const productId = String(item.product_id ?? '').trim();
+        if (!productId) {
+          return;
+        }
+
+        const product = productById.get(productId);
+        if (!product) {
+          return;
+        }
+
+        const optionValue = buildContractProductCatalogValue(product.id);
+        if (!optionValue || seen.has(optionValue)) {
+          return;
+        }
+
+        options.push({
+          value: optionValue,
+          label: String(item.product_name || '').trim() || product.product_name || product.product_code || `Sản phẩm #${product.id}`,
+          searchText: [
+            product.product_code,
+            product.product_name,
+            item.product_name,
+            product.unit,
+            item.unit,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        });
+        seen.add(optionValue);
+      });
+
+      return options;
+    },
+    [draftItems, productById, productPackages]
   );
 
   const selectedProjectCustomer = useMemo(
@@ -709,7 +887,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const isProjectSelectionLoading = isProjectsLoading && projects.length === 0;
   const isInitialCustomerSelectionLoading = isCustomersLoading && customers.length === 0;
   const isContractProductOptionsLoading = (
-    (isProductsLoading && products.length === 0)
+    (isProductsLoading && products.length === 0 && productPackages.length === 0)
     || (isProjectItemsLoading && String(formData.project_id || '').trim() !== '' && selectedProjectItems.length === 0)
   );
   const isContractProjectReferenceLoading = (
@@ -746,31 +924,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     return [deptCode, deptName].filter(Boolean).join(' - ');
   }, [selectedSigner]);
   const draftItemComputedRows = useMemo(
-    () => draftItems.map((item) => {
-      const quantity = Number(item.quantity || 0);
-      const unitPrice = Number(item.unit_price || 0);
-      const amountBeforeVat = roundMoney(
-        Math.max(0, (Number.isFinite(quantity) ? quantity : 0) * (Number.isFinite(unitPrice) ? unitPrice : 0))
-      );
-      const product = productById.get(String(item.product_id || '')) || null;
-      const vatBusinessMeta = resolveVatMetaByBusiness(
-        businessById.get(String(product?.domain_id || '')) || null
-      );
-      const defaultVatRate = vatBusinessMeta.rate;
-      const vatRate = normalizeVatRate(item.vat_rate) ?? defaultVatRate;
-      const vatAmount = resolveEffectiveVatAmount(item.vat_amount, amountBeforeVat, vatRate);
-      const amountWithVat = roundMoney(amountBeforeVat + vatAmount);
-      const vatLabel = vatRate !== null ? `${formatPercentageString(vatRate)}%` : '--';
-
-      return {
-        product,
-        vatRate,
-        vatLabel,
-        amountBeforeVat,
-        vatAmount,
-        amountWithVat,
-      };
-    }),
+    () => draftItems.map((item) => computeContractItemComputedRow(item, productById, businessById)),
     [businessById, draftItems, productById]
   );
   const draftItemsTotal = useMemo(
@@ -785,12 +939,53 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     () => roundMoney(draftItemComputedRows.reduce((sum, item) => sum + item.amountWithVat, 0)),
     [draftItemComputedRows]
   );
+  const projectFallbackComputedRows = useMemo(
+    () => selectedProjectItems.map((item) => {
+      const fallbackVatSource = item as ProjectItemMaster & {
+        vat_rate?: number | null;
+        vat_amount?: number | null;
+      };
+
+      return computeContractItemComputedRow(
+        {
+          product_id: item.product_id,
+          quantity: item.quantity ?? 0,
+          unit_price: item.unit_price ?? 0,
+          vat_rate: fallbackVatSource.vat_rate ?? null,
+          vat_amount: fallbackVatSource.vat_amount ?? null,
+        },
+        productById,
+        businessById
+      );
+    }),
+    [businessById, productById, selectedProjectItems]
+  );
+  const projectFallbackTotal = useMemo(
+    () => roundMoney(projectFallbackComputedRows.reduce((sum, item) => sum + item.amountBeforeVat, 0)),
+    [projectFallbackComputedRows]
+  );
+  const projectFallbackVatTotal = useMemo(
+    () => roundMoney(projectFallbackComputedRows.reduce((sum, item) => sum + item.vatAmount, 0)),
+    [projectFallbackComputedRows]
+  );
+  const projectFallbackGrandTotal = useMemo(
+    () => roundMoney(projectFallbackComputedRows.reduce((sum, item) => sum + item.amountWithVat, 0)),
+    [projectFallbackComputedRows]
+  );
 
   const isStatusDraft = String(formData.status || 'DRAFT').trim().toUpperCase() === 'DRAFT';
   const contractValueNumber = parseCurrency(formData.value || 0);
   const valueInWords = toVietnameseMoneyText(formData.value || 0);
   const showZeroValueWarning = contractValueNumber === 0;
-  const scheduleSourceLockMessage = 'Các trường này đã khóa vì hợp đồng đã sinh kỳ thanh toán. Muốn điều chỉnh, hãy xử lý lại lịch thu tiền trước.';
+  const scheduleSourceLockMessage = isScheduleStatusPending
+    ? 'Đang kiểm tra lịch thu tiền của hợp đồng. Vui lòng chờ trong giây lát trước khi cập nhật.'
+    : effectivePaymentScheduleCount > 0
+      ? `Hợp đồng đã có ${effectivePaymentScheduleCount} kỳ thanh toán. Muốn đổi chu kỳ, giá trị hoặc thời hạn, hãy ${
+          data?.can_delete_unpaid_schedules
+            ? 'xóa toàn bộ kỳ chưa thu tiền trong tab Dòng tiền trước.'
+            : 'xử lý các kỳ thu hiện có trước.'
+        }`
+      : 'Các trường nguồn dòng tiền đang sẵn sàng để cập nhật.';
   const projectTypeLockMessage = 'Đã phát sinh kỳ thanh toán nên không thể đổi nguồn hợp đồng hoặc loại dự án.';
   const isProjectSelectionDisabled = isProjectSelectionLoading || areScheduleSourceFieldsLocked;
   const isInitialCustomerSelectionDisabled = isInitialCustomerSelectionLoading || areScheduleSourceFieldsLocked;
@@ -819,6 +1014,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     await onConfirmPayment(scheduleId, payload);
   };
 
+  const handleDeletePaymentSchedule = async (scheduleId: string | number) => {
+    if (!onDeletePaymentSchedule) return;
+    await onDeletePaymentSchedule(scheduleId);
+  };
+
   const contractPaymentCycleLabel =
     PAYMENT_CYCLE_LABELS[(formData.payment_cycle || 'ONCE') as PaymentCycle] || 'Một lần';
   const contractDisplayCode = String(formData.contract_code || data?.contract_code || '');
@@ -834,6 +1034,66 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     attachments: payload.attachments || [],
   });
 
+  const handleContractAttachmentUpload = async (file: File) => {
+    setContractAttachmentError('');
+    setContractAttachmentNotice('');
+
+    if (!isPdfAttachmentFile(file)) {
+      setContractAttachmentError('Chỉ cho phép tải lên file PDF cho hợp đồng.');
+      return;
+    }
+
+    setIsUploadingContractAttachment(true);
+    try {
+      const uploaded = await uploadDocumentAttachment(file);
+      handleChange('attachments', [...contractAttachments, uploaded]);
+      if (String(uploaded.warningMessage || '').trim() !== '') {
+        setContractAttachmentNotice(String(uploaded.warningMessage || '').trim());
+      }
+    } catch (error) {
+      setContractAttachmentError(error instanceof Error ? error.message : 'Tải file PDF thất bại.');
+    } finally {
+      setIsUploadingContractAttachment(false);
+    }
+  };
+
+  const handleContractAttachmentDelete = async (id: string) => {
+    const targetAttachment = contractAttachments.find((attachment) => String(attachment.id) === String(id));
+    if (!targetAttachment) {
+      return;
+    }
+
+    if (!window.confirm('Bạn có chắc chắn muốn xóa file hợp đồng này?')) {
+      return;
+    }
+
+    setContractAttachmentError('');
+    setContractAttachmentNotice('');
+
+    try {
+      const attachmentId = /^\d+$/.test(String(targetAttachment.id)) ? Number(targetAttachment.id) : null;
+      await deleteUploadedDocumentAttachment({
+        attachmentId,
+        driveFileId: targetAttachment.driveFileId || null,
+        fileUrl: targetAttachment.fileUrl || null,
+        storagePath: targetAttachment.storagePath || null,
+        storageDisk: targetAttachment.storageDisk || null,
+      });
+
+      handleChange(
+        'attachments',
+        contractAttachments.filter((attachment) => String(attachment.id) !== String(id))
+      );
+      setContractAttachmentNotice('Đã gỡ file hợp đồng khỏi biểu mẫu.');
+    } catch (error) {
+      setContractAttachmentError(error instanceof Error ? error.message : 'Không thể xóa file hợp đồng. Vui lòng thử lại.');
+    }
+  };
+
+  const modalTitle = type === 'ADD'
+    ? (fixedSourceMode === 'INITIAL' ? 'Thêm mới hợp đồng đầu kỳ' : 'Thêm mới hợp đồng')
+    : 'Cập nhật hợp đồng';
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3">
       <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
@@ -848,19 +1108,16 @@ export const ContractModal: React.FC<ContractModalProps> = ({
               </span>
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-bold leading-tight text-deep-teal">
-                {type === 'ADD' ? 'Thêm mới hợp đồng' : 'Cập nhật hợp đồng'}
+              <h2 className="truncate text-base font-bold leading-6 text-deep-teal">
+                {modalTitle}
               </h2>
-              <p className="text-[11px] leading-tight text-slate-400">
-                Kiểm soát nguồn hợp đồng, giá trị thương mại và lịch thanh toán trên cùng một modal.
-              </p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
               close
             </span>
           </button>
@@ -872,11 +1129,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('CONTRACT')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-semibold leading-5 transition-colors ${
                 activeTab === 'CONTRACT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                 description
               </span>
               Thông tin hợp đồng
@@ -884,11 +1141,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('PAYMENT')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-semibold leading-5 transition-colors ${
                 activeTab === 'PAYMENT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                 payments
               </span>
               Dòng tiền
@@ -899,8 +1156,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
         <div className="overflow-y-auto flex-1 custom-scrollbar">
           {showEditLoadingState ? (
-            <div className="flex min-h-[320px] items-center justify-center px-4 py-10">
-              <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+            <div className="flex min-h-[320px] items-center justify-center px-4 py-8">
+              <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600">
                 <span className="material-symbols-outlined animate-spin text-primary" style={{ fontSize: 16 }}>
                   progress_activity
                 </span>
@@ -909,10 +1166,12 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             </div>
           ) : (type === 'ADD' || activeTab === 'CONTRACT') && (
             <ContractDetailsTab
+              modalType={type}
               formData={formData}
               errors={errors}
               sourceMode={currentContractMode}
               sourceSelection={{
+                fixedSourceMode,
                 areScheduleSourceFieldsLocked,
                 projectTypeLockMessage,
                 isProjectSelectionLoading,
@@ -941,10 +1200,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 draftItemsTotal,
                 draftItemsVatTotal,
                 draftItemsGrandTotal,
+                projectFallbackComputedRows,
+                projectFallbackTotal,
+                projectFallbackVatTotal,
+                projectFallbackGrandTotal,
                 isItemsEditable,
                 isContractProductOptionsLoading,
                 productSelectOptions,
                 onAddDraftItem: handleAddDraftItem,
+                onImportProjectItems: () => handleImportProjectItems(selectedProjectItems),
                 onRemoveDraftItem: handleRemoveDraftItem,
                 onDraftProductChange: handleDraftProductChange,
                 onDraftItemChange: handleDraftItemChange,
@@ -955,6 +1219,15 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 isSignerOptionsLoading,
                 signerOptionsError,
                 selectedSignerDepartmentLabel,
+              }}
+              contractAttachments={{
+                attachments: contractAttachments,
+                isUploading: isUploadingContractAttachment,
+                error: contractAttachmentError,
+                notice: contractAttachmentNotice,
+                accept: CONTRACT_ATTACHMENT_ACCEPT,
+                onUpload: handleContractAttachmentUpload,
+                onDelete: handleContractAttachmentDelete,
               }}
               contractMeta={{
                 inlineNotice,
@@ -997,6 +1270,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 isLoading: isPaymentLoading,
                 onRefresh: contractId && onRefreshSchedules ? () => onRefreshSchedules(contractId) : undefined,
                 onConfirmPayment: handlePaymentScheduleConfirm,
+                onDeletePaymentSchedule: handleDeletePaymentSchedule,
               }}
               formatters={{
                 formatCurrency,
@@ -1009,14 +1283,17 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
-          <button onClick={onClose} className={modalSecondaryButtonClass}>
+        <div className="relative z-10 flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
+          <button type="button" onClick={onClose} className={modalSecondaryButtonClass}>
             Hủy
           </button>
           {(type === 'ADD' || activeTab === 'CONTRACT') && (
             <button
-              onClick={handleSave}
-              disabled={showEditLoadingState || isSaving}
+              type="button"
+              onClick={() => {
+                void handleSave();
+              }}
+              disabled={showEditLoadingState || isSaving || isScheduleStatusPending}
               className={modalActionButtonClass}
             >
               {isSaving ? (
@@ -1024,8 +1301,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                   progress_activity
                 </span>
               ) : (
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                  check
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                  save
                 </span>
               )}{' '}
               {isSaving ? 'Đang lưu...' : type === 'ADD' ? 'Lưu' : 'Cập nhật'}

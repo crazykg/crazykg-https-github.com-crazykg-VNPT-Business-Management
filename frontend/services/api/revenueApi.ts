@@ -201,7 +201,7 @@ export const generateProjectRevenueSchedules = async (
 
 export const syncProjectRevenueSchedules = async (
   projectId: number | string,
-  schedules: Array<{ expected_date: string; expected_amount: number; notes?: string | null }>,
+  schedules: Array<{ id?: number | string | null; expected_date: string; expected_amount: number; notes?: string | null }>,
 ): Promise<{ data: ProjectRevenueSchedule[] }> => {
   const res = await apiFetch(`/api/v5/projects/${projectId}/revenue-schedules/sync`, {
     method: 'POST',

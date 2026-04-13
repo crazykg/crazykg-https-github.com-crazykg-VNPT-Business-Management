@@ -248,6 +248,134 @@ class ContractPaymentGenerationTest extends TestCase
             ->assertJsonPath('data.2.expected_date', '2026-03-31');
     }
 
+    public function test_it_generates_even_payment_schedules_from_custom_draft_installments(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 212,
+            'project_id' => null,
+            'project_type_code' => 'THUE_DICH_VU_DACTHU',
+            'effective_date' => '2026-04-11',
+            'sign_date' => '2026-04-11',
+            'expiry_date' => '2027-01-11',
+            'payment_cycle' => 'QUARTERLY',
+            'value' => 18000000,
+            'total_value' => 18000000,
+        ]);
+
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments", [
+            'allocation_mode' => 'EVEN',
+            'draft_installments' => [
+                [
+                    'label' => 'Kỳ mở đầu',
+                    'expected_date' => '2026-04-11',
+                    'expected_amount' => 4000000,
+                ],
+                [
+                    'label' => 'Kỳ tăng tốc',
+                    'expected_date' => '2026-07-15',
+                    'expected_amount' => 5000000,
+                ],
+                [
+                    'label' => 'Kỳ vận hành',
+                    'expected_date' => '2026-10-15',
+                    'expected_amount' => 4000000,
+                ],
+                [
+                    'label' => 'Kỳ kết thúc',
+                    'expected_date' => '2027-01-11',
+                    'expected_amount' => 5000000,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('meta.allocation_mode', 'EVEN')
+            ->assertJsonPath('meta.generated_count', 4)
+            ->assertJsonPath('data.0.milestone_name', 'Kỳ mở đầu')
+            ->assertJsonPath('data.0.expected_date', '2026-04-11')
+            ->assertJsonPath('data.0.expected_amount', 4000000)
+            ->assertJsonPath('data.1.milestone_name', 'Kỳ tăng tốc')
+            ->assertJsonPath('data.1.expected_date', '2026-07-15')
+            ->assertJsonPath('data.1.expected_amount', 5000000)
+            ->assertJsonPath('data.3.milestone_name', 'Kỳ kết thúc')
+            ->assertJsonPath('data.3.expected_date', '2027-01-11')
+            ->assertJsonPath('data.3.expected_amount', 5000000);
+
+        $storedRows = DB::table('payment_schedules')
+            ->where('contract_id', $contractId)
+            ->orderBy('cycle_number')
+            ->get(['milestone_name', 'expected_date', 'expected_amount'])
+            ->map(fn (object $row): array => [
+                'milestone_name' => $row->milestone_name,
+                'expected_date' => $row->expected_date,
+                'expected_amount' => (float) $row->expected_amount,
+            ])
+            ->all();
+
+        $this->assertSame([
+            [
+                'milestone_name' => 'Kỳ mở đầu',
+                'expected_date' => '2026-04-11',
+                'expected_amount' => 4000000.0,
+            ],
+            [
+                'milestone_name' => 'Kỳ tăng tốc',
+                'expected_date' => '2026-07-15',
+                'expected_amount' => 5000000.0,
+            ],
+            [
+                'milestone_name' => 'Kỳ vận hành',
+                'expected_date' => '2026-10-15',
+                'expected_amount' => 4000000.0,
+            ],
+            [
+                'milestone_name' => 'Kỳ kết thúc',
+                'expected_date' => '2027-01-11',
+                'expected_amount' => 5000000.0,
+            ],
+        ], $storedRows);
+    }
+
+    public function test_it_rejects_even_custom_draft_when_total_does_not_match_contract_value(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 213,
+            'project_id' => null,
+            'project_type_code' => 'THUE_DICH_VU_DACTHU',
+            'effective_date' => '2026-04-11',
+            'sign_date' => '2026-04-11',
+            'expiry_date' => '2027-01-11',
+            'payment_cycle' => 'QUARTERLY',
+            'value' => 18000000,
+            'total_value' => 18000000,
+        ]);
+
+        $this->postJson("/api/v5/contracts/{$contractId}/generate-payments", [
+            'allocation_mode' => 'EVEN',
+            'draft_installments' => [
+                [
+                    'label' => 'Kỳ 1',
+                    'expected_date' => '2026-04-11',
+                    'expected_amount' => 8000000,
+                ],
+                [
+                    'label' => 'Kỳ 2',
+                    'expected_date' => '2026-07-11',
+                    'expected_amount' => 8000000,
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['draft_installments'])
+            ->assertJsonPath(
+                'errors.draft_installments.0',
+                'Tổng số tiền dự thảo phải bằng giá trị hợp đồng trước khi sinh kỳ thanh toán.'
+            );
+
+        $this->assertDatabaseMissing('payment_schedules', [
+            'contract_id' => $contractId,
+        ]);
+    }
+
     public function test_it_uses_contract_project_type_fallback_for_initial_investment_contracts(): void
     {
         $contractId = $this->insertContract([
@@ -369,6 +497,72 @@ class ContractPaymentGenerationTest extends TestCase
         $this->assertSame('2026-02-15', $storedRows[1]->expected_date);
         $this->assertSame('2026-03-10', $storedRows[2]->expected_date);
         $this->assertSame('2026-04-10', $storedRows[3]->expected_date);
+    }
+
+    public function test_it_deletes_an_unpaid_payment_schedule(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 210,
+            'value' => 18000000,
+            'total_value' => 18000000,
+        ]);
+
+        DB::table('payment_schedules')->insert([
+            'id' => 9101,
+            'contract_id' => $contractId,
+            'project_id' => 1,
+            'milestone_name' => 'Ky 1',
+            'cycle_number' => 1,
+            'expected_date' => '2026-01-15',
+            'expected_amount' => 18000000,
+            'actual_paid_date' => null,
+            'actual_paid_amount' => 0,
+            'status' => 'PENDING',
+            'notes' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->deleteJson('/api/v5/payment-schedules/9101')
+            ->assertOk()
+            ->assertJsonPath('message', 'Đã xóa kỳ thanh toán.');
+
+        $this->assertDatabaseMissing('payment_schedules', [
+            'id' => 9101,
+        ]);
+    }
+
+    public function test_it_rejects_deleting_a_payment_schedule_that_has_collected_money(): void
+    {
+        $contractId = $this->insertContract([
+            'id' => 211,
+            'value' => 18000000,
+            'total_value' => 18000000,
+        ]);
+
+        DB::table('payment_schedules')->insert([
+            'id' => 9102,
+            'contract_id' => $contractId,
+            'project_id' => 1,
+            'milestone_name' => 'Ky 1',
+            'cycle_number' => 1,
+            'expected_date' => '2026-01-15',
+            'expected_amount' => 18000000,
+            'actual_paid_date' => '2026-01-20',
+            'actual_paid_amount' => 5000000,
+            'status' => 'PARTIAL',
+            'notes' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->deleteJson('/api/v5/payment-schedules/9102')
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Không thể xóa kỳ thanh toán đã phát sinh thu tiền thực tế.');
+
+        $this->assertDatabaseHas('payment_schedules', [
+            'id' => 9102,
+        ]);
     }
 
     private function insertContract(array $overrides = []): int

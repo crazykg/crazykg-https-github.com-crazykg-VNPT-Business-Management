@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -14,7 +15,15 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         parent::setUp();
 
         $this->withoutMiddleware();
+        CarbonImmutable::setTestNow('2026-01-10 09:00:00');
         $this->setUpSchema();
+    }
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+
+        parent::tearDown();
     }
 
     public function test_create_department_weekly_schedule_accepts_hybrid_participants_and_returns_entry_audit(): void
@@ -106,7 +115,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             ->assertJson(['message' => 'entries.0.calendar_date nằm ngoài tuần đã chọn.']);
     }
 
-    public function test_update_department_weekly_schedule_preserves_entry_created_audit(): void
+    public function test_admin_update_department_weekly_schedule_preserves_entry_created_audit(): void
     {
         $created = $this->postJson('/api/v5/department-weekly-schedules', [
             'department_id' => 10,
@@ -133,7 +142,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         $updated = $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
             'department_id' => 10,
             'week_start_date' => '2026-01-19',
-            'updated_by' => 2,
+            'updated_by' => 3,
             'entries' => [
                 [
                     'id' => $entryId,
@@ -152,17 +161,58 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.entries.0.created_by', 1)
             ->assertJsonPath('data.entries.0.created_by_name', 'Quỳnh')
-            ->assertJsonPath('data.entries.0.updated_by', 2)
-            ->assertJsonPath('data.entries.0.updated_by_name', 'Thuận');
+            ->assertJsonPath('data.entries.0.updated_by', 3)
+            ->assertJsonPath('data.entries.0.updated_by_name', 'Admin')
+            ->assertJsonPath('data.entries.0.can_edit', true)
+            ->assertJsonPath('data.entries.0.can_delete', true)
+            ->assertJsonPath('data.entries.0.is_locked', false);
 
         $after = DB::table('department_weekly_schedule_entries')->where('id', $entryId)->first();
         $this->assertNotNull($before);
         $this->assertNotNull($after);
         $this->assertSame((int) $before->created_by, (int) $after->created_by);
         $this->assertSame((string) $before->created_at, (string) $after->created_at);
-        $this->assertSame(2, (int) $after->updated_by);
+        $this->assertSame(3, (int) $after->updated_by);
         $this->assertSame('Noi dung da cap nhat', (string) $after->work_content);
         $this->assertSame(1, DB::table('department_weekly_schedule_entries')->count());
+    }
+
+    public function test_non_owner_cannot_update_persisted_entry_without_admin_role(): void
+    {
+        $created = $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-19',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-19',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'Noi dung goc',
+                ],
+            ],
+        ])->assertCreated();
+
+        $scheduleId = (int) $created->json('data.id');
+        $entryId = (int) $created->json('data.entries.0.id');
+
+        $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-19',
+            'updated_by' => 2,
+            'entries' => [
+                [
+                    'id' => $entryId,
+                    'calendar_date' => '2026-01-19',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'User khac khong duoc sua',
+                ],
+            ],
+        ])
+            ->assertStatus(403)
+            ->assertJson(['message' => 'Chỉ người đăng ký hoặc quản trị viên mới được chỉnh sửa dòng này.']);
     }
 
     public function test_owner_can_delete_persisted_entry(): void
@@ -251,6 +301,72 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             ->assertJson(['message' => 'Đã xóa dòng lịch làm việc.']);
 
         $this->assertSame(0, DB::table('department_weekly_schedule_entries')->count());
+    }
+
+    public function test_create_department_weekly_schedule_rejects_past_entries(): void
+    {
+        $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-05',
+                    'session' => 'MORNING',
+                    'work_content' => 'Lich da qua',
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'entries.0: Lịch làm việc đã qua không thể chỉnh sửa.']);
+    }
+
+    public function test_past_persisted_entry_cannot_be_updated_or_deleted(): void
+    {
+        $scheduleId = (int) DB::table('department_weekly_schedules')->insertGetId([
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'created_by' => 1,
+            'updated_by' => 1,
+        ]);
+
+        $entryId = (int) DB::table('department_weekly_schedule_entries')->insertGetId([
+            'schedule_id' => $scheduleId,
+            'calendar_date' => '2026-01-05',
+            'session' => 'MORNING',
+            'sort_order' => 10,
+            'work_content' => 'Lich cu',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'created_by' => 1,
+            'updated_by' => 1,
+        ]);
+
+        $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'id' => $entryId,
+                    'calendar_date' => '2026-01-05',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'Khong duoc sua',
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'entries.0: Lịch làm việc đã qua không thể chỉnh sửa.']);
+
+        $this->deleteJson("/api/v5/department-weekly-schedules/{$scheduleId}/entries/{$entryId}", [
+            'actor_id' => 1,
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Lịch làm việc đã qua không thể xóa.']);
     }
 
     public function test_delete_department_weekly_schedule_is_admin_only(): void
@@ -417,6 +533,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             'is_active' => 1,
         ]);
 
+        $this->seedCalendarWeek('2026-01-05', 2);
         $this->seedCalendarWeek('2026-01-19', 4);
         $this->seedCalendarWeek('2026-01-26', 5);
     }

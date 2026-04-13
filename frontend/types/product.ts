@@ -8,7 +8,9 @@ export interface Product {
   service_group?: string | null;
   product_code: string;
   product_name: string;
+  product_short_name?: string | null;
   package_name?: string | null;
+  has_product_packages?: boolean;
   domain_id: string | number;
   vendor_id: string | number;
   standard_price: number;
@@ -22,6 +24,28 @@ export interface Product {
   created_at?: string;
   created_by?: string | number | null;
   updated_at?: string;
+  updated_by?: string | number | null;
+}
+
+export interface ProductPackage {
+  id: string | number;
+  uuid?: string | null;
+  product_id: string | number;
+  package_code: string;
+  package_name: string;
+  product_name?: string | null;
+  parent_product_code?: string | null;
+  service_group?: string | null;
+  domain_id?: string | number | null;
+  vendor_id?: string | number | null;
+  standard_price: number;
+  unit?: string | null;
+  description?: string | null;
+  attachments?: Attachment[];
+  is_active?: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
   updated_by?: string | number | null;
 }
 

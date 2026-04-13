@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import type { ModalType } from '../types';
 import type { Department } from '../types/department';
 import type { Employee } from '../types/employee';
@@ -72,7 +73,26 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_DEPARTMENT'),
+    onUpdate: () => {
+      if (selectedRowId) {
+        const item = departments.find((d) => String(d.id) === String(selectedRowId));
+        if (item) onOpenModal('EDIT_DEPARTMENT', item);
+      }
+    },
+    onDelete: () => {
+      if (selectedRowId) {
+        const item = departments.find((d) => String(d.id) === String(selectedRowId));
+        if (item) onOpenModal('DELETE_DEPARTMENT', item);
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
 
   const statusFilterOptions = useMemo(
@@ -345,6 +365,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
           {/* Add button */}
           <button
             onClick={() => onOpenModal('ADD_DEPARTMENT')}
+            title="Thêm mới (Ctrl+N / ⌘N)"
             className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50 bg-primary text-white hover:bg-deep-teal shadow-sm"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
@@ -394,6 +415,7 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
           <div className="relative flex-1 max-w-xs">
             <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
+              ref={searchInputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -428,9 +450,17 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
             <tbody className="divide-y divide-slate-100">
               {pagedTableData.length > 0 ? (
                 pagedTableData.map((dept) => (
-                  <tr key={String(dept.id)} className="hover:bg-slate-50/60 transition-colors group">
-                    <td className="px-4 py-2 text-xs font-mono text-slate-500">{dept.dept_code}</td>
-                    <td className="px-4 py-2">
+                  <tr
+                    key={String(dept.id)}
+                    onClick={() => setSelectedRowId((prev) => (String(prev) === String(dept.id) ? null : dept.id))}
+                    className={`cursor-pointer transition-colors group ${
+                      String(selectedRowId) === String(dept.id)
+                        ? 'bg-secondary/10 ring-1 ring-inset ring-primary/30'
+                        : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-xs font-mono text-slate-500">{dept.dept_code}</td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center" style={{ paddingLeft: `${dept.level * 20}px` }}>
                         {dept.hasChildren && !searchTerm && !statusFilter ? (
                           <button
@@ -456,19 +486,19 @@ export const DepartmentList: React.FC<DepartmentListProps> = ({ departments = []
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-neutral" style={{ fontSize: 14 }}>group</span>
                         <span className="text-xs font-medium text-slate-700">{dept.employeeCount || 0}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${dept.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${dept.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                         {dept.is_active ? 'Hoạt động' : 'Tạm ngưng'}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <button
                           onClick={() => onOpenModal('EDIT_DEPARTMENT', dept)}

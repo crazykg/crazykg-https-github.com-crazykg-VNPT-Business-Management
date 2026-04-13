@@ -187,6 +187,8 @@ export interface AuditLog {
   actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
+export type UserDeptHistoryTransferType = 'LUAN_CHUYEN' | 'BIET_PHAI';
+
 export interface UserDeptHistory {
   id: string;
   userId: string;
@@ -196,12 +198,15 @@ export interface UserDeptHistory {
   reason: string;
   createdDate?: string;
   decisionNumber?: string;
+  transferType?: UserDeptHistoryTransferType;
   employeeCode?: string;
   employeeName?: string;
   fromDeptCode?: string | null;
   fromDeptName?: string | null;
   toDeptCode?: string | null;
   toDeptName?: string | null;
+  canDelete?: boolean;
+  deleteRestrictionMessage?: string | null;
 }
 
 export type FeedbackPriority = 'UNRATED' | 'LOW' | 'MEDIUM' | 'HIGH';

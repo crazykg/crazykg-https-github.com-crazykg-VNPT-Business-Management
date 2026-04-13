@@ -3,6 +3,7 @@
 namespace App\Services\V5\Domain;
 
 use App\Services\V5\SupportConfig\ProductUnitMasterService;
+use App\Services\V5\SupportConfig\ContractSignerMasterService;
 use App\Services\V5\SupportConfig\SupportSlaConfigService;
 use App\Services\V5\SupportConfig\SupportRequestStatusService;
 use App\Services\V5\SupportConfig\SupportServiceGroupService;
@@ -15,6 +16,7 @@ class SupportConfigDomainService
     public function __construct(
         private readonly SupportServiceGroupService $serviceGroups,
         private readonly ProductUnitMasterService $productUnitMasters,
+        private readonly ContractSignerMasterService $contractSignerMasters,
         private readonly SupportRequestStatusService $requestStatuses,
         private readonly WorklogActivityTypeService $worklogActivityTypes,
         private readonly SupportSlaConfigService $slaConfigs,
@@ -55,14 +57,29 @@ class SupportConfigDomainService
         return $this->productUnitMasters->productUnitMasters($request);
     }
 
+    public function contractSignerMasters(Request $request): JsonResponse
+    {
+        return $this->contractSignerMasters->contractSignerMasters($request);
+    }
+
     public function storeProductUnitMaster(Request $request): JsonResponse
     {
         return $this->productUnitMasters->storeProductUnitMaster($request);
     }
 
+    public function storeContractSignerMaster(Request $request): JsonResponse
+    {
+        return $this->contractSignerMasters->storeContractSignerMaster($request);
+    }
+
     public function updateProductUnitMaster(Request $request, int $id): JsonResponse
     {
         return $this->productUnitMasters->updateProductUnitMaster($request, $id);
+    }
+
+    public function updateContractSignerMaster(Request $request, int $id): JsonResponse
+    {
+        return $this->contractSignerMasters->updateContractSignerMaster($request, $id);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

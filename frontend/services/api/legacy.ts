@@ -1338,6 +1338,7 @@ const normalizeUserDeptHistoryRecord = (payload: Record<string, unknown>): UserD
   reason: String(payload.reason ?? ''),
   createdDate: normalizeNullableText(payload.createdDate) ?? undefined,
   decisionNumber: normalizeNullableText(payload.decisionNumber) ?? undefined,
+  transferType: normalizeNullableText(payload.transferType) === 'BIET_PHAI' ? 'BIET_PHAI' : 'LUAN_CHUYEN',
   employeeCode: normalizeNullableText(payload.employeeCode ?? payload.userCode) ?? undefined,
   employeeName: normalizeNullableText(payload.employeeName ?? payload.userName) ?? undefined,
   fromDeptCode: normalizeNullableText(payload.fromDeptCode),

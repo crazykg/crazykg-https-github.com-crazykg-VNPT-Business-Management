@@ -28,11 +28,14 @@ import {
   formatRevenueTargetTypeLabel,
   getRevenuePeriodBounds,
 } from '../../utils/revenueDisplay';
+import { RevenueWorkspaceHeader } from './RevenueWorkspaceHeader';
 
 interface Props {
   canManageTargets: boolean;
   departments: Department[];
 }
+
+const YEAR_OPTIONS = [2024, 2025, 2026, 2027];
 
 function pctColor(pct: number): string {
   if (pct >= 100) return 'text-emerald-600';
@@ -51,6 +54,37 @@ function alertIcon(severity: string): string {
   if (severity === 'CRITICAL') return 'error';
   if (severity === 'WARNING') return 'warning';
   return 'info';
+}
+
+function findDepartmentLabel(departments: Department[], deptId: number | null): string {
+  if (deptId == null) {
+    return 'Toàn công ty';
+  }
+
+  return departments.find((department) => department.id === deptId)?.dept_name ?? `Đơn vị #${deptId}`;
+}
+
+function buildCurrentQuarterRange(referenceDate = new Date()): { from: string; to: string } {
+  const year = referenceDate.getFullYear();
+  const month = referenceDate.getMonth();
+  const quarterStartMonth = Math.floor(month / 3) * 3;
+  const from = new Date(year, quarterStartMonth, 1);
+  const to = new Date(year, quarterStartMonth + 3, 0);
+
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
+}
+
+function buildRollingMonthRange(monthCount: number, referenceDate = new Date()): { from: string; to: string } {
+  const from = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - (monthCount - 1), 1);
+  const to = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
 }
 
 type TargetAdjustmentMeta = {
@@ -112,7 +146,7 @@ function getTargetAdjustmentMeta(target: RevenueTarget, referenceDate = new Date
 }
 
 export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashboardComponent({ canManageTargets, departments }: Props) {
-  useDashboardRealtime(['revenue']);
+  useDashboardRealtime(['revenue'], true, { allowPollingFallback: false });
 
   const {
     periodFrom, periodTo, grouping, selectedDeptId, periodType,
@@ -173,6 +207,9 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
   };
 
   const kpis = data?.kpis;
+  const deptScopeLabel = findDepartmentLabel(departments, selectedDeptId);
+  const currentQuarterRange = buildCurrentQuarterRange();
+  const rollingSixMonthRange = buildRollingMonthRange(6);
   const overviewAdjustmentPlan = data
     ? buildRevenueAdjustmentPlan(
         data.by_period
@@ -189,55 +226,141 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
 
   return (
     <div className="space-y-3 p-3 pb-6">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-                  monitoring
-                </span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Revenue Overview</p>
-                <h2 className="text-sm font-bold leading-tight text-deep-teal">Tổng quan doanh thu</h2>
-                <p className="text-[11px] leading-tight text-slate-400">
-                  Kết hợp kỳ theo dõi, cấu trúc nguồn thu và nhịp bám kế hoạch trên cùng một màn tác nghiệp.
-                </p>
+      <RevenueWorkspaceHeader
+        icon="monitoring"
+        title="Tổng quan doanh thu"
+        description="Chốt trước phạm vi phân tích, rồi so sánh kế hoạch, thực thu và phần còn phải bù trong cùng một nhịp thao tác."
+        badges={[
+          {
+            label: formatDateRangeDdMmYyyy(periodFrom, periodTo),
+            icon: 'date_range',
+            tone: 'primary',
+          },
+          {
+            label: grouping === 'month' ? 'Hiển thị theo tháng' : 'Hiển thị theo quý',
+            icon: 'view_column',
+            tone: 'neutral',
+          },
+          {
+            label: `Kế hoạch ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()}`,
+            icon: 'flag',
+            tone: 'neutral',
+          },
+        ]}
+        metrics={[
+          {
+            label: 'Nguồn kế hoạch',
+            value: `Năm ${year}`,
+            detail: `Đang đọc target ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()} của năm này.`,
+            tone: 'primary',
+          },
+          {
+            label: 'Phạm vi actual',
+            value: formatDateRangeDdMmYyyy(periodFrom, periodTo),
+            detail: 'Doanh thu thực tế, công nợ và báo cáo sẽ bám theo khoảng này.',
+          },
+          {
+            label: 'Đơn vị đang xem',
+            value: deptScopeLabel,
+            detail: selectedDeptId == null ? 'Dữ liệu hợp nhất toàn công ty.' : 'Đang khóa riêng theo đơn vị đã chọn.',
+            tone: selectedDeptId == null ? 'success' : 'neutral',
+          },
+        ]}
+        actions={(
+          <>
+            <button
+              onClick={() => void overviewQuery.refetch()}
+              disabled={overviewQuery.isFetching}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+              {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
+            </button>
+
+            {canManageTargets ? (
+              <button
+                onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
+                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                Kế hoạch
+              </button>
+            ) : null}
+
+            {canManageTargets ? (
+              <button
+                onClick={() => setIsBulkModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table</span>
+                Kế hoạch hàng loạt
+              </button>
+            ) : null}
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Preset nhanh</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setYear(year)}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    periodFrom === `${year}-01-01` && periodTo === `${year}-12-31`
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>calendar_today</span>
+                  Năm {year}
+                </button>
+                <button
+                  onClick={() => setPeriod(currentQuarterRange.from, currentQuarterRange.to)}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    periodFrom === currentQuarterRange.from && periodTo === currentQuarterRange.to
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>date_range</span>
+                  Quý hiện tại
+                </button>
+                <button
+                  onClick={() => setPeriod(rollingSixMonthRange.from, rollingSixMonthRange.to)}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    periodFrom === rollingSixMonthRange.from && periodTo === rollingSixMonthRange.to
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
+                  6 tháng gần đây
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                {formatRevenuePeriodTypeLabel(periodType)}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-                {grouping === 'month' ? 'Nhóm theo tháng' : 'Nhóm theo quý'}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-                {year}
-              </span>
-            </div>
+            <p className="max-w-2xl text-[11px] leading-5 text-slate-500">
+              `Năm` quyết định bucket kế hoạch đang so sánh. `Khoảng phân tích` là phạm vi actual, công nợ và báo cáo thực tế bạn đang xem.
+            </p>
           </div>
-        </div>
 
-        <div className="space-y-3 bg-slate-50/70 p-3">
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[120px_minmax(280px,1.5fr)_180px_180px_minmax(220px,1fr)]">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[140px_minmax(300px,1.6fr)_190px_200px_minmax(220px,1fr)]">
             <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Năm</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Preset năm</span>
               <select
                 className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
               >
-                {[2024, 2025, 2026, 2027].map((y) => (
-                  <option key={y} value={y}>{y}</option>
+                {YEAR_OPTIONS.map((optionYear) => (
+                  <option key={optionYear} value={optionYear}>{optionYear}</option>
                 ))}
               </select>
             </label>
 
             <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Giai đoạn</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Khoảng phân tích</span>
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                 <input
                   type="date"
@@ -256,19 +379,19 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
             </div>
 
             <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Nhóm kỳ</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Cách hiển thị</span>
               <select
                 className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                 value={grouping}
                 onChange={(e) => setGrouping(e.target.value as 'month' | 'quarter')}
               >
-                <option value="month">Tháng</option>
-                <option value="quarter">Quý</option>
+                <option value="month">Nhóm theo tháng</option>
+                <option value="quarter">Nhóm theo quý</option>
               </select>
             </label>
 
             <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Kế hoạch</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Chu kỳ kế hoạch</span>
               <select
                 className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                 value={periodType}
@@ -296,50 +419,8 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
               </label>
             ) : null}
           </div>
-
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-primary-container-soft px-2 py-0.5 text-[10px] font-bold text-deep-teal">
-                {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-neutral ring-1 ring-slate-200">
-                {selectedDeptId == null ? 'Toàn công ty' : 'Đã lọc đơn vị'}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => void overviewQuery.refetch()}
-                disabled={overviewQuery.isFetching}
-                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
-                {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
-              </button>
-
-              {canManageTargets ? (
-                <button
-                  onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
-                  className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                  Kế hoạch
-                </button>
-              ) : null}
-
-              {canManageTargets ? (
-                <button
-                  onClick={() => setIsBulkModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table</span>
-                  Kế hoạch hàng loạt
-                </button>
-              ) : null}
-            </div>
-          </div>
         </div>
-      </div>
+      </RevenueWorkspaceHeader>
 
       {data && data.alerts.length > 0 ? (
         <div className="space-y-2">
@@ -585,7 +666,7 @@ function KpiCard({
       {isLoading ? (
         <div className="h-7 w-24 animate-pulse rounded bg-slate-100" />
       ) : (
-        <p className="text-xl font-black leading-tight text-deep-teal">{value}</p>
+        <p className="text-lg font-bold leading-tight text-deep-teal">{value}</p>
       )}
       {subLabel && !isLoading && (
         <p className={`mt-1 text-[11px] leading-5 ${subColor ?? 'text-slate-500'}`}>{subLabel}</p>

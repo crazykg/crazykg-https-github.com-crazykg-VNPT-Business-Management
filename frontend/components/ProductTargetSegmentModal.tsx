@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type {
   Product,
+  ProductPackage,
   ProductTargetSegment,
   ProductTargetSegmentCustomerSector,
   ProductTargetSegmentFacilityType,
@@ -38,8 +39,10 @@ type SegmentFieldError = Partial<Record<
 
 interface ProductTargetSegmentModalProps {
   product: Product;
+  relatedProductPackages?: ProductPackage[];
   canManage?: boolean;
   onClose: () => void;
+  onSaved?: (segments: ProductTargetSegment[]) => void;
   onNotify?: NotifyFn;
 }
 
@@ -99,6 +102,10 @@ const createEmptySegment = (): DraftSegment => ({
   sales_notes: '',
   is_active: true,
 });
+
+const formatRelatedProductPackageLabel = (productPackage: ProductPackage): string => (
+  [productPackage.package_code, productPackage.package_name].filter(Boolean).join(' - ') || `#${productPackage.id}`
+);
 
 const toDraftSegment = (segment: ProductTargetSegment): DraftSegment => ({
   _tempId: buildDraftSegmentId(),
@@ -214,8 +221,10 @@ const formatSegmentSubtitle = (segment: DraftSegment): string => {
 
 export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps> = ({
   product,
+  relatedProductPackages = [],
   canManage = false,
   onClose,
+  onSaved,
   onNotify,
 }) => {
   const [segments, setSegments] = useState<DraftSegment[]>([]);
@@ -226,6 +235,14 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
   const [tableAvailable, setTableAvailable] = useState(true);
   const [validationErrors, setValidationErrors] = useState<Record<string, SegmentFieldError>>({});
   const [reloadKey, setReloadKey] = useState(0);
+  const [showAllRelatedPackages, setShowAllRelatedPackages] = useState(false);
+
+  const hasRelatedProductPackages = relatedProductPackages.length > 0;
+  const canToggleRelatedPackages = relatedProductPackages.length > 2;
+  const visibleRelatedProductPackages = showAllRelatedPackages
+    ? relatedProductPackages
+    : relatedProductPackages.slice(0, 2);
+  const hiddenRelatedPackageCount = Math.max(0, relatedProductPackages.length - visibleRelatedProductPackages.length);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +280,10 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
       cancelled = true;
     };
   }, [product.id, reloadKey]);
+
+  useEffect(() => {
+    setShowAllRelatedPackages(false);
+  }, [product.id, relatedProductPackages.length]);
 
   const disableEditing = !canManage || saving;
 
@@ -329,13 +350,14 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
 
     setSaving(true);
     try {
-      await syncProductTargetSegments(product.id, buildSyncPayload(segments));
-      onNotify?.('success', 'Cấu hình đề xuất bán hàng', 'Đã lưu cấu hình đề xuất bán hàng.');
+      const response = await syncProductTargetSegments(product.id, buildSyncPayload(segments));
+      onSaved?.(response.data || []);
+      onNotify?.('success', 'Cấu hình bán sản phẩm', 'Đã lưu cấu hình bán sản phẩm.');
       onClose();
     } catch (syncError) {
-      const message = syncError instanceof Error ? syncError.message : 'Không thể lưu cấu hình đề xuất bán hàng.';
+      const message = syncError instanceof Error ? syncError.message : 'Không thể lưu cấu hình bán sản phẩm.';
       setSaveError(message);
-      onNotify?.('error', 'Cấu hình đề xuất bán hàng', message);
+      onNotify?.('error', 'Cấu hình bán sản phẩm', message);
     } finally {
       setSaving(false);
     }
@@ -344,7 +366,7 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
   return (
     <ModalWrapper
       onClose={onClose}
-      title={`Cấu hình đề xuất bán hàng • ${product.product_name}`}
+      title={`Cấu hình bán sản phẩm • ${product.product_name}`}
       icon="target"
       width="max-w-[1120px]"
       panelClassName="rounded-lg"
@@ -360,6 +382,75 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-tertiary-fixed text-tertiary">
                 {product.package_name}
               </span>
+            ) : null}
+          </div>
+          <div
+            className={`mt-3 rounded-lg border px-3 py-3 ${
+              hasRelatedProductPackages
+                ? 'border-blue-100 bg-blue-50/70'
+                : 'border-amber-200 bg-amber-50/80'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                      hasRelatedProductPackages
+                        ? 'bg-blue-500 shadow-[0_0_0_4px_rgba(59,130,246,0.14)]'
+                        : 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,0.14)]'
+                    }`}
+                  />
+                  <p className="text-xs font-semibold text-slate-800">Map với gói cước</p>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                      hasRelatedProductPackages
+                        ? 'bg-white text-blue-700'
+                        : 'bg-white text-amber-700'
+                    }`}
+                  >
+                    {hasRelatedProductPackages ? `${relatedProductPackages.length} gói cước` : 'Chưa map'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-5 text-slate-600">
+                  {hasRelatedProductPackages
+                    ? `Đang áp dụng cho ${relatedProductPackages.length} gói cước, tự đồng bộ theo sản phẩm cha.`
+                    : 'Chưa có gói cước liên kết. Cấu hình sẽ áp dụng khi phát sinh map.'}
+                </p>
+              </div>
+              {canToggleRelatedPackages ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllRelatedPackages((currentValue) => !currentValue)}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/80 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-800"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                    {showAllRelatedPackages ? 'expand_less' : 'expand_more'}
+                  </span>
+                  {showAllRelatedPackages ? 'Thu gọn' : 'Xem tất cả'}
+                </button>
+              ) : null}
+            </div>
+            {hasRelatedProductPackages ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {visibleRelatedProductPackages.map((item) => (
+                  <span
+                    key={String(item.id)}
+                    className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-all"
+                  >
+                    {formatRelatedProductPackageLabel(item)}
+                  </span>
+                ))}
+                {!showAllRelatedPackages && hiddenRelatedPackageCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllRelatedPackages(true)}
+                    className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:text-blue-700"
+                  >
+                    +{hiddenRelatedPackageCount} gói cước khác
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -399,12 +490,12 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                 <div className="rounded-lg border border-slate-200 bg-surface-low px-3 py-2">
                   <p className="text-xs font-semibold text-on-surface">Tính năng chưa sẵn sàng trong môi trường này.</p>
                   <p className="mt-1 text-xs text-on-surface-variant leading-5">
-                    Bảng dữ liệu `product_target_segments` chưa được tạo. Vui lòng chạy migration trước khi cấu hình đề xuất bán hàng.
+                    Bảng dữ liệu `product_target_segments` chưa được tạo. Vui lòng chạy migration trước khi cấu hình bán sản phẩm.
                   </p>
                 </div>
               ) : segments.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 bg-surface-low px-3 py-6 text-center">
-                  <p className="text-sm font-bold text-deep-teal">Chưa cấu hình đề xuất</p>
+                  <p className="text-sm font-bold text-deep-teal">Chưa cấu hình bán sản phẩm</p>
                   <p className="mx-auto mt-2 max-w-xl text-xs text-on-surface-variant leading-5">
                     Sản phẩm này chưa được gắn với phân khúc khách hàng nào. Hãy thêm phân khúc để hệ thống gợi ý đúng đối tượng hơn.
                   </p>
@@ -511,8 +602,9 @@ export const ProductTargetSegmentModal: React.FC<ProductTargetSegmentModalProps>
                                 placeholder="Tất cả loại hình"
                                 searchPlaceholder="Tìm loại hình y tế..."
                                 noOptionsText="Không tìm thấy loại hình phù hợp"
+                                showSelectedChips={false}
                                 disabled={disableEditing}
-                                triggerClassName={`h-8 rounded border bg-white px-3 text-xs text-slate-900 ${
+                                triggerClassName={`!min-h-0 !h-8 !rounded !border !bg-white !px-3 !py-1 !text-xs !text-slate-900 ${
                                   segmentErrors.facility_types ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'
                                 } ${disableEditing ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-primary'}`}
                                 dropdownClassName="z-[160] rounded-lg"
