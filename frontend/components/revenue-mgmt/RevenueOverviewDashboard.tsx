@@ -174,6 +174,10 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
   const [deletingTargetId, setDeletingTargetId] = useState<number | null>(null);
 
   const data = overviewQuery.data?.data ?? null;
+  const feeCollectionAvailable = overviewQuery.data?.meta?.fee_collection_available ?? false;
+  const overviewPeriods = data?.by_period ?? [];
+  const overviewSources = data?.by_source ?? [];
+  const overviewAlerts = data?.alerts ?? [];
   const targets = targetsQuery.data?.data ?? [];
   const isLoading = overviewQuery.isLoading || overviewQuery.isFetching;
   const isLoadingTargets = targetsQuery.isLoading || targetsQuery.isFetching;
@@ -191,8 +195,8 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
       return;
     }
 
-    setFeeCollectionAvailable(overviewQuery.data.meta.fee_collection_available);
-  }, [overviewQuery.data, setFeeCollectionAvailable]);
+    setFeeCollectionAvailable(feeCollectionAvailable);
+  }, [feeCollectionAvailable, overviewQuery.data, setFeeCollectionAvailable]);
 
   const handleDeleteTarget = async (id: number) => {
     setDeletingTargetId(id);
@@ -210,9 +214,9 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
   const deptScopeLabel = findDepartmentLabel(departments, selectedDeptId);
   const currentQuarterRange = buildCurrentQuarterRange();
   const rollingSixMonthRange = buildRollingMonthRange(6);
-  const overviewAdjustmentPlan = data
+  const overviewAdjustmentPlan = overviewPeriods.length > 0
     ? buildRevenueAdjustmentPlan(
-        data.by_period
+        overviewPeriods
           .filter((period) => period.target > 0)
           .map((period) => ({
             periodKey: period.period_key,
@@ -422,9 +426,9 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
         </div>
       </RevenueWorkspaceHeader>
 
-      {data && data.alerts.length > 0 ? (
+      {overviewAlerts.length > 0 ? (
         <div className="space-y-2">
-          {data.alerts.map((alert: RevenueAlert, i: number) => (
+          {overviewAlerts.map((alert: RevenueAlert, i: number) => (
             <div key={`alert-${i}`}>
               <RevenueAlertBanner alert={alert} />
             </div>
@@ -469,26 +473,26 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
         />
       </div>
 
-      {data && data.by_period.length > 0 ? (
+      {overviewPeriods.length > 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 px-4 py-3">
             <h3 className="text-sm font-bold text-deep-teal">Doanh thu theo kỳ</h3>
             <p className="mt-0.5 text-[11px] text-slate-400">So sánh kế hoạch, dự kiến và thực thu theo từng mốc theo dõi.</p>
           </div>
           <div className="p-4">
-            <RevenueBarChart periods={data.by_period} />
+            <RevenueBarChart periods={overviewPeriods} />
           </div>
         </div>
       ) : null}
 
-      {data && data.by_source.length > 0 ? (
+      {overviewSources.length > 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 px-4 py-3">
             <h3 className="text-sm font-bold text-deep-teal">Cơ cấu doanh thu</h3>
             <p className="mt-0.5 text-[11px] text-slate-400">Nhìn nhanh tỷ trọng nguồn thu để điều phối ưu tiên hành động.</p>
           </div>
           <div className="p-4">
-            <RevenueSourceTable sources={data.by_source} />
+            <RevenueSourceTable sources={overviewSources} />
           </div>
         </div>
       ) : null}

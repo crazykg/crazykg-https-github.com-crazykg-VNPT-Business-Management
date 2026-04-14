@@ -134,6 +134,42 @@ describe('Revenue hook consumers', () => {
     });
   });
 
+  it('RevenueOverviewDashboard tolerates incomplete overview payloads without crashing', () => {
+    vi.mocked(useRevenueOverview).mockReturnValue({
+      data: {
+        data: {
+          total_contracted: 1_000_000,
+          total_collected: 500_000,
+        },
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    } as never);
+    vi.mocked(useRevenueTargets).mockReturnValue({
+      data: {
+        data: [],
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+    } as never);
+    vi.mocked(useDeleteRevenueTarget).mockReturnValue({
+      mutateAsync: vi.fn(),
+    } as never);
+
+    render(
+      <RevenueOverviewDashboard
+        canManageTargets={false}
+        departments={departments}
+      />,
+    );
+
+    expect(screen.getByText('Tổng quan doanh thu')).toBeInTheDocument();
+    expect(screen.getByText('Kế hoạch doanh thu theo tháng năm 2026')).toBeInTheDocument();
+  });
+
   it('RevenueForecastView renders forecast data from query hooks', () => {
     vi.mocked(useRevenueForecast).mockReturnValue({
       data: {

@@ -116,6 +116,7 @@ const normalizeId = (value: unknown): string => normalizeText(value);
 
 const compactMultiSelectTriggerClass =
   '!h-8 !min-h-0 !rounded !border !border-slate-200 !bg-white !px-3 !py-0 !text-sm shadow-none';
+const scheduleEntryModalDropdownZIndex = 10020;
 
 const compactParticipantSummary = (selectedOptions: Array<{ label: string }>): string => {
   const displayNames = selectedOptions
@@ -434,6 +435,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   employees,
   currentUserId,
   currentUserDepartmentId,
+  isAdminViewer = false,
   canReadSchedules = false,
   canWriteSchedules = false,
   onNotify,
@@ -1667,6 +1669,8 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
       <ScheduleEntryModal
         editingSlot={editingSlot}
         canWriteSchedules={canWriteSchedules}
+        currentUserId={normalizedCurrentUserId}
+        isAdminViewer={isAdminViewer}
         canEditEntry={canEditEntry}
         canCreateEntryForSlot={canCreateEntryForSlot}
         canDeleteEntry={canDeleteEntry}
@@ -1698,6 +1702,8 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 const ScheduleEntryModal: React.FC<{
   editingSlot: { calendarDate: string; session: DepartmentWeeklyScheduleSession } | null;
   canWriteSchedules: boolean;
+  currentUserId: string;
+  isAdminViewer: boolean;
   canEditEntry: (entry: EditableScheduleEntry) => boolean;
   canCreateEntryForSlot: (calendarDate: string, session: DepartmentWeeklyScheduleSession) => boolean;
   canDeleteEntry: (entry: EditableScheduleEntry) => boolean;
@@ -1723,6 +1729,8 @@ const ScheduleEntryModal: React.FC<{
 }> = ({
   editingSlot,
   canWriteSchedules,
+  currentUserId,
+  isAdminViewer,
   canEditEntry,
   canCreateEntryForSlot,
   canDeleteEntry,
@@ -1751,8 +1759,33 @@ const ScheduleEntryModal: React.FC<{
   const slotEntries = editingSlot ? getAllEntriesForSlot(slotCalendarDate, slotSession) : [];
   const registeredEntries = slotEntries.filter((entry) => Boolean(entry.id));
   const draftEntries = slotEntries.filter((entry) => !entry.id);
+  const visibleRegisteredEntries = useMemo(() => {
+    if (isAdminViewer) {
+      return registeredEntries;
+    }
+
+    return registeredEntries.filter((entry) => {
+      const creatorId = normalizeId(entry.created_by);
+      if (creatorId && creatorId === currentUserId) {
+        return true;
+      }
+
+      return !creatorId && Boolean(entry.can_edit);
+    });
+  }, [currentUserId, isAdminViewer, registeredEntries]);
   const canCreateNewEntry = editingSlot ? canCreateEntryForSlot(slotCalendarDate, slotSession) : false;
   const [selectedEntryLocalId, setSelectedEntryLocalId] = useState<string | null>(null);
+  const selectableEntryIds = useMemo(
+    () => new Set([...draftEntries, ...visibleRegisteredEntries].map((entry) => entry.local_id)),
+    [draftEntries, visibleRegisteredEntries]
+  );
+  const registeredEntriesTitle = isAdminViewer ? 'Danh sách đã đăng ký' : 'Đăng ký của bạn';
+  const registeredEntriesBadge = isAdminViewer
+    ? `${visibleRegisteredEntries.length} đăng ký`
+    : `${visibleRegisteredEntries.length} của bạn`;
+  const emptyRegisteredEntriesMessage = isAdminViewer
+    ? 'Chưa có lịch đã đăng ký cho buổi này.'
+    : 'Bạn chưa có lịch đăng ký cho buổi này.';
 
   useEffect(() => {
     if (!editingSlot) {
@@ -1760,19 +1793,19 @@ const ScheduleEntryModal: React.FC<{
       return;
     }
 
-    const hasSelectedEntry = selectedEntryLocalId !== null && slotEntries.some((entry) => entry.local_id === selectedEntryLocalId);
+    const hasSelectedEntry = selectedEntryLocalId !== null && selectableEntryIds.has(selectedEntryLocalId);
     if (hasSelectedEntry) {
       return;
     }
 
     const latestDraft = draftEntries[draftEntries.length - 1] ?? null;
-    const fallbackEntry = latestDraft ?? registeredEntries[0] ?? null;
+    const fallbackEntry = latestDraft ?? visibleRegisteredEntries[0] ?? null;
     setSelectedEntryLocalId(fallbackEntry?.local_id ?? null);
-  }, [draftEntries, editingSlot, registeredEntries, selectedEntryLocalId, slotEntries]);
+  }, [draftEntries, editingSlot, selectableEntryIds, selectedEntryLocalId, visibleRegisteredEntries]);
 
-  const selectedEntry = slotEntries.find((entry) => entry.local_id === selectedEntryLocalId)
+  const selectedEntry = slotEntries.find((entry) => entry.local_id === selectedEntryLocalId && selectableEntryIds.has(entry.local_id))
     ?? draftEntries[draftEntries.length - 1]
-    ?? registeredEntries[0]
+    ?? visibleRegisteredEntries[0]
     ?? null;
   const selectedEntryRestriction = selectedEntry ? getEntryRestrictionMessage(selectedEntry) : null;
   const selectedEntryCanEdit = selectedEntry ? canEditEntry(selectedEntry) : false;
@@ -1833,10 +1866,10 @@ const ScheduleEntryModal: React.FC<{
             <div className="rounded-lg border border-slate-200 bg-surface-low p-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h3 className="text-xs font-bold text-deep-teal">Danh sách đã đăng ký</h3>
+                  <h3 className="text-xs font-bold text-deep-teal">{registeredEntriesTitle}</h3>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                  {registeredEntries.length} đăng ký
+                  {registeredEntriesBadge}
                 </span>
               </div>
 
@@ -1861,12 +1894,12 @@ const ScheduleEntryModal: React.FC<{
                   </div>
                 </button>
 
-                {registeredEntries.length === 0 ? (
+                {visibleRegisteredEntries.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-6 text-center text-[11px] text-slate-400">
-                    Chưa có lịch đã đăng ký cho buổi này.
+                    {emptyRegisteredEntriesMessage}
                   </div>
                 ) : (
-                  registeredEntries.map((entry, index) => {
+                  visibleRegisteredEntries.map((entry, index) => {
                     const isSelected = selectedEntry?.local_id === entry.local_id;
                     const restrictionMessage = getEntryRestrictionMessage(entry);
 
@@ -2043,6 +2076,7 @@ const ScheduleEntryModal: React.FC<{
                           triggerClassName={compactMultiSelectTriggerClass}
                           showSelectedChips={false}
                           selectedSummaryFormatter={compactParticipantSummary}
+                          portalZIndex={scheduleEntryModalDropdownZIndex}
                         />
                       </div>
 

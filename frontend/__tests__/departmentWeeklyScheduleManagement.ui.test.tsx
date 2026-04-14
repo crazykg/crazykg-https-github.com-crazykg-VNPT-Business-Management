@@ -209,7 +209,45 @@ describe('DepartmentWeeklyScheduleManagement', () => {
     expect(screen.queryByText(/Chưa có nội dung nào cho buổi này/i)).not.toBeInTheDocument();
   });
 
-  it('shows registered entries and opens the selected registered form when the slot already has a schedule', async () => {
+  it('renders the system personnel dropdown above the schedule modal overlay', async () => {
+    const user = userEvent.setup();
+    const futureWeek = buildCalendarWeek('2099-01-05');
+    supportConfigApiMocks.fetchMonthlyCalendars.mockResolvedValue(futureWeek);
+
+    render(
+      <DepartmentWeeklyScheduleManagement
+        departments={departments}
+        employees={employees}
+        currentUserId="100"
+        currentUserDepartmentId="dept-1"
+        canReadSchedules
+        canWriteSchedules
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.fetchDepartmentWeeklySchedules).toHaveBeenCalledWith({
+        department_id: 'dept-1',
+        week_start_date: futureWeek[0].date,
+      });
+    });
+
+    await user.click(screen.getAllByText('Sáng')[0]);
+    await user.click(screen.getByRole('button', { name: /Thành phần \(nhân sự hệ thống\)/i }));
+
+    const searchInput = await screen.findByPlaceholderText('Tìm nhân sự...');
+    let portalRoot: HTMLElement | null = searchInput.parentElement;
+
+    while (portalRoot && !portalRoot.style.zIndex) {
+      portalRoot = portalRoot.parentElement;
+    }
+
+    expect(portalRoot).not.toBeNull();
+    expect(portalRoot?.style.zIndex).toBe('10020');
+  });
+
+  it('shows registered entries from other users to admins in the modal', async () => {
     const user = userEvent.setup();
     const currentWeek = buildCurrentWeekCalendarDays();
     const existingSchedule: DepartmentWeeklySchedule = {
@@ -250,6 +288,7 @@ describe('DepartmentWeeklyScheduleManagement', () => {
         employees={employees}
         currentUserId="100"
         currentUserDepartmentId="dept-1"
+        isAdminViewer
         canReadSchedules
         canWriteSchedules
         onNotify={vi.fn()}
@@ -349,7 +388,7 @@ describe('DepartmentWeeklyScheduleManagement', () => {
     expect(within(participantTrigger).getByText('Nguyễn Văn Tester, Trần Người Khác +1')).toBeInTheDocument();
   });
 
-  it('shows readonly form when opening another user entry from the left panel', async () => {
+  it('hides other user entries from non-admin users inside the modal', async () => {
     const user = userEvent.setup();
     const currentWeek = buildCurrentWeekCalendarDays();
     const existingSchedule: DepartmentWeeklySchedule = {
@@ -385,6 +424,64 @@ describe('DepartmentWeeklyScheduleManagement', () => {
         employees={employees}
         currentUserId="100"
         currentUserDepartmentId="dept-1"
+        canReadSchedules
+        canWriteSchedules
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.fetchDepartmentWeeklySchedules).toHaveBeenCalledWith({
+        department_id: 'dept-1',
+        week_start_date: currentWeek[0].date,
+      });
+    });
+
+    await user.click(await screen.findByText('Làm việc với đơn vị khác'));
+
+    expect(await screen.findAllByText(/Đăng ký của bạn/i)).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /đã đăng ký #1/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Bạn chưa có lịch đăng ký cho buổi này/i)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Làm việc với đơn vị khác')).not.toBeInTheDocument();
+  });
+
+  it('shows readonly form for another user entry when opened by an admin', async () => {
+    const user = userEvent.setup();
+    const currentWeek = buildCurrentWeekCalendarDays();
+    const existingSchedule: DepartmentWeeklySchedule = {
+      id: 'schedule-1',
+      department_id: 'dept-1',
+      week_start_date: currentWeek[0].date,
+      entries: [
+        {
+          id: 'entry-1',
+          calendar_date: currentWeek[2].date,
+          session: 'AFTERNOON',
+          sort_order: 10,
+          work_content: 'Làm việc với đơn vị khác',
+          location: 'Phòng họp B',
+          participant_text: 'Khách mời',
+          participants: [],
+          created_at: '2026-04-02 08:00:00',
+          created_by: '200',
+          created_by_name: 'Trần Người Khác',
+          updated_at: '2026-04-02 08:00:00',
+          can_edit: false,
+          can_delete: false,
+          is_locked: false,
+        },
+      ],
+    };
+
+    supportConfigApiMocks.fetchDepartmentWeeklySchedules.mockResolvedValue([existingSchedule]);
+
+    render(
+      <DepartmentWeeklyScheduleManagement
+        departments={departments}
+        employees={employees}
+        currentUserId="100"
+        currentUserDepartmentId="dept-1"
+        isAdminViewer
         canReadSchedules
         canWriteSchedules
         onNotify={vi.fn()}
