@@ -1164,27 +1164,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return map;
   }, [listRows, searchResults]);
 
-  // Task reference options (default from current list + search results)
-  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      Array.from(taskReferenceCatalog.values()).map((item) => ({
-        value: item.task_code,
-        label: item.label,
-        searchText: item.searchText,
-      })),
-    [taskReferenceCatalog]
-  );
-
-  // Task reference lookup for transition/detail hooks
-  const taskReferenceLookup = useMemo(() => {
-    const map = new Map<string, { id?: string | number | null; task_code: string }>();
-    taskReferenceCatalog.forEach((item, key) => {
-      map.set(key, { id: item.id, task_code: item.task_code });
-      map.set(item.task_code, { id: item.id, task_code: item.task_code });
-    });
-    return map;
-  }, [taskReferenceCatalog]);
-
   // -------------------------------------------------------------------------
   // 7. Dashboard hook
   // -------------------------------------------------------------------------
@@ -1256,6 +1235,50 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   });
 
   // -------------------------------------------------------------------------
+  // 8b. Merged task reference catalog (includes form reference tasks)
+  // -------------------------------------------------------------------------
+  const mergedTaskReferenceCatalog = useMemo(() => {
+    const map = new Map(taskReferenceCatalog);
+    formReferenceTasks.forEach((task) => {
+      if (task.task_code && task.id) {
+        const taskCode = String(task.task_code).trim();
+        if (!taskCode) return;
+        const normalizedCode = taskCode.toLowerCase();
+        if (!map.has(normalizedCode)) {
+          map.set(normalizedCode, {
+            id: task.id,
+            task_code: taskCode,
+            label: taskCode,
+            searchText: taskCode,
+          });
+        }
+      }
+    });
+    return map;
+  }, [taskReferenceCatalog, formReferenceTasks]);
+
+  // Task reference options (default from current list + search results + form reference tasks)
+  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      Array.from(mergedTaskReferenceCatalog.values()).map((item) => ({
+        value: item.task_code,
+        label: item.label,
+        searchText: item.searchText,
+      })),
+    [mergedTaskReferenceCatalog]
+  );
+
+  // Task reference lookup for transition/detail hooks
+  const taskReferenceLookup = useMemo(() => {
+    const map = new Map<string, { id?: string | number | null; task_code: string }>();
+    mergedTaskReferenceCatalog.forEach((item, key) => {
+      map.set(key, { id: item.id, task_code: item.task_code });
+      map.set(item.task_code, { id: item.id, task_code: item.task_code });
+    });
+    return map;
+  }, [mergedTaskReferenceCatalog]);
+
+  // -------------------------------------------------------------------------
   // 9. Derived detail props
   // -------------------------------------------------------------------------
   const currentUserName = useMemo(() => {
@@ -1264,23 +1287,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [employees, currentUserId]);
 
   // Auto-fetch reference task data when formReferenceTasks is populated from API
+  const searchedTaskCodesRef = React.useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!canReadRequests || formReferenceTasks.length === 0) {
       return;
     }
 
-    // Get task_codes that are not in searchResults
-    const existingCodes = new Set(searchResults.map((r) => r.request_code).filter(Boolean));
+    // Get task_codes that haven't been searched yet
     const missingTaskCodes = formReferenceTasks
       .map((t) => t.task_code)
-      .filter((code): code is string => !!(code && !existingCodes.has(code)));
+      .filter((code): code is string => !!(code && !searchedTaskCodesRef.current.has(code)));
 
     if (missingTaskCodes.length > 0 && !isSearchLoading) {
+      // Mark as searched to avoid re-triggering
+      searchedTaskCodesRef.current.add(missingTaskCodes[0]);
       // Trigger search for the first missing task_code
       // User can then click dropdown to see the option, or type to search
       setSearchKeyword(missingTaskCodes[0]);
     }
-  }, [canReadRequests, formReferenceTasks, searchResults, isSearchLoading, setSearchKeyword]);
+  }, [canReadRequests, formReferenceTasks, isSearchLoading, setSearchKeyword]);
 
   const {
     registerOptimisticRequestUpdate,
@@ -1615,6 +1641,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       bumpDataVersion();
     },
     bumpDataVersion,
+    caseContextIt360Tasks: formIt360Tasks,
+    caseContextReferenceTasks: formReferenceTasks,
   });
 
   // -------------------------------------------------------------------------
@@ -2037,14 +2065,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           r.local_id === localId
             ? {
                 ...r,
-                id: found?.id ?? null,
+                id: found?.id ?? r.id ?? null,
                 task_code: found?.task_code ?? normalizedValue,
               }
             : r
         )
       );
+
+      // Trigger search to load full data for the selected task
+      // This ensures the task appears in dropdown and is available for submission
+      if (found?.task_code && found.task_code !== searchKeyword) {
+        setSearchKeyword(found.task_code);
+      }
     },
-    [setFormReferenceTasks, taskReferenceLookup]
+    [setFormReferenceTasks, taskReferenceLookup, setSearchKeyword, searchKeyword]
   );
 
   const handleRemoveRefRow = useCallback(
@@ -2141,7 +2175,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           .filter((r) => r.task_code.trim() || r.id != null)
           .map((r) => ({
             task_source: 'REFERENCE',
-            ...(r.id != null ? { id: r.id } : { task_code: r.task_code.trim() }),
+            ...(r.id != null ? { id: r.id } : {}),
+            ...(r.task_code.trim() !== '' ? { task_code: r.task_code.trim() } : {}),
           })),
       ];
 
@@ -2292,6 +2327,59 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     masterFields,
     masterDraft,
     processDraft,
+    formIt360Tasks,
+    formReferenceTasks,
+    bumpDataVersion,
+    notify,
+  ]);
+
+  const handleSaveTaskReference = useCallback(async () => {
+    if (!canWriteRequests || isCreateMode || !selectedRequestId || !activeEditorProcessCode) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const refTasksPayload: Array<Record<string, unknown>> = [
+        ...formIt360Tasks
+          .filter((r) => r.task_code.trim())
+          .map((r) => ({
+            task_source: 'IT360',
+            task_code: r.task_code.trim(),
+            task_link: r.task_link || null,
+            task_status: r.status,
+            ...(r.id != null ? { id: r.id } : {}),
+          })),
+        ...formReferenceTasks
+          .filter((r) => r.task_code.trim() || r.id != null)
+          .map((r) => ({
+            task_source: 'REFERENCE',
+            ...(r.id != null ? { id: r.id } : {}),
+            ...(r.task_code.trim() !== '' ? { task_code: r.task_code.trim() } : {}),
+          })),
+      ];
+
+      await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, {
+        ref_tasks: refTasksPayload,
+      });
+      bumpDataVersion();
+      notify('success', 'Cập nhật Task/Ref', 'Đã cập nhật danh sách task liên quan.');
+    } catch (e: unknown) {
+      if (!isRequestCanceledError(e)) {
+        notify(
+          'error',
+          'Cập nhật Task/Ref thất bại',
+          e instanceof Error ? e.message : 'Không thể cập nhật task liên quan.'
+        );
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    canWriteRequests,
+    isCreateMode,
+    selectedRequestId,
+    activeEditorProcessCode,
     formIt360Tasks,
     formReferenceTasks,
     bumpDataVersion,
@@ -3287,6 +3375,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       processDraft={processDraft}
       onProcessDraftChange={handleProcessDraftChange}
       onSaveStatusDetail={handleSaveStatusDetail}
+      onSaveTaskReference={handleSaveTaskReference}
       customers={customers}
       employees={employees}
       customerPersonnel={customerPersonnel}

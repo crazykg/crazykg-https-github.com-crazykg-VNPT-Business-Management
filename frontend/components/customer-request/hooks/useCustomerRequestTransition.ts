@@ -27,6 +27,7 @@ import {
   type It360TaskFormRow,
   type ReferenceTaskFormRow,
 } from '../presentation';
+import type { ProjectRaciRow } from '../../../types/project';
 
 type TaskReferenceLookup = Map<string, { id?: string | number | null; task_code: string }>;
 
@@ -42,6 +43,8 @@ type UseCustomerRequestTransitionOptions = {
   onNotify: (type: 'success' | 'error', title: string, message: string) => void;
   onTransitionSuccess: (requestId: string | number, statusCode: string) => void;
   bumpDataVersion: () => void;
+  caseContextIt360Tasks?: It360TaskFormRow[];
+  caseContextReferenceTasks?: ReferenceTaskFormRow[];
 };
 
 type OpenTransitionModalOptions = {
@@ -227,6 +230,8 @@ export const useCustomerRequestTransition = ({
   onNotify,
   onTransitionSuccess,
   bumpDataVersion,
+  caseContextIt360Tasks = [],
+  caseContextReferenceTasks = [],
 }: UseCustomerRequestTransitionOptions) => {
   void transitionProcessMeta;
 
@@ -319,22 +324,29 @@ export const useCustomerRequestTransition = ({
 
     setIsTransitioning(true);
     try {
-      const modalIt360Payload = modalIt360Tasks
-        .filter((task) => task.task_code.trim() !== '')
-        .map((task) => ({
-          task_code: task.task_code,
-          task_link: task.task_link,
-          status: task.status,
-          task_source: 'IT360',
-        }));
+      // Hợp nhất task IT360: case context + modal (mới thêm)
+      const mergedIt360Tasks = [
+        ...caseContextIt360Tasks.filter((t) => t.task_code.trim() || t.id != null),
+        ...modalIt360Tasks.filter((t) => t.task_code.trim() !== ''),
+      ];
+      const modalIt360Payload = mergedIt360Tasks.map((task) => ({
+        id: task.id,
+        task_code: task.task_code,
+        task_link: task.task_link,
+        status: task.status,
+        task_source: 'IT360',
+      }));
 
-      const modalRefPayload = modalRefTasks
-        .filter((task) => task.task_code.trim() !== '' || task.id != null)
-        .map((task) => ({
-          id: task.id,
-          task_code: task.task_code,
-          task_source: 'REFERENCE',
-        }));
+      // Hợp nhất task Reference: case context + modal (mới thêm)
+      const mergedRefTasks = [
+        ...caseContextReferenceTasks.filter((t) => t.task_code.trim() || t.id != null),
+        ...modalRefTasks.filter((t) => t.task_code.trim() !== '' || t.id != null),
+      ];
+      const modalRefPayload = mergedRefTasks.map((task) => ({
+        id: task.id,
+        task_code: task.task_code,
+        task_source: 'REFERENCE',
+      }));
 
       const transitionFieldPayload = toMutationStatusPayload(
         processDetail,

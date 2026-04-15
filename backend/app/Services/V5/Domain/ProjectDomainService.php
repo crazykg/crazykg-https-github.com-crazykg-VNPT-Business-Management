@@ -207,7 +207,11 @@ class ProjectDomainService
 
         $departmentId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'department_id'));
         if ($departmentId !== null && $this->support->hasColumn('projects', 'department_id')) {
-            $query->where('projects.department_id', $departmentId);
+            // Include projects with matching department_id OR NULL department_id
+            $query->where(function ($q) use ($departmentId): void {
+                $q->where('projects.department_id', $departmentId)
+                  ->orWhereNull('projects.department_id');
+            });
         }
 
         $startDateFrom = trim((string) ($this->support->readFilterParam($request, 'start_date_from', '') ?? ''));

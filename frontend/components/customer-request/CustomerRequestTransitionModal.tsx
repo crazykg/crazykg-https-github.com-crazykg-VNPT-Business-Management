@@ -544,7 +544,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             <span className="material-symbols-outlined text-[16px]">
               {isTransitioning ? 'progress_activity' : 'swap_horiz'}
             </span>
-            {isTransitioning ? 'Đang xử lý...' : 'Xác nhận chuyển trạng thái'}
+            {isTransitioning ? 'Đang xử lý...' : '.'}
           </button>
         </div>
       </div>

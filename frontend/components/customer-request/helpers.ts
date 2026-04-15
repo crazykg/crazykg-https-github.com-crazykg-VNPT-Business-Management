@@ -383,7 +383,8 @@ export const splitCustomerRequestTaskRows = (
     const source = normalizeCustomerRequestTaskSource(task.task_source, 'REFERENCE');
     const taskCode = normalizeText(task.task_code ?? task.request_code);
     const taskLink = normalizeText(task.task_link);
-    const taskId = task.id ?? task.ref_task_id ?? null;
+    // Ưu tiên ref_task_id (id của request_ref_tasks) thay vì id (pivot id của customer_request_status_ref_tasks)
+    const taskId = task.ref_task_id ?? task.id ?? null;
     const id = typeof taskId === 'string' || typeof taskId === 'number' ? taskId : null;
 
     if (source === 'REFERENCE') {

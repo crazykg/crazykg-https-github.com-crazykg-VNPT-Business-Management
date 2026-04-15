@@ -336,6 +336,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     [projectDepartmentFilterSource]
   );
 
+  // Track the last synced initialDepartmentFilter value
+  const lastSyncedInitialFilterRef = useRef<string>('');
+
   // Apply initial department filter - sync whenever initialDepartmentFilter changes (if user hasn't adjusted)
   useEffect(() => {
     if (hasUserAdjustedDepartmentFilterRef.current) {
@@ -345,12 +348,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return;
     }
 
+    const normalizedInitial = String(initialDepartmentFilter || '').trim();
+
+    // Skip if already synced to this value
+    if (lastSyncedInitialFilterRef.current === normalizedInitial) {
+      return;
+    }
+
     setDepartmentFilter((currentValue) => {
       const normalizedCurrent = String(currentValue || '').trim();
-      const normalizedInitial = String(initialDepartmentFilter || '').trim();
 
       // If current value already matches initial, no need to update
       if (normalizedCurrent === normalizedInitial) {
+        lastSyncedInitialFilterRef.current = normalizedInitial;
         return currentValue;
       }
 
@@ -359,6 +369,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         return currentValue;
       }
 
+      lastSyncedInitialFilterRef.current = normalizedInitial;
       return initialDepartmentFilter;
     });
 
@@ -387,11 +398,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return;
     }
 
-    // Skip if department filter matches initial value and user hasn't adjusted it yet
-    // This prevents API call when the filter is being auto-set, not user-driven
+    // Skip if department filter hasn't been synced with initial value yet
+    // This prevents API call during initial sync, only trigger after user interaction
     if (!hasUserAdjustedDepartmentFilterRef.current && initialDepartmentFilter) {
       const normalizedCurrent = String(departmentFilter || '').trim();
       const normalizedInitial = String(initialDepartmentFilter || '').trim();
+      const normalizedLastSynced = String(lastSyncedInitialFilterRef.current || '').trim();
+
+      // Skip if filter is still in sync state (not yet synced to initial value)
+      if (normalizedCurrent !== normalizedLastSynced) {
+        return;
+      }
+
+      // Skip if filter matches initial value (no user interaction yet)
       if (normalizedCurrent === normalizedInitial) {
         return;
       }

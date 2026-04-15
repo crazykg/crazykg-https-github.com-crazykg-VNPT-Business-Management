@@ -68,6 +68,7 @@ type CustomerRequestDetailPaneProps = {
   processDraft: Record<string, unknown>;
   onProcessDraftChange: (fieldName: string, value: unknown) => void;
   onSaveStatusDetail: () => void;
+  onSaveTaskReference?: () => void;
   customers: Customer[];
   employees: Employee[];
   customerPersonnel: CustomerPersonnel[];
@@ -183,6 +184,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   processDraft,
   onProcessDraftChange,
   onSaveStatusDetail,
+  onSaveTaskReference,
   customers,
   employees,
   customerPersonnel,
@@ -362,7 +364,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <span className="material-symbols-outlined text-base transition-transform group-hover:scale-110">dataset_linked</span>
             Task tham chiếu
           </button>
-          {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+          {/* {canEditActiveForm && !isCreateMode && onSaveRequest ? (
             <button
               type="button"
               onClick={() => void onSaveRequest()}
@@ -372,17 +374,28 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
               <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">save</span>
               {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
             </button>
-          ) : null}
+          ) : null} */}
           {canEditActiveForm ? (
             <>
-              <button
+              {/* <button
                 type="button"
                 onClick={onSaveStatusDetail}
                 disabled={isSaving}
                 className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
-              </button>
+              </button> */}
+              {onSaveTaskReference ? (
+                <button
+                  type="button"
+                  onClick={onSaveTaskReference}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  <span className="material-symbols-outlined text-sm">link</span>
+                  {isSaving ? 'Đang cập nhật...' : 'Cập nhật Task/Ref'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onAddTaskRow}

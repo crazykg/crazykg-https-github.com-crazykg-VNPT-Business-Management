@@ -1228,6 +1228,7 @@ class CustomerRequestCaseWriteService
 
         $rows = [];
         $seen = [];
+        $seenBySource = ['IT360' => [], 'REFERENCE' => []];
         foreach ($items as $index => $item) {
             if (! is_array($item) && ! is_numeric($item)) {
                 continue;
@@ -1235,13 +1236,38 @@ class CustomerRequestCaseWriteService
             $refTaskId = is_array($item)
                 ? $this->resolveRefTaskIdFromPayload($item, $actorId, (int) $index, $requestCode, $caseId)
                 : $this->support->parseNullableInt($item);
-            if ($refTaskId === null || isset($seen[$refTaskId])) {
+
+            // Debug logging
+            Log::debug('syncRefTasks.item', [
+                'index' => $index,
+                'item' => $item,
+                'refTaskId' => $refTaskId,
+                'exists' => $refTaskId !== null ? DB::table('request_ref_tasks')->where('id', $refTaskId)->exists() : null,
+            ]);
+
+            if ($refTaskId === null) {
+                Log::debug('syncRefTasks.skip', ['reason' => 'null_id']);
                 continue;
             }
-            if (! DB::table('request_ref_tasks')->where('id', $refTaskId)->exists()) {
+
+            // Get task_source to track seen per source
+            $taskSource = is_array($item) && isset($item['task_source'])
+                ? strtoupper((string) $item['task_source'])
+                : 'IT360';
+
+            // Allow same task_id to be linked for different sources (IT360 vs REFERENCE)
+            if (isset($seenBySource[$taskSource][$refTaskId])) {
+                Log::debug('syncRefTasks.skip', ['reason' => 'duplicate_for_source', 'source' => $taskSource]);
                 continue;
             }
+
+            if (! DB::table('request_ref_tasks')->where('id', $refTaskId)->whereNull('deleted_at')->exists()) {
+                Log::debug('syncRefTasks.skip', ['reason' => 'task_not_found_or_deleted']);
+                continue;
+            }
+
             $seen[$refTaskId] = true;
+            $seenBySource[$taskSource][$refTaskId] = true;
             $rows[] = $this->filterByTableColumns('customer_request_status_ref_tasks', [
                 'request_case_id' => $caseId,
                 'status_instance_id' => $statusInstanceId,
@@ -1252,6 +1278,8 @@ class CustomerRequestCaseWriteService
                 'updated_at' => now(),
             ]);
         }
+
+        Log::debug('syncRefTasks.result', ['rows_count' => count($rows)]);
 
         if ($rows !== []) {
             DB::table('customer_request_status_ref_tasks')->insert($rows);
@@ -1271,7 +1299,9 @@ class CustomerRequestCaseWriteService
         $taskNote = $this->normalizeNullableString($payload['task_note'] ?? null);
         $sortOrder = $this->support->parseNullableInt($payload['sort_order'] ?? null) ?? $index;
 
-        if ($refTaskId !== null && DB::table('request_ref_tasks')->where('id', $refTaskId)->exists()) {
+        // If payload provides an existing task ID, verify it exists AND is not deleted
+        if ($refTaskId !== null && DB::table('request_ref_tasks')->where('id', $refTaskId)->whereNull('deleted_at')->exists()) {
+            // Update the task metadata based on task_source
             if ($taskSource === 'IT360') {
                 DB::table('request_ref_tasks')
                     ->where('id', $refTaskId)
@@ -1285,11 +1315,51 @@ class CustomerRequestCaseWriteService
                         'updated_by' => $actorId,
                         'updated_at' => now(),
                     ]));
+            } elseif ($taskSource === 'REFERENCE') {
+                // For REFERENCE tasks, ensure task_source is correctly set
+                $updatePayload = [
+                    'task_source' => 'REFERENCE',
+                    'updated_by' => $actorId,
+                    'updated_at' => now(),
+                ];
+                if ($taskCode !== null) {
+                    $updatePayload['task_code'] = $taskCode;
+                }
+                DB::table('request_ref_tasks')
+                    ->where('id', $refTaskId)
+                    ->update($this->filterByTableColumns('request_ref_tasks', $updatePayload));
             }
 
             return $refTaskId;
         }
 
+        // If the provided ID points to a deleted task, treat it as if the ID was not provided
+        // and proceed to create/find a new task based on task_code
+        $idIsDeleted = $refTaskId !== null && DB::table('request_ref_tasks')->where('id', $refTaskId)->whereNotNull('deleted_at')->exists();
+        if ($idIsDeleted) {
+            Log::debug('resolveRefTaskIdFromPayload.id_is_deleted', [
+                'refTaskId' => $refTaskId,
+                'taskCode' => $taskCode,
+                'taskSource' => $taskSource,
+            ]);
+            // Continue to create/find logic below
+        }
+
+        // For REFERENCE tasks, allow lookup by task_code (only non-deleted tasks)
+        if ($taskSource === 'REFERENCE' && $taskCode !== null) {
+            $existingReferenceId = $this->support->parseNullableInt(
+                DB::table('request_ref_tasks')
+                    ->where('task_code', $taskCode)
+                    ->where('task_source', 'REFERENCE')
+                    ->whereNull('deleted_at')
+                    ->value('id')
+            );
+            if ($existingReferenceId !== null) {
+                return $existingReferenceId;
+            }
+        }
+
+        // Require at least task_code or task_link to create/find a new task
         if ($taskCode === null && $taskLink === null) {
             return null;
         }
@@ -1300,15 +1370,6 @@ class CustomerRequestCaseWriteService
 
         if ($taskLink !== null && strtoupper($taskLink) === strtoupper($taskSource)) {
             $taskLink = null;
-        }
-
-        if ($taskSource === 'REFERENCE' && $taskCode !== null) {
-            $existingReferenceId = $this->support->parseNullableInt(
-                DB::table('request_ref_tasks')->where('task_code', $taskCode)->value('id')
-            );
-            if ($existingReferenceId !== null) {
-                return $existingReferenceId;
-            }
         }
 
         $existingIt360Id = null;

@@ -22,7 +22,9 @@ export const useCustomerRequestSearch = ({
     }
 
     const keyword = deferredSearchKeyword.trim();
-    if (keyword.length < 2) {
+    // Allow search with short keywords when user explicitly types or selects a task
+    // This ensures reference tasks with short codes can be loaded
+    if (keyword === '') {
       setSearchResults([]);
       setSearchError('');
       setIsSearchLoading(false);
