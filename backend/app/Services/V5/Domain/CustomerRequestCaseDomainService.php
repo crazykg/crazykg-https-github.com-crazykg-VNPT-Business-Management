@@ -1721,6 +1721,7 @@ class CustomerRequestCaseDomainService
             'decision_reason_label' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
             'entered_at' => $this->normalizeNullableString($row->entered_at ?? null),
             'exited_at' => $this->normalizeNullableString($row->exited_at ?? null),
+            'created_at' => $this->normalizeNullableString($row->created_at ?? null),
             'is_current' => isset($row->is_current) ? (bool) $row->is_current : false,
             'created_by' => $this->support->parseNullableInt($row->created_by ?? null),
             'updated_by' => $this->support->parseNullableInt($row->updated_by ?? null),

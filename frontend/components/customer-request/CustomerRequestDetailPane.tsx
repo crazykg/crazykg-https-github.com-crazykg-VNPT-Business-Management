@@ -576,7 +576,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   {[
                     entry.nguoi_thay_doi_name,
                     entry.nguoi_thay_doi_code,
-                    entry.thay_doi_luc ? formatDateTimeDdMmYyyy(entry.thay_doi_luc)?.slice(0, 16) : null,
+                    entry.created_at ? formatDateTimeDdMmYyyy(entry.created_at)?.slice(0, 16) : null,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -650,6 +650,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                           .join(' · ')}
                       </p>
                       {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                      {worklog.difficulty_note ? <p className="mt-2 rounded-lg border border-red-100 bg-red-50/60 px-3 py-2 text-sm font-medium text-red-700"><span className="font-semibold">Khó khăn:</span> {worklog.difficulty_note}</p> : null}
                     </button>
                   );
                 })

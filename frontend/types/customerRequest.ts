@@ -406,6 +406,9 @@ export interface YeuCauTimelineEntry {
   decision_reason_label?: string | null;
   thoi_gian_o_trang_thai_cu_gio?: number | null;
   thay_doi_luc?: string | null;
+  entered_at?: string | null;
+  exited_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface YeuCauProcessRow {
