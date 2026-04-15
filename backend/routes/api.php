@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V5\FeedbackController;
 use App\Http\Controllers\Api\V5\MonthlyCalendarController;
 use App\Http\Controllers\Api\V5\SystemHealthController;
 use App\Http\Controllers\Api\V5\ProductController;
+use App\Http\Controllers\Api\V5\ProductPackageController;
 use App\Http\Controllers\Api\V5\SupportConfigController;
 use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
@@ -422,6 +423,22 @@ Route::prefix('v5')->group(function (): void {
         Route::put('/products/{id}', [ProductController::class, 'update'])
             ->middleware('permission:products.write');
         Route::delete('/products/{id}', [ProductController::class, 'destroy'])
+            ->middleware('permission:products.delete');
+        Route::get('/product-packages', [ProductPackageController::class, 'index'])
+            ->middleware('permission:products.read');
+        Route::post('/product-packages/bulk', [ProductPackageController::class, 'storeBulk'])
+            ->middleware(['permission:products.write', 'throttle:api.write.heavy']);
+        Route::get('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'featureCatalog'])
+            ->middleware('permission:products.read');
+        Route::get('/product-packages/{id}/feature-catalog/list', [ProductPackageController::class, 'featureCatalogList'])
+            ->middleware('permission:products.read');
+        Route::post('/product-packages', [ProductPackageController::class, 'store'])
+            ->middleware('permission:products.write');
+        Route::put('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'updateFeatureCatalog'])
+            ->middleware('permission:products.write');
+        Route::put('/product-packages/{id}', [ProductPackageController::class, 'update'])
+            ->middleware('permission:products.write');
+        Route::delete('/product-packages/{id}', [ProductPackageController::class, 'destroy'])
             ->middleware('permission:products.delete');
         Route::get('/customer-personnel', [CustomerPersonnelController::class, 'index'])
             ->middleware('permission:customer_personnel.read');
