@@ -146,6 +146,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   const hasUserAdjustedDepartmentFilterRef = useRef(false);
+  const hasInitializedFiltersRef = useRef(false);
 
   useModuleShortcuts({
     onNew: () => onOpenModal('ADD_PROJECT'),
@@ -335,19 +336,34 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     [projectDepartmentFilterSource]
   );
 
+  // Apply initial department filter - sync whenever initialDepartmentFilter changes (if user hasn't adjusted)
   useEffect(() => {
     if (hasUserAdjustedDepartmentFilterRef.current) {
+      return;
+    }
+    if (!initialDepartmentFilter) {
       return;
     }
 
     setDepartmentFilter((currentValue) => {
       const normalizedCurrent = String(currentValue || '').trim();
-      if (normalizedCurrent !== '') {
+      const normalizedInitial = String(initialDepartmentFilter || '').trim();
+
+      // If current value already matches initial, no need to update
+      if (normalizedCurrent === normalizedInitial) {
+        return currentValue;
+      }
+
+      // If user has a different non-empty value, don't override
+      if (normalizedCurrent !== '' && normalizedCurrent !== normalizedInitial) {
         return currentValue;
       }
 
       return initialDepartmentFilter;
     });
+
+    // Mark as initialized after applying initial filter
+    hasInitializedFiltersRef.current = true;
   }, [initialDepartmentFilter]);
 
   const totalItems = serverMode ? (paginationMeta?.total || 0) : filteredProjects.length;
@@ -366,20 +382,39 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return;
     }
 
-    onQueryChange({
-      page: currentPage,
-      per_page: rowsPerPage,
-      q: searchTerm.trim(),
-      sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
-      sort_dir: sortConfig?.direction || 'desc',
-      filters: {
-        status: statusFilter,
-        department_id: departmentFilter,
-        start_date_from: startDateFrom,
-        start_date_to: startDateTo,
-      },
-    });
-  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig]);
+    // Skip during initial filter setup - wait until initialDepartmentFilter has been applied
+    if (!hasInitializedFiltersRef.current) {
+      return;
+    }
+
+    // Skip if department filter matches initial value and user hasn't adjusted it yet
+    // This prevents API call when the filter is being auto-set, not user-driven
+    if (!hasUserAdjustedDepartmentFilterRef.current && initialDepartmentFilter) {
+      const normalizedCurrent = String(departmentFilter || '').trim();
+      const normalizedInitial = String(initialDepartmentFilter || '').trim();
+      if (normalizedCurrent === normalizedInitial) {
+        return;
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      onQueryChange({
+        page: currentPage,
+        per_page: rowsPerPage,
+        q: searchTerm.trim(),
+        sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
+        sort_dir: sortConfig?.direction || 'desc',
+        filters: {
+          status: statusFilter,
+          department_id: departmentFilter,
+          start_date_from: startDateFrom,
+          start_date_to: startDateTo,
+        },
+      });
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig, initialDepartmentFilter]);
 
   const currentData = serverMode
     ? (projects || [])
