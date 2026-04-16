@@ -12,6 +12,9 @@ class ContractItem extends Model
     protected $fillable = [
         'contract_id',
         'product_id',
+        'product_package_id',
+        'product_name',
+        'unit',
         'quantity',
         'unit_price',
         'vat_rate',
@@ -35,5 +38,10 @@ class ContractItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function productPackage(): BelongsTo
+    {
+        return $this->belongsTo(ProductPackage::class, 'product_package_id');
     }
 }

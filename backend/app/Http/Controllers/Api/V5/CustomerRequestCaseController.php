@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\V5;
 
+use App\Http\Requests\V5\StoreCustomerRequestCaseWorklogRequest;
 use App\Services\V5\Domain\CustomerRequestCaseDomainService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CustomerRequestCaseController extends V5BaseController
 {
@@ -46,6 +48,21 @@ class CustomerRequestCaseController extends V5BaseController
         ]);
 
         return $this->service->store($request);
+    }
+
+    public function importIntakeTemplate(Request $request): JsonResponse
+    {
+        return $this->service->importIntakeTemplate($request);
+    }
+
+    public function importIntake(Request $request): JsonResponse
+    {
+        return $this->service->importIntake($request);
+    }
+
+    public function exportIntake(Request $request): StreamedResponse
+    {
+        return $this->service->exportIntake($request);
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -128,9 +145,24 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->worklogs($request, $id);
     }
 
-    public function storeWorklog(Request $request, int $id): JsonResponse
+    public function storeWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
     {
         return $this->service->storeWorklog($request, $id);
+    }
+
+    public function storeDetailStatusWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id): JsonResponse
+    {
+        return $this->service->storeDetailStatusWorklog($request, $id);
+    }
+
+    public function updateWorklog(StoreCustomerRequestCaseWorklogRequest $request, int $id, int $worklogId): JsonResponse
+    {
+        return $this->service->updateWorklog($request, $id, $worklogId);
+    }
+
+    public function detailStatus(Request $request, int $id): JsonResponse
+    {
+        return $this->service->detailStatus($request, $id);
     }
 
     public function showStatus(Request $request, int $id, string $statusCode): JsonResponse

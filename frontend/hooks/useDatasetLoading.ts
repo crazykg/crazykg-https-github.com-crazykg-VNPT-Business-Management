@@ -30,7 +30,6 @@ import {
   fetchContractExpiryAlertSettings,
   fetchContractPaymentAlertSettings,
 } from '../services/v5Api';
-import { normalizeProductUnitForSave } from '../utils/productUnit';
 import { DEFAULT_PRODUCT_SERVICE_GROUP, normalizeProductServiceGroup } from '../utils/productServiceGroup';
 import { hasPermission } from '../utils/authorization';
 
@@ -329,10 +328,12 @@ function normalizeProductRecord(product: Product): Product {
   return {
     ...product,
     service_group: normalizeProductServiceGroup(product.service_group),
+    product_short_name: typeof product.product_short_name === 'string'
+      ? product.product_short_name
+      : (product.product_short_name ?? null),
     package_name: typeof product.package_name === 'string'
       ? product.package_name
       : (product.package_name ?? null),
-    unit: normalizeProductUnitForSave(product.unit),
     description: typeof product.description === 'string'
       ? product.description
       : (product.description ?? null),

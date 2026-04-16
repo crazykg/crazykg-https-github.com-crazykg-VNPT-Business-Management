@@ -46,7 +46,10 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
       />
     );
 
-    expect(screen.getByText('Tra cứu chi tiết')).toBeInTheDocument();
-    expect(screen.getByText('Số liệu & điểm nóng')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Hộp việc/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Danh sách/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Phân tích/i })).toBeInTheDocument();
+    expect(screen.queryByText('Tra cứu chi tiết')).not.toBeInTheDocument();
+    expect(screen.queryByText('Số liệu & điểm nóng')).not.toBeInTheDocument();
   });
 });

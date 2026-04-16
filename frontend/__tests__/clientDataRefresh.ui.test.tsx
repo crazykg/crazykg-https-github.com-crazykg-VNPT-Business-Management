@@ -133,6 +133,14 @@ vi.mock('../hooks/useImportEmployeePartyProfiles', () => ({
   useImportEmployeePartyProfiles: () => ({ handleImportEmployeePartyProfiles: vi.fn() }),
 }));
 
+vi.mock('../hooks/useImportProducts', () => ({
+  useImportProducts: () => ({ handleImportProducts: vi.fn() }),
+}));
+
+vi.mock('../hooks/useImportProductPackages', () => ({
+  useImportProductPackages: () => ({ handleImportProductPackages: vi.fn() }),
+}));
+
 vi.mock('../services/v5Api', async () => {
   const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
 

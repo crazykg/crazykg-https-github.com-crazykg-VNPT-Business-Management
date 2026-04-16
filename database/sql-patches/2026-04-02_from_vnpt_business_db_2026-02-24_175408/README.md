@@ -10,6 +10,10 @@
 
 1. `2026-04-02_01_revenue_product_quotation_schema.sql`
 2. `2026-04-02_02_migration_bookkeeping.sql`
+3. `2026-04-06_03_crc_status_name_vi_alignment.sql`
+4. `2026-04-06_04_reseed_crc_transitions_from_workflowa.sql`
+5. `2026-04-06_05_seed_missing_crc_status_catalogs.sql`
+6. `2026-04-07_06_align_crc_status_tables_fixed_7_fields.sql`
 
 ## Notes
 

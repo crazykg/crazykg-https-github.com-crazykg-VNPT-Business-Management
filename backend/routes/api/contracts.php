@@ -24,3 +24,5 @@ Route::get('/payment-schedules', [ContractController::class, 'paymentSchedules']
     ->middleware('permission:contracts.read');
 Route::put('/payment-schedules/{id}', [ContractController::class, 'updatePaymentSchedule'])
     ->middleware('permission:contracts.payments');
+Route::delete('/payment-schedules/{id}', [ContractController::class, 'destroyPaymentSchedule'])
+    ->middleware('permission:contracts.payments');

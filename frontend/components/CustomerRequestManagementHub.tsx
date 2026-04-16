@@ -3,13 +3,19 @@ import {
   createYeuCau,
   createYeuCauEstimate,
   deleteYeuCau,
+  saveYeuCauCaseTags,
   saveYeuCauProcess,
+  fetchCustomerRequestIntakeTemplate,
   fetchCustomerRequestProjectItems,
   fetchProjectRaciAssignments,
   fetchYeuCau,
   fetchYeuCauProcessCatalog,
+  exportCustomerRequestIntake,
+  importCustomerRequestIntake,
   isRequestCanceledError,
+  storeYeuCauDetailStatusWorklog,
   storeYeuCauWorklog,
+  updateYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
 import type {
@@ -20,6 +26,7 @@ import type {
   ProjectItemMaster,
   ProjectRaciRow,
   SupportServiceGroup,
+  Tag,
   YeuCau,
   YeuCauEstimate,
   YeuCauHoursReport,
@@ -27,6 +34,7 @@ import type {
   YeuCauProcessField,
   YeuCauProcessMeta,
   YeuCauRelatedUser,
+  YeuCauWorklog,
 } from '../types';
 import { useCustomerRequestList } from './customer-request/hooks/useCustomerRequestList';
 import { useCustomerRequestDashboard } from './customer-request/hooks/useCustomerRequestDashboard';
@@ -52,7 +60,6 @@ import { CustomerRequestDashboardCards } from './customer-request/CustomerReques
 import { CustomerRequestQuickAccessBar } from './customer-request/CustomerRequestQuickAccessBar';
 import { CustomerRequestDetailFrame } from './customer-request/CustomerRequestDetailFrame';
 import { CustomerRequestTransitionModal } from './customer-request/CustomerRequestTransitionModal';
-import { CustomerRequestPmMissingInfoDecisionModal } from './customer-request/CustomerRequestPmMissingInfoDecisionModal';
 import { CustomerRequestCreateModal } from './customer-request/CustomerRequestCreateModal';
 import {
   CustomerRequestEstimateModal,
@@ -61,6 +68,7 @@ import {
 import type { CustomerRequestCreateFlowDraft } from './customer-request/createFlow';
 import {
   CustomerRequestWorklogModal,
+  type CustomerRequestWorklogModalContext,
   type CustomerRequestWorklogSubmission,
 } from './customer-request/CustomerRequestWorklogModal';
 import {
@@ -78,7 +86,6 @@ import type {
 } from './customer-request/presentation';
 import {
   filterXmlVisibleProcesses,
-  isPmMissingCustomerInfoDecisionProcessCode,
   isXmlVisibleProcessCode,
   resolveRequestProcessCode,
   resolveTransitionOptionsForRequest,
@@ -100,7 +107,17 @@ import {
   type CustomerRequestSavedView,
 } from './customer-request/customerRequestQuickAccess';
 import { useCustomerRequestQuickAccess } from './customer-request/hooks/useCustomerRequestQuickAccess';
+import { ImportModal } from './modals';
+import type { ImportPayload } from './modals/projectImportTypes';
+import ExcelJS from 'exceljs';
+import {
+  buildHeaderIndex,
+  exportImportFailureFile,
+  getImportCell,
+} from '../utils/importValidation';
 import type { SearchableSelectOption } from './SearchableSelect';
+import type { CustomerRequestIntakeImportResult } from '../services/api/customerRequestApi';
+import { normalizeImportToken } from '../utils/importUtils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,6 +158,597 @@ const readCustomerRequestWindowScrollY = (): number => {
   );
 };
 
+const CRC_INTAKE_HEADER_ALIASES: Record<string, string[]> = {
+  import_row_code: ['import_row_code', 'importrowcode', 'ma_dong_import', 'madongimport'],
+  customer_code: ['customer_code', 'customercode', 'ma_khach_hang', 'makhachhang'],
+  project_item_code: [
+    'project_item_code',
+    'projectitemcode',
+    'ma_hang_muc',
+    'mahangmuc',
+    'ma_hang_muc_du_an_san_pham',
+    'mahangmucduansanpham',
+  ],
+  customer_personnel_code: [
+    'customer_personnel_code',
+    'customerpersonnelcode',
+    'ma_nhan_su_lien_he',
+    'manhansulienhe',
+    'ma_nhan_su_lien_he_khach_hang',
+    'manhansulienhekhachhang',
+  ],
+  support_service_group_code: ['support_service_group_code', 'supportservicegroupcode', 'ma_nhom_ho_tro', 'manhomhotro'],
+  source_channel: ['source_channel', 'sourcechannel', 'kenh_tiep_nhan', 'kenhtiepnhan'],
+  summary: ['summary', 'tieu_de', 'tieude', 'tieu_de_yeu_cau', 'tieudeyeucau'],
+  description: ['description', 'mo_ta', 'mota', 'mo_ta_yeu_cau', 'motayeucau'],
+  priority_label: ['priority_label', 'prioritylabel', 'do_uu_tien', 'douutien'],
+  receiver_user_code: ['receiver_user_code', 'receiverusercode', 'nguoi_tiep_nhan', 'nguoitiepnhan', 'ma_nguoi_tiep_nhan', 'manguoitiepnhan'],
+  creator_user_code: ['creator_user_code', 'creatorusercode', 'nguoi_tao', 'nguoitao', 'ma_nguoi_tao', 'manguoitao'],
+};
+
+const CRC_INTAKE_TASK_HEADER_ALIASES: Record<string, string[]> = {
+  import_row_code: ['import_row_code', 'importrowcode', 'ma_dong_import', 'madongimport'],
+  task_source: ['task_source', 'tasksource', 'nguon_task', 'nguontask'],
+  task_code: ['task_code', 'taskcode', 'ma_task', 'matask'],
+  task_link: ['task_link', 'tasklink', 'link_task', 'linktask'],
+  task_status: ['task_status', 'taskstatus', 'trang_thai_task', 'trangthaitask'],
+};
+
+const CRC_INTAKE_HEADER_LABELS: Record<string, string> = {
+  import_row_code: 'Mã dòng import',
+  customer_code: 'Mã khách hàng',
+  project_item_code: 'Mã hạng mục dự án/sản phẩm',
+  customer_personnel_code: 'Mã nhân sự liên hệ khách hàng',
+  support_service_group_code: 'Mã nhóm hỗ trợ',
+  source_channel: 'Kênh tiếp nhận',
+  summary: 'Tiêu đề yêu cầu',
+  description: 'Mô tả yêu cầu',
+  priority_label: 'Độ ưu tiên',
+  receiver_user_code: 'Mã người tiếp nhận',
+  creator_user_code: 'Mã người tạo',
+};
+
+const CRC_INTAKE_TASK_HEADER_LABELS: Record<string, string> = {
+  import_row_code: 'Mã dòng import',
+  task_source: 'Nguồn task',
+  task_code: 'Mã task',
+  task_link: 'Link task',
+  task_status: 'Trạng thái task',
+};
+
+const mapHeaderToVietnamese = (header: string, dictionary: Record<string, string>): string =>
+  dictionary[String(header || '').trim()] || header;
+
+const buildAutoWidths = (headers: string[], min = 120, max = 420): number[] =>
+  headers.map((header) => {
+    const length = String(header || '').trim().length;
+    return Math.min(max, Math.max(min, length * 9 + 36));
+  });
+
+const extractCodeFromDisplayValue = (value: string): string => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const parts = normalized.split(/\s[-–—]\s/, 2).map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2 && parts[0]) {
+    return parts[0];
+  }
+
+  return normalized;
+};
+
+const buildCrcIntakeImportItems = (payload: ImportPayload): Array<Record<string, unknown>> => {
+  const mainHeaderIndex = buildHeaderIndex(payload.headers || []);
+  const intakeRows = payload.rows || [];
+
+  const allSheets = payload.sheets || [];
+  const taskSheet = allSheets.find((sheet) => {
+    const token = normalizeImportToken(sheet.name);
+    return token.includes('yeucautasks') || token.includes('tasks');
+  });
+
+  const taskHeaderIndex = taskSheet ? buildHeaderIndex(taskSheet.headers || []) : new Map<string, number>();
+  const taskRows = taskSheet?.rows || [];
+  const tasksByRowCode = new Map<string, Array<Record<string, unknown>>>();
+
+  taskRows.forEach((row) => {
+    const rowCode = getImportCell(row, taskHeaderIndex, CRC_INTAKE_TASK_HEADER_ALIASES.import_row_code);
+    if (!rowCode) {
+      return;
+    }
+
+    const taskCode = getImportCell(row, taskHeaderIndex, CRC_INTAKE_TASK_HEADER_ALIASES.task_code);
+    const taskLink = getImportCell(row, taskHeaderIndex, CRC_INTAKE_TASK_HEADER_ALIASES.task_link);
+    if (!taskCode && !taskLink) {
+      return;
+    }
+
+    const task = {
+      task_source: getImportCell(row, taskHeaderIndex, CRC_INTAKE_TASK_HEADER_ALIASES.task_source) || 'REFERENCE',
+      task_code: taskCode || null,
+      task_link: taskLink || null,
+      task_status: getImportCell(row, taskHeaderIndex, CRC_INTAKE_TASK_HEADER_ALIASES.task_status) || 'TODO',
+    };
+
+    const current = tasksByRowCode.get(rowCode) || [];
+    current.push(task);
+    tasksByRowCode.set(rowCode, current);
+  });
+
+  const items: Array<Record<string, unknown>> = [];
+  intakeRows.forEach((row, rowIndex) => {
+    const mapped = {
+      import_row_code: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.import_row_code) || `ROW_${rowIndex + 2}`,
+      customer_code: extractCodeFromDisplayValue(
+        getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.customer_code)
+      ) || null,
+      project_item_code: extractCodeFromDisplayValue(
+        getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.project_item_code)
+      ) || null,
+      customer_personnel_code: extractCodeFromDisplayValue(
+        getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.customer_personnel_code)
+      ) || null,
+      support_service_group_code: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.support_service_group_code) || null,
+      source_channel: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.source_channel) || null,
+      summary: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.summary) || null,
+      description: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.description) || null,
+      priority_label: getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.priority_label) || null,
+      receiver_user_code: extractCodeFromDisplayValue(
+        getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.receiver_user_code)
+      ) || null,
+      creator_user_code: extractCodeFromDisplayValue(
+        getImportCell(row, mainHeaderIndex, CRC_INTAKE_HEADER_ALIASES.creator_user_code)
+      ) || null,
+    };
+
+    const hasData = Object.entries(mapped).some(([key, value]) => key !== 'import_row_code' && !!String(value || '').trim());
+    if (!hasData) {
+      return;
+    }
+
+    const rowCode = String(mapped.import_row_code || '').trim();
+    const refTasks = rowCode ? (tasksByRowCode.get(rowCode) || []) : [];
+
+    items.push({
+      ...mapped,
+      ref_tasks: refTasks,
+    });
+  });
+
+  return items;
+};
+
+const triggerBrowserDownload = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const normalizeWorksheetName = (value: string, fallback: string): string => {
+  const sanitized = String(value || '')
+    .replace(/[\\/?*:[\]]/g, ' ')
+    .trim();
+  if (!sanitized) {
+    return fallback;
+  }
+  return sanitized.slice(0, 31);
+};
+
+const pxToExcelWidth = (px: number): number => {
+  const normalized = Number.isFinite(px) ? Math.max(60, px) : 120;
+  return Math.round((normalized / 7) * 100) / 100;
+};
+
+const setWorksheetColumns = (
+  worksheet: ExcelJS.Worksheet,
+  headers: string[],
+  widths: number[] = []
+): void => {
+  worksheet.columns = headers.map((header, index) => ({
+    header,
+    key: `col_${index + 1}`,
+    width: pxToExcelWidth(widths[index] ?? 140),
+  }));
+};
+
+const addDropdownValidation = (
+  worksheet: ExcelJS.Worksheet,
+  columnNumber: number,
+  rangeFormula: string,
+  rowStart: number,
+  rowEnd: number
+): void => {
+  for (let row = rowStart; row <= rowEnd; row += 1) {
+    const cell = worksheet.getCell(row, columnNumber);
+    cell.dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [rangeFormula],
+      showErrorMessage: true,
+      errorTitle: 'Giá trị không hợp lệ',
+      error: 'Vui lòng chọn giá trị từ danh sách.',
+    };
+  }
+};
+
+const addDropdownValidationByRowFormula = (
+  worksheet: ExcelJS.Worksheet,
+  columnNumber: number,
+  rowStart: number,
+  rowEnd: number,
+  resolveFormula: (row: number) => string
+): void => {
+  for (let row = rowStart; row <= rowEnd; row += 1) {
+    const cell = worksheet.getCell(row, columnNumber);
+    cell.dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [resolveFormula(row)],
+      showErrorMessage: true,
+      errorTitle: 'Giá trị không hợp lệ',
+      error: 'Vui lòng chọn giá trị từ danh sách.',
+    };
+  }
+};
+
+const sanitizeExcelNameKey = (value: string): string => {
+  const normalized = String(value || '').trim().replace(/[^A-Za-z0-9_]/g, '_');
+  const withPrefix = /^[A-Za-z_]/.test(normalized) ? normalized : `K_${normalized}`;
+  return (withPrefix || 'K_EMPTY').slice(0, 120);
+};
+
+const quoteSheetName = (sheetName: string): string => `'${String(sheetName).replace(/'/g, "''")}'`;
+
+const createCrcIntakeTemplateWorkbook = async (params: {
+  fileNameBase: string;
+  intakeSheetName: string;
+  taskSheetName: string;
+  viHeaders: string[];
+  viTaskHeaders: string[];
+  customerRows: readonly (readonly [string, string])[];
+  projectItemRows: readonly (readonly [string, string])[];
+  customerPersonnelRows: readonly (readonly [string, string])[];
+  supportGroupRows: readonly (readonly [string, string])[];
+  personnelRows: readonly (readonly [string, string, string])[];
+  projectItemByCustomerCode: ReadonlyMap<string, readonly (readonly [string, string])[]>;
+  customerPersonnelByCustomerCode: ReadonlyMap<string, readonly (readonly [string, string])[]>;
+  sourceChannelRows: readonly string[];
+  priorityRows: readonly string[];
+  taskSources: readonly string[];
+  taskStatuses: readonly string[];
+  hasLookupData: boolean;
+  headerOrder: string[];
+}): Promise<{ blob: Blob; fileName: string }> => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'VNPT Business Management';
+  workbook.created = new Date();
+
+  const intakeSheet = workbook.addWorksheet(normalizeWorksheetName(params.intakeSheetName, 'YeuCauNhap'));
+  setWorksheetColumns(intakeSheet, params.viHeaders, buildAutoWidths(params.viHeaders));
+  intakeSheet.getRow(1).font = { bold: true };
+  intakeSheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFEAF2FF' },
+  };
+  const customerDisplayRows = params.customerRows.map(([code, name]) => {
+    const displayName = String(name || code || '').trim();
+    return [code, name, `${code} - ${displayName}`] as const;
+  });
+
+  const projectItemDisplayRows = params.projectItemRows.map(([code, name]) => {
+    const displayName = String(name || code || '').trim();
+    return [code, name, `${code} - ${displayName}`] as const;
+  });
+
+  const customerPersonnelDisplayRows = params.customerPersonnelRows.map(([code, name]) => {
+    const displayName = String(name || code || '').trim();
+    return [code, name, `${code} - ${displayName}`] as const;
+  });
+
+  const internalPersonnelDisplayRows = params.personnelRows.map(([code, fullName, username]) => {
+    const displayName = String(fullName || username || code || '').trim();
+    return [code, fullName, username, `${code} - ${displayName}`] as const;
+  });
+
+  const customerDisplayByCode = new Map<string, string>();
+  customerDisplayRows.forEach(([code, _name, display]) => {
+    customerDisplayByCode.set(String(code).trim(), display);
+  });
+
+  const customerDisplayByProjectDisplay = new Map<string, string[]>();
+  params.projectItemByCustomerCode.forEach((rows, customerCode) => {
+    const safeCustomerCode = String(customerCode).trim();
+    const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
+    const displayRows = rows
+      .map(([code, name]) => {
+        const displayName = String(name || code || '').trim();
+        return `${code} - ${displayName}`;
+      })
+      .filter(Boolean);
+    displayRows.forEach((projectDisplay) => {
+      const currentCustomers = customerDisplayByProjectDisplay.get(projectDisplay) || [];
+      if (!currentCustomers.includes(customerDisplay)) {
+        currentCustomers.push(customerDisplay);
+        customerDisplayByProjectDisplay.set(projectDisplay, currentCustomers);
+      }
+    });
+  });
+
+  if (customerDisplayByProjectDisplay.size === 0) {
+    const allCustomers = Array.from(new Set(Array.from(customerDisplayByCode.values()).filter(Boolean)));
+    projectItemDisplayRows.forEach((row) => {
+      const projectDisplay = row[2];
+      customerDisplayByProjectDisplay.set(projectDisplay, [...allCustomers]);
+    });
+  }
+
+  customerDisplayByProjectDisplay.forEach((customers, projectDisplay) => {
+    customerDisplayByProjectDisplay.set(projectDisplay, [...customers].sort((a, b) => a.localeCompare(b, 'vi')));
+  });
+
+  const customerPersonnelDisplayByCustomerCode = new Map<string, string[]>();
+  params.customerPersonnelByCustomerCode.forEach((rows, customerCode) => {
+    const displayRows = rows
+      .map(([code, name]) => {
+        const displayName = String(name || code || '').trim();
+        return `${code} - ${displayName}`;
+      })
+      .filter(Boolean);
+    customerPersonnelDisplayByCustomerCode.set(String(customerCode).trim(), Array.from(new Set(displayRows)));
+  });
+
+  const sampleCellByHeader: Record<string, string> = {
+    import_row_code: 'ROW_001',
+    project_item_code: projectItemDisplayRows[0]?.[2] || '',
+    customer_code: customerDisplayRows[0]?.[2] || '',
+    customer_personnel_code: customerPersonnelDisplayRows[0]?.[2] || '',
+    support_group_code: params.supportGroupRows[0]?.[0] || '',
+    source_channel: params.sourceChannelRows[0] || 'Email',
+    summary: 'Mô tả yêu cầu mẫu',
+    description: 'Chi tiết yêu cầu mẫu',
+    priority: params.priorityRows[1] || params.priorityRows[0] || 'Trung bình',
+    receiver_user_code: internalPersonnelDisplayRows[0]?.[3] || '',
+    creator_user_code: internalPersonnelDisplayRows[0]?.[3] || '',
+  };
+  intakeSheet.addRow(params.headerOrder.map((header) => sampleCellByHeader[header] || ''));
+
+  const intakeColumnIndexByHeader = new Map<string, number>();
+  params.headerOrder.forEach((header, index) => {
+    intakeColumnIndexByHeader.set(header, index + 1);
+  });
+
+  const customerColumnIndex = intakeColumnIndexByHeader.get('customer_code') ?? 2;
+  const projectItemColumnIndex = intakeColumnIndexByHeader.get('project_item_code') ?? 3;
+  const customerPersonnelColumnIndex = intakeColumnIndexByHeader.get('customer_personnel_code') ?? 4;
+  const supportGroupColumnIndex = intakeColumnIndexByHeader.get('support_group_code') ?? 5;
+  const sourceChannelColumnIndex = intakeColumnIndexByHeader.get('source_channel') ?? 6;
+  const priorityColumnIndex = intakeColumnIndexByHeader.get('priority') ?? 9;
+  const receiverColumnIndex = intakeColumnIndexByHeader.get('receiver_user_code') ?? 10;
+  const creatorColumnIndex = intakeColumnIndexByHeader.get('creator_user_code') ?? 11;
+
+  const customerColumnLetter = intakeSheet.getColumn(customerColumnIndex).letter;
+  const projectItemColumnLetter = intakeSheet.getColumn(projectItemColumnIndex).letter;
+
+  const taskSheet = workbook.addWorksheet(normalizeWorksheetName(params.taskSheetName, 'YeuCauTasks'));
+  setWorksheetColumns(taskSheet, params.viTaskHeaders, buildAutoWidths(params.viTaskHeaders));
+  taskSheet.getRow(1).font = { bold: true };
+  taskSheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFEAF2FF' },
+  };
+  taskSheet.addRow([
+    'ROW_001',
+    params.taskSources[0] || 'IT360',
+    'TASK-001',
+    '',
+    params.taskStatuses[0] || 'TODO',
+  ]);
+
+  const customerSheet = workbook.addWorksheet('KhachHang');
+  setWorksheetColumns(customerSheet, ['Mã khách hàng', 'Tên khách hàng', 'Hiển thị'], [180, 280, 320]);
+  customerSheet.getRow(1).font = { bold: true };
+  customerDisplayRows.forEach((row) => customerSheet.addRow([...row]));
+  customerSheet.getColumn(3).hidden = true;
+
+  const projectItemSheet = workbook.addWorksheet('HangMucDuAnSanPham');
+  setWorksheetColumns(projectItemSheet, ['Mã hạng mục', 'Tên hạng mục', 'Hiển thị'], [220, 320, 360]);
+  projectItemSheet.getRow(1).font = { bold: true };
+  projectItemDisplayRows.forEach((row) => projectItemSheet.addRow([...row]));
+  projectItemSheet.getColumn(3).hidden = true;
+
+  const customerPersonnelSheet = workbook.addWorksheet('NhanSuLienHe');
+  setWorksheetColumns(customerPersonnelSheet, ['Mã nhân sự liên hệ', 'Tên nhân sự liên hệ', 'Hiển thị'], [220, 280, 360]);
+  customerPersonnelSheet.getRow(1).font = { bold: true };
+  customerPersonnelDisplayRows.forEach((row) => customerPersonnelSheet.addRow([...row]));
+  customerPersonnelSheet.getColumn(3).hidden = true;
+
+  const supportGroupSheet = workbook.addWorksheet('NhomHoTro');
+  setWorksheetColumns(supportGroupSheet, ['Mã nhóm hỗ trợ', 'Tên nhóm hỗ trợ'], [200, 280]);
+  supportGroupSheet.getRow(1).font = { bold: true };
+  params.supportGroupRows.forEach((row) => supportGroupSheet.addRow([...row]));
+
+  const internalPersonnelSheet = workbook.addWorksheet('NhanSuNoiBo');
+  setWorksheetColumns(internalPersonnelSheet, ['Mã nhân sự', 'Họ tên', 'Tài khoản', 'Hiển thị'], [160, 220, 180, 320]);
+  internalPersonnelSheet.getRow(1).font = { bold: true };
+  internalPersonnelDisplayRows.forEach((row) => internalPersonnelSheet.addRow([...row]));
+  internalPersonnelSheet.getColumn(4).hidden = true;
+
+  const sourceChannelSheet = workbook.addWorksheet('KenhTiepNhan');
+  setWorksheetColumns(sourceChannelSheet, ['Kênh tiếp nhận'], [180]);
+  sourceChannelSheet.getRow(1).font = { bold: true };
+  params.sourceChannelRows.forEach((value) => sourceChannelSheet.addRow([value]));
+
+  const prioritySheet = workbook.addWorksheet('DoUuTien');
+  setWorksheetColumns(prioritySheet, ['Độ ưu tiên'], [160]);
+  prioritySheet.getRow(1).font = { bold: true };
+  params.priorityRows.forEach((value) => prioritySheet.addRow([value]));
+
+  const dependentLookupSheet = workbook.addWorksheet('_LookupByCustomer');
+  dependentLookupSheet.state = 'hidden';
+  setWorksheetColumns(
+    dependentLookupSheet,
+    [
+      'project_display_name',
+      'customer_display_name',
+      'personnel_display_name',
+      'customer_key',
+      'personnel_key',
+    ],
+    [360, 320, 360, 220, 220]
+  );
+
+  const customerNameKeyMap = new Map<string, string>();
+  const personnelNameKeyMap = new Map<string, string>();
+
+  dependentLookupSheet.getCell(1, 4).value = '';
+  dependentLookupSheet.getCell(1, 5).value = '';
+  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$D$1:$D$1`, 'EMPTY_CUSTOMER');
+  workbook.definedNames.add(`${quoteSheetName('_LookupByCustomer')}!$E$1:$E$1`, 'EMPTY_PERSONNEL');
+
+  const sortedProjectDisplays = Array.from(customerDisplayByProjectDisplay.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+  const lookupSheetRef = quoteSheetName('_LookupByCustomer');
+
+  sortedProjectDisplays.forEach((projectDisplay) => {
+    const customerKey = sanitizeExcelNameKey(`CUSTOMER_${projectDisplay}`);
+    customerNameKeyMap.set(projectDisplay, customerKey);
+  });
+
+  customerDisplayRows.forEach(([customerCode]) => {
+    const safeCustomerCode = String(customerCode).trim();
+    const personnelKey = sanitizeExcelNameKey(`PERSONNEL_${safeCustomerCode}`);
+    personnelNameKeyMap.set(safeCustomerCode, personnelKey);
+  });
+
+  let lookupRowIndex = 2;
+  sortedProjectDisplays.forEach((projectDisplay) => {
+    const linkedCustomers = customerDisplayByProjectDisplay.get(projectDisplay) || [];
+    const customerKey = customerNameKeyMap.get(projectDisplay) || 'EMPTY_CUSTOMER';
+
+    const maxRows = Math.max(1, linkedCustomers.length);
+    const startRow = lookupRowIndex;
+
+    for (let index = 0; index < maxRows; index += 1) {
+      dependentLookupSheet.getCell(lookupRowIndex, 1).value = projectDisplay;
+      dependentLookupSheet.getCell(lookupRowIndex, 2).value = linkedCustomers[index] || '';
+      dependentLookupSheet.getCell(lookupRowIndex, 3).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 4).value = customerKey;
+      dependentLookupSheet.getCell(lookupRowIndex, 5).value = '';
+      lookupRowIndex += 1;
+    }
+
+    const endRow = lookupRowIndex - 1;
+    workbook.definedNames.add(`${lookupSheetRef}!$B$${startRow}:$B$${endRow}`, customerKey);
+  });
+
+  const sortedLookupCustomerKeys = Array.from(customerDisplayByCode.keys()).sort((a, b) => a.localeCompare(b, 'vi'));
+  const personnelLookupStartRow = lookupRowIndex;
+
+  sortedLookupCustomerKeys.forEach((safeCustomerCode) => {
+    const customerDisplay = customerDisplayByCode.get(safeCustomerCode) || safeCustomerCode;
+    const personnelKey = personnelNameKeyMap.get(safeCustomerCode) || 'EMPTY_PERSONNEL';
+    const personnelDisplayList = customerPersonnelDisplayByCustomerCode.get(safeCustomerCode) || [];
+
+    const maxRows = Math.max(1, personnelDisplayList.length);
+    const startRow = lookupRowIndex;
+
+    for (let index = 0; index < maxRows; index += 1) {
+      dependentLookupSheet.getCell(lookupRowIndex, 1).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 2).value = customerDisplay;
+      dependentLookupSheet.getCell(lookupRowIndex, 3).value = personnelDisplayList[index] || '';
+      dependentLookupSheet.getCell(lookupRowIndex, 4).value = '';
+      dependentLookupSheet.getCell(lookupRowIndex, 5).value = personnelKey;
+      lookupRowIndex += 1;
+    }
+
+    const endRow = lookupRowIndex - 1;
+    workbook.definedNames.add(`${lookupSheetRef}!$C$${startRow}:$C$${endRow}`, personnelKey);
+  });
+
+  for (let col = 1; col <= 5; col += 1) {
+    dependentLookupSheet.getColumn(col).hidden = true;
+  }
+
+  const lookupLastRow = Math.max(2, lookupRowIndex - 1);
+
+  const customerFormulaByRow = (row: number): string =>
+    `INDIRECT(IFERROR(VLOOKUP($${projectItemColumnLetter}${row},${lookupSheetRef}!$A$2:$D$${lookupLastRow},4,FALSE),"EMPTY_CUSTOMER"))`;
+
+  const personnelFormulaByRow = (row: number): string =>
+    `INDIRECT(IFERROR(VLOOKUP($${customerColumnLetter}${row},${lookupSheetRef}!$B$${personnelLookupStartRow}:$E$${lookupLastRow},4,FALSE),"EMPTY_PERSONNEL"))`;
+
+  const projectFormula = `'HangMucDuAnSanPham'!$C$2:$C$${Math.max(2, projectItemDisplayRows.length + 1)}`;
+
+  const guideSheet = workbook.addWorksheet('HuongDan');
+  setWorksheetColumns(guideSheet, ['Nội dung'], [560]);
+  guideSheet.getRow(1).font = { bold: true };
+  [
+    '1. Điền dữ liệu tại sheet YeuCauNhap.',
+    '2. import_row_code là mã khóa để nối với sheet YeuCauTasks.',
+    '3. Chọn Mã hạng mục dự án/sản phẩm trước, sau đó cột Mã khách hàng sẽ lọc theo hạng mục đã chọn.',
+    '4. Cột Mã nhân sự liên hệ khách hàng sẽ lọc theo Mã khách hàng đã chọn.',
+    '5. Nếu cần tra cứu toàn bộ dữ liệu, xem sheet HangMucDuAnSanPham và NhanSuLienHe.',
+    '6. Cột Mã nhóm hỗ trợ tra ở sheet NhomHoTro.',
+    '7. Cột Mã người tiếp nhận và Mã người tạo tra ở sheet NhanSuNoiBo.',
+    '8. Không import trạng thái, hệ thống luôn tạo ở new_intake.',
+    `9. Priority hợp lệ: ${params.priorityRows.join(', ') || 'Thấp, Trung bình, Cao, Khẩn'}.`,
+    `10. Task source hợp lệ: ${params.taskSources.join(', ') || 'IT360, REFERENCE'}.`,
+    `11. Task status hợp lệ: ${params.taskStatuses.join(', ') || 'TODO, IN_PROGRESS, DONE, CANCELLED, BLOCKED'}.`,
+    params.hasLookupData
+      ? '12. File mẫu đã đổ sẵn dữ liệu mã từ danh mục hiện tại.'
+      : '12. Chưa có dữ liệu lookup trong phiên hiện tại, vui lòng nhập mã theo dữ liệu hệ thống.',
+  ].forEach((line) => guideSheet.addRow([line]));
+
+  const maxTemplateRows = 1000;
+  const supportGroupFormula = `'NhomHoTro'!$A$2:$A$${Math.max(2, params.supportGroupRows.length + 1)}`;
+  const personnelDisplayFormula = `'NhanSuNoiBo'!$D$2:$D$${Math.max(2, internalPersonnelDisplayRows.length + 1)}`;
+  const sourceChannelFormula = `'KenhTiepNhan'!$A$2:$A$${Math.max(2, params.sourceChannelRows.length + 1)}`;
+  const priorityFormula = `'DoUuTien'!$A$2:$A$${Math.max(2, params.priorityRows.length + 1)}`;
+
+  addDropdownValidationByRowFormula(intakeSheet, customerColumnIndex, 2, maxTemplateRows, customerFormulaByRow);
+  addDropdownValidation(intakeSheet, projectItemColumnIndex, projectFormula, 2, maxTemplateRows);
+  addDropdownValidationByRowFormula(intakeSheet, customerPersonnelColumnIndex, 2, maxTemplateRows, personnelFormulaByRow);
+  addDropdownValidation(intakeSheet, supportGroupColumnIndex, supportGroupFormula, 2, maxTemplateRows);
+  addDropdownValidation(intakeSheet, sourceChannelColumnIndex, sourceChannelFormula, 2, maxTemplateRows);
+  addDropdownValidation(intakeSheet, priorityColumnIndex, priorityFormula, 2, maxTemplateRows);
+  addDropdownValidation(intakeSheet, receiverColumnIndex, personnelDisplayFormula, 2, maxTemplateRows);
+  addDropdownValidation(intakeSheet, creatorColumnIndex, personnelDisplayFormula, 2, maxTemplateRows);
+
+  const hiddenTaskSourcesSheet = workbook.addWorksheet('_TaskLookup');
+  hiddenTaskSourcesSheet.state = 'hidden';
+  setWorksheetColumns(hiddenTaskSourcesSheet, ['Task source', 'Task status'], [180, 180]);
+  params.taskSources.forEach((value, index) => {
+    const rowIndex = index + 2;
+    hiddenTaskSourcesSheet.getCell(rowIndex, 1).value = value;
+  });
+  params.taskStatuses.forEach((value, index) => {
+    const rowIndex = index + 2;
+    hiddenTaskSourcesSheet.getCell(rowIndex, 2).value = value;
+  });
+  const taskSourceLookupFormula = `'_TaskLookup'!$A$2:$A$${Math.max(2, params.taskSources.length + 1)}`;
+  const taskStatusLookupFormula = `'_TaskLookup'!$B$2:$B$${Math.max(2, params.taskStatuses.length + 1)}`;
+  addDropdownValidation(taskSheet, 2, taskSourceLookupFormula, 2, maxTemplateRows);
+  addDropdownValidation(taskSheet, 5, taskStatusLookupFormula, 2, maxTemplateRows);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+
+  return {
+    blob,
+    fileName: `${params.fileNameBase}.xlsx`,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -156,8 +764,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   canReadRequests = false,
   canWriteRequests = false,
   canDeleteRequests = false,
-  canImportRequests: _canImportRequests = false,
-  canExportRequests: _canExportRequests = false,
+  canImportRequests = false,
+  canExportRequests = false,
   onNotify,
 }) => {
   // -------------------------------------------------------------------------
@@ -180,7 +788,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [selectedRequestPreview, setSelectedRequestPreview] = useState<YeuCau | null>(null);
   const [activeEditorProcessCode, setActiveEditorProcessCode] = useState('');
   const [isCreateMode, setIsCreateMode] = useState(false);
+  const [createFormTags, setCreateFormTags] = useState<Tag[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImportingIntake, setIsImportingIntake] = useState(false);
+  const [isExportingIntake, setIsExportingIntake] = useState(false);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [isSubmittingWorklog, setIsSubmittingWorklog] = useState(false);
   const [isSubmittingEstimate, setIsSubmittingEstimate] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -190,7 +803,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [projectRaciRows, setProjectRaciRows] = useState<ProjectRaciRow[]>([]);
   const [showWorklogModal, setShowWorklogModal] = useState(false);
   const [showEstimateModal, setShowEstimateModal] = useState(false);
-  const [showPmMissingInfoDecisionModal, setShowPmMissingInfoDecisionModal] = useState(false);
+  const [worklogModalContext, setWorklogModalContext] = useState<CustomerRequestWorklogModalContext | null>(null);
   const [pendingPrimaryAction, setPendingPrimaryAction] = useState<{
     requestId: string;
     action: CustomerRequestPrimaryActionMeta;
@@ -406,8 +1019,16 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const transitionRenderableFields = useMemo<YeuCauProcessField[]>(
-    () => transitionProcessMeta?.form_fields ?? [],
-    [transitionProcessMeta]
+    () => ([
+      { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime' },
+      { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime' },
+      { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime' },
+      { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number' },
+      { name: 'from_user_id', label: 'Người chuyển', type: 'user_select' },
+      { name: 'to_user_id', label: 'Người nhận', type: 'user_select' },
+      { name: 'notes', label: 'Ghi chú', type: 'textarea' },
+    ]),
+    []
   );
 
   // -------------------------------------------------------------------------
@@ -423,15 +1044,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsSearchOpen,
   } = useCustomerRequestSearch({ canReadRequests });
 
-  // Task reference lookup for transition hook
-  const taskReferenceLookup = useMemo(() => {
-    const map = new Map<string, { id?: string | number | null; task_code: string }>();
-    searchResults.forEach((r) => {
-      const code = r.request_code ?? String(r.id);
-      map.set(code, { id: r.id, task_code: code });
-    });
-    return map;
-  }, [searchResults]);
 
   // -------------------------------------------------------------------------
   // 5. Stable error/callback refs — prevent hook useEffect re-firing on every
@@ -500,6 +1112,79 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onPageOverflow: handlePageOverflow,
   });
 
+  const taskReferenceCatalog = useMemo(() => {
+    const map = new Map<string, { id?: string | number | null; task_code: string; label: string; searchText: string }>();
+
+    const addTaskReference = (raw: {
+      id?: string | number | null;
+      taskCode: string;
+      summary?: string | null;
+      customerName?: string | null;
+      projectName?: string | null;
+    }) => {
+      const taskCode = String(raw.taskCode || '').trim();
+      if (!taskCode) {
+        return;
+      }
+
+      const normalizedCode = taskCode.toLowerCase();
+      if (map.has(normalizedCode)) {
+        return;
+      }
+
+      const summary = String(raw.summary || '').trim();
+      map.set(normalizedCode, {
+        id: raw.id ?? null,
+        task_code: taskCode,
+        label: summary ? `${taskCode} — ${summary}` : taskCode,
+        searchText: `${taskCode} ${summary} ${String(raw.customerName || '')} ${String(raw.projectName || '')}`,
+      });
+    };
+
+    listRows.forEach((row) => {
+      addTaskReference({
+        id: row.id,
+        taskCode: row.request_code ?? row.ma_yc ?? String(row.id ?? ''),
+        summary: row.summary ?? row.tieu_de,
+        customerName: row.customer_name ?? row.khach_hang_name,
+        projectName: (row as unknown as Record<string, unknown>).project_name as string | undefined,
+      });
+    });
+
+    searchResults.forEach((r) => {
+      addTaskReference({
+        id: r.id,
+        taskCode: r.request_code ?? String(r.id),
+        summary: r.summary ?? r.label,
+        customerName: r.customer_name,
+        projectName: r.project_name,
+      });
+    });
+
+    return map;
+  }, [listRows, searchResults]);
+
+  // Task reference options (default from current list + search results)
+  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      Array.from(taskReferenceCatalog.values()).map((item) => ({
+        value: item.task_code,
+        label: item.label,
+        searchText: item.searchText,
+      })),
+    [taskReferenceCatalog]
+  );
+
+  // Task reference lookup for transition/detail hooks
+  const taskReferenceLookup = useMemo(() => {
+    const map = new Map<string, { id?: string | number | null; task_code: string }>();
+    taskReferenceCatalog.forEach((item, key) => {
+      map.set(key, { id: item.id, task_code: item.task_code });
+      map.set(item.task_code, { id: item.id, task_code: item.task_code });
+    });
+    return map;
+  }, [taskReferenceCatalog]);
+
   // -------------------------------------------------------------------------
   // 7. Dashboard hook
   // -------------------------------------------------------------------------
@@ -553,6 +1238,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setFormIt360Tasks,
     formReferenceTasks,
     setFormReferenceTasks,
+    formTags,
+    setFormTags,
     timeline,
     caseWorklogs,
     setCaseWorklogs,
@@ -567,35 +1254,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     createInitialFields: newIntakeFields,
     onError: handleDetailError,
   });
-
-  // Task reference options (from searchResults + formReferenceTasks for persisted values)
-  const taskReferenceOptions = useMemo<SearchableSelectOption[]>(
-    () => {
-      const baseOptions = searchResults.map((r) => ({
-        value: r.request_code ?? String(r.id),
-        label: r.request_code
-          ? `${r.request_code} — ${r.summary ?? r.label ?? ''}`
-          : String(r.id),
-        searchText: `${r.request_code ?? ''} ${r.summary ?? ''} ${r.customer_name ?? ''} ${r.project_name ?? ''}`,
-      }));
-
-      // Add options for persisted reference tasks that may not be in searchResults
-      // These will show as "CODE — Click to search" until user types to fetch full data
-      const existingCodes = new Set(searchResults.map((r) => r.request_code).filter(Boolean));
-      formReferenceTasks.forEach((task) => {
-        if (task.task_code && !existingCodes.has(task.task_code)) {
-          baseOptions.push({
-            value: task.task_code,
-            label: `${task.task_code} — Click để tìm`,
-            searchText: task.task_code,
-          });
-        }
-      });
-
-      return baseOptions;
-    },
-    [searchResults, formReferenceTasks]
-  );
 
   // -------------------------------------------------------------------------
   // 9. Derived detail props
@@ -945,11 +1603,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     defaultProcessor,
     taskReferenceLookup,
     onNotify: (type, title, msg) => notify(type, title, msg),
-    onTransitionSuccess: () => {
-      setSelectedRequestId(null);
-      setSelectedRequestPreview(null);
+    onTransitionSuccess: (requestId, statusCode) => {
+      setSelectedRequestId(requestId);
+      setSelectedRequestPreview((prev) =>
+        prev ? { ...prev, id: requestId, current_status_code: statusCode } : prev
+      );
       setIsCreateMode(false);
-      setActiveEditorProcessCode('');
+      setActiveEditorProcessCode(statusCode || 'new_intake');
       setTransitionStatusCode('');
       setPendingPrimaryAction(null);
       bumpDataVersion();
@@ -968,7 +1628,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setActiveSurface('list');
     setActiveEditorProcessCode(resolveRequestProcessCode(row));
     setTransitionStatusCode('');
-    setShowPmMissingInfoDecisionModal(false);
     setPendingPrimaryAction(null);
     setActiveSavedViewId(null);
     setProcessDetail(null);
@@ -1097,10 +1756,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setSelectedRequestId(null);
     setSelectedRequestPreview(null);
     setPendingPrimaryAction(null);
+    setCreateFormTags([]);
     setIsCreateMode(true);
     setActiveEditorProcessCode('new_intake');
     setTransitionStatusCode('');
-    setShowPmMissingInfoDecisionModal(false);
     setCreateFlowDraft(buildInitialCreateFlowDraft(currentUserId));
     setSelectedWorkflowId(null); // Reset workflow selection
     setActiveSavedViewId(null);
@@ -1125,8 +1784,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setPendingPrimaryAction(null);
     setTransitionStatusCode('');
     setShowWorklogModal(false);
+    setWorklogModalContext(null);
     setShowEstimateModal(false);
-    setShowPmMissingInfoDecisionModal(false);
   }, []);
 
   const handleSubmitWorklog = useCallback(
@@ -1135,9 +1794,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         return;
       }
 
+      const mode = worklogModalContext?.mode ?? 'worklog';
+      const editingWorklog = worklogModalContext?.editingWorklog ?? null;
+
       setIsSubmittingWorklog(true);
       try {
-        const result = await storeYeuCauWorklog(selectedRequestId, payload);
+        const result = mode === 'edit_worklog' && editingWorklog
+          ? await updateYeuCauWorklog(selectedRequestId, editingWorklog.id, payload)
+          : mode === 'detail_status_worklog'
+            ? await storeYeuCauDetailStatusWorklog(selectedRequestId, payload)
+            : await storeYeuCauWorklog(selectedRequestId, payload);
+
         const previousRequest = processDetail?.yeu_cau ?? selectedRequestPreview ?? null;
         const nextHoursReport = result.hours_report;
         const nextRequest = applyHoursReportToRequest({
@@ -1171,13 +1838,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           );
         }
         setShowWorklogModal(false);
-        notify('success', 'Giờ công', 'Đã lưu giờ công cho yêu cầu.');
+        setWorklogModalContext(null);
+        notify(
+          'success',
+          mode === 'edit_worklog' ? 'Cập nhật giờ công' : 'Giờ công',
+          mode === 'edit_worklog' ? 'Đã cập nhật bản ghi giờ công.' : 'Đã lưu giờ công cho yêu cầu.'
+        );
         void refreshDetail();
       } catch (error: unknown) {
         if (!isRequestCanceledError(error)) {
           notify(
             'error',
-            'Lưu giờ công thất bại',
+            mode === 'edit_worklog' ? 'Cập nhật giờ công thất bại' : 'Lưu giờ công thất bại',
             error instanceof Error ? error.message : 'Không thể lưu giờ công.'
           );
         }
@@ -1195,6 +1867,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       selectedRequestPreview,
       setCaseWorklogs,
       setProcessDetail,
+      storeYeuCauDetailStatusWorklog,
+      storeYeuCauWorklog,
+      updateYeuCauWorklog,
+      worklogModalContext,
     ]
   );
 
@@ -1352,11 +2028,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const handleUpdateRefRow = useCallback(
     (localId: string, value: string) => {
+      const normalizedValue = String(value || '').trim();
+      const found = taskReferenceLookup.get(normalizedValue.toLowerCase())
+        ?? taskReferenceLookup.get(normalizedValue);
+
       setFormReferenceTasks((prev) =>
-        prev.map((r) => (r.local_id === localId ? { ...r, task_code: value } : r))
+        prev.map((r) =>
+          r.local_id === localId
+            ? {
+                ...r,
+                id: found?.id ?? null,
+                task_code: found?.task_code ?? normalizedValue,
+              }
+            : r
+        )
       );
     },
-    [setFormReferenceTasks]
+    [setFormReferenceTasks, taskReferenceLookup]
   );
 
   const handleRemoveRefRow = useCallback(
@@ -1414,8 +2102,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const handleDeleteAttachment = useCallback(
-    async (id: string) => {
-      setFormAttachments((prev) => prev.filter((a) => String(a.id) !== id));
+    async (id: string | number) => {
+      setFormAttachments((prev) => prev.filter((a) => String(a.id) !== String(id)));
     },
     [setFormAttachments]
   );
@@ -1481,7 +2169,26 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         }
       }
 
+      // Save tags if any
+      if (createFormTags.length > 0 && created.id != null) {
+        try {
+          const normalizedTags = createFormTags
+            .map((tag) => ({
+              name: String(tag.name ?? '').trim().toLowerCase(),
+              color: String(tag.color ?? '').trim().toLowerCase() || 'blue',
+            }))
+            .filter((tag) => tag.name.length > 0);
+
+          await saveYeuCauCaseTags(created.id, normalizedTags);
+        } catch (error: unknown) {
+          followUpWarnings.push(
+            `Chưa lưu được tags: ${error instanceof Error ? error.message : 'Lỗi không xác định.'}`
+          );
+        }
+      }
+
       setIsCreateMode(false);
+      setCreateFormTags([]);
       setSelectedRequestId(effectiveRequest.id ?? created.id);
       setSelectedRequestPreview(effectiveRequest);
       setActiveEditorProcessCode(resolveRequestProcessCode(effectiveRequest) || 'new_intake');
@@ -1527,6 +2234,66 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     formAttachments,
     formIt360Tasks,
     formReferenceTasks,
+    createFormTags,
+    selectedWorkflowId,
+    bumpDataVersion,
+    notify,
+  ]);
+
+  const handleSaveStatusDetail = useCallback(async () => {
+    if (!canWriteRequests || isCreateMode || !selectedRequestId || !activeEditorProcessCode) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const masterPayload = buildPayloadFromDraft(masterFields, masterDraft);
+      const refTasksPayload: Array<Record<string, unknown>> = [
+        ...formIt360Tasks
+          .filter((r) => r.task_code.trim())
+          .map((r) => ({
+            task_source: 'IT360',
+            task_code: r.task_code.trim(),
+            task_link: r.task_link || null,
+            task_status: r.status,
+            ...(r.id != null ? { id: r.id } : {}),
+          })),
+        ...formReferenceTasks
+          .filter((r) => r.task_code.trim() || r.id != null)
+          .map((r) => ({
+            task_source: 'REFERENCE',
+            ...(r.id != null ? { id: r.id } : { task_code: r.task_code.trim() }),
+          })),
+      ];
+
+      await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, {
+        master_payload: masterPayload,
+        status_payload: processDraft,
+        ref_tasks: refTasksPayload,
+      });
+      bumpDataVersion();
+      notify('success', 'Cập nhật trạng thái', 'Đã cập nhật thông tin trạng thái.');
+    } catch (e: unknown) {
+      if (!isRequestCanceledError(e)) {
+        notify(
+          'error',
+          'Cập nhật trạng thái thất bại',
+          e instanceof Error ? e.message : 'Không thể cập nhật trạng thái.'
+        );
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    canWriteRequests,
+    isCreateMode,
+    selectedRequestId,
+    activeEditorProcessCode,
+    masterFields,
+    masterDraft,
+    processDraft,
+    formIt360Tasks,
+    formReferenceTasks,
     bumpDataVersion,
     notify,
   ]);
@@ -1556,6 +2323,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     if (!canWriteRequests || !selectedRequestId || !activeEditorProcessCode) return;
     try {
       setIsSaving(true);
+
+      const normalizedTags = formTags
+        .map((tag) => ({
+          name: String(tag.name ?? '').trim().toLowerCase(),
+          color: String(tag.color ?? '').trim().toLowerCase() || 'blue',
+        }))
+        .filter((tag) => tag.name.length > 0);
 
       // Build attachments payload
       const attachmentsPayload = formAttachments
@@ -1591,6 +2365,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       const updated = await saveYeuCauProcess(selectedRequestId, activeEditorProcessCode, payload);
       setSelectedRequestPreview(updated);
+
+      if (selectedRequestId != null) {
+        try {
+          const savedTags = await saveYeuCauCaseTags(selectedRequestId, normalizedTags);
+          setFormTags(savedTags);
+        } catch (error: unknown) {
+          notify(
+            'warning',
+            'Cập nhật tags chưa hoàn tất',
+            error instanceof Error ? error.message : 'Không thể đồng bộ tags.'
+          );
+        }
+      }
+
       bumpDataVersion();
       notify('success', 'Cập nhật yêu cầu', 'Đã cập nhật yêu cầu.');
     } catch (e: unknown) {
@@ -1612,17 +2400,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     formAttachments,
     formIt360Tasks,
     formReferenceTasks,
+    formTags,
     selectedWorkflowId,
     bumpDataVersion,
     notify,
+    setFormTags,
   ]);
 
   const handleOpenTransitionModal = useCallback(() => {
     if (!transitionStatusCode) return;
-    if (isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)) {
-      setShowPmMissingInfoDecisionModal(true);
-      return;
-    }
     transitionHook.openTransitionModal({
       targetProcessMeta: processMap.get(transitionStatusCode) ?? null,
     });
@@ -1631,10 +2417,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const handleRunDispatcherAction = useCallback(
     (action: DispatcherQuickAction) => {
       setTransitionStatusCode(action.targetStatusCode);
-      if (isPmMissingCustomerInfoDecisionProcessCode(action.targetStatusCode)) {
-        setShowPmMissingInfoDecisionModal(true);
-        return;
-      }
       transitionHook.openTransitionModal({
         targetProcessMeta: processMap.get(action.targetStatusCode) ?? null,
         payloadOverrides: action.payloadOverrides,
@@ -1654,30 +2436,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       });
     },
     [transitionHook, processMap]
-  );
-
-  const handleChoosePmMissingInfoTarget = useCallback(
-    (targetStatusCode: 'waiting_customer_feedback' | 'not_executed') => {
-      setShowPmMissingInfoDecisionModal(false);
-      setTransitionStatusCode(targetStatusCode);
-      const sourceStatusCode = resolveRequestProcessCode(processDetail?.yeu_cau ?? {}) || 'new_intake';
-      transitionHook.openTransitionModal({
-        targetProcessMeta: processMap.get(targetStatusCode) ?? null,
-        payloadOverrides: {
-          decision_context_code: 'pm_missing_customer_info_review',
-          decision_outcome_code:
-            targetStatusCode === 'waiting_customer_feedback'
-              ? 'customer_missing_info'
-              : 'other_reason',
-          decision_source_status_code: sourceStatusCode,
-        },
-        notes:
-          targetStatusCode === 'waiting_customer_feedback'
-            ? 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.'
-            : 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.',
-      });
-    },
-    [processDetail?.yeu_cau, processMap, transitionHook]
   );
 
   const handleRunListPrimaryAction = useCallback(
@@ -1901,6 +2659,564 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     return user?.full_name ?? null;
   }, [employees, currentUserId]);
 
+  const handleTransitionStatusCodeChange = useCallback((value: string) => {
+    setTransitionStatusCode(value);
+  }, []);
+
+  const handleCreateFlowDraftChange = useCallback(
+    (patch: Partial<CustomerRequestCreateFlowDraft>) => {
+      setCreateFlowDraft((prev) => ({ ...prev, ...patch }));
+    },
+    []
+  );
+
+  const handleOpenWorklogModal = useCallback(() => {
+    setWorklogModalContext({
+      mode: 'worklog',
+      title: 'Ghi giờ công',
+      eyebrow: 'Giờ công',
+      submitLabel: 'Lưu giờ công',
+      detailStatusAction: null,
+      editingWorklog: null,
+    });
+    setShowWorklogModal(true);
+  }, []);
+
+  const handleOpenDetailStatusWorklogModal = useCallback((action: 'in_progress' | 'paused') => {
+    setWorklogModalContext({
+      mode: 'detail_status_worklog',
+      title: action === 'paused' ? 'Tạm ngưng xử lý' : 'Đánh dấu đang thực hiện',
+      eyebrow: 'Trạng thái xử lý',
+      submitLabel: action === 'paused' ? 'Lưu tạm ngưng' : 'Lưu đang thực hiện',
+      detailStatusAction: action,
+      editingWorklog: null,
+    });
+    setShowWorklogModal(true);
+  }, []);
+
+  const handleEditWorklog = useCallback((worklog: YeuCauWorklog) => {
+    setWorklogModalContext({
+      mode: 'edit_worklog',
+      title: 'Cập nhật giờ công',
+      eyebrow: 'Chỉnh sửa worklog',
+      submitLabel: 'Lưu cập nhật',
+      detailStatusAction: null,
+      editingWorklog: worklog,
+    });
+    setShowWorklogModal(true);
+  }, []);
+
+  const handleCloseWorklogModal = useCallback(() => {
+    setShowWorklogModal(false);
+    setWorklogModalContext(null);
+  }, []);
+
+  const handleOpenEstimateModal = useCallback(() => {
+    setShowEstimateModal(true);
+  }, []);
+
+  const handleCloseEstimateModal = useCallback(() => {
+    setShowEstimateModal(false);
+  }, []);
+
+  const handleSurfaceChange = useCallback((surface: CustomerRequestSurfaceKey) => {
+    setActiveSurface(surface);
+    setActiveSavedViewId(null);
+  }, []);
+
+  const handleDownloadIntakeTemplate = useCallback(async () => {
+    if (!canImportRequests) {
+      return;
+    }
+
+    setIsDownloadingTemplate(true);
+    try {
+      const response = await fetchCustomerRequestIntakeTemplate(selectedWorkflowId);
+      const template = response?.data ?? {};
+      const headers = template.headers || [];
+      const taskHeaders = template.task_headers || [];
+      const priorityLabels = template.priority_labels || [];
+      const taskSources = template.task_sources || [];
+      const taskStatuses = template.task_statuses || [];
+
+      const orderedHeaders = (() => {
+        const result = [...headers];
+        const projectIndex = result.indexOf('project_item_code');
+        const customerIndex = result.indexOf('customer_code');
+        if (projectIndex !== -1 && customerIndex !== -1 && projectIndex > customerIndex) {
+          const [projectHeader] = result.splice(projectIndex, 1);
+          result.splice(customerIndex, 0, projectHeader);
+        }
+        return result;
+      })();
+
+      const viHeaders = orderedHeaders.map((header) => mapHeaderToVietnamese(header, CRC_INTAKE_HEADER_LABELS));
+      const viTaskHeaders = taskHeaders.map((header) => mapHeaderToVietnamese(header, CRC_INTAKE_TASK_HEADER_LABELS));
+
+      const personnelRows = employees
+        .map((employee) => {
+          const code = String((employee as unknown as Record<string, unknown>).user_code || '').trim();
+          const username = String(employee.username || '').trim();
+          const fullName = String(employee.full_name || '').trim();
+          if (!code && !username && !fullName) {
+            return null;
+          }
+          const effectiveCode = code || username;
+          return [effectiveCode, fullName || username, username] as const;
+        })
+        .filter((row): row is readonly [string, string, string] => row !== null)
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const customerIdToCode = new Map<string, string>();
+      const customerRows = customers
+        .map((customer) => {
+          const raw = customer as unknown as Record<string, unknown>;
+          const code = String(
+            customer.customer_code
+              || raw.customer_code
+              || raw.customerCode
+              || raw.code
+              || ''
+          ).trim();
+          const name = String(
+            customer.customer_name
+              || raw.customer_name
+              || raw.customerName
+              || raw.company_name
+              || raw.companyName
+              || raw.name
+              || ''
+          ).trim();
+          const customerId = String(customer.id || raw.customer_id || raw.customerId || raw.id || '').trim();
+          if (!code && !name) {
+            return null;
+          }
+          if (customerId && code) {
+            customerIdToCode.set(customerId, code);
+          }
+          return [code, name] as const;
+        })
+        .filter((row): row is readonly [string, string] => row !== null)
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const projectItemRows = effectiveProjectItems
+        .map((item) => {
+          const raw = item as unknown as Record<string, unknown>;
+          const code = String(
+            raw.project_item_code
+              || raw.projectItemCode
+              || raw.item_code
+              || raw.itemCode
+              || raw.external_code
+              || raw.externalCode
+              || raw.code
+              || item.id
+              || ''
+          ).trim();
+          const name = String(
+            raw.item_name
+              || raw.itemName
+              || raw.project_item_name
+              || raw.projectItemName
+              || raw.display_name
+              || raw.displayName
+              || raw.name
+              || ''
+          ).trim();
+          if (!code && !name) {
+            return null;
+          }
+          return [code, name] as const;
+        })
+        .filter((row): row is readonly [string, string] => row !== null)
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const projectItemByCustomerCode = new Map<string, Array<readonly [string, string]>>();
+      effectiveProjectItems.forEach((item) => {
+        const raw = item as unknown as Record<string, unknown>;
+        const code = String(
+          raw.project_item_code
+            || raw.projectItemCode
+            || raw.item_code
+            || raw.itemCode
+            || raw.external_code
+            || raw.externalCode
+            || raw.code
+            || item.id
+            || ''
+        ).trim();
+        const name = String(
+          raw.item_name
+            || raw.itemName
+            || raw.project_item_name
+            || raw.projectItemName
+            || raw.display_name
+            || raw.displayName
+            || raw.name
+            || ''
+        ).trim();
+        if (!code && !name) {
+          return;
+        }
+
+        const customerCode = String(raw.customer_code || raw.customerCode || '').trim();
+        const customerId = String(raw.customer_id || raw.customerId || '').trim();
+        const resolvedCustomerCode = customerCode || customerIdToCode.get(customerId) || '';
+        if (!resolvedCustomerCode) {
+          return;
+        }
+        const currentRows = projectItemByCustomerCode.get(resolvedCustomerCode) || [];
+        const dedupKey = `${code}__${name}`;
+        if (!currentRows.some(([existingCode, existingName]) => `${existingCode}__${existingName}` === dedupKey)) {
+          currentRows.push([code, name]);
+          projectItemByCustomerCode.set(resolvedCustomerCode, currentRows);
+        }
+      });
+
+      if (projectItemRows.length === 0 && projectItemByCustomerCode.size > 0) {
+        projectItemByCustomerCode.forEach((rows) => {
+          rows.forEach(([code, name]) => {
+            const normalizedCode = String(code || '').trim();
+            const normalizedName = String(name || '').trim();
+            if (normalizedCode || normalizedName) {
+              projectItemRows.push([normalizedCode, normalizedName]);
+            }
+          });
+        });
+      }
+
+
+      const dedupProjectItemMap = new Map<string, readonly [string, string]>();
+      projectItemRows.forEach((row) => {
+        dedupProjectItemMap.set(`${row[0]}__${row[1]}`, row);
+      });
+      const finalProjectItemRows = Array.from(dedupProjectItemMap.values())
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+
+      const projectItemRowsForTemplate =
+        finalProjectItemRows.length > 0
+          ? finalProjectItemRows
+          : Array.from(new Map(
+              Array.from(projectItemByCustomerCode.values())
+                .flatMap((rows) => rows)
+                .map((row) => [`${row[0]}__${row[1]}`, row] as const)
+            ).values())
+              .filter((row): row is readonly [string, string] => Array.isArray(row) && row.length >= 2)
+              .map((row) => [String(row[0] || ''), String(row[1] || '')] as const)
+              .filter(([code, name]) => Boolean(code || name))
+              .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const finalProjectItemByCustomerCode = new Map<string, readonly (readonly [string, string])[]>();
+      projectItemByCustomerCode.forEach((rows, customerCode) => {
+        finalProjectItemByCustomerCode.set(
+          customerCode,
+          [...rows].sort((a, b) => a[0].localeCompare(b[0], 'vi'))
+        );
+      });
+
+      const customerPersonnelRows = customerPersonnel
+        .map((person) => {
+          const raw = person as unknown as Record<string, unknown>;
+          const code = String(
+            raw.personnel_code
+              || raw.personnelCode
+              || raw.customer_personnel_code
+              || raw.customerPersonnelCode
+              || raw.contact_code
+              || raw.contactCode
+              || raw.code
+              || raw.personnel_id
+              || raw.personnelId
+              || raw.id
+              || person.id
+              || ''
+          ).trim();
+          const name = String(
+            raw.full_name
+              || raw.fullName
+              || raw.personnel_name
+              || raw.personnelName
+              || raw.name
+              || ''
+          ).trim();
+          if (!code && !name) {
+            return null;
+          }
+          return [code, name] as const;
+        })
+        .filter((row): row is readonly [string, string] => row !== null)
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const dedupCustomerPersonnelMap = new Map<string, readonly [string, string]>();
+      customerPersonnelRows.forEach((row) => {
+        dedupCustomerPersonnelMap.set(`${row[0]}__${row[1]}`, row);
+      });
+      const finalCustomerPersonnelRows = Array.from(dedupCustomerPersonnelMap.values())
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const customerPersonnelByCustomerCode = new Map<string, Array<readonly [string, string]>>();
+      customerPersonnel.forEach((person) => {
+        const raw = person as unknown as Record<string, unknown>;
+        const code = String(
+          raw.personnel_code
+            || raw.personnelCode
+            || raw.customer_personnel_code
+            || raw.customerPersonnelCode
+            || raw.contact_code
+            || raw.contactCode
+            || raw.code
+            || raw.personnel_id
+            || raw.personnelId
+            || raw.id
+            || person.id
+            || ''
+        ).trim();
+        const name = String(
+          raw.full_name
+            || raw.fullName
+            || raw.personnel_name
+            || raw.personnelName
+            || raw.name
+            || ''
+        ).trim();
+        if (!code && !name) {
+          return;
+        }
+
+        const customerCode = String(raw.customer_code || raw.customerCode || '').trim();
+        const customerId = String(raw.customer_id || raw.customerId || person.customerId || '').trim();
+        const resolvedCustomerCode = customerCode || customerIdToCode.get(customerId) || '';
+
+        if (!resolvedCustomerCode) {
+          return;
+        }
+
+        const currentRows = customerPersonnelByCustomerCode.get(resolvedCustomerCode) || [];
+        const dedupKey = `${code}__${name}`;
+        if (!currentRows.some(([existingCode, existingName]) => `${existingCode}__${existingName}` === dedupKey)) {
+          currentRows.push([code, name]);
+          customerPersonnelByCustomerCode.set(resolvedCustomerCode, currentRows);
+        }
+      });
+
+      if (finalCustomerPersonnelRows.length === 0 && customerPersonnelByCustomerCode.size > 0) {
+        customerPersonnelByCustomerCode.forEach((rows) => {
+          rows.forEach(([code, name]) => {
+            const normalizedCode = String(code || '').trim();
+            const normalizedName = String(name || '').trim();
+            if (normalizedCode || normalizedName) {
+              finalCustomerPersonnelRows.push([normalizedCode, normalizedName]);
+            }
+          });
+        });
+      }
+
+      const dedupFallbackCustomerPersonnel = new Map<string, readonly [string, string]>();
+      finalCustomerPersonnelRows.forEach((row) => {
+        dedupFallbackCustomerPersonnel.set(`${row[0]}__${row[1]}`, row);
+      });
+      const finalCustomerPersonnelRowsForTemplate = Array.from(dedupFallbackCustomerPersonnel.values())
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const finalCustomerPersonnelByCustomerCode = new Map<string, readonly (readonly [string, string])[]>();
+      customerPersonnelByCustomerCode.forEach((rows, customerCode) => {
+        finalCustomerPersonnelByCustomerCode.set(
+          customerCode,
+          [...rows].sort((a, b) => a[0].localeCompare(b[0], 'vi'))
+        );
+      });
+
+      const sourceChannelRows = ['Email', 'Điện thoại', 'Zalo', 'Portal', 'Khác'];
+      const priorityRows = (priorityLabels.length > 0 ? priorityLabels : ['Thấp', 'Trung bình', 'Cao', 'Khẩn']).map((value) => [value]);
+      const supportGroupRows = supportServiceGroups
+        .map((group) => {
+          const raw = group as unknown as Record<string, unknown>;
+          const isDeleted = raw.deleted_at !== null && raw.deleted_at !== undefined && String(raw.deleted_at).trim() !== '';
+          const isInactive = raw.is_active === false || raw.is_active === 0 || raw.is_active === '0';
+          if (isDeleted || isInactive) {
+            return null;
+          }
+          const code = String(group.group_code || '').trim();
+          const name = String(group.group_name || '').trim();
+          if (!code && !name) {
+            return null;
+          }
+          return [code, name] as const;
+        })
+        .filter((row): row is readonly [string, string] => row !== null)
+        .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+
+      const hasLookupData =
+        customerRows.length > 0 ||
+        projectItemRowsForTemplate.length > 0 ||
+        finalCustomerPersonnelRowsForTemplate.length > 0 ||
+        supportGroupRows.length > 0 ||
+        personnelRows.length > 0;
+
+      const { blob, fileName } = await createCrcIntakeTemplateWorkbook({
+        fileNameBase: 'import_mau_customer_request_tiep_nhan',
+        intakeSheetName: template.sheet || 'YeuCauNhap',
+        taskSheetName: template.task_sheet || 'YeuCauTasks',
+        viHeaders,
+        viTaskHeaders,
+        customerRows,
+        projectItemRows: projectItemRowsForTemplate,
+        customerPersonnelRows: finalCustomerPersonnelRowsForTemplate,
+        supportGroupRows,
+        personnelRows,
+        projectItemByCustomerCode: finalProjectItemByCustomerCode,
+        customerPersonnelByCustomerCode: finalCustomerPersonnelByCustomerCode,
+        sourceChannelRows,
+        priorityRows: priorityRows.map((row) => row[0]),
+        taskSources,
+        taskStatuses,
+        hasLookupData,
+        headerOrder: orderedHeaders,
+      });
+
+      triggerBrowserDownload(blob, fileName);
+
+      notify('success', 'Template import', 'Đã tải file mẫu intake (.xlsx) có dropdown ở sheet YeuCauNhap.');
+    } catch (error: unknown) {
+      if (!isRequestCanceledError(error)) {
+        notify(
+          'error',
+          'Tải template thất bại',
+          error instanceof Error ? error.message : 'Không thể tải template import.'
+        );
+      }
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  }, [
+    canImportRequests,
+    effectiveProjectItems,
+    customers,
+    customerPersonnel,
+    supportServiceGroups,
+    employees,
+    isRequestCanceledError,
+    notify,
+    selectedWorkflowId,
+  ]);
+
+
+  const handleExportIntake = useCallback(async () => {
+    if (!canExportRequests) {
+      return;
+    }
+
+    setIsExportingIntake(true);
+    try {
+      const exported = await exportCustomerRequestIntake({
+        q: requestKeyword || undefined,
+        status_code: activeProcessCode || undefined,
+      });
+      triggerBrowserDownload(exported.blob, exported.filename || 'customer_request_intake.csv');
+      notify('success', 'Export intake', 'Đã xuất danh sách CRC intake.');
+    } catch (error: unknown) {
+      if (!isRequestCanceledError(error)) {
+        notify(
+          'error',
+          'Export thất bại',
+          error instanceof Error ? error.message : 'Không thể export danh sách intake.'
+        );
+      }
+    } finally {
+      setIsExportingIntake(false);
+    }
+  }, [activeProcessCode, canExportRequests, isRequestCanceledError, notify, requestKeyword]);
+
+  const handleImportIntake = useCallback(async (payload: ImportPayload) => {
+    setIsImportingIntake(true);
+    try {
+      const items = buildCrcIntakeImportItems(payload);
+      if (items.length === 0) {
+        notify('error', 'Import intake', 'File không có dòng dữ liệu hợp lệ để import.');
+        return;
+      }
+
+      const result: CustomerRequestIntakeImportResult = await importCustomerRequestIntake(items, selectedWorkflowId);
+      const failureMessages = (result.errors || []).map(
+        (err) => `Dòng ${err.row_number}: ${err.error_message}`
+      );
+
+      if (result.success_rows > 0) {
+        bumpDataVersion();
+        notify(
+          result.failed_rows > 0 ? 'warning' : 'success',
+          'Import intake',
+          `Thành công ${result.success_rows}/${result.total_rows} dòng.${result.failed_rows > 0 ? ` Lỗi ${result.failed_rows} dòng.` : ''}`
+        );
+      } else {
+        notify('error', 'Import intake', 'Không có dòng nào được import thành công.');
+      }
+
+      if (failureMessages.length > 0) {
+        exportImportFailureFile(payload, 'Customer Request Intake', failureMessages, (type, title, message) => {
+          notify(type, title, message);
+        });
+      }
+
+      if (result.failed_rows === 0) {
+        setShowImportModal(false);
+      }
+    } catch (error: unknown) {
+      if (!isRequestCanceledError(error)) {
+        notify(
+          'error',
+          'Import intake thất bại',
+          error instanceof Error ? error.message : 'Không thể import dữ liệu intake.'
+        );
+      }
+      throw error;
+    } finally {
+      setIsImportingIntake(false);
+    }
+  }, [bumpDataVersion, isRequestCanceledError, notify, selectedWorkflowId]);
+
+  const handleToggleSelectedRequestPin = useCallback(() => {
+    if (selectedRequestSummary) {
+      handleTogglePinnedRequest(selectedRequestSummary);
+    }
+  }, [handleTogglePinnedRequest, selectedRequestSummary]);
+
+  const noopOpenCreatorFeedbackModal = useCallback(() => undefined, []);
+  const noopOpenNotifyCustomerModal = useCallback(() => undefined, []);
+
+  const handleRemoveModalIt360Task = useCallback(
+    (localId: string) => {
+      transitionHook.setModalIt360Tasks((prev) =>
+        prev.filter((task) => task.local_id !== localId)
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleRemoveModalReferenceTask = useCallback(
+    (localId: string) => {
+      transitionHook.setModalRefTasks((prev) =>
+        prev.filter((task) => task.local_id !== localId)
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleDeleteModalAttachment = useCallback(
+    (id: string) => {
+      transitionHook.setModalAttachments((prev) =>
+        prev.filter((attachment) => String(attachment.id) !== String(id))
+      );
+    },
+    [transitionHook]
+  );
+
+  const handleCloseCreateMode = useCallback(() => {
+    setIsCreateMode(false);
+    setSelectedRequestId(null);
+  }, []);
+
   // -------------------------------------------------------------------------
   // 12. Render
   // -------------------------------------------------------------------------
@@ -1970,6 +3286,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       editorProcessMeta={activeEditorMeta}
       processDraft={processDraft}
       onProcessDraftChange={handleProcessDraftChange}
+      onSaveStatusDetail={handleSaveStatusDetail}
       customers={customers}
       employees={employees}
       customerPersonnel={customerPersonnel}
@@ -1977,11 +3294,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       availableProjectItems={effectiveProjectItems}
       selectedProjectItem={selectedProjectItem}
       selectedCustomerId={selectedCustomerId}
-      currentUserName={currentUserName}
-      createFlowDraft={createFlowDraft}
-      onCreateFlowDraftChange={(patch) =>
-        setCreateFlowDraft((prev) => ({ ...prev, ...patch }))
-      }
       activeTaskTab={activeTaskTab}
       onActiveTaskTabChange={setActiveTaskTab}
       onAddTaskRow={handleAddTaskRow}
@@ -1989,6 +3301,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       onUpdateIt360TaskRow={handleUpdateIt360Row}
       onRemoveIt360TaskRow={handleRemoveIt360Row}
       formReferenceTasks={formReferenceTasks}
+      formTags={formTags}
+      onFormTagsChange={setFormTags}
       taskReferenceOptions={taskReferenceOptions}
       onUpdateReferenceTaskRow={handleUpdateRefRow}
       onTaskReferenceSearchTermChange={setSearchKeyword}
@@ -2012,10 +3326,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       canOpenNotifyCustomerModal={false}
       onOpenNotifyCustomerModal={() => undefined}
       canOpenWorklogModal={canOpenWorklogModal}
-      onOpenWorklogModal={() => setShowWorklogModal(true)}
+      onOpenWorklogModal={handleOpenWorklogModal}
+      onOpenDetailStatusWorklogModal={handleOpenDetailStatusWorklogModal}
+      onEditWorklog={handleEditWorklog}
       isSubmittingWorklog={isSubmittingWorklog}
       canOpenEstimateModal={canOpenEstimateModal}
-      onOpenEstimateModal={() => setShowEstimateModal(true)}
+      onOpenEstimateModal={handleOpenEstimateModal}
       isSubmittingEstimate={isSubmittingEstimate}
       dispatcherQuickActions={dispatcherQuickActions}
       onRunDispatcherAction={handleRunDispatcherAction}
@@ -2044,6 +3360,39 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning/15 text-tertiary">
               Chế độ xem quản trị
             </span>
+          )}
+          {canImportRequests && (
+            <button
+              type="button"
+              onClick={handleDownloadIntakeTemplate}
+              disabled={isDownloadingTemplate}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+              Tải mẫu
+            </button>
+          )}
+          {canImportRequests && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              disabled={isImportingIntake}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>upload_file</span>
+              Import
+            </button>
+          )}
+          {canExportRequests && (
+            <button
+              type="button"
+              onClick={handleExportIntake}
+              disabled={isExportingIntake}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span>
+              Export
+            </button>
           )}
           {canWriteRequests && (
             <button
@@ -2191,9 +3540,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         />
         </div>
       ) : activeSurface === 'list' ? (
-        <div className="h-[calc(100vh-240px)] flex-1 overflow-hidden">
-          <CustomerRequestListPane {...listPaneProps} />
-        </div>
+        <>
+          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} flex-1 overflow-hidden ${selectedRequestId !== null && layoutMode !== 'mobile' ? 'md:w-[calc(100%-450px)]' : ''}`}>
+            <CustomerRequestListPane {...listPaneProps} />
+          </div>
+
+          {/* Inline detail pane for desktop mode */}
+          {!showDetailModal && selectedRequestId !== null && layoutMode !== 'mobile' && (
+            <div className="absolute top-[152px] right-3 bottom-6 w-[420px] z-10">
+              <CustomerRequestDetailFrame
+                mode="inline"
+                request={selectedRequestSummary}
+                isPinned={isPinnedRequest(selectedRequestSummary?.id)}
+                onTogglePinned={() => {
+                  if (selectedRequestSummary) {
+                    handleTogglePinnedRequest(selectedRequestSummary);
+                  }
+                }}
+                onClose={handleCloseDetail}
+              >
+                {detailPaneNode}
+              </CustomerRequestDetailFrame>
+            </div>
+          )}
+        </>
       ) : null}
 
       {/* Detail modal — dùng một bề mặt duy nhất để hiển thị đủ thông tin
@@ -2220,7 +3590,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         requestCode={selectedRequestSummary?.ma_yc ?? selectedRequestSummary?.request_code}
         requestSummary={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary}
         hoursReport={currentHoursReport}
-        onClose={() => setShowWorklogModal(false)}
+        context={worklogModalContext}
+        onClose={handleCloseWorklogModal}
         onSubmit={handleSubmitWorklog}
       />
 
@@ -2233,15 +3604,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         latestEstimate={estimateHistory[0] ?? currentHoursReport?.latest_estimate ?? null}
         onClose={() => setShowEstimateModal(false)}
         onSubmit={handleSubmitEstimate}
-      />
-
-      <CustomerRequestPmMissingInfoDecisionModal
-        show={showPmMissingInfoDecisionModal}
-        currentStatusCode={processDetail?.yeu_cau?.trang_thai ?? processDetail?.yeu_cau?.current_status_code}
-        currentStatusLabel={processDetail?.yeu_cau?.current_status_name_vi}
-        onClose={() => setShowPmMissingInfoDecisionModal(false)}
-        onChooseWaitingCustomerFeedback={() => handleChoosePmMissingInfoTarget('waiting_customer_feedback')}
-        onChooseNotExecuted={() => handleChoosePmMissingInfoTarget('not_executed')}
       />
 
       {/* Transition modal */}
@@ -2309,20 +3671,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           masterFields={masterFields}
           masterDraft={masterDraft}
           onMasterFieldChange={handleMasterFieldChange}
-          createFlowDraft={createFlowDraft}
-          onCreateFlowDraftChange={(patch) =>
-            setCreateFlowDraft((prev) => ({ ...prev, ...patch }))
-          }
-          /* workflow selection */
-          workflowDefinitionId={selectedWorkflowId || null}
-          onWorkflowDefinitionIdChange={setSelectedWorkflowId}
-          /* lookup data */
           customers={customers}
           employees={employees}
           customerPersonnel={customerPersonnel}
           supportServiceGroups={supportServiceGroups}
           projectItems={effectiveProjectItems}
-          currentUserName={currentUserName}
           /* attachments */
           formAttachments={formAttachments}
           onUploadAttachment={handleUploadAttachment}
@@ -2345,6 +3698,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           onTaskReferenceSearchTermChange={setSearchKeyword}
           taskReferenceSearchError={searchError}
           isTaskReferenceSearchLoading={isSearchLoading}
+          /* tags */
+          formTags={createFormTags}
+          onTagsChange={setCreateFormTags}
           isSaving={isSaving}
           onSave={handleSaveCase}
           onClose={() => {
@@ -2353,6 +3709,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           }}
         />
       )}
+
+      {showImportModal ? (
+        <ImportModal
+          title="Import intake yêu cầu khách hàng"
+          moduleKey="customer_request_intake"
+          onClose={() => {
+            if (!isImportingIntake) {
+              setShowImportModal(false);
+            }
+          }}
+          onSave={handleImportIntake}
+          isLoading={isImportingIntake}
+          loadingText="Đang import dữ liệu..."
+        />
+      ) : null}
     </div>
   );
 };

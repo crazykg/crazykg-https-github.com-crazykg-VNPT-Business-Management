@@ -2,12 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\InternalUser;
 use App\Models\WorkflowDefinition;
-use App\Models\WorkflowTransition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
+use Tests\Feature\Concerns\InteractsWithWorkflowTestSchema;
 
 /**
  * Class WorkflowDefinitionApiTest
@@ -17,68 +15,13 @@ use Tests\TestCase;
 class WorkflowDefinitionApiTest extends TestCase
 {
     use RefreshDatabase;
-
-    protected InternalUser $adminUser;
-    protected string $authCookie;
+    use InteractsWithWorkflowTestSchema;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
-        // Create admin user
-        $this->adminUser = InternalUser::factory()->create([
-            'username' => 'workflow.admin',
-            'full_name' => 'Workflow Admin',
-        ]);
-        
-        // Grant workflow.manage permission
-        $this->grantWorkflowPermission();
-        
-        // Create auth cookie (simulate login)
-        $this->authCookie = 'vnpt_business_auth_token=test_token';
-    }
-
-    /**
-     * Grant workflow.manage permission to admin user's role
-     */
-    protected function grantWorkflowPermission(): void
-    {
-        // Create ADMIN role if not exists
-        $adminRole = DB::table('roles')->where('role_key', 'ADMIN')->first();
-        if (!$adminRole) {
-            $adminRole = DB::table('roles')->insertGetId([
-                'role_key' => 'ADMIN',
-                'name' => 'Administrator',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
-        
-        // Assign role to user
-        DB::table('role_user')->insert([
-            'role_id' => is_object($adminRole) ? $adminRole->id : $adminRole,
-            'user_type' => InternalUser::class,
-            'user_id' => $this->adminUser->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        
-        // Create workflow.manage permission
-        $permId = DB::table('permissions')->insertGetId([
-            'perm_key' => 'workflow.manage',
-            'name' => 'Quản lý luồng công việc',
-            'description' => 'Quản lý workflow definitions và transitions',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        
-        // Assign permission to role
-        DB::table('role_permission')->insert([
-            'role_id' => is_object($adminRole) ? $adminRole->id : $adminRole,
-            'permission_id' => $permId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $this->setUpWorkflowSchema();
+        $this->withoutMiddleware();
     }
 
     /**

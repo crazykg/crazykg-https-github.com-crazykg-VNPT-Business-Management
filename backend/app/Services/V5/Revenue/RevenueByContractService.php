@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class RevenueByContractService
@@ -37,6 +38,7 @@ class RevenueByContractService
         $from = (string) $validated['period_from'];
         $to   = (string) $validated['period_to'];
         $deptId = isset($validated['dept_id']) ? (int) $validated['dept_id'] : null;
+        $actualCollectedColumn = $this->actualPaidColumn();
 
         // Build contract aggregation from payment_schedules in the period
         $query = $this->readReplica->table('payment_schedules as ps')
@@ -60,8 +62,8 @@ class RevenueByContractService
                 cu.customer_name,
                 COUNT(ps.id) as schedule_count,
                 COALESCE(SUM(ps.expected_amount), 0) as expected_revenue,
-                COALESCE(SUM(ps.actual_paid_amount), 0) as actual_collected,
-                COALESCE(SUM(ps.expected_amount), 0) - COALESCE(SUM(ps.actual_paid_amount), 0) as outstanding
+                COALESCE(SUM('.$actualCollectedColumn.'), 0) as actual_collected,
+                COALESCE(SUM(ps.expected_amount), 0) - COALESCE(SUM('.$actualCollectedColumn.'), 0) as outstanding
             ');
 
         // Filters
@@ -161,6 +163,7 @@ class RevenueByContractService
 
         $from = (string) $validated['period_from'];
         $to   = (string) $validated['period_to'];
+        $actualCollectedColumn = $this->actualPaidColumn();
 
         $schedules = $this->readReplica->table('payment_schedules as ps')
             ->leftJoin('invoices as inv', 'inv.id', '=', 'ps.invoice_id')
@@ -174,7 +177,7 @@ class RevenueByContractService
                 'ps.cycle_number',
                 'ps.expected_date',
                 'ps.expected_amount',
-                'ps.actual_paid_amount',
+                DB::raw($actualCollectedColumn.' as actual_paid_amount'),
                 'ps.actual_paid_date',
                 'ps.status as schedule_status',
                 'ps.invoice_id',
@@ -202,5 +205,19 @@ class RevenueByContractService
             ])->values();
 
         return response()->json(['data' => $schedules]);
+    }
+
+    private function actualPaidColumn(string $alias = 'ps'): string
+    {
+        $connectionName = $this->readReplica->resolvedConnectionName();
+        if (Schema::connection($connectionName)->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            return "{$alias}.actual_paid_amount";
+        }
+
+        if (Schema::connection($connectionName)->hasColumn('payment_schedules', 'actual_amount')) {
+            return "{$alias}.actual_amount";
+        }
+
+        return '0';
     }
 }

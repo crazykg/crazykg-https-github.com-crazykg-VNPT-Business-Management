@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  fetchProjectImplementationUnitOptions,
   fetchProjectItemsOptionsPage,
   updateProject,
 } from '../services/api/projectApi';
@@ -49,6 +50,7 @@ describe('projectApi module', () => {
       project_code: 'DA007',
       investment_mode: 'Thuê dịch vụ CNTT đặc thù',
       payment_cycle: 'Hàng quý',
+      implementation_user_id: '22',
       raci: [
         {
           id: 'RACI_1',
@@ -65,6 +67,7 @@ describe('projectApi module', () => {
 
     expect(payload.investment_mode).toBe('THUE_DICH_VU_DACTHU');
     expect(payload.payment_cycle).toBe('QUARTERLY');
+    expect(payload.implementation_user_id).toBe(22);
     expect(payload.raci).toEqual([
       {
         user_id: 22,
@@ -72,6 +75,61 @@ describe('projectApi module', () => {
         assigned_date: '2026-03-28',
       },
     ]);
+  });
+
+  it('keeps product_package_id in project item payloads so package units survive after save', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: { id: 7, project_code: 'DA007' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await updateProject(7, {
+      project_code: 'DA007',
+      items: [
+        {
+          id: 'ITEM_1',
+          productId: '11',
+          product_id: 11,
+          productPackageId: '21',
+          product_package_id: 21,
+          quantity: 12,
+          unitPrice: 900000,
+          unit_price: 900000,
+          discountPercent: 0,
+          discountAmount: 0,
+        },
+      ],
+      sync_items: true,
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    const payload = JSON.parse(String(requestInit.body));
+
+    expect(payload.items).toEqual([
+      {
+        product_id: 11,
+        product_package_id: 21,
+        quantity: 12,
+        unit_price: 900000,
+      },
+    ]);
+  });
+
+  it('fetches implementation-unit options from the dedicated project lookup endpoint', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: 1, user_code: 'USR001' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const result = await fetchProjectImplementationUnitOptions();
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/projects/implementation-unit-options');
+    expect(result).toEqual([{ id: 1, user_code: 'USR001' }]);
   });
 
   it('times out a hung update request instead of leaving the mutation pending', async () => {

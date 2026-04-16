@@ -78,6 +78,7 @@ export {
   normalizeSupportRequestStatusCode,
 } from './support';
 export type {
+  ContractSignerMaster,
   KnownSupportRequestStatusCode,
   SupportContactPosition,
   SupportRequest,
@@ -354,6 +355,7 @@ export interface PaginationMeta {
     new_signed_count?: number;
     new_signed_value?: number;
     total_pipeline_value?: number;
+    total_estimated_value?: number;
     overdue_payment_amount?: number;
     collection_rate?: number;
     actual_collected_value?: number;

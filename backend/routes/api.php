@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V5\CustomerController;
 use App\Http\Controllers\Api\V5\CustomerPersonnelController;
 use App\Http\Controllers\Api\V5\CustomerRequestController;
 use App\Http\Controllers\Api\V5\CustomerRequestCaseController;
+use App\Http\Controllers\Api\V5\TagController;
 use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\DepartmentWeeklyScheduleController;
 use App\Http\Controllers\Api\V5\DocumentController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Api\V5\FeedbackController;
 use App\Http\Controllers\Api\V5\MonthlyCalendarController;
 use App\Http\Controllers\Api\V5\SystemHealthController;
 use App\Http\Controllers\Api\V5\ProductController;
+use App\Http\Controllers\Api\V5\ProductPackageController;
 use App\Http\Controllers\Api\V5\SupportConfigController;
 use App\Http\Controllers\Api\V5\SupportContactPositionController;
 use App\Http\Controllers\Api\V5\VendorController;
@@ -146,6 +148,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.read');
         Route::post('/customer-request-cases', [CustomerRequestCaseController::class, 'store'])
             ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-cases/import-intake/template', [CustomerRequestCaseController::class, 'importIntakeTemplate'])
+            ->middleware('permission:support_requests.read');
+        Route::post('/customer-request-cases/import-intake', [CustomerRequestCaseController::class, 'importIntake'])
+            ->middleware(['permission:support_requests.import', 'throttle:api.write.heavy']);
+        Route::get('/customer-request-cases/export-intake', [CustomerRequestCaseController::class, 'exportIntake'])
+            ->middleware(['permission:support_requests.export', 'throttle:api.read.export']);
         Route::get('/customer-request-cases/{id}/timeline', [CustomerRequestCaseController::class, 'timeline'])
             ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/people', [CustomerRequestCaseController::class, 'people'])
@@ -166,6 +174,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.read');
         Route::post('/customer-request-cases/{id}/worklogs', [CustomerRequestCaseController::class, 'storeWorklog'])
             ->middleware('permission:support_requests.write');
+        Route::patch('/customer-request-cases/{id}/worklogs/{worklogId}', [CustomerRequestCaseController::class, 'updateWorklog'])
+            ->middleware('permission:support_requests.write');
+        Route::post('/customer-request-cases/{id}/detail-status-worklog', [CustomerRequestCaseController::class, 'storeDetailStatusWorklog'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/customer-request-cases/{id}/detail-status', [CustomerRequestCaseController::class, 'detailStatus'])
+            ->middleware('permission:support_requests.read');
         Route::get('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'showStatus'])
             ->middleware('permission:support_requests.read');
         Route::post('/customer-request-cases/{id}/statuses/{statusCode}', [CustomerRequestCaseController::class, 'saveStatus'])
@@ -178,6 +192,32 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.delete');
         Route::get('/customer-request-cases/{id}', [CustomerRequestCaseController::class, 'show'])
             ->middleware('permission:support_requests.read');
+
+        // Tags management
+        Route::prefix('tags')->group(function () {
+            Route::get('/', [TagController::class, 'index'])
+                ->middleware('permission:support_requests.read');
+            Route::get('/suggestions', [TagController::class, 'suggestions'])
+                ->middleware('permission:support_requests.read');
+            Route::post('/', [TagController::class, 'store'])
+                ->middleware('permission:support_requests.write');
+            Route::put('/{tag}', [TagController::class, 'update'])
+                ->middleware('permission:support_requests.write');
+            Route::delete('/{tag}', [TagController::class, 'destroy'])
+                ->middleware('permission:support_requests.delete');
+        });
+
+        // Case tags
+        Route::prefix('customer-request-cases/{caseId}/tags')->group(function () {
+            Route::get('/', [TagController::class, 'getCaseTags'])
+                ->middleware('permission:support_requests.read');
+            Route::post('/', [TagController::class, 'attachToCase'])
+                ->middleware('permission:support_requests.write');
+            Route::post('/bulk', [TagController::class, 'bulkAttach'])
+                ->middleware('permission:support_requests.write');
+            Route::delete('/{tagId}', [TagController::class, 'detachFromCase'])
+                ->middleware('permission:support_requests.write');
+        });
 
         // Plans (§8 Kế hoạch giao việc)
         Route::get('/customer-request-plans/backlog', [CustomerRequestPlanController::class, 'backlog'])
@@ -340,6 +380,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:businesses.delete');
         Route::get('/products', [ProductController::class, 'index'])
             ->middleware('permission:products.read');
+        Route::get('/product-packages', [ProductPackageController::class, 'index'])
+            ->middleware('permission:products.read');
+        Route::get('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'featureCatalog'])
+            ->middleware('permission:products.read');
+        Route::get('/product-packages/{id}/feature-catalog/list', [ProductPackageController::class, 'featureCatalogList'])
+            ->middleware('permission:products.read');
         Route::get('/products/{id}/feature-catalog', [ProductController::class, 'featureCatalog'])
             ->middleware('permission:products.read');
         Route::get('/products/{id}/feature-catalog/list', [ProductController::class, 'featureCatalogList'])
@@ -376,13 +422,23 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.write');
         Route::post('/products', [ProductController::class, 'store'])
             ->middleware('permission:products.write');
+        Route::post('/product-packages/bulk', [ProductPackageController::class, 'storeBulk'])
+            ->middleware(['permission:products.write', 'throttle:api.write.heavy']);
+        Route::post('/product-packages', [ProductPackageController::class, 'store'])
+            ->middleware('permission:products.write');
+        Route::put('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'updateFeatureCatalog'])
+            ->middleware('permission:products.write');
         Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])
             ->middleware('permission:products.write');
         Route::put('/products/{id}/target-segments-sync', [ProductController::class, 'syncTargetSegments'])
             ->middleware('permission:products.write');
         Route::put('/products/{id}', [ProductController::class, 'update'])
             ->middleware('permission:products.write');
+        Route::put('/product-packages/{id}', [ProductPackageController::class, 'update'])
+            ->middleware('permission:products.write');
         Route::delete('/products/{id}', [ProductController::class, 'destroy'])
+            ->middleware('permission:products.delete');
+        Route::delete('/product-packages/{id}', [ProductPackageController::class, 'destroy'])
             ->middleware('permission:products.delete');
         Route::get('/customer-personnel', [CustomerPersonnelController::class, 'index'])
             ->middleware('permission:customer_personnel.read');
@@ -429,6 +485,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.read');
         Route::get('/projects/raci-assignments', [ProjectController::class, 'raciAssignments'])
             ->middleware('permission:projects.read');
+        Route::get('/projects/implementation-unit-options', [ProjectController::class, 'implementationUnitOptions'])
+            ->middleware('permission:projects.read');
         Route::get('/projects/{id}', [ProjectController::class, 'show'])
             ->middleware('permission:projects.read');
         Route::get('/project-items', [ProjectController::class, 'projectItems'])
@@ -457,8 +515,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::put('/project-procedure-templates/{id}', [ProjectProcedureController::class, 'updateTemplate'])
             ->middleware('permission:projects.write');
+        Route::delete('/project-procedure-templates/{id}', [ProjectProcedureController::class, 'deleteTemplate'])
+            ->middleware('permission:projects.write');
         Route::get('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'templateSteps'])
             ->middleware('permission:projects.read');
+        Route::delete('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'deleteTemplateSteps'])
+            ->middleware('permission:projects.write');
         Route::post('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'storeTemplateStep'])
             ->middleware('permission:projects.write');
         Route::put('/project-procedure-templates/{templateId}/steps/{stepId}', [ProjectProcedureController::class, 'updateTemplateStep'])
@@ -543,6 +605,8 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/payment-schedules', [ContractController::class, 'paymentSchedules'])
             ->middleware('permission:contracts.read');
         Route::put('/payment-schedules/{id}', [ContractController::class, 'updatePaymentSchedule'])
+            ->middleware('permission:contracts.payments');
+        Route::delete('/payment-schedules/{id}', [ContractController::class, 'destroyPaymentSchedule'])
             ->middleware('permission:contracts.payments');
 
         // ── Fee Collection (Thu Cước) ─────────────────────────────────────────
@@ -709,12 +773,24 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.write|support_requests.write');
         Route::put('/product-unit-masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
             ->middleware('permission:products.write|support_requests.write');
+        Route::get('/contract-signer-masters', [SupportConfigController::class, 'contractSignerMasters'])
+            ->middleware(['permission:contracts.read', 'permission:support_requests.read']);
+        Route::post('/contract-signer-masters', [SupportConfigController::class, 'storeContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
+        Route::put('/contract-signer-masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
         Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
             ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
         Route::post('/product_unit_masters', [SupportConfigController::class, 'storeProductUnitMaster'])
             ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
         Route::put('/product_unit_masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
             ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters/{id},2026-04-27']);
+        Route::get('/contract_signer_masters', [SupportConfigController::class, 'contractSignerMasters'])
+            ->middleware(['permission:contracts.read', 'permission:support_requests.read', 'deprecated.route:/api/v5/contract-signer-masters,2026-04-27']);
+        Route::post('/contract_signer_masters', [SupportConfigController::class, 'storeContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters,2026-04-27']);
+        Route::put('/contract_signer_masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters/{id},2026-04-27']);
 
         Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
             ->middleware('permission:support_contact_positions.read');

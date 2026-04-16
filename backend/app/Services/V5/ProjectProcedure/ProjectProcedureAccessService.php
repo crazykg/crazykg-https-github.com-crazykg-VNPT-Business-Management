@@ -43,25 +43,15 @@ class ProjectProcedureAccessService
         }
 
         $projectDeptId = $this->support->resolveProjectDepartmentIdById($projectId);
-        $userDeptCols = array_filter(
-            ['dept_id', 'department_id'],
-            fn (string $col) => $this->support->hasColumn('internal_users', $col)
-        );
-        $userDeptId = empty($userDeptCols)
-            ? null
-            : $this->support->extractIntFromRecord(
-                (array) DB::table('internal_users')
-                    ->select(array_values($userDeptCols))
-                    ->where('id', $user->id)
-                    ->first(),
-                ['dept_id', 'department_id']
-            );
+        $allowedDeptIds = $this->userAccess->resolveDepartmentIdsForUser((int) $user->id);
 
-        if ($projectDeptId !== null && $userDeptId !== null && $projectDeptId !== $userDeptId) {
-            $isMember = DB::table('project_raci')
-                ->where('project_id', $projectId)
-                ->where('user_id', $user->id)
-                ->exists();
+        if (
+            $projectDeptId !== null
+            && $allowedDeptIds !== null
+            && ! $this->isProjectDepartmentCoveredByUserScope($projectDeptId, $allowedDeptIds)
+        ) {
+            $isMember = collect($this->support->fetchProjectRaciAssignmentsByProjectIds([$projectId]))
+                ->contains(fn (array $assignment): bool => (int) ($assignment['user_id'] ?? 0) === (int) $user->id);
 
             if (! $isMember) {
                 return [null, response()->json(['message' => 'Access denied. You do not belong to this project.'], 403)];
@@ -283,5 +273,58 @@ class ProjectProcedureAccessService
         }
 
         return $lastSortOrder + 1;
+    }
+
+    /**
+     * @param array<int, int> $allowedDeptIds
+     */
+    private function isProjectDepartmentCoveredByUserScope(int $projectDeptId, array $allowedDeptIds): bool
+    {
+        $normalizedAllowedDeptIds = array_values(array_unique(array_filter(
+            array_map(static fn ($deptId): int => (int) $deptId, $allowedDeptIds),
+            static fn (int $deptId): bool => $deptId > 0
+        )));
+
+        if ($normalizedAllowedDeptIds === []) {
+            return false;
+        }
+
+        if (in_array($projectDeptId, $normalizedAllowedDeptIds, true)) {
+            return true;
+        }
+
+        if (! $this->support->hasTable('departments') || ! $this->support->hasColumn('departments', 'parent_id')) {
+            return false;
+        }
+
+        foreach ($normalizedAllowedDeptIds as $departmentId) {
+            $cursorId = $departmentId;
+            $visited = [];
+
+            while ($cursorId > 0) {
+                if ($cursorId === $projectDeptId) {
+                    return true;
+                }
+
+                if (isset($visited[$cursorId])) {
+                    break;
+                }
+                $visited[$cursorId] = true;
+
+                $parentId = $this->support->parseNullableInt(
+                    DB::table('departments')
+                        ->where('id', $cursorId)
+                        ->value('parent_id')
+                );
+
+                if ($parentId === null) {
+                    break;
+                }
+
+                $cursorId = $parentId;
+            }
+        }
+
+        return false;
     }
 }

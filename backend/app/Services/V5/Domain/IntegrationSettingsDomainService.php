@@ -120,9 +120,9 @@ class IntegrationSettingsDomainService
         return $this->operations->updateUserDeptHistory($request, $id);
     }
 
-    public function destroyUserDeptHistory(string $id): JsonResponse
+    public function destroyUserDeptHistory(Request $request, string $id): JsonResponse
     {
-        return $this->operations->destroyUserDeptHistory($id);
+        return $this->operations->destroyUserDeptHistory($request, $id);
     }
 
     public function sendReminderEmail(Request $request, string $id): JsonResponse

@@ -22,6 +22,7 @@ class RevenueTargetSuggestionTest extends TestCase
     {
         Schema::dropIfExists('raci_assignments');
         Schema::dropIfExists('internal_users');
+        Schema::dropIfExists('departments');
         Schema::dropIfExists('payment_schedules');
         Schema::dropIfExists('contracts');
         Schema::dropIfExists('project_revenue_schedules');
@@ -103,26 +104,17 @@ class RevenueTargetSuggestionTest extends TestCase
         $this->assertSame(0, (int) $april['opportunity_count']);
     }
 
-    public function test_suggest_can_include_breakdown_preview_payload_with_accountable_user(): void
+    public function test_suggest_can_include_breakdown_preview_payload_with_department_unit(): void
     {
+        DB::table('departments')->insert([
+            'id' => 10,
+            'dept_name' => 'Phòng Giải pháp 10',
+        ]);
+
         $projectId = (int) DB::table('projects')->insertGetId([
             'status' => 'CO_HOI',
-            'dept_id' => 0,
+            'dept_id' => 10,
             'deleted_at' => null,
-        ]);
-
-        $userId = (int) DB::table('internal_users')->insertGetId([
-            'user_code' => 'VNPT000001',
-            'username' => 'nguyena',
-            'full_name' => 'Nguyễn A',
-            'status' => 'ACTIVE',
-        ]);
-
-        DB::table('raci_assignments')->insert([
-            'entity_type' => 'project',
-            'entity_id' => $projectId,
-            'user_id' => $userId,
-            'raci_role' => 'A',
         ]);
 
         DB::table('project_revenue_schedules')->insert([
@@ -141,7 +133,8 @@ class RevenueTargetSuggestionTest extends TestCase
         $projectPreview = $response->json('preview.project_sources.0');
         $this->assertNotNull($projectPreview);
         $this->assertSame($projectId, (int) $projectPreview['project_id']);
-        $this->assertSame('Nguyễn A', $projectPreview['accountable_full_name']);
+        $this->assertSame(10, (int) $projectPreview['dept_id']);
+        $this->assertSame('Phòng Giải pháp 10', $projectPreview['department_name']);
         $this->assertSame(1, (int) $projectPreview['schedule_count']);
         $this->assertSame(500000000.0, (float) $projectPreview['total_amount']);
         $this->assertSame('2026-11', $projectPreview['periods'][0]['period_key']);
@@ -155,6 +148,13 @@ class RevenueTargetSuggestionTest extends TestCase
                 $table->string('status', 100)->nullable();
                 $table->unsignedBigInteger('dept_id')->default(0);
                 $table->timestamp('deleted_at')->nullable();
+            });
+        }
+
+        if (! Schema::hasTable('departments')) {
+            Schema::create('departments', function (Blueprint $table): void {
+                $table->bigIncrements('id');
+                $table->string('dept_name', 255)->nullable();
             });
         }
 
@@ -213,6 +213,7 @@ class RevenueTargetSuggestionTest extends TestCase
     {
         DB::table('raci_assignments')->delete();
         DB::table('internal_users')->delete();
+        DB::table('departments')->delete();
         DB::table('payment_schedules')->delete();
         DB::table('contracts')->delete();
         DB::table('project_revenue_schedules')->delete();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectFormModal } from '../components/modals';
@@ -7,6 +7,10 @@ import type { ProcedureTemplate, Project } from '../types';
 
 const PROJECT_FORM_SUBMIT_TIMEOUT_MS = 16000;
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
+const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
+const fetchProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
+const generateProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
+const syncProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -18,13 +22,33 @@ fetchProcedureTemplatesMock.mockResolvedValue([
   },
 ] as ProcedureTemplate[]);
 
+fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
+fetchProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+generateProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+syncProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
+  fetchProjectRevenueSchedules: fetchProjectRevenueSchedulesMock,
+  generateProjectRevenueSchedules: generateProjectRevenueSchedulesMock,
+  syncProjectRevenueSchedules: syncProjectRevenueSchedulesMock,
   deleteUploadedDocumentAttachment: vi.fn(),
   uploadDocumentAttachment: vi.fn(),
   uploadFeedbackAttachment: vi.fn(),
   deleteUploadedFeedbackAttachment: vi.fn(),
 }));
+
+vi.mock('../services/api/projectApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/projectApi')>(
+    '../services/api/projectApi'
+  );
+
+  return {
+    ...actual,
+    fetchProjectImplementationUnitOptions:
+      fetchProjectImplementationUnitOptionsMock,
+  };
+});
 
 const baseProjectData: Project = {
   id: 300,
@@ -34,6 +58,7 @@ const baseProjectData: Project = {
   status: 'CHUAN_BI',
   investment_mode: 'DAU_TU',
   payment_cycle: 'QUARTERLY',
+  opportunity_score: 1,
   start_date: '2026-02-25',
   expected_end_date: '2026-11-25',
   actual_end_date: null,
@@ -64,6 +89,65 @@ const baseProjectData: Project = {
 } as Project;
 
 describe('ProjectFormModal save payload', () => {
+  it('keeps the add-project modal open on backdrop click while still allowing Cancel, X, and Escape to close it', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    render(
+      <ProjectFormModal
+        type="ADD"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={onClose}
+        onSave={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByTestId('modal-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Đóng modal' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Hủy' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the edit-project modal open on backdrop click while still allowing Cancel, X, and Escape to close it', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={onClose}
+        onSave={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByTestId('modal-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Đóng modal' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Hủy' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
   it('does not sync items or raci when only general project info is saved', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -81,6 +165,9 @@ describe('ProjectFormModal save payload', () => {
       />
     );
 
+    expect(screen.queryByText('Ngày kết thúc thực tế')).not.toBeInTheDocument();
+    expect(screen.queryByText('Điểm cơ hội')).not.toBeInTheDocument();
+
     await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
 
     await waitFor(() => {
@@ -93,8 +180,134 @@ describe('ProjectFormModal save payload', () => {
     expect(payload.start_date).toBe('2026-02-25');
     expect(payload.expected_end_date).toBe('2026-11-25');
     expect(payload.actual_end_date).toBeNull();
+    expect(payload.opportunity_score).toBe(1);
     expect(payload.items).toBeUndefined();
     expect(payload.raci).toBeUndefined();
+  });
+
+  it('shows opportunity_score before payment_cycle when status is Cơ hội', () => {
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          status: 'CO_HOI',
+          opportunity_score: 2,
+        }}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    const opportunityLabel = screen.getByText('Điểm cơ hội');
+    const paymentCycleLabel = screen.getByText('Chu kỳ thanh toán');
+
+    expect(
+      opportunityLabel.compareDocumentPosition(paymentCycleLabel)
+      & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /2 điểm - Cao/i })).toBeInTheDocument();
+  });
+
+  it('defaults opportunity_score to 0 when switching to Cơ hội and keeps it when hidden again', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          status: 'CHUAN_BI',
+          opportunity_score: null,
+        }}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const getStatusTrigger = () =>
+      within(screen.getByText('Trạng thái').closest('.col-span-1') as HTMLElement).getByRole('button');
+
+    expect(screen.queryByText('Điểm cơ hội')).not.toBeInTheDocument();
+
+    await user.click(getStatusTrigger());
+    await user.click(screen.getByRole('button', { name: 'Cơ hội' }));
+
+    expect(screen.getByText('Điểm cơ hội')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /0 điểm - Thấp/i })).toBeInTheDocument();
+
+    await user.click(getStatusTrigger());
+    await user.click(screen.getByRole('button', { name: 'Thực hiện đầu tư' }));
+
+    expect(screen.queryByText('Điểm cơ hội')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.opportunity_score).toBe(0);
+  });
+
+  it('keeps a non-opportunity template phase selected when the template returns Vietnamese phase labels', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    fetchProcedureTemplatesMock.mockResolvedValueOnce([
+      {
+        id: 3,
+        template_code: 'THUE_DICH_VU_DACTHU',
+        template_name: 'Thuê dịch vụ CNTT đặc thù',
+        is_active: true,
+        phases: ['Phê duyệt chủ trương', 'Triển khai hợp đồng'],
+      },
+    ] as ProcedureTemplate[]);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          status: 'CO_HOI',
+          investment_mode: 'THUE_DICH_VU_DACTHU',
+        }}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const getStatusTrigger = () =>
+      within(screen.getByText('Trạng thái').closest('.col-span-1') as HTMLElement).getByRole('button');
+
+    await user.click(getStatusTrigger());
+    await user.click(await screen.findByRole('button', { name: 'Phê duyệt chủ trương' }));
+
+    expect(within(getStatusTrigger()).getByText('Phê duyệt chủ trương')).toBeInTheDocument();
+    expect(screen.queryByText('Điểm cơ hội')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.status).toBe('PHÊ DUYỆT CHỦ TRƯƠNG');
   });
 
   it('syncs project items after the items tab is edited', async () => {
@@ -126,6 +339,41 @@ describe('ProjectFormModal save payload', () => {
     expect(Array.isArray(payload.items)).toBe(true);
     expect(payload.items).toHaveLength(2);
     expect(payload.raci).toBeUndefined();
+  });
+
+  it('warns but still saves when copied items duplicate the same product in one project', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        initialTab="items"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Sao chép hạng mục dòng 1/i }));
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    expect(
+      await screen.findByText(
+        'Có hạng mục đang bị trùng trong cùng dự án. Hệ thống chỉ cảnh báo để bạn kiểm tra lại, nhưng vẫn cho phép cập nhật dự án.'
+      )
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.items).toHaveLength(2);
   });
 
   it('requires and normalizes payment_cycle when saving an investment project', async () => {
@@ -161,6 +409,54 @@ describe('ProjectFormModal save payload', () => {
     expect(payload.payment_cycle).toBe('QUARTERLY');
   });
 
+  it('includes implementation_user_id when a deployment unit is selected', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    fetchProjectImplementationUnitOptionsMock.mockResolvedValueOnce([
+      {
+        id: 88,
+        user_code: 'USR088',
+        full_name: 'Nguyen Van Trien Khai',
+        department_id: 20,
+        dept_code: 'P20',
+        dept_name: 'Phong Giai Phap 20',
+      },
+    ]);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: /Chọn người phụ trách/i })
+    );
+    await user.click(
+      await screen.findByRole('button', {
+        name: /USR088 - Nguyen Van Trien Khai/i,
+      })
+    );
+    await user.click(
+      screen.getByText('Cập nhật').closest('button') as HTMLButtonElement
+    );
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.implementation_user_id).toBe('88');
+  });
+
   it('blocks saving when Thuê dịch vụ CNTT có sẵn is selected without a payment cycle', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -187,6 +483,356 @@ describe('ProjectFormModal save payload', () => {
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText('Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.')).toBeInTheDocument();
+  });
+
+  it('shows and requires payment_cycle when Thuê dịch vụ CNTT đặc thù is selected', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          investment_mode: 'THUE_DICH_VU_DACTHU',
+          payment_cycle: null,
+        }}
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    expect(screen.getByText('Chu kỳ thanh toán')).toBeInTheDocument();
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('Chu kỳ thanh toán là bắt buộc với loại dự án đã chọn.')).toBeInTheDocument();
+  });
+
+  it('locks project items but keeps project team updates available when revenue schedules already exist', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    fetchProjectRevenueSchedulesMock
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 1,
+            project_id: 300,
+            cycle_number: 1,
+            expected_date: '2026-04-30',
+            expected_amount: 10000000,
+            notes: 'Ky 1',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 1,
+            project_id: 300,
+            cycle_number: 1,
+            expected_date: '2026-04-30',
+            expected_amount: 10000000,
+            notes: 'Ky 1',
+          },
+        ],
+      });
+    syncProjectRevenueSchedulesMock.mockResolvedValueOnce({ data: [] });
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        initialTab="items"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(
+          /Dự án đang có 1 phân kỳ doanh thu\. Bạn vẫn có thể cập nhật đội ngũ dự án, nhưng muốn đổi thông tin chung hoặc hạng mục thì vui lòng vào tab Phân kỳ doanh thu và xóa trước\./i
+        ).length
+      ).toBe(1);
+    });
+    expect(screen.getByRole('button', { name: /Thêm hạng mục/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Cập nhật/i })).not.toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: /Đội ngũ dự án/i }));
+    await user.click(within(screen.getByRole('table')).getAllByTitle('Xóa')[0]);
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.items).toBeUndefined();
+    expect(payload.raci).toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: /Phân kỳ doanh thu/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /Xóa toàn bộ phân kỳ/i })
+    );
+
+    await waitFor(() => {
+      expect(syncProjectRevenueSchedulesMock).toHaveBeenCalledWith(300, []);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Bạn vẫn có thể cập nhật đội ngũ dự án/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('deduplicates delete-all revenue schedule requests when the button is clicked rapidly', async () => {
+    const onNotify = vi.fn();
+    let resolveSync: (value: { data: [] }) => void = () => undefined;
+
+    fetchProjectRevenueSchedulesMock.mockClear();
+    syncProjectRevenueSchedulesMock.mockClear();
+    fetchProjectRevenueSchedulesMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 1,
+          project_id: 300,
+          cycle_number: 1,
+          expected_date: '2026-04-30',
+          expected_amount: 10000000,
+          notes: 'Ky 1',
+        },
+      ],
+    });
+    syncProjectRevenueSchedulesMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSync = resolve as (value: { data: [] }) => void;
+        })
+    );
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        initialTab="revenue_schedules"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    const deleteButton = await screen.findByRole('button', {
+      name: /Xóa toàn bộ phân kỳ/i,
+    });
+
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+
+    expect(syncProjectRevenueSchedulesMock).toHaveBeenCalledTimes(1);
+    expect(syncProjectRevenueSchedulesMock).toHaveBeenCalledWith(300, []);
+
+    resolveSync({ data: [] });
+
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(
+        'success',
+        'Thành công',
+        'Đã xóa toàn bộ phân kỳ doanh thu. Bạn có thể cập nhật lại dự án.'
+      );
+    });
+    expect(onNotify).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows editing revenue schedule amounts and dates while keeping the total locked and showing audit columns', async () => {
+    const user = userEvent.setup();
+
+    fetchProjectRevenueSchedulesMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 11,
+          project_id: 300,
+          cycle_number: 1,
+          expected_date: '2026-04-30',
+          expected_amount: 10000000,
+          notes: 'Ky 1',
+          created_by: 1,
+          created_by_name: 'Admin Revenue',
+          created_at: '2026-04-01 08:00:00',
+        },
+        {
+          id: 12,
+          project_id: 300,
+          cycle_number: 2,
+          expected_date: '2026-06-30',
+          expected_amount: 8000000,
+          notes: 'Ky 2',
+          created_by: 1,
+          created_by_name: 'Admin Revenue',
+          created_at: '2026-04-02 09:00:00',
+        },
+      ],
+    });
+    syncProjectRevenueSchedulesMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 11,
+          project_id: 300,
+          cycle_number: 1,
+          expected_date: '2026-05-05',
+          expected_amount: 12000000,
+          notes: 'Ky 1 cap nhat',
+          created_by: 1,
+          created_by_name: 'Admin Revenue',
+          created_at: '2026-04-01 08:00:00',
+        },
+        {
+          id: 12,
+          project_id: 300,
+          cycle_number: 2,
+          expected_date: '2026-06-30',
+          expected_amount: 6000000,
+          notes: 'Ky 2',
+          created_by: 1,
+          created_by_name: 'Admin Revenue',
+          created_at: '2026-04-02 09:00:00',
+        },
+      ],
+    });
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        initialTab="revenue_schedules"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect((await screen.findAllByText('Admin Revenue')).length).toBe(2);
+    expect((await screen.findAllByText(/0[12]\/04\/2026/)).length).toBe(2);
+
+    const dateInputs = await screen.findAllByDisplayValue(/2026-\d{2}-\d{2}/);
+    const amountInputs = Array.from(
+      document.querySelectorAll('input[inputmode="numeric"]')
+    ) as HTMLInputElement[];
+    const noteInputs = screen.getAllByPlaceholderText('Ghi chú kỳ này');
+
+    expect(amountInputs).toHaveLength(2);
+
+    fireEvent.change(dateInputs[0], { target: { value: '2026-05-05' } });
+    fireEvent.change(amountInputs[0], { target: { value: '12.000.000' } });
+    fireEvent.change(noteInputs[0], { target: { value: 'Ky 1 cap nhat' } });
+
+    expect(screen.getByDisplayValue('6.000.000')).toBeInTheDocument();
+    expect(screen.getAllByText('18.000.000 đ').length).toBeGreaterThanOrEqual(2);
+
+    await user.click(screen.getByRole('button', { name: /Lưu thay đổi phân kỳ/i }));
+
+    await waitFor(() => {
+      expect(syncProjectRevenueSchedulesMock).toHaveBeenCalledWith(300, [
+        {
+          id: 11,
+          expected_date: '2026-05-05',
+          expected_amount: 12000000,
+          notes: 'Ky 1 cap nhat',
+        },
+        {
+          id: 12,
+          expected_date: '2026-06-30',
+          expected_amount: 6000000,
+          notes: 'Ky 2',
+        },
+      ]);
+    });
+  });
+
+  it('redistributes the deleted revenue schedule amount into the remaining row before saving', async () => {
+    const user = userEvent.setup();
+
+    fetchProjectRevenueSchedulesMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 21,
+          project_id: 300,
+          cycle_number: 1,
+          expected_date: '2026-04-30',
+          expected_amount: 10000000,
+          notes: 'Ky 1',
+        },
+        {
+          id: 22,
+          project_id: 300,
+          cycle_number: 2,
+          expected_date: '2026-06-30',
+          expected_amount: 8000000,
+          notes: 'Ky 2',
+        },
+      ],
+    });
+    syncProjectRevenueSchedulesMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 21,
+          project_id: 300,
+          cycle_number: 1,
+          expected_date: '2026-04-30',
+          expected_amount: 18000000,
+          notes: 'Ky 1',
+        },
+      ],
+    });
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={baseProjectData}
+        initialTab="revenue_schedules"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    await screen.findByDisplayValue('10.000.000');
+
+    await user.click(screen.getByRole('button', { name: /Xóa kỳ doanh thu 2/i }));
+
+    expect(screen.getByDisplayValue('18.000.000')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('8.000.000')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Lưu thay đổi phân kỳ/i }));
+
+    await waitFor(() => {
+      expect(syncProjectRevenueSchedulesMock).toHaveBeenCalledWith(300, [
+        {
+          id: 21,
+          expected_date: '2026-04-30',
+          expected_amount: 18000000,
+          notes: 'Ky 1',
+        },
+      ]);
+    });
   });
 
   it('shows an inline success notice after saving while keeping the modal open', async () => {

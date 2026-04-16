@@ -15,6 +15,7 @@ export interface ModalWrapperProps {
   maxHeightClass?: string;
   panelClassName?: string;
   disableClose?: boolean;
+  disableBackdropClose?: boolean;
   headerAside?: React.ReactNode;
   headerClassName?: string;
 }
@@ -30,6 +31,7 @@ export function ModalWrapper({
   maxHeightClass = 'max-h-[90vh]',
   panelClassName = 'rounded-lg',
   disableClose = false,
+  disableBackdropClose = false,
   headerAside,
   headerClassName = '',
 }: ModalWrapperProps) {
@@ -37,7 +39,11 @@ export function ModalWrapper({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !disableClose && onClose()}></div>
+      <div
+        data-testid="modal-backdrop"
+        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+        onClick={() => !disableClose && !disableBackdropClose && onClose()}
+      ></div>
       <div className={`relative bg-white w-full ${width} ${heightClass} ${minHeightClass} ${maxHeightClass} ${panelClassName} shadow-xl flex flex-col overflow-hidden animate-fade-in border border-slate-200`}>
         {/* Header */}
         <div className={`flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 flex-shrink-0 ${headerClassName}`}>
@@ -54,6 +60,7 @@ export function ModalWrapper({
               </div>
             ) : null}
             <button
+              aria-label="Đóng modal"
               onClick={() => !disableClose && onClose()}
               disabled={disableClose}
               className="p-1.5 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"

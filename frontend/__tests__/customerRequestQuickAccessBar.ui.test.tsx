@@ -68,6 +68,7 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     expect(screen.getByText('Chưa có ghim.')).toBeInTheDocument();
     expect(screen.getByText('Chưa có lịch sử.')).toBeInTheDocument();
     expect(screen.queryByText('Chưa có yêu cầu nào được ghim.')).not.toBeInTheDocument();
@@ -94,6 +95,7 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     expect(screen.getByRole('button', { name: /Toàn cảnh/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Nguy cơ SLA/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Người tạo cần xử lý/i })).not.toBeInTheDocument();
@@ -102,11 +104,12 @@ describe('CustomerRequestQuickAccessBar UI', () => {
     await user.click(screen.getByRole('button', { name: 'Xem thêm 2' }));
     expect(screen.getByRole('button', { name: /Người tạo cần xử lý/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Người xử lý đang làm/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Thu gọn' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Thu gọn/i })).toBeInTheDocument();
   });
 
-  it('keeps the active saved view visible on mobile even when it is outside the top two', () => {
+  it('keeps the active saved view visible on mobile even when it is outside the top two', async () => {
     setViewportWidth(390);
+    const user = userEvent.setup();
 
     render(
       <CustomerRequestQuickAccessBar
@@ -121,6 +124,7 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     expect(screen.getByRole('button', { name: /Toàn cảnh/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Người xử lý đang làm/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Nguy cơ SLA/i })).not.toBeInTheDocument();
@@ -144,6 +148,7 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     await user.click(screen.getByRole('button', { name: 'Xem thêm 2' }));
     expect(screen.getByRole('button', { name: /Người tạo cần xử lý/i })).toBeInTheDocument();
 
@@ -165,8 +170,9 @@ describe('CustomerRequestQuickAccessBar UI', () => {
     expect(screen.getByRole('button', { name: 'Xem thêm 2' })).toBeInTheDocument();
   });
 
-  it('keeps full empty states on desktop', () => {
+  it('keeps full empty states on desktop', async () => {
     setViewportWidth(1600);
+    const user = userEvent.setup();
 
     render(
       <CustomerRequestQuickAccessBar
@@ -181,6 +187,7 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     expect(screen.getByText('Chưa có yêu cầu nào được ghim.')).toBeInTheDocument();
     expect(screen.getByText('Chưa có lịch sử mở yêu cầu gần đây.')).toBeInTheDocument();
   });

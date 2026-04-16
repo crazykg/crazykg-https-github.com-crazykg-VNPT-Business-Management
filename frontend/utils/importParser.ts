@@ -1498,6 +1498,22 @@ export const pickImportSheetByModule = (
     );
   }
 
+  if (token === 'customerrequestintake' || token === 'customer_request_intake') {
+    return (
+      findSheetByKeyword(sheets, ['yeucaunhap', 'intake', 'yeucau']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
+  if (token === 'customerrequestintaketasks' || token === 'customer_request_intake_tasks') {
+    return (
+      findSheetByKeyword(sheets, ['yeucautasks', 'tasks']) ||
+      sheets.find((sheet) => sheet.headers.length > 0) ||
+      sheets[0]
+    );
+  }
+
   if (token === 'programmingrequests' || token === 'programmingrequest') {
     return (
       findSheetByKeyword(sheets, ['laptrinh', 'programming', 'request', 'yeucaulaptrinh']) ||

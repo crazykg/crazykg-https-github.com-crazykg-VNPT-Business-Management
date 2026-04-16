@@ -8,11 +8,14 @@ interface AttachmentManagerProps {
   isUploading: boolean;
   disabled?: boolean;
   compact?: boolean;
+  accept?: string;
   helperText?: string;
   emptyStateDescription?: string;
   uploadButtonLabel?: string;
+  showSummaryMeta?: boolean;
   enableClipboardPaste?: boolean;
   clipboardPasteHint?: string;
+  uploadButtonClassName?: string;
 }
 
 const formatSize = (bytes: number) => {
@@ -166,11 +169,14 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   isUploading,
   disabled = false,
   compact = false,
+  accept = '.pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar',
   helperText = 'Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file tương ứng.',
   emptyStateDescription = 'Tải file lên để nhận ngay liên kết mở file từ kho lưu trữ đang cấu hình hoặc máy chủ nội bộ.',
   uploadButtonLabel = 'Tải file',
+  showSummaryMeta = true,
   enableClipboardPaste = false,
   clipboardPasteHint = 'Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp.',
+  uploadButtonClassName,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef = useRef<HTMLDivElement>(null);
@@ -262,18 +268,20 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
             <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
             Danh sách file đính kèm
           </h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-              {attachments.length} file
-            </span>
-            <span className="text-xs text-slate-500">{helperText}</span>
-          </div>
+          {showSummaryMeta ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                {attachments.length} file
+              </span>
+              {helperText ? <span className="text-xs text-slate-500">{helperText}</span> : null}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
           onClick={openFilePicker}
           disabled={isUploading || disabled}
-          className={`inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={uploadButtonClassName || `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
             compact ? 'px-3 py-1.5' : 'px-4 py-2'
           } min-w-[116px]`}
         >
@@ -288,7 +296,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar"
+          accept={accept}
           disabled={isUploading || disabled}
           onChange={handleFileChange}
           className="sr-only"

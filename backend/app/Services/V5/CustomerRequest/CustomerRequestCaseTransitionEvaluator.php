@@ -108,7 +108,7 @@ class CustomerRequestCaseTransitionEvaluator
         }
 
         if ($statusCode === 'in_progress') {
-            return ['completed'];
+            return ['completed', 'returned_to_manager'];
         }
 
         return null;

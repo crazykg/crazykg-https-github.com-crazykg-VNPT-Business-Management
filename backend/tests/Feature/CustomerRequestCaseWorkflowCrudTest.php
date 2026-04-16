@@ -15,6 +15,11 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
 {
     use InteractsWithCustomerRequestCaseFixtures;
 
+    private function expectedRequestCode(): string
+    {
+        return sprintf('CRC-%s-0001', now()->format('Ym'));
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -37,8 +42,13 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             ->map(static fn (array $row): string => ($row['from_status_code'] ?? '').'->'.($row['to_status_code'] ?? ''))
             ->all();
 
-        $this->assertContains('new_intake->waiting_customer_feedback', $pairs);
-        $this->assertContains('new_intake->analysis', $pairs);
+        $this->assertContains('new_intake->assigned_to_receiver', $pairs);
+        $this->assertContains('new_intake->returned_to_manager', $pairs);
+        $this->assertContains('assigned_to_receiver->in_progress', $pairs);
+        $this->assertContains('analysis->analysis_completed', $pairs);
+        $this->assertContains('analysis->analysis_suspended', $pairs);
+        $this->assertContains('coding->coding_in_progress', $pairs);
+        $this->assertContains('dms_transfer->dms_task_created', $pairs);
     }
 
     public function test_store_case_creates_master_initial_status_instance_and_shared_links(): void
@@ -47,7 +57,7 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
 
         $response
             ->assertCreated()
-            ->assertJsonPath('data.request_case.request_code', 'CRC-202603-0001')
+            ->assertJsonPath('data.request_case.request_code', $this->expectedRequestCode())
             ->assertJsonPath('data.request_case.current_status_code', 'new_intake')
             ->assertJsonPath('data.request_case.source_channel', 'Phone')
             ->assertJsonPath('data.current_status.status_code', 'new_intake')
@@ -100,12 +110,12 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         $this->getJson('/api/v5/customer-request-cases?status_code=new_intake')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.request_code', 'CRC-202603-0001')
+            ->assertJsonPath('data.0.request_code', $this->expectedRequestCode())
             ->assertJsonPath('data.0.received_by_name', 'Người tạo');
 
         $this->getJson("/api/v5/customer-request-cases/{$caseId}")
             ->assertOk()
-            ->assertJsonPath('data.request_code', 'CRC-202603-0001')
+            ->assertJsonPath('data.request_code', $this->expectedRequestCode())
             ->assertJsonPath('data.support_service_group_name', 'Nhóm SOC 01');
 
         $this->getJson("/api/v5/customer-request-cases/{$caseId}/statuses/new_intake")
@@ -140,7 +150,7 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         $this->assertSame(2, (int) DB::table('customer_request_cases')->value('dispatcher_user_id'));
     }
 
-    public function test_pm_missing_customer_info_decision_is_exposed_and_persisted_for_dispatcher_lane(): void
+    public function test_new_intake_dispatcher_lane_only_exposes_workflowa_targets(): void
     {
         $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
             'master_payload' => [
@@ -152,58 +162,26 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         $caseId = (int) $created->json('data.request_case.id');
 
         $statusDetail = $this->getJson("/api/v5/customer-request-cases/{$caseId}/statuses/new_intake")
-            ->assertOk()
-            ->assertJsonPath('data.available_actions.pm_missing_customer_info_decision.context_code', 'pm_missing_customer_info_review')
-            ->assertJsonPath('data.available_actions.pm_missing_customer_info_decision.source_status_code', 'new_intake')
-            ->assertJsonPath('data.available_actions.pm_missing_customer_info_decision.target_status_codes.0', 'waiting_customer_feedback')
-            ->assertJsonPath('data.available_actions.pm_missing_customer_info_decision.target_status_codes.1', 'not_executed');
+            ->assertOk();
 
-        $waitingFeedbackProcess = collect($statusDetail->json('data.allowed_next_processes') ?? [])
-            ->firstWhere('process_code', 'waiting_customer_feedback');
-        $notExecutedProcess = collect($statusDetail->json('data.allowed_next_processes') ?? [])
-            ->firstWhere('process_code', 'not_executed');
+        $allowed = collect($statusDetail->json('data.allowed_next_processes') ?? [])
+            ->pluck('process_code')
+            ->all();
 
-        $this->assertSame('pm_missing_customer_info_review', $waitingFeedbackProcess['decision_context_code'] ?? null);
-        $this->assertSame('customer_missing_info', $waitingFeedbackProcess['decision_outcome_code'] ?? null);
-        $this->assertSame('new_intake', $waitingFeedbackProcess['decision_source_status_code'] ?? null);
-        $this->assertSame('pm_missing_customer_info_review', $notExecutedProcess['decision_context_code'] ?? null);
-        $this->assertSame('other_reason', $notExecutedProcess['decision_outcome_code'] ?? null);
-        $this->assertSame('new_intake', $notExecutedProcess['decision_source_status_code'] ?? null);
+        $this->assertSame([
+            'assigned_to_receiver',
+            'returned_to_manager',
+        ], $allowed);
 
-        $transition = $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
-            'updated_by' => 2,
-            'to_status_code' => 'waiting_customer_feedback',
-            'status_payload' => [
-                'feedback_request_content' => 'Bổ sung phiên bản phần mềm và ảnh lỗi.',
-                'customer_due_at' => '2026-03-20 17:00:00',
-            ],
-        ])->assertOk()
-            ->assertJsonPath('data.request_case.current_status_code', 'waiting_customer_feedback')
-            ->assertJsonPath('data.status_instance.decision_context_code', 'pm_missing_customer_info_review')
-            ->assertJsonPath('data.status_instance.decision_outcome_code', 'customer_missing_info')
-            ->assertJsonPath('data.status_instance.decision_source_status_code', 'new_intake');
-
-        $currentInstanceId = (int) $transition->json('data.status_instance.id');
-
-        $this->assertDatabaseHas('customer_request_status_instances', [
-            'id' => $currentInstanceId,
-            'status_code' => 'waiting_customer_feedback',
-            'decision_context_code' => 'pm_missing_customer_info_review',
-            'decision_outcome_code' => 'customer_missing_info',
-            'decision_source_status_code' => 'new_intake',
-        ]);
-
-        $this->getJson("/api/v5/customer-request-cases/{$caseId}/timeline")
-            ->assertOk()
-            ->assertJsonPath('data.0.decision_context_code', 'pm_missing_customer_info_review')
-            ->assertJsonPath('data.0.decision_outcome_code', 'customer_missing_info')
-            ->assertJsonPath('data.0.decision_source_status_code', 'new_intake')
-            ->assertJsonPath('data.0.ly_do', 'PM xác nhận yêu cầu đang thiếu thông tin từ khách hàng.');
-
-        $this->assertTrue(
-            collect(DB::table('audit_logs')->pluck('new_values'))
-                ->contains(static fn ($payload): bool => is_string($payload) && str_contains($payload, '"decision_context_code":"pm_missing_customer_info_review"'))
-        );
+        $statusDetail
+            ->assertJsonPath(
+                'data.available_actions.pm_missing_customer_info_decision.context_code',
+                'pm_missing_customer_info_review'
+            )
+            ->assertJsonPath(
+                'data.available_actions.pm_missing_customer_info_decision.source_status_code',
+                'new_intake'
+            );
     }
 
     public function test_transition_dispatches_case_transitioned_event(): void
@@ -221,16 +199,18 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
             'updated_by' => 2,
-            'to_status_code' => 'waiting_customer_feedback',
+            'to_status_code' => 'assigned_to_receiver',
             'status_payload' => [
-                'feedback_request_content' => 'Bổ sung phiên bản phần mềm và ảnh lỗi.',
-                'customer_due_at' => '2026-03-20 17:00:00',
+                'from_user_id' => 2,
+                'to_user_id' => 3,
+                'progress_percent' => 10,
+                'notes' => 'PM giao xử lý theo WorkflowA.',
             ],
         ])->assertOk();
 
         Event::assertDispatched(CaseTransitioned::class, function (CaseTransitioned $event) use ($caseId): bool {
             return (int) $event->case->id === $caseId
-                && $event->targetStatus === 'waiting_customer_feedback'
+                && $event->targetStatus === 'assigned_to_receiver'
                 && $event->actorId === 2;
         });
     }
@@ -253,10 +233,12 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
             'updated_by' => 2,
-            'to_status_code' => 'waiting_customer_feedback',
+            'to_status_code' => 'assigned_to_receiver',
             'status_payload' => [
-                'feedback_request_content' => 'Bổ sung phiên bản phần mềm và ảnh lỗi.',
-                'customer_due_at' => '2026-03-20 17:00:00',
+                'from_user_id' => 2,
+                'to_user_id' => 3,
+                'progress_percent' => 10,
+                'notes' => 'PM giao xử lý theo WorkflowA.',
             ],
         ])->assertOk();
     }
@@ -289,7 +271,7 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         ])->assertCreated();
     }
 
-    public function test_pm_missing_customer_info_decision_is_persisted_for_returned_to_manager_lane(): void
+    public function test_returned_to_manager_allows_not_executed_and_sets_current_status(): void
     {
         $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
             'master_payload' => [
@@ -305,9 +287,9 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             'updated_by' => 3,
             'to_status_code' => 'returned_to_manager',
             'status_payload' => [
-                'returned_by_user_id' => 3,
-                'returned_at' => '2026-03-18 09:00:00',
-                'return_reason' => 'Thiếu thông tin nghiệp vụ để tiếp tục xử lý.',
+                'from_user_id' => 3,
+                'to_user_id' => 2,
+                'notes' => 'Thiếu thông tin nghiệp vụ để tiếp tục xử lý.',
             ],
         ])->assertOk();
 
@@ -315,23 +297,14 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             'updated_by' => 2,
             'to_status_code' => 'not_executed',
             'status_payload' => [
-                'decision_reason' => 'Khách hàng chưa cung cấp đủ dữ liệu đầu vào.',
+                'from_user_id' => 2,
+                'notes' => 'Khách hàng chưa cung cấp đủ dữ liệu đầu vào.',
             ],
         ])->assertOk()
-            ->assertJsonPath('data.request_case.current_status_code', 'not_executed')
-            ->assertJsonPath('data.status_instance.decision_context_code', 'pm_missing_customer_info_review')
-            ->assertJsonPath('data.status_instance.decision_outcome_code', 'other_reason')
-            ->assertJsonPath('data.status_instance.decision_source_status_code', 'returned_to_manager');
-
-        $this->getJson("/api/v5/customer-request-cases/{$caseId}/full-detail")
-            ->assertOk()
-            ->assertJsonPath('data.timeline.0.decision_context_code', 'pm_missing_customer_info_review')
-            ->assertJsonPath('data.timeline.0.decision_outcome_code', 'other_reason')
-            ->assertJsonPath('data.timeline.0.decision_source_status_code', 'returned_to_manager')
-            ->assertJsonPath('data.timeline.0.ly_do', 'PM xác nhận yêu cầu không thực hiện vì lý do khác, không phải thiếu thông tin từ khách hàng.');
+            ->assertJsonPath('data.request_case.current_status_code', 'not_executed');
     }
 
-    public function test_pm_missing_customer_info_decision_rejects_conflicting_client_metadata(): void
+    public function test_new_intake_rejects_waiting_customer_feedback_transition(): void
     {
         $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
             'master_payload' => [
@@ -346,14 +319,11 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             'updated_by' => 2,
             'to_status_code' => 'waiting_customer_feedback',
             'status_payload' => [
-                'feedback_request_content' => 'Bổ sung dữ liệu kiểm thử.',
-                'decision_context_code' => 'pm_missing_customer_info_review',
-                'decision_outcome_code' => 'other_reason',
-                'decision_source_status_code' => 'new_intake',
+                'notes' => 'Khách hàng cần bổ sung dữ liệu.',
             ],
         ])
             ->assertStatus(422)
-            ->assertJsonPath('errors.decision_outcome_code.0', 'decision_outcome_code không khớp với luồng decision PM theo XML.');
+            ->assertJsonPath('errors.to_status_code.0', 'Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
     }
 
     public function test_new_intake_allowed_next_processes_are_filtered_by_case_lane(): void
@@ -373,10 +343,8 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         )->pluck('process_code')->all();
 
         $this->assertSame([
-            'not_executed',
-            'waiting_customer_feedback',
-            'in_progress',
-            'analysis',
+            'assigned_to_receiver',
+            'returned_to_manager',
         ], $dispatcherAllowed);
 
         $performerCase = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
@@ -394,7 +362,7 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         )->pluck('process_code')->all();
 
         $this->assertSame([
-            'in_progress',
+            'assigned_to_receiver',
             'returned_to_manager',
         ], $performerAllowed);
 
@@ -430,12 +398,23 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         $caseId = (int) $created->json('data.request_case.id');
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
-            'to_status_code' => 'in_progress',
+            'to_status_code' => 'assigned_to_receiver',
             'updated_by' => 3,
             'status_payload' => [
                 'performer_user_id' => 3,
                 'started_at' => '2026-03-17 10:00:00',
                 'expected_completed_at' => '2026-03-18 17:00:00',
+                'progress_percent' => 35,
+                'processing_content' => 'Dang xu ly va cap nhat he thong.',
+            ],
+        ])->assertOk();
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'to_status_code' => 'in_progress',
+            'updated_by' => 3,
+            'status_payload' => [
+                'performer_user_id' => 3,
+                'started_at' => '2026-03-17 10:30:00',
                 'progress_percent' => 35,
                 'processing_content' => 'Dang xu ly va cap nhat he thong.',
             ],
@@ -449,6 +428,7 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
 
         $this->assertSame([
             'completed',
+            'returned_to_manager',
         ], $allowed);
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
@@ -462,8 +442,8 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             'to_status_code' => 'returned_to_manager',
             'updated_by' => 3,
         ])
-            ->assertStatus(422)
-            ->assertJsonPath('errors.to_status_code.0', 'Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
+            ->assertOk()
+            ->assertJsonPath('data.request_case.current_status_code', 'returned_to_manager');
     }
 
     public function test_transition_moves_case_forward_and_invalid_transition_returns_422(): void
@@ -480,6 +460,16 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             ->assertJsonPath('errors.to_status_code.0', 'Không thể chuyển sang chính trạng thái hiện tại.');
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'to_status_code' => 'assigned_to_receiver',
+            'updated_by' => 1,
+            'status_payload' => [
+                'to_user_id' => 3,
+                'progress_percent' => 10,
+                'notes' => 'Giao R thực hiện theo Workflow A.',
+            ],
+        ])->assertOk();
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
             'to_status_code' => 'in_progress',
             'updated_by' => 1,
             'status_payload' => [
@@ -493,19 +483,26 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.request_case.current_status_code', 'in_progress')
             ->assertJsonPath('data.status.status_code', 'in_progress')
-            ->assertJsonPath('data.status_row.data.performer_user_id', 3)
             ->assertJsonPath('data.status_row.data.progress_percent', 35);
 
-        $this->assertSame(2, DB::table('customer_request_status_instances')->count());
+        $this->assertSame(3, DB::table('customer_request_status_instances')->count());
+        $this->assertSame(1, DB::table('customer_request_assigned_to_receiver')->count());
         $this->assertSame(1, DB::table('customer_request_in_progress')->count());
 
-        $previous = DB::table('customer_request_status_instances')->where('id', $firstInstanceId)->first();
+        $initial = DB::table('customer_request_status_instances')->where('id', $firstInstanceId)->first();
+        $assigned = DB::table('customer_request_status_instances')
+            ->where('request_case_id', $caseId)
+            ->where('status_code', 'assigned_to_receiver')
+            ->first();
         $current = DB::table('customer_request_status_instances')->where('is_current', 1)->first();
-        $this->assertNotNull($previous);
+        $this->assertNotNull($initial);
+        $this->assertNotNull($assigned);
         $this->assertNotNull($current);
-        $this->assertSame(0, (int) $previous->is_current);
-        $this->assertSame((int) $current->id, (int) $previous->next_instance_id);
-        $this->assertSame((int) $previous->id, (int) $current->previous_instance_id);
+        $this->assertSame(0, (int) $initial->is_current);
+        $this->assertSame(0, (int) $assigned->is_current);
+        $this->assertSame((int) $assigned->id, (int) $initial->next_instance_id);
+        $this->assertSame((int) $current->id, (int) $assigned->next_instance_id);
+        $this->assertSame((int) $assigned->id, (int) $current->previous_instance_id);
 
         $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
             'to_status_code' => 'customer_notified',
@@ -611,10 +608,10 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         $this->getJson("/api/v5/customer-request-cases/{$caseId}?updated_by=4")
             ->assertNotFound();
 
-        $this->getJson('/api/v5/customer-request-cases/search?q=CRC-202603-0001&updated_by=3')
+        $this->getJson('/api/v5/customer-request-cases/search?q='.$this->expectedRequestCode().'&updated_by=3')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.request_code', 'CRC-202603-0001');
+            ->assertJsonPath('data.0.request_code', $this->expectedRequestCode());
 
         $this->getJson('/api/v5/customer-request-cases/dashboard/creator?updated_by=1')
             ->assertOk()

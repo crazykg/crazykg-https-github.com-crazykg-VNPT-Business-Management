@@ -13,6 +13,7 @@ class ProductQuotationItem extends Model
         'quotation_id',
         'sort_order',
         'product_id',
+        'product_package_id',
         'product_name',
         'unit',
         'quantity',
@@ -26,6 +27,7 @@ class ProductQuotationItem extends Model
 
     protected $casts = [
         'sort_order' => 'integer',
+        'product_package_id' => 'integer',
         'quantity' => 'float',
         'unit_price' => 'float',
         'vat_rate' => 'float',

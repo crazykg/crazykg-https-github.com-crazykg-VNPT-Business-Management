@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Contract } from '../../types';
 import { type BulkGenerateInvoicesPayload, useBulkGenerateInvoices } from '../../shared/hooks/useFeeCollection';
-import { ModalWrapper } from '../Modals';
+import { ModalWrapper } from '../modals';
 
 interface Props {
   contracts: Contract[];

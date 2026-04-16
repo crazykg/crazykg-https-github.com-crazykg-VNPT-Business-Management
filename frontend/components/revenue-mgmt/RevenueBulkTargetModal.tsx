@@ -198,16 +198,16 @@ const SummaryCard = ({
   tone: 'slate' | 'emerald' | 'amber';
 }) => {
   const toneClasses = {
-    slate: 'border-slate-200 bg-slate-50 text-slate-800',
-    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    amber: 'border-amber-200 bg-amber-50 text-amber-800',
-  } as const;
+    slate: { container: 'border-slate-200 bg-surface-low', value: 'text-deep-teal' },
+    emerald: { container: 'border-emerald-200 bg-emerald-50', value: 'text-emerald-800' },
+    amber: { container: 'border-amber-200 bg-amber-50', value: 'text-tertiary' },
+  };
 
   return (
-    <div className={`rounded-3xl border p-4 ${toneClasses[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
-      <p className="mt-2 text-xl font-semibold">{value}</p>
-      {helper ? <p className="mt-1 text-xs opacity-80">{helper}</p> : null}
+    <div className={`rounded-lg border p-3 ${toneClasses[tone].container}`}>
+      <p className="text-[11px] font-semibold text-neutral">{label}</p>
+      <p className={`mt-1 text-xl font-black leading-tight ${toneClasses[tone].value}`}>{value}</p>
+      {helper ? <p className="mt-0.5 text-[10px] text-slate-400">{helper}</p> : null}
     </div>
   );
 };
@@ -614,42 +614,48 @@ export function RevenueBulkTargetModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-sm p-4 md:p-8 overflow-y-auto">
-        <div className="mx-auto flex min-h-full max-w-6xl items-start justify-center">
-          <div className="relative flex w-full max-h-[94vh] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl shadow-slate-300/60">
-            <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ecfeff_48%,#ffffff_100%)] px-6 py-5 md:px-8">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-semibold text-slate-900">
+      <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="mx-auto flex min-h-full max-w-5xl items-start justify-center">
+          <div className="relative flex w-full max-h-[94vh] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 flex-shrink-0">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>trending_up</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h2 className="text-sm font-bold text-deep-teal leading-tight">
                       Nhập kế hoạch doanh thu hàng loạt
                     </h2>
-                    <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                       Năm {year}
                     </span>
-                    <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">
                       {scopeLabel}
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-                >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
-                </button>
               </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-6 md:px-8">
-              <div className="space-y-6">
-                <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
-                  <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                    <div className="space-y-4">
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="space-y-3">
+                {/* Config */}
+                <section className="rounded-lg border border-slate-200 bg-surface-low p-3">
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="space-y-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Loại kỳ</p>
-                        <div className="mt-2 inline-flex rounded-2xl bg-white p-1 ring-1 ring-slate-200">
+                        <p className="text-xs font-semibold text-neutral">Loại kỳ</p>
+                        <div className="mt-1 inline-flex rounded bg-white p-0.5 ring-1 ring-slate-200">
                           {PERIOD_TYPE_OPTIONS.map((option) => {
                             const active = periodType === option.value;
                             return (
@@ -657,9 +663,9 @@ export function RevenueBulkTargetModal({
                                 key={option.value}
                                 type="button"
                                 onClick={() => handlePeriodTypeChange(option.value)}
-                                className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
+                                className={`rounded px-2.5 py-1 text-[11px] font-semibold transition ${
                                   active
-                                    ? 'bg-slate-900 text-white shadow-sm'
+                                    ? 'bg-primary text-white shadow-sm'
                                     : 'text-slate-600 hover:bg-slate-100'
                                 }`}
                               >
@@ -671,13 +677,13 @@ export function RevenueBulkTargetModal({
                       </div>
 
                       <div>
-                        <label htmlFor="revenue-bulk-target-type" className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        <label htmlFor="revenue-bulk-target-type" className="text-xs font-semibold text-neutral">
                           Chỉ tiêu
                         </label>
                         <select
                           id="revenue-bulk-target-type"
                           aria-label="Nhóm kế hoạch"
-                          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          className="mt-1 w-full h-8 px-3 rounded border border-slate-300 bg-white text-xs text-on-surface outline-none transition focus:ring-1 focus:ring-primary/30 focus:border-primary"
                           value={targetType}
                           onChange={(event) => setTargetType(event.target.value as RevenueTargetType)}
                         >
@@ -690,32 +696,46 @@ export function RevenueBulkTargetModal({
                       </div>
                     </div>
 
-                    <div>
+                    <div className="xl:justify-self-end xl:w-full xl:max-w-[360px]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-semibold text-neutral">Đơn vị áp dụng</p>
+                        {selectedDeptIds.length > 0 ? (
+                          <span className="inline-flex max-w-full items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                            <span className="line-clamp-1">{scopeLabel}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        Có thể chọn nhiều đơn vị hoặc chọn Toàn công ty.
+                      </p>
                       <SearchableMultiSelect
                         values={selectedDeptValues}
                         options={departmentOptions}
                         onChange={handleDeptSelectionChange}
-                        label="Đơn vị áp dụng"
+                        ariaLabel="Đơn vị áp dụng"
                         placeholder="Chọn đơn vị áp dụng"
                         searchPlaceholder="Tìm đơn vị..."
-                        className="min-w-0"
-                        triggerClassName="min-h-[48px] rounded-2xl border-slate-300 px-4 py-3"
-                        dropdownClassName="rounded-2xl"
+                        className="mt-1.5 min-w-0"
+                        triggerClassName="!h-8 !min-h-0 rounded border-slate-300 px-3 !text-xs"
+                        dropdownClassName="rounded"
+                        showSelectedChips={false}
+                        selectedSummaryFormatter={() => scopeLabel}
                       />
                     </div>
                   </div>
                 </section>
 
-                <section className="rounded-3xl border border-slate-200 bg-white p-5">
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                {/* Quick fill + actions */}
+                <section className="rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Điền tất cả kỳ</p>
-                      <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-center">
+                      <p className="text-xs font-semibold text-neutral">Điền tất cả kỳ</p>
+                      <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                         <input
                           aria-label="Điền tất cả kỳ"
                           type="text"
                           inputMode="decimal"
-                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-right text-sm font-medium text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 md:max-w-xs"
+                          className="h-8 px-3 rounded border border-slate-300 text-right text-xs font-medium text-on-surface outline-none transition focus:ring-1 focus:ring-primary/30 focus:border-primary sm:max-w-xs"
                           placeholder="Ví dụ: 1.234.567,89"
                           value={quickFillDraft}
                           onChange={(event) => setQuickFillDraft(sanitizeVietnameseCurrencyDraft(event.target.value))}
@@ -730,13 +750,13 @@ export function RevenueBulkTargetModal({
                         <button
                           type="button"
                           onClick={handleApplyAllPeriods}
-                          className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                         >
                           Áp dụng
                         </button>
-                        <div className="text-xs text-slate-500">
-                          Nhập theo chuẩn <span className="font-semibold text-slate-700">1.234.567,89</span>
-                        </div>
+                        <span className="text-[11px] text-slate-400">
+                          Chuẩn: <span className="font-semibold text-on-surface-variant">1.234.567,89</span>
+                        </span>
                       </div>
                     </div>
 
@@ -745,48 +765,49 @@ export function RevenueBulkTargetModal({
                         type="button"
                         disabled={isSuggestLoading}
                         onClick={() => void handleSuggestAll()}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-amber-200 bg-amber-50 text-tertiary hover:bg-amber-100 disabled:opacity-50"
                       >
-                        <span className="material-symbols-outlined text-[18px]">lightbulb</span>
+                        <span className="material-symbols-outlined text-tertiary" style={{ fontSize: 15 }}>lightbulb</span>
                         {isSuggestLoading ? 'Đang tải dữ liệu...' : 'Đề xuất từ dữ liệu'}
                       </button>
                       <button
                         type="button"
                         disabled={suggestions.length === 0}
                         onClick={handleApplyAllSuggestions}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-900 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-secondary/30 bg-secondary/10 text-deep-teal hover:bg-secondary/20 disabled:opacity-50"
                       >
-                        <span className="material-symbols-outlined text-[18px]">playlist_add_check</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>playlist_add_check</span>
                         Áp dụng tất cả gợi ý
                       </button>
                       <button
                         type="button"
                         onClick={handleClearAll}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                       >
-                        <span className="material-symbols-outlined text-[18px]">ink_eraser</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>ink_eraser</span>
                         Xóa trắng
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <div className="mt-2 rounded border border-dashed border-slate-200 bg-surface-low px-3 py-2 text-xs text-slate-500">
                     {confirmedSelectionSummary ? (
                       <span>
-                        Nguồn đã xác nhận: <span className="font-semibold text-slate-800">{confirmedSelectionSummary.projectCount}</span> dự án,
+                        Nguồn đã xác nhận: <span className="font-semibold text-on-surface">{confirmedSelectionSummary.projectCount}</span> dự án,
                         {' '}
-                        <span className="font-semibold text-slate-800">{confirmedSelectionSummary.contractCount}</span> dòng hợp đồng,
+                        <span className="font-semibold text-on-surface">{confirmedSelectionSummary.contractCount}</span> dòng hợp đồng,
                         {' '}
-                        tổng <span className="font-semibold text-slate-800">{formatVietnameseCurrencyValue(confirmedSelectionSummary.total)}</span>.
+                        tổng <span className="font-semibold text-on-surface">{formatVietnameseCurrencyValue(confirmedSelectionSummary.total)}</span>.
                       </span>
                     ) : (
                       <span>
-                        Chưa có bộ gợi ý nào được xác nhận. Bấm <span className="font-semibold text-slate-800">Đề xuất từ dữ liệu</span> để kiểm tra nguồn trước khi điền.
+                        Chưa có bộ gợi ý nào được xác nhận. Bấm <span className="font-semibold text-on-surface">Đề xuất từ dữ liệu</span> để kiểm tra nguồn trước khi điền.
                       </span>
                     )}
                   </div>
                 </section>
 
+                {/* Summary cards */}
                 <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                   <SummaryCard
                     label="Tổng kế hoạch nhập"
@@ -808,33 +829,34 @@ export function RevenueBulkTargetModal({
                   />
                 </section>
 
-                <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
-                  <div className="border-b border-slate-200 px-5 py-4">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                {/* Data entry table */}
+                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <h3 className="text-base font-semibold text-slate-900">Bảng nhập kế hoạch</h3>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <h3 className="text-xs font-bold text-slate-700">Bảng nhập kế hoạch</h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
                           Dùng Enter để nhảy sang kỳ kế tiếp. Bạn cũng có thể dán nhiều dòng số liên tiếp từ Excel vào cột kế hoạch.
                         </p>
                       </div>
-                      <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                        Định dạng tiền: 1.234.567,89
-                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500 shrink-0">
+                        Định dạng: 1.234.567,89
+                      </span>
                     </div>
                   </div>
 
-                  <div className="max-h-[430px] overflow-auto">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <div className="max-h-[360px] overflow-auto">
+                    <table className="min-w-full divide-y divide-slate-100 text-xs">
                       <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
-                        <tr className="text-left text-slate-500">
-                          <th className="px-5 py-3 font-medium">Kỳ</th>
-                          <th className="px-5 py-3 font-medium">Số tiền kế hoạch (VND)</th>
-                          <th className="px-5 py-3 font-medium text-right">Gợi ý</th>
-                          <th className="px-5 py-3 font-medium text-right">Chênh lệch</th>
-                          <th className="px-5 py-3 font-medium">Trạng thái</th>
+                        <tr className="text-left">
+                          <th className="px-4 py-2 text-[11px] font-semibold text-neutral">Kỳ</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-neutral">Số tiền kế hoạch (VND)</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-neutral text-right">Gợi ý</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-neutral text-right">Chênh lệch</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-neutral">Trạng thái</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200">
+                      <tbody className="divide-y divide-slate-100">
                         {periodRows.map((row, index) => {
                           const suggestion = suggestionMap.get(row.period_key);
                           const enteredAmount = parseVietnameseCurrencyInput(amounts[row.period_key] ?? '');
@@ -843,20 +865,20 @@ export function RevenueBulkTargetModal({
                           const hasSuggestion = Boolean(suggestion && suggestion.suggested_total > 0);
                           const status = !hasSuggestion
                             ? hasValue
-                              ? { label: 'Nhập tay', className: 'bg-slate-100 text-slate-700' }
-                              : { label: 'Trống', className: 'bg-slate-100 text-slate-500' }
+                              ? { label: 'Nhập tay', className: 'bg-slate-200 text-slate-500' }
+                              : { label: 'Trống', className: 'bg-slate-100 text-slate-400' }
                             : !hasValue
-                              ? { label: 'Có gợi ý', className: 'bg-amber-100 text-amber-800' }
+                              ? { label: 'Có gợi ý', className: 'bg-amber-100 text-amber-700' }
                               : rowDelta === 0
-                                ? { label: 'Khớp gợi ý', className: 'bg-emerald-100 text-emerald-800' }
+                                ? { label: 'Khớp gợi ý', className: 'bg-emerald-100 text-emerald-700' }
                                 : rowDelta > 0
-                                  ? { label: 'Tăng so với gợi ý', className: 'bg-sky-100 text-sky-800' }
-                                  : { label: 'Giảm so với gợi ý', className: 'bg-orange-100 text-orange-800' };
+                                  ? { label: 'Tăng so với gợi ý', className: 'bg-secondary/10 text-deep-teal' }
+                                  : { label: 'Giảm so với gợi ý', className: 'bg-tertiary-fixed text-tertiary' };
 
                           return (
-                            <tr key={row.period_key} className="bg-white transition hover:bg-slate-50/80">
-                              <td className="px-5 py-4 font-medium text-slate-800">{row.label}</td>
-                              <td className="px-5 py-4">
+                            <tr key={row.period_key} className="bg-surface-container-lowest transition hover:bg-surface-variant">
+                              <td className="px-4 py-2.5 text-xs font-medium text-on-surface">{row.label}</td>
+                              <td className="px-4 py-2.5">
                                 <input
                                   ref={(element) => {
                                     inputRefs.current[row.period_key] = element;
@@ -864,7 +886,7 @@ export function RevenueBulkTargetModal({
                                   aria-label={`Kế hoạch ${row.label}`}
                                   type="text"
                                   inputMode="decimal"
-                                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-right text-sm font-medium text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                                  className="w-full h-8 px-3 rounded border border-slate-300 text-right text-xs font-medium text-on-surface outline-none transition focus:ring-1 focus:ring-primary/30 focus:border-primary"
                                   placeholder="0"
                                   value={amounts[row.period_key] ?? ''}
                                   onChange={(event) => handleAmountChange(row.period_key, event.target.value)}
@@ -873,27 +895,27 @@ export function RevenueBulkTargetModal({
                                   onPaste={(event) => handleAmountPaste(index, event)}
                                 />
                               </td>
-                              <td className="px-5 py-4 text-right">
+                              <td className="px-4 py-2.5 text-right">
                                 {hasSuggestion ? (
                                   <button
                                     type="button"
-                                    className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
                                     title={`HĐ: ${formatCompactCurrencyVnd(suggestion?.contract_amount)} · Dự án: ${formatCompactCurrencyVnd(suggestion?.opportunity_amount)}`}
                                     onClick={() => handleAmountChange(row.period_key, formatVietnameseCurrencyInput(suggestion?.suggested_total ?? 0))}
                                   >
                                     {formatVietnameseCurrencyValue(suggestion?.suggested_total ?? 0)}
                                   </button>
                                 ) : (
-                                  <span className="text-xs text-slate-300">--</span>
+                                  <span className="text-[10px] text-slate-300">--</span>
                                 )}
                               </td>
-                              <td className={`px-5 py-4 text-right font-medium ${rowDelta === 0 ? 'text-slate-400' : rowDelta > 0 ? 'text-sky-700' : 'text-orange-700'}`}>
+                              <td className={`px-4 py-2.5 text-right text-xs font-medium ${rowDelta === 0 ? 'text-slate-400' : rowDelta > 0 ? 'text-success' : 'text-tertiary'}`}>
                                 {hasSuggestion
                                   ? formatSignedVietnameseCurrencyValue(rowDelta)
-                                  : <span className="text-xs text-slate-300">--</span>}
+                                  : <span className="text-[10px] text-slate-300">--</span>}
                               </td>
-                              <td className="px-5 py-4">
-                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.className}`}>
+                              <td className="px-4 py-2.5">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status.className}`}>
                                   {status.label}
                                 </span>
                               </td>
@@ -906,25 +928,26 @@ export function RevenueBulkTargetModal({
                 </section>
 
                 {error ? (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <div className="rounded border border-error/20 bg-error/5 px-3 py-2 text-xs text-error">
                     {error}
                   </div>
                 ) : null}
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 md:flex-row md:items-center md:justify-between md:px-8">
-              <p className="text-sm text-slate-500">
-                Hệ thống sẽ lưu kế hoạch cho <span className="font-semibold text-slate-800">{scopeLabel}</span> với chỉ tiêu
+            {/* Footer */}
+            <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 flex-shrink-0 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-500">
+                Hệ thống sẽ lưu kế hoạch cho <span className="font-semibold text-on-surface">{scopeLabel}</span> với chỉ tiêu
                 {' '}
-                <span className="font-semibold text-slate-800">{formatRevenueTargetTypeLabel(targetType)}</span>.
+                <span className="font-semibold text-on-surface">{formatRevenueTargetTypeLabel(targetType)}</span>.
               </p>
-              <div className="flex items-center justify-end gap-3">
+              <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Hủy
                 </button>
@@ -932,9 +955,10 @@ export function RevenueBulkTargetModal({
                   type="button"
                   onClick={() => void handleSubmit()}
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white shadow-sm hover:bg-deep-teal disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
                 >
-                  <span className="material-symbols-outlined text-[18px]">check</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check</span>
                   {isSubmitting ? 'Đang lưu...' : 'Lưu kế hoạch'}
                 </button>
               </div>

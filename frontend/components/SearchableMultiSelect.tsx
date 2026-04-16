@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { createPortal } from 'react-dom';
 
 export interface SearchableMultiSelectOption {
   value: string | number;
@@ -23,6 +24,9 @@ interface SearchableMultiSelectProps {
   searchPlaceholder?: string;
   noOptionsText?: string;
   showSelectedChips?: boolean;
+  selectedSummaryFormatter?: (selectedOptions: SearchableMultiSelectOption[]) => string;
+  usePortal?: boolean;
+  portalZIndex?: number;
 }
 
 const normalizeToken = (value: unknown): string =>
@@ -47,23 +51,100 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   searchPlaceholder = 'Tìm kiếm...',
   noOptionsText = 'Không tìm thấy kết quả',
   showSelectedChips = true,
+  selectedSummaryFormatter,
+  usePortal = true,
+  portalZIndex = 2000,
 }) {
+  const dropdownComfortHeight = 220;
+  const dropdownIdealHeight = 320;
+  const dropdownViewportPadding = 12;
+  const dropdownHeaderHeight = 56;
+  const dropdownMinOptionsHeight = 96;
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
+  const [portalStyle, setPortalStyle] = useState<React.CSSProperties>({});
+  const [optionsMaxHeight, setOptionsMaxHeight] = useState(240);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const optionsScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const canUsePortal = usePortal && typeof document !== 'undefined';
 
   const selectedSet = useMemo(() => new Set((values || []).map((item) => String(item))), [values]);
-  const selectedOptions = useMemo(
-    () => options.filter((option) => selectedSet.has(String(option.value))),
-    [options, selectedSet]
-  );
+  const selectedOptions = useMemo(() => {
+    const optionMap = new Map(options.map((option) => [String(option.value), option]));
+    return (values || [])
+      .map((item) => optionMap.get(String(item)))
+      .filter((option): option is SearchableMultiSelectOption => Boolean(option));
+  }, [options, values]);
+
+  const resolveDropdownPlacement = useCallback(() => {
+    if (!wrapperRef.current) {
+      return null;
+    }
+
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - dropdownViewportPadding);
+    const spaceAbove = Math.max(0, rect.top - dropdownViewportPadding);
+    const shouldOpenUp =
+      (spaceBelow < dropdownComfortHeight && spaceAbove > spaceBelow)
+      || (spaceBelow < dropdownHeaderHeight + dropdownMinOptionsHeight && spaceAbove > spaceBelow);
+    const nextDirection: 'up' | 'down' = shouldOpenUp ? 'up' : 'down';
+    const availableSpace = nextDirection === 'up' ? spaceAbove : spaceBelow;
+    const nextOptionsMaxHeight = Math.max(
+      dropdownMinOptionsHeight,
+      Math.min(dropdownIdealHeight - dropdownHeaderHeight, availableSpace - dropdownHeaderHeight)
+    );
+
+    return {
+      rect,
+      direction: nextDirection,
+      optionsHeight: nextOptionsMaxHeight,
+    };
+  }, [dropdownComfortHeight, dropdownHeaderHeight, dropdownIdealHeight, dropdownMinOptionsHeight, dropdownViewportPadding]);
+
+  const syncPortalPlacement = useCallback(() => {
+    if (!canUsePortal || !isOpen) {
+      return;
+    }
+
+    const placement = resolveDropdownPlacement();
+    if (!placement) {
+      return;
+    }
+
+    const { rect, direction, optionsHeight } = placement;
+    setOpenDirection(direction);
+    setOptionsMaxHeight(optionsHeight);
+
+    const viewportMaxWidth = Math.max(220, window.innerWidth - 16);
+    const width = Math.min(viewportMaxWidth, Math.max(rect.width, 280));
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const left = Math.min(Math.max(8, rect.left), maxLeft);
+
+    const nextStyle: React.CSSProperties = {
+      position: 'fixed',
+      left,
+      width,
+      zIndex: portalZIndex,
+    };
+
+    if (direction === 'up') {
+      nextStyle.bottom = window.innerHeight - rect.top + 6;
+    } else {
+      nextStyle.top = rect.bottom + 6;
+    }
+
+    setPortalStyle(nextStyle);
+  }, [canUsePortal, isOpen, portalZIndex, resolveDropdownPlacement]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedTrigger = wrapperRef.current?.contains(target);
+      const clickedDropdown = dropdownRef.current?.contains(target);
+      if (!clickedTrigger && !clickedDropdown) {
         setIsOpen(false);
       }
     };
@@ -76,18 +157,19 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
       return;
     }
 
-    const rect = wrapperRef.current.getBoundingClientRect();
-    const estimatedDropdownHeight = 320;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-
-    if (spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow) {
-      setOpenDirection('up');
+    if (canUsePortal) {
+      syncPortalPlacement();
       return;
     }
 
-    setOpenDirection('down');
-  }, [isOpen, options.length]);
+    const placement = resolveDropdownPlacement();
+    if (!placement) {
+      return;
+    }
+
+    setOpenDirection(placement.direction);
+    setOptionsMaxHeight(placement.optionsHeight);
+  }, [canUsePortal, isOpen, options.length, resolveDropdownPlacement, syncPortalPlacement]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -108,6 +190,23 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
 
     optionsScrollRef.current.scrollTop = 0;
   }, [isOpen, searchTerm]);
+
+  useEffect(() => {
+    if (!isOpen || !canUsePortal) {
+      return;
+    }
+
+    syncPortalPlacement();
+    const handleWindowUpdate = () => syncPortalPlacement();
+
+    window.addEventListener('scroll', handleWindowUpdate, true);
+    window.addEventListener('resize', handleWindowUpdate);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowUpdate, true);
+      window.removeEventListener('resize', handleWindowUpdate);
+    };
+  }, [canUsePortal, isOpen, options.length, searchTerm, syncPortalPlacement]);
 
   const filteredOptions = useMemo(() => {
     const keyword = normalizeToken(searchTerm);
@@ -144,7 +243,9 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   };
 
   const summaryText = selectedOptions.length
-    ? selectedOptions.length === 1
+    ? selectedSummaryFormatter
+      ? selectedSummaryFormatter(selectedOptions)
+      : selectedOptions.length === 1
       ? selectedOptions[0].label
       : `Đã chọn ${selectedOptions.length}`
     : placeholder;
@@ -192,11 +293,92 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
       ) : null}
 
       {isOpen ? (
-        <div
-          className={`absolute left-0 z-[120] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl ${
-            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
-          } ${dropdownClassName}`.trim()}
-        >
+        (canUsePortal ? createPortal(
+          <div
+            ref={dropdownRef}
+            style={portalStyle}
+            className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl ${dropdownClassName}`.trim()}
+          >
+            <div className="border-b border-slate-100 bg-slate-50 p-2">
+              <div className="relative">
+                <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  onClick={(event) => event.stopPropagation()}
+                />
+              </div>
+            </div>
+            <div ref={optionsScrollRef} className="overflow-y-auto p-1 custom-scrollbar" style={{ maxHeight: optionsMaxHeight }}>
+              {filteredOptions.length > 0 ? (
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    position: 'relative',
+                    width: '100%',
+                  }}
+                >
+                  {visibleRows.map((virtualRow) => {
+                    const option = filteredOptions[virtualRow.index];
+                    if (!option) {
+                      return null;
+                    }
+
+                    const optionValue = String(option.value);
+                    const isSelected = selectedSet.has(optionValue);
+
+                    return (
+                      <button
+                        key={optionValue}
+                        type="button"
+                        disabled={option.disabled}
+                        className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
+                          option.disabled
+                            ? 'cursor-not-allowed text-slate-300'
+                            : isSelected
+                            ? 'bg-primary/10 text-primary font-semibold'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                        onClick={() => {
+                          if (option.disabled) {
+                            return;
+                          }
+                          toggleOption(optionValue);
+                        }}
+                      >
+                        <span className="text-left">{option.label}</span>
+                        {isSelected ? <span aria-hidden="true" className="material-symbols-outlined text-sm">check</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
+                  <span aria-hidden="true" className="material-symbols-outlined text-2xl">search_off</span>
+                  <span>{noOptionsText}</span>
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        ) : (
+          <div
+            ref={dropdownRef}
+            className={`absolute left-0 z-[120] w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl ${
+              openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+            } ${dropdownClassName}`.trim()}
+          >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
               <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
@@ -211,7 +393,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
               />
             </div>
           </div>
-          <div ref={optionsScrollRef} className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
+          <div ref={optionsScrollRef} className="overflow-y-auto p-1 custom-scrollbar" style={{ maxHeight: optionsMaxHeight }}>
             {filteredOptions.length > 0 ? (
               <div
                 style={{
@@ -268,7 +450,8 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
               </div>
             )}
           </div>
-        </div>
+          </div>
+        ))
       ) : null}
 
       {error ? <p className="mt-1 text-xs text-red-500">{error}</p> : null}

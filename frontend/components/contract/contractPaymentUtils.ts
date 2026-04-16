@@ -1,4 +1,5 @@
 import type {
+  ContractCycleDraftInstallmentInput,
   ContractMilestoneInstallmentInput,
   ContractPaymentAllocationMode,
 } from '../../services/api/contractApi';
@@ -23,6 +24,10 @@ export interface MilestonePreviewRow {
   expectedDate: string;
   expectedAmount: number;
   tone: MilestonePreviewTone;
+}
+
+export interface CycleDraftInstallmentDraft extends Omit<ContractCycleDraftInstallmentInput, 'expected_amount'> {
+  expected_amount: string;
 }
 
 export const todayIsoDate = (): string => new Date().toISOString().slice(0, 10);
@@ -158,6 +163,143 @@ export const resolveContractGenerationStartIso = (source: Partial<Contract>): st
 
   return null;
 };
+
+const addUtcMonthsNoOverflow = (value: Date, months: number): Date => {
+  const targetMonthStart = new Date(Date.UTC(
+    value.getUTCFullYear(),
+    value.getUTCMonth() + months,
+    1
+  ));
+  const lastDayOfTargetMonth = new Date(Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth() + 1,
+    0
+  )).getUTCDate();
+
+  return new Date(Date.UTC(
+    targetMonthStart.getUTCFullYear(),
+    targetMonthStart.getUTCMonth(),
+    Math.min(value.getUTCDate(), lastDayOfTargetMonth)
+  ));
+};
+
+export const buildAllocatedExpectedAmounts = (totalAmount: number, cycleCount: number): number[] => {
+  const safeTotal = roundMoney(Math.max(0, totalAmount));
+  const safeCount = Math.max(1, Math.round(cycleCount || 1));
+
+  if (safeCount === 1) {
+    return [safeTotal];
+  }
+
+  const amounts: number[] = [];
+  const baseAmount = roundMoney(safeTotal / safeCount);
+
+  for (let index = 1; index <= safeCount; index += 1) {
+    if (index === safeCount) {
+      amounts.push(roundMoney(Math.max(0, safeTotal - (baseAmount * Math.max(0, safeCount - 1)))));
+      continue;
+    }
+
+    amounts.push(baseAmount);
+  }
+
+  const diff = roundMoney(safeTotal - roundMoney(amounts.reduce((sum, amount) => sum + amount, 0)));
+  if (Math.abs(diff) >= 0.01 && amounts.length > 0) {
+    amounts[amounts.length - 1] = roundMoney(Math.max(0, amounts[amounts.length - 1] + diff));
+  }
+
+  return amounts.map((amount) => roundMoney(Math.max(0, amount)));
+};
+
+export const buildExpectedPaymentDatesForCycle = (
+  cycle: string,
+  startIso: string,
+  endIso?: string | null
+): string[] => {
+  const start = parseIsoDate(startIso);
+  if (!start) {
+    return [startIso];
+  }
+
+  const intervalMonths = (() => {
+    const normalizedCycle = String(cycle || '').trim().toUpperCase();
+    if (normalizedCycle === 'MONTHLY') return 1;
+    if (normalizedCycle === 'QUARTERLY') return 3;
+    if (normalizedCycle === 'HALF_YEARLY') return 6;
+    if (normalizedCycle === 'YEARLY') return 12;
+    return null;
+  })();
+
+  if (intervalMonths === null) {
+    return [toIsoDate(start)];
+  }
+
+  const end = parseIsoDate(endIso);
+  if (!end || end.getTime() < start.getTime()) {
+    return [toIsoDate(start)];
+  }
+
+  const dates: string[] = [];
+  let safetyCounter = 0;
+
+  while (safetyCounter < 1200) {
+    const currentDate = addUtcMonthsNoOverflow(start, intervalMonths * safetyCounter);
+    if (currentDate.getTime() > end.getTime()) {
+      break;
+    }
+
+    dates.push(toIsoDate(currentDate));
+    safetyCounter += 1;
+  }
+
+  return dates.length > 0 ? dates : [toIsoDate(start)];
+};
+
+export const buildPaymentMilestoneName = (
+  cycle: string,
+  cycleNumber: number,
+  investmentModeCode?: string | null
+): string => {
+  const normalizedInvestmentMode = String(investmentModeCode || '').trim().toUpperCase();
+  const prefix = normalizedInvestmentMode === 'THUE_DICH_VU_DACTHU'
+    || normalizedInvestmentMode === 'THUE_DICH_VU_COSAN'
+    ? 'Phí dịch vụ kỳ'
+    : 'Thanh toán kỳ';
+
+  const normalizedCycle = String(cycle || '').trim().toUpperCase();
+  if (normalizedCycle === 'ONCE') return 'Thanh toán một lần';
+  if (normalizedCycle === 'MONTHLY') return `${prefix} ${cycleNumber} (tháng)`;
+  if (normalizedCycle === 'QUARTERLY') return `${prefix} ${cycleNumber} (quý)`;
+  if (normalizedCycle === 'HALF_YEARLY') return `${prefix} ${cycleNumber} (6 tháng)`;
+  if (normalizedCycle === 'YEARLY') return `${prefix} ${cycleNumber} (năm)`;
+  return `${prefix} ${cycleNumber}`;
+};
+
+export const buildCyclePreviewRows = (
+  totalAmount: number,
+  cycle: string,
+  startIso: string,
+  endIso: string | null,
+  investmentModeCode?: string | null
+): MilestonePreviewRow[] => {
+  const expectedDates = buildExpectedPaymentDatesForCycle(cycle, startIso, endIso);
+  const expectedAmounts = buildAllocatedExpectedAmounts(totalAmount, expectedDates.length);
+
+  return expectedDates.map((expectedDate, index) => ({
+    milestoneName: buildPaymentMilestoneName(cycle, index + 1, investmentModeCode),
+    expectedDate,
+    expectedAmount: roundMoney(expectedAmounts[index] || 0),
+    tone: 'INSTALLMENT',
+  }));
+};
+
+export const buildCycleDraftInstallments = (
+  rows: MilestonePreviewRow[]
+): CycleDraftInstallmentDraft[] => rows.map((row) => ({
+  label: String(row.milestoneName || '').trim(),
+  expected_date: String(row.expectedDate || '').trim(),
+  expected_amount: formatPercentageString(roundMoney(row.expectedAmount)),
+}));
 
 const buildMilestoneInstallmentPreviewDates = (
   startIso: string,

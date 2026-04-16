@@ -27,7 +27,6 @@ class V5DomainSupportService
     private const SOLUTION_SUMMARY_TEAM_CODE = 'TTH';
     private const SOLUTION_CENTER_CODE_TOKENS = ['TTKDGIAIPHAP', 'TTKDGP', 'TTGP'];
     private const SOLUTION_CENTER_NAME_TOKEN = 'trungtamkinhdoanhgiaiphap';
-
     public function __construct(
         private readonly SchemaCapabilityService $schema,
         private readonly QueryRequestSupport $querySupport,
@@ -36,7 +35,6 @@ class V5DomainSupportService
         private readonly OwnershipResolver $ownershipResolver,
         private readonly LifecycleSupport $lifecycleSupport,
     ) {}
-
     public function missingTable(string $table): JsonResponse
     {
         return response()->json([
@@ -44,12 +42,10 @@ class V5DomainSupportService
             'data' => [],
         ], 503);
     }
-
     public function hasTable(string $table): bool
     {
         return $this->schema->hasTable($table);
     }
-
     public function hasColumn(string $table, string $column): bool
     {
         return $this->schema->hasColumn($table, $column);
@@ -63,12 +59,10 @@ class V5DomainSupportService
     {
         return $this->schema->selectColumns($table, $columns);
     }
-
     public function shouldPaginate(Request $request): bool
     {
         return $this->querySupport->shouldPaginate($request);
     }
-
     public function shouldUseSimplePagination(Request $request): bool
     {
         return $this->querySupport->shouldUseSimplePagination($request);
@@ -97,7 +91,6 @@ class V5DomainSupportService
     {
         return $this->querySupport->buildSimplePaginationMeta($page, $perPage, $currentItemCount, $hasMorePages);
     }
-
     public function resolveSortDirection(Request $request): string
     {
         return $this->querySupport->resolveSortDirection($request);
@@ -110,27 +103,22 @@ class V5DomainSupportService
     {
         return $this->querySupport->resolveSortColumn($request, $allowed, $fallback);
     }
-
     public function readFilterParam(Request $request, string $key, mixed $default = null): mixed
     {
         return $this->querySupport->readFilterParam($request, $key, $default);
     }
-
     public function parseNullableInt(mixed $value): ?int
     {
         return $this->payloadSupport->parseNullableInt($value);
     }
-
     public function normalizeNullableString(mixed $value): ?string
     {
         return $this->payloadSupport->normalizeNullableString($value);
     }
-
     public function resolveContractExpiryWarningDays(): int
     {
         return $this->settingsResolver->resolveContractExpiryWarningDays();
     }
-
     public function resolveContractPaymentWarningDays(): int
     {
         return $this->settingsResolver->resolveContractPaymentWarningDays();
@@ -144,7 +132,6 @@ class V5DomainSupportService
     {
         return $this->payloadSupport->filterPayloadByTableColumns($table, $payload);
     }
-
     public function setAttributeIfColumn(Model $model, string $table, string $column, mixed $value): void
     {
         $this->payloadSupport->setAttributeIfColumn($model, $table, $column, $value);
@@ -166,7 +153,6 @@ class V5DomainSupportService
     {
         return $this->payloadSupport->firstNonEmpty($data, $keys, $default);
     }
-
     public function canonicalDepartmentCode(string $deptCode): string
     {
         $trimmed = trim($deptCode);
@@ -176,7 +162,6 @@ class V5DomainSupportService
 
         return $trimmed;
     }
-
     public function isRootDepartmentCode(string $deptCode): bool
     {
         $normalized = function_exists('mb_strtoupper')
@@ -185,6 +170,50 @@ class V5DomainSupportService
         $normalized = str_replace([' ', '-', '_'], '', $normalized);
 
         return in_array($normalized, [self::ROOT_DEPARTMENT_CODE, 'BGDVT'], true);
+    }
+
+    /**
+     * @return array{id:int,dept_code:?string,dept_name:?string}|null
+     */
+    public function resolveOwnershipDepartmentById(?int $departmentId): ?array
+    {
+        if ($departmentId === null || ! $this->hasTable('departments')) {
+            return null;
+        }
+
+        $department = Department::query()
+            ->select(['id', 'dept_code', 'dept_name', 'parent_id'])
+            ->when(
+                $this->hasColumn('departments', 'deleted_at'),
+                fn ($query) => $query->whereNull('deleted_at')
+            )
+            ->find($departmentId);
+
+        if (! $department instanceof Department) {
+            return null;
+        }
+
+        $ownershipDepartment = $department;
+        $parentDepartmentId = $this->parseNullableInt($department->parent_id);
+        if ($parentDepartmentId !== null) {
+            $parentDepartment = Department::query()
+                ->select(['id', 'dept_code', 'dept_name', 'parent_id'])
+                ->when(
+                    $this->hasColumn('departments', 'deleted_at'),
+                    fn ($query) => $query->whereNull('deleted_at')
+                )
+                ->find($parentDepartmentId);
+
+            if ($this->isSolutionCenterDepartment($parentDepartment)) {
+                $ownershipDepartment = $parentDepartment;
+            }
+        }
+
+        return [
+            'id' => (int) $ownershipDepartment->id,
+            'dept_code' => $this->normalizeNullableString($ownershipDepartment->dept_code),
+            'dept_name' => $this->normalizeNullableString($ownershipDepartment->dept_name),
+        ];
     }
 
     /**
@@ -265,7 +294,6 @@ class V5DomainSupportService
 
         return [$parentId, null];
     }
-
     public function buildDeptPath(Department $department): string
     {
         if (! $department->parent_id) {
@@ -277,67 +305,54 @@ class V5DomainSupportService
 
         return rtrim($parentPath, '/').'/'.$department->id.'/';
     }
-
     public function resolveEmployeeTable(): ?string
     {
         return $this->ownershipResolver->resolveEmployeeTable();
     }
-
     public function resolveEmployeeDepartmentColumn(?string $employeeTable): ?string
     {
         return $this->ownershipResolver->resolveEmployeeDepartmentColumn($employeeTable);
     }
-
     public function countEmployeesByDepartment(int $departmentId, string $employeeTable, string $departmentColumn): int
     {
         return $this->ownershipResolver->countEmployeesByDepartment($departmentId, $employeeTable, $departmentColumn);
     }
-
     public function isProjectDateRangeInvalid(?string $startDate, ?string $endDate): bool
     {
         return $this->lifecycleSupport->isProjectDateRangeInvalid($startDate, $endDate);
     }
-
     public function normalizePaymentCycle(string $cycle): string
     {
         return $this->lifecycleSupport->normalizePaymentCycle($cycle);
     }
-
     public function toProjectStorageStatus(string $status): string
     {
         return $this->lifecycleSupport->toProjectStorageStatus($status);
     }
-
     public function fromProjectStorageStatus(string $status): string
     {
         return $this->lifecycleSupport->fromProjectStorageStatus($status);
     }
-
     public function toContractStorageStatus(string $status): string
     {
         return $this->lifecycleSupport->toContractStorageStatus($status);
     }
-
     public function fromContractStorageStatus(string $status): string
     {
         return $this->lifecycleSupport->fromContractStorageStatus($status);
     }
-
     public function toOpportunityStorageStage(string $stage): string
     {
         return $this->lifecycleSupport->toOpportunityStorageStage($stage);
     }
-
     public function fromOpportunityStorageStage(string $stage): string
     {
         return $this->lifecycleSupport->fromOpportunityStorageStage($stage);
     }
-
     public function sanitizeOpportunityStageCode(string $stageCode): string
     {
         return $this->lifecycleSupport->sanitizeOpportunityStageCode($stageCode);
     }
-
     public function normalizeOpportunityStage(string $stage, bool $includeInactive = false): ?string
     {
         return $this->lifecycleSupport->normalizeOpportunityStage($stage, $includeInactive);
@@ -350,12 +365,10 @@ class V5DomainSupportService
     {
         return $this->lifecycleSupport->opportunityStageDefinitions($includeInactive);
     }
-
     public function resolveDefaultOwnerId(): ?int
     {
         return $this->ownershipResolver->resolveDefaultOwnerId();
     }
-
     public function ownerExists(int $ownerId): bool
     {
         return $this->ownershipResolver->ownerExists($ownerId);
@@ -369,12 +382,10 @@ class V5DomainSupportService
     {
         return $this->ownershipResolver->extractIntFromRecord($record, $keys);
     }
-
     public function resolveOpportunityDepartmentIdById(?int $opportunityId): ?int
     {
         return $this->ownershipResolver->resolveOpportunityDepartmentIdById($opportunityId);
     }
-
     public function resolveProjectDepartmentIdById(?int $projectId): ?int
     {
         return $this->ownershipResolver->resolveProjectDepartmentIdById($projectId);
@@ -470,7 +481,13 @@ class V5DomainSupportService
      */
     public function serializeProject(Project $project): array
     {
-        $project->loadMissing(['customer' => fn ($query) => $query->select($this->customerRelationColumns())]);
+        $relations = [
+            'customer' => fn ($query) => $query->select($this->customerRelationColumns()),
+        ];
+        if ($this->hasTable('project_implementation_units')) {
+            $relations['implementationUnit'] = fn ($query) => $query;
+        }
+        $project->loadMissing($relations);
         $data = $project->toArray();
 
         $data['status'] = $this->fromProjectStorageStatus((string) ($data['status'] ?? 'TRIAL'));
@@ -479,6 +496,31 @@ class V5DomainSupportService
         if (isset($data['customer']) && is_array($data['customer'])) {
             $data['customer']['customer_name'] = (string) $this->firstNonEmpty($data['customer'], ['customer_name', 'company_name'], '');
         }
+
+        // Flatten department info for frontend convenience
+        if (isset($data['department']) && is_array($data['department'])) {
+            $data['department_name'] = (string) $this->firstNonEmpty($data['department'], ['department_name', 'dept_name'], '');
+            $data['department_code'] = (string) $this->firstNonEmpty($data['department'], ['department_code', 'dept_code'], '');
+        } else {
+            $data['department_name'] = $data['department_name'] ?? null;
+            $data['department_code'] = $data['department_code'] ?? null;
+        }
+        unset($data['department']);
+
+        if (isset($data['implementation_unit']) && is_array($data['implementation_unit'])) {
+            $data['implementation_user_id'] = $this->parseNullableInt($data['implementation_unit']['implementation_user_id'] ?? null);
+            $data['implementation_user_code'] = $this->normalizeNullableString($data['implementation_unit']['implementation_user_code'] ?? null);
+            $data['implementation_full_name'] = $this->normalizeNullableString($data['implementation_unit']['implementation_full_name'] ?? null);
+            $data['implementation_unit_code'] = $this->normalizeNullableString($data['implementation_unit']['implementation_unit_code'] ?? null);
+            $data['implementation_unit_name'] = $this->normalizeNullableString($data['implementation_unit']['implementation_unit_name'] ?? null);
+        } else {
+            $data['implementation_user_id'] = $data['implementation_user_id'] ?? null;
+            $data['implementation_user_code'] = $data['implementation_user_code'] ?? null;
+            $data['implementation_full_name'] = $data['implementation_full_name'] ?? null;
+            $data['implementation_unit_code'] = $data['implementation_unit_code'] ?? null;
+            $data['implementation_unit_name'] = $data['implementation_unit_name'] ?? null;
+        }
+        unset($data['implementation_unit']);
 
         return $data;
     }
@@ -501,14 +543,21 @@ class V5DomainSupportService
         $items = $this->fetchProjectItemsByProjectIds([$projectId]);
         $data['items'] = collect($items)
             ->map(function (array $item): array {
+                $productId = $this->parseNullableInt($item['product_id'] ?? null);
+                $productPackageId = $this->parseNullableInt($item['product_package_id'] ?? null);
                 $quantity = (float) ($item['quantity'] ?? 0);
                 $unitPrice = (float) ($item['unit_price'] ?? 0);
                 $lineTotal = round($quantity * $unitPrice, 2);
+                $productCode = $this->normalizeNullableString($item['product_code'] ?? null);
+                $productName = $this->normalizeNullableString($item['product_name'] ?? null);
+                $unit = $this->normalizeNullableString($item['unit'] ?? null);
 
                 return [
                     'id' => (string) ($item['id'] ?? uniqid('ITEM_', true)),
-                    'productId' => (string) ($item['product_id'] ?? ''),
-                    'product_id' => $item['product_id'] ?? null,
+                    'productId' => $productId !== null ? (string) $productId : '',
+                    'product_id' => $productId,
+                    'productPackageId' => $productPackageId !== null ? (string) $productPackageId : null,
+                    'product_package_id' => $productPackageId,
                     'quantity' => $quantity,
                     'unitPrice' => $unitPrice,
                     'unit_price' => $unitPrice,
@@ -516,8 +565,9 @@ class V5DomainSupportService
                     'discountAmount' => 0,
                     'lineTotal' => $lineTotal,
                     'line_total' => $lineTotal,
-                    'product_code' => $item['product_code'] ?? null,
-                    'product_name' => $item['product_name'] ?? null,
+                    'product_code' => $productCode,
+                    'product_name' => $productName,
+                    'unit' => $unit,
                 ];
             })
             ->values()
@@ -825,18 +875,32 @@ class V5DomainSupportService
 
         if ($contract->relationLoaded('items')) {
             $data['items'] = $contract->items
-                ->map(fn ($item): array => [
-                    'id' => $item->id,
-                    'contract_id' => $item->contract_id,
-                    'product_id' => $item->product_id,
-                    'product_code' => $item->product?->product_code,
-                    'product_name' => $item->product?->product_name,
-                    'unit' => $item->product?->unit,
-                    'quantity' => (float) $item->quantity,
-                    'unit_price' => (float) $item->unit_price,
-                    'vat_rate' => $item->vat_rate !== null ? (float) $item->vat_rate : null,
-                    'vat_amount' => $item->vat_amount !== null ? (float) $item->vat_amount : null,
-                ])
+                ->map(function ($item): array {
+                    $productPackageId = $this->hasColumn('contract_items', 'product_package_id')
+                        ? $this->parseNullableInt($item->getAttribute('product_package_id'))
+                        : null;
+                    $snapshotProductName = $this->hasColumn('contract_items', 'product_name')
+                        ? $this->normalizeNullableString($item->getAttribute('product_name'))
+                        : null;
+                    $snapshotUnit = $this->hasColumn('contract_items', 'unit')
+                        ? $this->normalizeNullableString($item->getAttribute('unit'))
+                        : null;
+
+                    return [
+                        'id' => $item->id,
+                        'contract_id' => $item->contract_id,
+                        'product_id' => $item->product_id,
+                        'productPackageId' => $productPackageId !== null ? (string) $productPackageId : null,
+                        'product_package_id' => $productPackageId,
+                        'product_code' => $item->productPackage?->package_code ?? $item->product?->product_code,
+                        'product_name' => $snapshotProductName ?? $item->productPackage?->package_name ?? $item->productPackage?->product_name ?? $item->product?->product_name,
+                        'unit' => $snapshotUnit ?? $item->productPackage?->unit ?? $item->product?->unit,
+                        'quantity' => (float) $item->quantity,
+                        'unit_price' => (float) $item->unit_price,
+                        'vat_rate' => $item->vat_rate !== null ? (float) $item->vat_rate : null,
+                        'vat_amount' => $item->vat_amount !== null ? (float) $item->vat_amount : null,
+                    ];
+                })
                 ->values()
                 ->all();
 
@@ -918,12 +982,23 @@ class V5DomainSupportService
             $query->whereNull('pi.deleted_at');
         }
 
+        $hasProductPackages = $this->hasTable('product_packages')
+            && $this->hasColumn('project_items', 'product_package_id');
+        if ($hasProductPackages) {
+            $query->leftJoin('product_packages as pp', 'pi.product_package_id', '=', 'pp.id');
+        }
+
         $hasProducts = $this->hasTable('products');
         if ($hasProducts) {
             $query->leftJoin('products as pr', 'pi.product_id', '=', 'pr.id');
         }
 
         $selects = ['pi.project_id as project_id', 'pi.product_id as product_id'];
+        if ($this->hasColumn('project_items', 'product_package_id')) {
+            $selects[] = 'pi.product_package_id as product_package_id';
+        } else {
+            $selects[] = DB::raw('NULL as product_package_id');
+        }
         if ($this->hasColumn('project_items', 'id')) {
             $selects[] = 'pi.id as id';
         } else {
@@ -938,6 +1013,21 @@ class V5DomainSupportService
             $selects[] = 'pi.unit_price as unit_price';
         } else {
             $selects[] = DB::raw('0 as unit_price');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'package_code')) {
+            $selects[] = 'pp.package_code as package_code';
+        } else {
+            $selects[] = DB::raw('NULL as package_code');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'package_name')) {
+            $selects[] = 'pp.package_name as package_name';
+        } else {
+            $selects[] = DB::raw('NULL as package_name');
+        }
+        if ($hasProductPackages && $this->hasColumn('product_packages', 'unit')) {
+            $selects[] = 'pp.unit as package_unit';
+        } else {
+            $selects[] = DB::raw('NULL as package_unit');
         }
         if ($hasProducts && $this->hasColumn('products', 'product_code')) {
             $selects[] = 'pr.product_code as product_code';
@@ -973,17 +1063,17 @@ class V5DomainSupportService
                     'id' => $this->parseNullableInt($row['id'] ?? null),
                     'project_id' => $this->parseNullableInt($row['project_id'] ?? null),
                     'product_id' => $this->parseNullableInt($row['product_id'] ?? null),
+                    'product_package_id' => $this->parseNullableInt($row['product_package_id'] ?? null),
                     'quantity' => is_numeric($row['quantity'] ?? null) ? (float) $row['quantity'] : 0.0,
                     'unit_price' => is_numeric($row['unit_price'] ?? null) ? (float) $row['unit_price'] : 0.0,
-                    'product_code' => $this->normalizeNullableString($row['product_code'] ?? null),
-                    'product_name' => $this->normalizeNullableString($row['product_name'] ?? null),
-                    'unit' => $this->normalizeNullableString($row['unit'] ?? null),
+                    'product_code' => $this->normalizeNullableString($row['package_code'] ?? $row['product_code'] ?? null),
+                    'product_name' => $this->normalizeNullableString($row['package_name'] ?? $row['product_name'] ?? null),
+                    'unit' => $this->normalizeNullableString($row['package_unit'] ?? $row['unit'] ?? null),
                 ];
             })
             ->values()
             ->all();
     }
-
     private function normalizeDatePortion(mixed $value): ?string
     {
         $normalized = $this->normalizeNullableString($value);
@@ -1002,7 +1092,6 @@ class V5DomainSupportService
 
         return date('Y-m-d', $timestamp);
     }
-
     private function resolveRootDepartment(?int $excludeDepartmentId = null): ?Department
     {
         $departments = Department::query()
@@ -1019,7 +1108,6 @@ class V5DomainSupportService
 
         return null;
     }
-
     private function resolveSolutionCenterDepartment(?int $excludeDepartmentId = null): ?Department
     {
         $departments = Department::query()
@@ -1044,7 +1132,20 @@ class V5DomainSupportService
 
         return null;
     }
+    private function isSolutionCenterDepartment(?Department $department): bool
+    {
+        if (! $department instanceof Department) {
+            return false;
+        }
 
+        $codeToken = $this->normalizeDepartmentCodeToken((string) $department->dept_code);
+        if (in_array($codeToken, self::SOLUTION_CENTER_CODE_TOKENS, true)) {
+            return true;
+        }
+
+        $nameToken = $this->normalizeDepartmentNameToken((string) ($department->dept_name ?? ''));
+        return str_contains($nameToken, self::SOLUTION_CENTER_NAME_TOKEN);
+    }
     private function isSolutionDepartmentCode(string $deptCode): bool
     {
         $token = $this->normalizeDepartmentCodeToken($deptCode);
@@ -1054,12 +1155,10 @@ class V5DomainSupportService
 
         return str_starts_with($token, self::SOLUTION_DEPARTMENT_CODE_PREFIX);
     }
-
     private function isSolutionSummaryTeamCode(string $deptCode): bool
     {
         return $this->normalizeDepartmentCodeToken($deptCode) === self::SOLUTION_SUMMARY_TEAM_CODE;
     }
-
     private function normalizeDepartmentCodeToken(string $deptCode): string
     {
         $normalized = function_exists('mb_strtoupper')
@@ -1068,7 +1167,6 @@ class V5DomainSupportService
 
         return preg_replace('/[\s\-_]+/u', '', $normalized) ?? '';
     }
-
     private function normalizeDepartmentNameToken(string $deptName): string
     {
         $ascii = Str::ascii($deptName);
@@ -1076,7 +1174,6 @@ class V5DomainSupportService
 
         return preg_replace('/[^a-z0-9]+/', '', $normalized) ?? '';
     }
-
     private function resolveDepartmentLevelById(int $departmentId): ?int
     {
         $department = Department::query()
@@ -1114,7 +1211,6 @@ class V5DomainSupportService
 
         return $level;
     }
-
     private function isDescendantDepartment(int $candidateParentId, int $departmentId): bool
     {
         $cursorId = $candidateParentId;
@@ -1141,7 +1237,6 @@ class V5DomainSupportService
 
         return false;
     }
-
     private function resolveDepartmentSubtreeMaxDepth(int $departmentId): int
     {
         $rows = Department::query()

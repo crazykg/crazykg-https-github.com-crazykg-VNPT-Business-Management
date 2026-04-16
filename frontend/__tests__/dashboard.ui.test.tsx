@@ -1,8 +1,14 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { Dashboard } from '../components/Dashboard';
 import type { DashboardStats } from '../types/dashboard';
+
+const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../services/api/projectApi', () => ({
+  fetchProcedureTemplates: fetchProcedureTemplatesMock,
+}));
 
 const stats: DashboardStats = {
   totalRevenue: 85000000,
@@ -37,7 +43,46 @@ const stats: DashboardStats = {
 };
 
 describe('Dashboard UI', () => {
+  it('loads project progress phases from the latest template configuration', async () => {
+    fetchProcedureTemplatesMock.mockResolvedValue([
+      {
+        id: 1,
+        template_code: 'DAU_TU',
+        template_name: 'Đầu tư',
+        is_active: true,
+        phases: ['CHUAN_BI', 'PHE_DUYET_DU_AN', 'THUC_HIEN_DAU_TU'],
+      },
+    ]);
+
+    render(
+      <Dashboard
+        contracts={[]}
+        paymentSchedules={[]}
+        projects={[
+          {
+            id: 1,
+            project_code: 'DA001',
+            project_name: 'Dự án theo cấu hình mới',
+            customer_id: null,
+            status: 'CHUAN_BI',
+          },
+        ]}
+        customers={[]}
+        departments={[]}
+        employees={[]}
+      />
+    );
+
+    await waitFor(() => expect(fetchProcedureTemplatesMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Chuẩn bị')).toBeInTheDocument();
+    expect(screen.getByText('PHE_DUYET_DU_AN')).toBeInTheDocument();
+    expect(screen.getByText('Thực hiện đầu tư')).toBeInTheDocument();
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+  });
+
   it('renders KPI cards and overview sections from the dashboard module', () => {
+    fetchProcedureTemplatesMock.mockResolvedValue([]);
+
     render(<Dashboard stats={stats} />);
 
     expect(screen.getByRole('heading', { name: 'Bảng điều khiển KPI chiến lược' })).toBeInTheDocument();
@@ -45,9 +90,9 @@ describe('Dashboard UI', () => {
     expect(screen.getByText(/25\.000\.000\s*đ/)).toBeInTheDocument();
     expect(screen.getByText('Forecast tháng hiện tại')).toBeInTheDocument();
     expect(screen.getByText(/15\.000\.000\s*đ/)).toBeInTheDocument();
-    expect(screen.getByText('Doanh thu thực tế vs Kế hoạch theo tháng')).toBeInTheDocument();
-    expect(screen.getByText('HĐ sắp hết hiệu lực')).toBeInTheDocument();
+    expect(screen.getByText('Doanh thu 6 tháng gần nhất')).toBeInTheDocument();
+    expect(screen.getByText('Hợp đồng sắp hết hiệu lực')).toBeInTheDocument();
     expect(screen.getByText('Bệnh viện Trung tâm')).toBeInTheDocument();
-    expect(screen.getByText('17 ngày')).toBeInTheDocument();
+    expect(screen.getByText('17d')).toBeInTheDocument();
   });
 });

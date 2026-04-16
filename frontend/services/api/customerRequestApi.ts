@@ -5,7 +5,7 @@ import type {
   PaginatedResult,
   PaginationMeta,
 } from '../../types/common';
-import type { WorkflowDefinition } from '../../types';
+import type { Tag, WorkflowDefinition } from '../../types';
 import type { SupportRequestReceiverResult, SupportRequestTaskStatus } from '../../types/support';
 import type {
   CRCFullDetail,
@@ -63,6 +63,23 @@ type ApiItemResponse<T> = {
   meta?: {
     hours_report?: YeuCauHoursReport | null;
   };
+};
+
+type ApiDetailStatusResponse = {
+  data?: {
+    request_case_id?: string | number | null;
+    status_instance_id?: string | number | null;
+    status_code?: string | null;
+    detail_status?: 'open' | 'in_progress' | 'paused' | 'completed' | string | null;
+    can_transition_main_status?: boolean;
+    quick_actions?: Array<{
+      action?: 'in_progress' | 'paused' | string | null;
+      label?: string | null;
+    }>;
+    started_at?: string | null;
+    paused_at?: string | null;
+    completed_at?: string | null;
+  } | null;
 };
 
 type PlanListMeta = { page: number; per_page: number; total: number; total_pages: number };
@@ -173,9 +190,15 @@ export const normalizeYeuCauProcessDetail = (value: unknown): YeuCauProcessDetai
     (isRecord(raw.process) ? (raw.process as unknown as YeuCauProcessMeta) : null) ??
     rawCurrentProcess;
 
+  const canTransitionMainStatus = raw.can_transition_main_status;
+
   return {
     ...(raw as unknown as YeuCauProcessDetail),
     yeu_cau: nestedRequest as unknown as YeuCau,
+    can_transition_main_status:
+      typeof canTransitionMainStatus === 'boolean'
+        ? canTransitionMainStatus
+        : Boolean(raw.can_transition_from_detail_status),
     current_status: syncCurrentRuntimeProcessMeta(
       rawCurrentStatus,
       currentStatusCode,
@@ -678,6 +701,128 @@ export const importCustomerRequests = async (
   }>(res);
 };
 
+export type CustomerRequestIntakeImportResult = {
+  total_rows: number;
+  success_rows: number;
+  failed_rows: number;
+  created_case_ids: number[];
+  results: Array<{
+    index: number;
+    row_number: number;
+    import_row_code?: string | null;
+    success: boolean;
+    action?: 'created';
+    case_id?: number | null;
+    message?: string;
+  }>;
+  errors: Array<{
+    row_number: number;
+    import_row_code?: string | null;
+    field: string;
+    error_code: string;
+    error_message: string;
+  }>;
+  warnings: Array<{
+    row_number: number;
+    import_row_code?: string | null;
+    field?: string;
+    message: string;
+  }>;
+  error_file_token?: string | null;
+};
+
+export const fetchCustomerRequestIntakeTemplate = async (workflowDefinitionId?: number | null): Promise<{
+  data: {
+    sheet?: string;
+    task_sheet?: string;
+    lookup_sheets?: string[];
+    required_headers?: string[];
+    headers?: string[];
+    task_headers?: string[];
+    priority_labels?: string[];
+    task_sources?: string[];
+    task_statuses?: string[];
+    status_policy?: string;
+  };
+}> => {
+  const suffix = buildQuerySuffix({
+    workflow_definition_id: workflowDefinitionId ?? undefined,
+  });
+  const res = await apiFetch(`/api/v5/customer-request-cases/import-intake/template${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: 'customer-request:intake-template',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_INTAKE_TEMPLATE_FAILED'));
+  }
+
+  return res.json();
+};
+
+export const importCustomerRequestIntake = async (
+  items: Array<Record<string, unknown>>,
+  workflowDefinitionId?: number | null
+): Promise<CustomerRequestIntakeImportResult> => {
+  const res = await apiFetch('/api/v5/customer-request-cases/import-intake', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items,
+      workflow_definition_id: workflowDefinitionId ?? undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'IMPORT_CUSTOMER_REQUEST_INTAKE_FAILED'));
+  }
+
+  const payload = (await res.json()) as { data?: CustomerRequestIntakeImportResult };
+  return payload.data ?? {
+    total_rows: 0,
+    success_rows: 0,
+    failed_rows: 0,
+    created_case_ids: [],
+    results: [],
+    errors: [],
+    warnings: [],
+    error_file_token: null,
+  };
+};
+
+export const exportCustomerRequestIntake = async (query?: {
+  q?: string;
+  status_code?: string;
+}): Promise<DownloadFileResult> => {
+  const suffix = buildQuerySuffix({
+    q: query?.q,
+    status_code: query?.status_code,
+  });
+  const path = suffix
+    ? `/api/v5/customer-request-cases/export-intake${suffix}`
+    : '/api/v5/customer-request-cases/export-intake';
+  const res = await apiFetch(path, {
+    credentials: 'include',
+    headers: { Accept: 'text/csv,application/octet-stream' },
+    cancelKey: 'customer-request:intake-export',
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_CUSTOMER_REQUEST_INTAKE_FAILED'));
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(
+      res,
+      `customer_request_intake_${new Date().toISOString().slice(0, 10)}.csv`
+    ),
+  };
+};
+
 export const exportCustomerRequestsCsv = async (query?: PaginatedQuery): Promise<DownloadFileResult> => {
   const suffix = buildPaginatedQueryString(query);
   const path = suffix
@@ -1001,35 +1146,47 @@ export const createYeuCauEstimate = async (
   return parseItemJson<{ estimate: YeuCauEstimate | null; request_case: YeuCau | null }>(res);
 };
 
+export type YeuCauWorklogStorePayload = {
+  work_content: string;
+  work_date?: string | null;
+  activity_type_code?: string | null;
+  hours_spent?: string | number | null;
+  is_billable?: boolean;
+  difficulty_note?: string | null;
+  proposal_note?: string | null;
+  difficulty_status?: 'none' | 'has_issue' | 'resolved' | null;
+  detail_status_action?: 'in_progress' | 'paused' | 'completed' | null;
+};
+
 export type YeuCauWorklogStoreResult = {
   worklog: YeuCauWorklog | null;
   hours_report: YeuCauHoursReport | null;
 };
 
+const buildYeuCauWorklogBody = (payload: YeuCauWorklogStorePayload): Record<string, unknown> => ({
+  work_content: normalizeNullableText(payload.work_content),
+  work_date: normalizeNullableText(payload.work_date),
+  activity_type_code: normalizeNullableText(payload.activity_type_code),
+  hours_spent:
+    payload.hours_spent === undefined || payload.hours_spent === null || payload.hours_spent === ''
+      ? null
+      : normalizeNumber(payload.hours_spent, 0),
+  is_billable: payload.is_billable === undefined ? true : Boolean(payload.is_billable),
+  difficulty_note: normalizeNullableText(payload.difficulty_note),
+  proposal_note: normalizeNullableText(payload.proposal_note),
+  difficulty_status: normalizeNullableText(payload.difficulty_status),
+  detail_status_action: normalizeNullableText(payload.detail_status_action),
+});
+
 export const storeYeuCauWorklog = async (
   id: string | number,
-  payload: {
-    work_content: string;
-    work_date?: string | null;
-    activity_type_code?: string | null;
-    hours_spent?: string | number | null;
-    is_billable?: boolean;
-  }
+  payload: YeuCauWorklogStorePayload
 ): Promise<YeuCauWorklogStoreResult> => {
   const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({
-      work_content: normalizeNullableText(payload.work_content),
-      work_date: normalizeNullableText(payload.work_date),
-      activity_type_code: normalizeNullableText(payload.activity_type_code),
-      hours_spent:
-        payload.hours_spent === undefined || payload.hours_spent === null || payload.hours_spent === ''
-          ? null
-          : normalizeNumber(payload.hours_spent, 0),
-      is_billable: payload.is_billable === undefined ? true : Boolean(payload.is_billable),
-    }),
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
   });
 
   if (!res.ok) {
@@ -1042,6 +1199,69 @@ export const storeYeuCauWorklog = async (
     worklog: detail.data ?? null,
     hours_report: detail.meta?.hours_report ?? null,
   };
+};
+
+export const storeYeuCauDetailStatusWorklog = async (
+  id: string | number,
+  payload: YeuCauWorklogStorePayload
+): Promise<YeuCauWorklogStoreResult> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/detail-status-worklog`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'STORE_YEU_CAU_DETAIL_STATUS_WORKLOG_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiItemResponse<YeuCauWorklog | null>;
+
+  return {
+    worklog: detail.data ?? null,
+    hours_report: detail.meta?.hours_report ?? null,
+  };
+};
+
+export const updateYeuCauWorklog = async (
+  id: string | number,
+  worklogId: string | number,
+  payload: YeuCauWorklogStorePayload
+): Promise<YeuCauWorklogStoreResult> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/worklogs/${worklogId}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildYeuCauWorklogBody(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_YEU_CAU_WORKLOG_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiItemResponse<YeuCauWorklog | null>;
+
+  return {
+    worklog: detail.data ?? null,
+    hours_report: detail.meta?.hours_report ?? null,
+  };
+};
+
+export const fetchYeuCauDetailStatus = async (
+  id: string | number
+): Promise<ApiDetailStatusResponse['data']> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/detail-status`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:detail-status`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_DETAIL_STATUS_FAILED'));
+  }
+
+  const detail = (await res.json()) as ApiDetailStatusResponse;
+  return detail.data ?? null;
 };
 
 export const fetchYeuCauPeople = async (id: string | number): Promise<YeuCauRelatedUser[]> => {
@@ -1092,6 +1312,57 @@ export const saveYeuCauProcess = async (
 
   const detail = await parseItemJson<Record<string, unknown>>(res);
   return (detail.request_case as YeuCau | undefined) ?? (detail.yeu_cau as YeuCau | undefined) ?? (detail as unknown as YeuCau);
+};
+
+export const fetchYeuCauCaseTags = async (id: string | number): Promise<Tag[]> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/tags`, {
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-case:${id}:tags`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_YEU_CAU_CASE_TAGS_FAILED'));
+  }
+
+  const detail = (await res.json()) as { tags?: Tag[] };
+  return Array.isArray(detail.tags) ? detail.tags : [];
+};
+
+export const saveYeuCauCaseTags = async (
+  id: string | number,
+  tags: Array<Pick<Tag, 'name' | 'color'>>
+): Promise<Tag[]> => {
+  const tagNames = tags
+    .map((tag) => String(tag.name ?? '').trim().toLowerCase())
+    .filter((name) => name.length > 0);
+
+  const uniqueTagNames = Array.from(new Set(tagNames));
+  const tagColors = tags.reduce<Record<string, string>>((acc, tag) => {
+    const normalizedName = String(tag.name ?? '').trim().toLowerCase();
+    const normalizedColor = String(tag.color ?? '').trim().toLowerCase();
+    if (!normalizedName) {
+      return acc;
+    }
+    acc[normalizedName] = normalizedColor || 'blue';
+    return acc;
+  }, {});
+
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/tags/bulk`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      tag_names: uniqueTagNames,
+      tag_colors: tagColors,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SAVE_YEU_CAU_CASE_TAGS_FAILED'));
+  }
+
+  const detail = (await res.json()) as { tags?: Tag[] };
+  return Array.isArray(detail.tags) ? detail.tags : [];
 };
 
 export const deleteYeuCau = async (id: string | number): Promise<void> => {

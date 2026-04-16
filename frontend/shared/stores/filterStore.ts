@@ -8,6 +8,7 @@ export type FilterTabKey =
   | 'projectsPage'
   | 'productsPage'
   | 'contractsPage'
+  | 'passContractsPage'
   | 'documentsPage'
   | 'auditLogsPage'
   | 'feedbacksPage';
@@ -17,13 +18,42 @@ const cloneQuery = (query: PaginatedQuery): PaginatedQuery => ({
   filters: query.filters ? { ...query.filters } : {},
 });
 
+const formatDateForFilter = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getProjectsPageDefaultDateFilters = (
+  referenceDate: Date = new Date()
+): { start_date_from: string; start_date_to: string } => {
+  const currentYear = referenceDate.getFullYear();
+  const currentMonth = referenceDate.getMonth();
+
+  return {
+    start_date_from: formatDateForFilter(new Date(currentYear, 0, 1)),
+    start_date_to: formatDateForFilter(new Date(currentYear, currentMonth + 1, 0)),
+  };
+};
+
+export const PROJECTS_PAGE_DEFAULT_DATE_FILTERS = getProjectsPageDefaultDateFilters();
+
 export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
   employeesPage: { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} },
   partyProfilesPage: { page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} },
   customersPage: { page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} },
-  projectsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
+  projectsPage: {
+    page: 1,
+    per_page: 10,
+    sort_by: 'id',
+    sort_dir: 'desc',
+    q: '',
+    filters: { ...PROJECTS_PAGE_DEFAULT_DATE_FILTERS },
+  },
   productsPage: { page: 1, per_page: 10, sort_by: 'product_code', sort_dir: 'asc', q: '', filters: {} },
   contractsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
+  passContractsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
   documentsPage: { page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
   auditLogsPage: { page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} },
   feedbacksPage: { page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
@@ -36,6 +66,7 @@ const buildInitialFilters = (): Record<FilterTabKey, PaginatedQuery> => ({
   projectsPage: cloneQuery(FILTER_DEFAULTS.projectsPage),
   productsPage: cloneQuery(FILTER_DEFAULTS.productsPage),
   contractsPage: cloneQuery(FILTER_DEFAULTS.contractsPage),
+  passContractsPage: cloneQuery(FILTER_DEFAULTS.passContractsPage),
   documentsPage: cloneQuery(FILTER_DEFAULTS.documentsPage),
   auditLogsPage: cloneQuery(FILTER_DEFAULTS.auditLogsPage),
   feedbacksPage: cloneQuery(FILTER_DEFAULTS.feedbacksPage),

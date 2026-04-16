@@ -35,14 +35,12 @@ const buildMeta = (overrides: Partial<PaginationMeta> = {}): PaginationMeta => (
 
 const buildCustomer = (overrides: Partial<Customer> = {}): Customer => ({
   id: 1,
+  uuid: 'customer-1',
   customer_code: 'KH-001',
   customer_name: 'Công ty ABC',
-  customer_type: 'ENTERPRISE',
-  tax_number: '0123456789',
-  email: 'contact@example.com',
-  phone: '0901234567',
+  tax_code: '0123456789',
   address: '123 Đường ABC, Quận 1, TP.HCM',
-  business_line: 'TECH',
+  customer_sector: 'OTHER',
   created_at: '2026-03-01 00:00:00',
   updated_at: '2026-03-31 00:00:00',
   created_by: 1,
@@ -119,9 +117,9 @@ describe('customerStore', () => {
       result = await useCustomerStore.getState().saveCustomer({
         data: {
           customer_name: newCustomer.customer_name,
-          customer_type: newCustomer.customer_type,
-          email: newCustomer.email,
-          phone: newCustomer.phone,
+          customer_code: newCustomer.customer_code,
+          tax_code: newCustomer.tax_code,
+          address: newCustomer.address,
         },
       });
     });
@@ -131,7 +129,7 @@ describe('customerStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Thêm mới khách hàng thành công!'
+      'Tạo mới khách hàng thành công.'
     );
     expect(useCustomerStore.getState().customersPageRows).toContain(newCustomer);
   });
@@ -161,7 +159,7 @@ describe('customerStore', () => {
     expect(notifier).toHaveBeenCalledWith(
       'success',
       'Thành công',
-      'Cập nhật khách hàng thành công!'
+      'Cập nhật khách hàng thành công.'
     );
   });
 
@@ -183,11 +181,11 @@ describe('customerStore', () => {
 
     expect(result).toBe(true);
     expect(deleteCustomerApiMock).toHaveBeenCalledWith(7);
-    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Đã xóa khách hàng.');
+    expect(notifier).toHaveBeenCalledWith('success', 'Thành công', 'Xóa khách hàng thành công.');
     expect(useCustomerStore.getState().customersPageRows).not.toContain(customer);
   });
 
-  it('handles 422 dependency error when deleting customer with contracts', async () => {
+  it('surfaces generic delete errors when backend does not return a conflict response', async () => {
     const notifier = vi.fn();
     const customer = buildCustomer({ id: 8 });
 
@@ -203,13 +201,12 @@ describe('customerStore', () => {
     });
 
     expect(result).toBe(false);
-    expect(useCustomerStore.getState().dependencyError).toBe(
-      'Không thể xóa khách hàng. Khách hàng vẫn còn hợp đồng liên kết.'
-    );
+    expect(useCustomerStore.getState().dependencyError).toBe(null);
+    expect(useCustomerStore.getState().error).toBe('Customer has active contracts');
     expect(notifier).toHaveBeenCalledWith(
       'error',
       'Xóa thất bại',
-      'Không thể xóa khách hàng. Khách hàng vẫn còn hợp đồng liên kết.'
+      'Customer has active contracts'
     );
     // Customer should still be in state after failed delete
     expect(useCustomerStore.getState().customersPageRows).toContain(customer);
@@ -217,8 +214,13 @@ describe('customerStore', () => {
 
   it('handles 409 dependency error when deleting customer', async () => {
     const notifier = vi.fn();
-    const dependencyError = new Error('Conflict');
-    (dependencyError as any).status = 409;
+    const dependencyError = new Response(
+      JSON.stringify({ message: 'Không thể xóa khách hàng. Khách hàng vẫn còn hợp đồng liên kết.' }),
+      {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
     deleteCustomerApiMock.mockRejectedValue(dependencyError);
 
     useCustomerStore.getState().setNotifier(notifier);
@@ -230,7 +232,7 @@ describe('customerStore', () => {
     expect(useCustomerStore.getState().dependencyError).not.toBe(null);
     expect(notifier).toHaveBeenCalledWith(
       'error',
-      'Xóa thất bại',
+      'Không thể xóa',
       expect.stringContaining('hợp đồng liên kết')
     );
   });

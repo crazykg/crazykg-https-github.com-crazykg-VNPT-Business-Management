@@ -67,7 +67,7 @@ export interface GoogleDriveIntegrationSettings {
   impersonate_user?: string | null;
   file_prefix?: string | null;
   has_service_account_json: boolean;
-  source?: 'DB' | 'ENV';
+  source?: 'DB' | 'DEFAULT';
   last_tested_at?: string | null;
   last_test_status?: 'SUCCESS' | 'FAILED' | null;
   last_test_message?: string | null;
@@ -96,7 +96,7 @@ export interface BackblazeB2IntegrationSettings {
   file_prefix?: string | null;
   has_secret_access_key: boolean;
   secret_access_key_preview?: string | null;
-  source?: 'DB' | 'ENV';
+  source?: 'DB' | 'DEFAULT';
   last_tested_at?: string | null;
   last_test_status?: 'SUCCESS' | 'FAILED' | null;
   last_test_message?: string | null;
@@ -144,6 +144,7 @@ export interface EmailSmtpIntegrationSettings {
   smtp_port?: number | null;
   smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
   smtp_username?: string | null;
+  smtp_recipient_emails?: string | null;
   has_smtp_password: boolean;
   smtp_from_address?: string | null;
   smtp_from_name?: string | null;
@@ -160,6 +161,7 @@ export interface EmailSmtpIntegrationSettingsUpdatePayload {
   smtp_port?: number | null;
   smtp_encryption?: 'tls' | 'ssl' | 'none' | null;
   smtp_username?: string | null;
+  smtp_recipient_emails?: string | null;
   smtp_password?: string | null;
   clear_smtp_password?: boolean;
   smtp_from_address?: string | null;
@@ -185,6 +187,8 @@ export interface AuditLog {
   actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
+export type UserDeptHistoryTransferType = 'LUAN_CHUYEN' | 'BIET_PHAI';
+
 export interface UserDeptHistory {
   id: string;
   userId: string;
@@ -194,12 +198,15 @@ export interface UserDeptHistory {
   reason: string;
   createdDate?: string;
   decisionNumber?: string;
+  transferType?: UserDeptHistoryTransferType;
   employeeCode?: string;
   employeeName?: string;
   fromDeptCode?: string | null;
   fromDeptName?: string | null;
   toDeptCode?: string | null;
   toDeptName?: string | null;
+  canDelete?: boolean;
+  deleteRestrictionMessage?: string | null;
 }
 
 export type FeedbackPriority = 'UNRATED' | 'LOW' | 'MEDIUM' | 'HIGH';

@@ -220,6 +220,70 @@ class ContractPaymentService
         return response()->json(['data' => $payload]);
     }
 
+    public function destroyPaymentSchedule(Request $request, int $id): JsonResponse
+    {
+        if (! $this->support->hasTable('payment_schedules')) {
+            return $this->support->missingTable('payment_schedules');
+        }
+
+        $schedule = DB::table('payment_schedules')->where('id', $id)->first();
+        if ($schedule === null) {
+            return response()->json(['message' => 'Payment schedule not found.'], 404);
+        }
+
+        $before = $this->accessAudit->toAuditArray($schedule);
+        $beforeAttachmentMap = $this->loadPaymentScheduleAttachmentMap([$id]);
+        $before['attachments'] = $beforeAttachmentMap[(string) $id] ?? [];
+
+        $scopeContractId = $this->support->parseNullableInt($before['contract_id'] ?? null);
+        if ($scopeContractId !== null && $this->support->hasTable('contracts')) {
+            $scopeContract = Contract::query()->find($scopeContractId);
+            if ($scopeContract instanceof Contract) {
+                $scopeError = $this->accessAudit->assertModelMutationAccess($request, $scopeContract, 'kỳ thanh toán');
+                if ($scopeError instanceof JsonResponse) {
+                    return $scopeError;
+                }
+            }
+        }
+
+        $status = strtoupper(trim((string) ($schedule->status ?? 'PENDING')));
+        $actualPaidAmount = (float) ($schedule->actual_paid_amount ?? 0);
+        $actualPaidDate = $this->support->normalizeNullableString($schedule->actual_paid_date ?? null);
+        $invoiceId = $this->support->hasColumn('payment_schedules', 'invoice_id')
+            ? $this->support->parseNullableInt($schedule->invoice_id ?? null)
+            : null;
+
+        if ($invoiceId !== null) {
+            return response()->json([
+                'message' => 'Không thể xóa kỳ thanh toán đã liên kết với hóa đơn.',
+            ], 422);
+        }
+
+        if ($actualPaidAmount > 0 || $actualPaidDate !== null || in_array($status, ['PAID', 'PARTIAL'], true)) {
+            return response()->json([
+                'message' => 'Không thể xóa kỳ thanh toán đã phát sinh thu tiền thực tế.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($id): void {
+            $this->deletePaymentScheduleAttachments($id);
+            DB::table('payment_schedules')->where('id', $id)->delete();
+        });
+
+        $this->accessAudit->recordAuditEvent(
+            $request,
+            'DELETE',
+            'payment_schedules',
+            $id,
+            $before,
+            null
+        );
+
+        return response()->json([
+            'message' => 'Đã xóa kỳ thanh toán.',
+        ]);
+    }
+
     public function generateContractPayments(Request $request, int $id): JsonResponse
     {
         if (! $this->support->hasTable('contracts')) {
@@ -245,6 +309,10 @@ class ContractPaymentService
             'installments.*.label' => ['sometimes', 'nullable', 'string', 'max:255'],
             'installments.*.percentage' => ['sometimes', 'required', 'numeric', 'min:0.01', 'max:100'],
             'installments.*.expected_date' => ['sometimes', 'nullable', 'date'],
+            'draft_installments' => ['sometimes', 'array'],
+            'draft_installments.*.label' => ['required_with:draft_installments', 'string', 'max:255'],
+            'draft_installments.*.expected_date' => ['required_with:draft_installments', 'date'],
+            'draft_installments.*.expected_amount' => ['required_with:draft_installments', 'numeric', 'gt:0'],
         ]);
 
         try {
@@ -255,6 +323,7 @@ class ContractPaymentService
                 'retention_percentage' => $validated['retention_percentage'] ?? null,
                 'installment_count' => $validated['installment_count'] ?? null,
                 'installments' => $validated['installments'] ?? [],
+                'draft_installments' => $validated['draft_installments'] ?? [],
             ]);
         } catch (ValidationException $validationException) {
             throw $validationException;
@@ -668,6 +737,7 @@ class ContractPaymentService
         $retentionPercentage = $this->clampPercentageValue($options['retention_percentage'] ?? null);
         $installmentCount = $this->support->parseNullableInt($options['installment_count'] ?? null);
         $installments = is_array($options['installments'] ?? null) ? $options['installments'] : [];
+        $draftInstallments = is_array($options['draft_installments'] ?? null) ? $options['draft_installments'] : [];
 
         if ($allocationMode === 'MILESTONE') {
             $scheduleSpecs = $this->buildMilestonePaymentSchedule(
@@ -680,18 +750,31 @@ class ContractPaymentService
                 $installments
             );
         } else {
-            $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
-            $cycleCount = max(1, count($expectedDates));
-            $expectedAmounts = $this->buildAllocatedExpectedAmounts($amount, $cycleCount);
-            $scheduleSpecs = [];
-            foreach ($expectedDates as $index => $expectedDate) {
-                $cycleNumber = $index + 1;
-                $scheduleSpecs[] = [
-                    'milestone_name' => $this->buildPaymentMilestoneName($cycle, $cycleNumber, $investmentMode),
-                    'expected_date' => $expectedDate,
-                    'expected_amount' => max(0, (float) ($expectedAmounts[$index] ?? 0)),
-                ];
-            }
+            $scheduleSpecs = $draftInstallments !== []
+                ? $this->buildEvenDraftPaymentSchedule(
+                    $amount,
+                    $cycle,
+                    $startDate,
+                    $endDate,
+                    $investmentMode,
+                    $draftInstallments
+                )
+                : (function () use ($amount, $cycle, $startDate, $endDate, $investmentMode): array {
+                    $expectedDates = $this->buildExpectedPaymentDatesForCycle($cycle, $startDate, $endDate);
+                    $cycleCount = max(1, count($expectedDates));
+                    $expectedAmounts = $this->buildAllocatedExpectedAmounts($amount, $cycleCount);
+                    $rows = [];
+                    foreach ($expectedDates as $index => $expectedDate) {
+                        $cycleNumber = $index + 1;
+                        $rows[] = [
+                            'milestone_name' => $this->buildPaymentMilestoneName($cycle, $cycleNumber, $investmentMode),
+                            'expected_date' => $expectedDate,
+                            'expected_amount' => max(0, (float) ($expectedAmounts[$index] ?? 0)),
+                        ];
+                    }
+
+                    return $rows;
+                })();
         }
 
         $contractData = $contract->toArray();
@@ -774,6 +857,22 @@ class ContractPaymentService
                 $rows
             )),
         ];
+    }
+
+    private function deletePaymentScheduleAttachments(int $scheduleId): void
+    {
+        if (
+            ! $this->support->hasTable('attachments')
+            || ! $this->support->hasColumn('attachments', 'reference_type')
+            || ! $this->support->hasColumn('attachments', 'reference_id')
+        ) {
+            return;
+        }
+
+        DB::table('attachments')
+            ->where('reference_type', 'PAYMENT_SCHEDULE')
+            ->where('reference_id', $scheduleId)
+            ->delete();
     }
 
     /**
@@ -1117,6 +1216,45 @@ class ContractPaymentService
     }
 
     /**
+     * @param array<int, mixed> $draftInstallments
+     * @return array<int, array{milestone_name:string,expected_date:string,expected_amount:float}>
+     */
+    private function buildEvenDraftPaymentSchedule(
+        float $totalAmount,
+        string $cycle,
+        string $startDate,
+        ?string $endDate,
+        ?string $investmentMode,
+        array $draftInstallments
+    ): array {
+        $normalizedDraftInstallments = $this->normalizeEvenDraftInstallments(
+            $draftInstallments,
+            $cycle,
+            $investmentMode
+        );
+
+        $safeTotal = round(max(0, $totalAmount), 2);
+        $draftTotal = round(array_sum(array_map(
+            static fn (array $row): float => (float) ($row['expected_amount'] ?? 0),
+            $normalizedDraftInstallments
+        )), 2);
+
+        if (abs($draftTotal - $safeTotal) > 0.5) {
+            throw ValidationException::withMessages([
+                'draft_installments' => ['Tổng số tiền dự thảo phải bằng giá trị hợp đồng trước khi sinh kỳ thanh toán.'],
+            ]);
+        }
+
+        return array_map(static function (array $row): array {
+            return [
+                'milestone_name' => (string) ($row['label'] ?? ''),
+                'expected_date' => (string) ($row['expected_date'] ?? ''),
+                'expected_amount' => round(max(0, (float) ($row['expected_amount'] ?? 0)), 2),
+            ];
+        }, $normalizedDraftInstallments);
+    }
+
+    /**
      * @param array<int, mixed> $installments
      * @return array<int, array{label:string,percentage:float,expected_date:?string}>
      */
@@ -1142,6 +1280,61 @@ class ContractPaymentService
                 'label' => trim((string) ($installment['label'] ?? '')),
                 'percentage' => max(0, min(100, $percentage)),
                 'expected_date' => $expectedDate,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, mixed> $draftInstallments
+     * @return array<int, array{label:string,expected_date:string,expected_amount:float}>
+     */
+    private function normalizeEvenDraftInstallments(
+        array $draftInstallments,
+        string $cycle,
+        ?string $investmentMode
+    ): array {
+        if ($draftInstallments === []) {
+            throw ValidationException::withMessages([
+                'draft_installments' => ['Bản chỉnh sửa phải có ít nhất 1 kỳ dự thảo.'],
+            ]);
+        }
+
+        $normalized = [];
+
+        foreach ($draftInstallments as $index => $installment) {
+            if (! is_array($installment)) {
+                throw ValidationException::withMessages([
+                    "draft_installments.{$index}" => ['Dữ liệu kỳ dự thảo không hợp lệ.'],
+                ]);
+            }
+
+            $label = trim((string) ($installment['label'] ?? ''));
+            if ($label === '') {
+                throw ValidationException::withMessages([
+                    "draft_installments.{$index}.label" => ['Tên kỳ không được để trống.'],
+                ]);
+            }
+
+            $expectedDate = $this->normalizeDateFilter($installment['expected_date'] ?? null);
+            if ($expectedDate === null) {
+                throw ValidationException::withMessages([
+                    "draft_installments.{$index}.expected_date" => ['Ngày dự kiến không hợp lệ.'],
+                ]);
+            }
+
+            $expectedAmount = $this->parseNullableFloat($installment['expected_amount'] ?? null);
+            if ($expectedAmount === null || $expectedAmount <= 0) {
+                throw ValidationException::withMessages([
+                    "draft_installments.{$index}.expected_amount" => ['Số tiền dự kiến phải lớn hơn 0.'],
+                ]);
+            }
+
+            $normalized[] = [
+                'label' => $label,
+                'expected_date' => $expectedDate,
+                'expected_amount' => round(max(0, $expectedAmount), 2),
             ];
         }
 

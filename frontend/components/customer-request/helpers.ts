@@ -381,7 +381,7 @@ export const splitCustomerRequestTaskRows = (
 
   rows.forEach((task) => {
     const source = normalizeCustomerRequestTaskSource(task.task_source, 'REFERENCE');
-    const taskCode = normalizeText(task.task_code);
+    const taskCode = normalizeText(task.task_code ?? task.request_code);
     const taskLink = normalizeText(task.task_link);
     const taskId = task.id ?? task.ref_task_id ?? null;
     const id = typeof taskId === 'string' || typeof taskId === 'number' ? taskId : null;

@@ -751,13 +751,23 @@ class RevenueTargetService
                 $hasProjectName = $this->support->hasColumn('projects', 'project_name');
                 $hasInvestmentMode = $this->support->hasColumn('projects', 'investment_mode');
                 $hasProjectStatus = $this->support->hasColumn('projects', 'status');
+                $hasProjectDeptId = $this->support->hasColumn('projects', 'dept_id');
+                $hasDepartmentsTable = $this->support->hasTable('departments');
+                $hasDepartmentName = $hasDepartmentsTable && $this->support->hasColumn('departments', 'dept_name');
+                $projectPreviewQuery = clone $projQuery;
 
-                $projectPreviewRows = (clone $projQuery)
+                if ($hasProjectDeptId && $hasDepartmentName) {
+                    $projectPreviewQuery->leftJoin('departments as d', 'p.dept_id', '=', 'd.id');
+                }
+
+                $projectPreviewRows = $projectPreviewQuery
                     ->selectRaw('p.id as project_id')
                     ->selectRaw($hasProjectCode ? 'COALESCE(p.project_code, "") as project_code' : '"" as project_code')
                     ->selectRaw($hasProjectName ? 'COALESCE(p.project_name, "") as project_name' : '"" as project_name')
                     ->selectRaw($hasInvestmentMode ? 'COALESCE(p.investment_mode, "") as investment_mode' : '"" as investment_mode')
                     ->selectRaw($hasProjectStatus ? 'COALESCE(p.status, "") as project_status' : '"" as project_status')
+                    ->selectRaw($hasProjectDeptId ? 'COALESCE(p.dept_id, 0) as dept_id' : '0 as dept_id')
+                    ->selectRaw($hasDepartmentName ? 'COALESCE(d.dept_name, "") as department_name' : '"" as department_name')
                     ->selectRaw('prs.cycle_number as cycle_number')
                     ->selectRaw('prs.expected_date as expected_date')
                     ->selectRaw('prs.expected_amount as expected_amount')
@@ -876,29 +886,6 @@ class RevenueTargetService
             return [];
         }
 
-        $projectIds = $collection
-            ->pluck('project_id')
-            ->map(fn ($value): int => (int) $value)
-            ->filter(fn (int $value): bool => $value > 0)
-            ->unique()
-            ->values()
-            ->all();
-
-        $accountableByProject = [];
-        foreach ($this->support->fetchProjectRaciAssignmentsByProjectIds($projectIds) as $assignment) {
-            $projectId = (int) ($assignment['project_id'] ?? 0);
-            $role = strtoupper(trim((string) ($assignment['raci_role'] ?? '')));
-            if ($projectId <= 0 || $role !== 'A' || isset($accountableByProject[$projectId])) {
-                continue;
-            }
-
-            $accountableByProject[$projectId] = [
-                'user_id' => isset($assignment['user_id']) ? (int) $assignment['user_id'] : null,
-                'user_code' => $assignment['user_code'] ?? null,
-                'full_name' => $assignment['full_name'] ?? null,
-            ];
-        }
-
         $grouped = [];
         foreach ($collection as $row) {
             $projectId = (int) ($row->project_id ?? 0);
@@ -907,16 +894,14 @@ class RevenueTargetService
             }
 
             if (! isset($grouped[$projectId])) {
-                $accountable = $accountableByProject[$projectId] ?? null;
                 $grouped[$projectId] = [
                     'project_id' => $projectId,
                     'project_code' => (string) ($row->project_code ?? ''),
                     'project_name' => (string) ($row->project_name ?? ''),
                     'investment_mode' => (string) ($row->investment_mode ?? ''),
                     'project_status' => (string) ($row->project_status ?? ''),
-                    'accountable_user_id' => $accountable['user_id'] ?? null,
-                    'accountable_user_code' => $accountable['user_code'] ?? null,
-                    'accountable_full_name' => $accountable['full_name'] ?? null,
+                    'dept_id' => isset($row->dept_id) ? (int) $row->dept_id : 0,
+                    'department_name' => trim((string) ($row->department_name ?? '')),
                     'schedule_count' => 0,
                     'total_amount' => 0,
                     'periods' => [],

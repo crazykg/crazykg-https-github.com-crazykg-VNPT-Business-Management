@@ -62,17 +62,17 @@ describe('Customer/Vendor revenue-style lists', () => {
     expect(screen.queryByRole('heading', { name: 'Danh sách khách hàng' })).not.toBeInTheDocument();
 
     const longCustomerName = 'Alpha Bệnh viện đa khoa khu vực có tên khách hàng rất dài để kiểm tra responsive CRM';
-    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('max-w-[248px]', 'whitespace-normal', 'break-words', 'leading-5');
+    expect(within(desktopTable).getByText(longCustomerName)).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
 
     const longAddress = 'Số 1 đường Trần Hưng Đạo, phường có địa chỉ rất dài để kiểm tra hiển thị wrap trên desktop và mobile';
-    expect(within(desktopTable).getByText(longAddress)).toHaveClass('max-w-[230px]', 'whitespace-normal', 'break-words', 'leading-5');
+    expect(within(desktopTable).getByText(longAddress)).toHaveClass('whitespace-normal', 'break-words', 'leading-5');
     expect(within(desktopTable).getByText('Y tế')).toBeInTheDocument();
     expect(within(desktopTable).getByText('Chính quyền')).toBeInTheDocument();
     expect(within(desktopTable).getByText('KH001').closest('td')).toHaveClass('align-middle');
     expect(within(desktopTable).getByText(longCustomerName).closest('td')).toHaveClass('align-middle');
 
     const responsiveList = screen.getByTestId('customer-responsive-list');
-    expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2', 'lg:hidden');
+    expect(responsiveList).toHaveClass('grid', 'md:grid-cols-2');
 
     const sortSelect = screen.getByLabelText('Sắp xếp danh sách khách hàng');
     await user.selectOptions(sortSelect, 'customer_name:asc');

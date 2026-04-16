@@ -886,7 +886,7 @@ SET @has_dispatched_at := (
 );
 SET @sql := IF(
   @has_dispatched_at = 0,
-  "ALTER TABLE customer_request_pending_dispatch ADD COLUMN dispatched_at DATETIME NULL COMMENT 'Ngày điều phối' AFTER dispatch_note",
+  "ALTER TABLE customer_request_pending_dispatch ADD COLUMN dispatched_at DATETIME NULL AFTER dispatch_note",
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;

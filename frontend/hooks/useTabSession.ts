@@ -10,18 +10,15 @@
  *
  * 3. BroadcastChannel 'vnpt_tab_session':
  *    → Khi tab mới claim xong → broadcast TAB_ALIVE
- *    → Các tab khác biết mình sẽ bị evict khi request tiếp theo
+ *    → Các tab khác evict local ngay, không cần polling mạng
  *
- * 4. Heartbeat 30s → phát hiện TAB_EVICTED sớm (user không thao tác)
- *
- * 5. onEvicted callback → gọi từ App.tsx để logout + redirect
+ * 4. onEvicted callback → gọi từ App.tsx để logout + redirect
  */
 
 import { useEffect, useRef } from 'react';
 
 const CHANNEL_NAME          = 'vnpt_tab_session';
 const CLAIM_ENDPOINT        = '/api/v5/auth/tab/claim';
-const HEARTBEAT_INTERVAL_MS = 30_000;
 
 type TabMessage =
   | { type: 'TAB_ALIVE'; tabId: string }
@@ -30,21 +27,36 @@ type TabMessage =
 interface UseTabSessionOptions {
   /** Có đang đăng nhập không */
   isAuthenticated: boolean;
-  /** Gọi khi tab bị evict (từ interceptor hoặc heartbeat) */
+  /** Gọi khi tab bị evict */
   onEvicted: () => void;
 }
 
 export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptions): void => {
   const tabId        = useRef<string>(crypto.randomUUID());
   const channelRef   = useRef<BroadcastChannel | null>(null);
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEvictedRef = useRef(onEvicted);
   const isClaiming   = useRef(false);
+  const hasEvicted   = useRef(false);
 
   // Luôn dùng ref mới nhất của callback để tránh stale closure
   useEffect(() => {
     onEvictedRef.current = onEvicted;
   }, [onEvicted]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      hasEvicted.current = false;
+    }
+  }, [isAuthenticated]);
+
+  const triggerEvicted = (): void => {
+    if (hasEvicted.current) {
+      return;
+    }
+
+    hasEvicted.current = true;
+    onEvictedRef.current();
+  };
 
   // ─── Claim session lên server ────────────────────────────────────────────
   // Chỉ gọi khi cần (visibility change) — KHÔNG gọi on mount nữa
@@ -65,7 +77,7 @@ export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptio
         const body = await res.json().catch(() => ({})) as { code?: string };
         // Chỉ evict khi server nói rõ TAB_EVICTED, không evict vì các lỗi 401 khác
         if (body?.code === 'TAB_EVICTED' || body?.code === 'UNAUTHENTICATED') {
-          onEvictedRef.current();
+          triggerEvicted();
         }
         return;
       }
@@ -78,48 +90,15 @@ export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptio
         } satisfies TabMessage);
       }
     } catch {
-      // Network error — bỏ qua, heartbeat sẽ thử lại
+      // Network error — bỏ qua, tab sẽ claim lại khi quay lại foreground
     } finally {
       isClaiming.current = false;
-    }
-  };
-
-  // ─── Heartbeat: mỗi 30s kiểm tra session còn hợp lệ không ───────────────
-  const startHeartbeat = (): void => {
-    stopHeartbeat();
-    heartbeatRef.current = setInterval(async () => {
-      if (!isAuthenticated) return;
-      try {
-        const res = await fetch('/api/v5/auth/me', {
-          credentials: 'include',
-          headers: { Accept: 'application/json' },
-        });
-        if (res.status === 401) {
-          const body = await res.json().catch(() => ({})) as { code?: string };
-          // Chỉ evict khi server trả đúng code TAB_EVICTED
-          if (body?.code === 'TAB_EVICTED') {
-            onEvictedRef.current();
-          }
-          // 401 thông thường (token expire tự nhiên) → bỏ qua,
-          // v5Api interceptor sẽ thử refresh tự động
-        }
-      } catch {
-        // Network error — bỏ qua
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-  };
-
-  const stopHeartbeat = (): void => {
-    if (heartbeatRef.current !== null) {
-      clearInterval(heartbeatRef.current);
-      heartbeatRef.current = null;
     }
   };
 
   // ─── Mount / isAuthenticated thay đổi ───────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) {
-      stopHeartbeat();
       channelRef.current?.close();
       channelRef.current = null;
       return;
@@ -132,10 +111,11 @@ export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptio
       ch.onmessage = (event: MessageEvent<TabMessage>) => {
         const msg = event.data;
         if (msg.type === 'TAB_ALIVE' && msg.tabId !== tabId.current) {
-          // Tab khác vừa claim visibility → heartbeat sẽ phát hiện evict sau
+          triggerEvicted();
+          return;
         }
         if (msg.type === 'TAB_EVICTED') {
-          onEvictedRef.current();
+          triggerEvicted();
         }
       };
 
@@ -145,19 +125,16 @@ export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptio
     // ★ KHÔNG gọi claimSession() on mount — bootstrap đã renew tab token
     // → loại bỏ race condition giữa bootstrap xong và claim
 
-    // Bắt đầu heartbeat để phát hiện evict
-    startHeartbeat();
-
     // Visibility change: tab quay lại foreground → claim để "chiếm" session lại
     const handleVisibility = (): void => {
       if (document.visibilityState === 'visible' && isAuthenticated) {
+        hasEvicted.current = false;
         void claimSession();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      stopHeartbeat();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,7 +143,6 @@ export const useTabSession = ({ isAuthenticated, onEvicted }: UseTabSessionOptio
   // Cleanup khi component unmount hoàn toàn
   useEffect(() => {
     return () => {
-      stopHeartbeat();
       channelRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

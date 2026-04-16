@@ -363,46 +363,38 @@ class BackblazeB2IntegrationService
     private function resolveRuntimeConfig(): array
     {
         $row = $this->loadSettingsRow();
-        if ($row !== null) {
-            $secretAccessKey = $this->decodeSecretAccessKey($row['secret_access_key'] ?? null);
-            if ($secretAccessKey === null) {
-                $secretAccessKey = $this->getSecretAccessKeyFromEnv();
-            }
-
+        if ($row === null) {
             return [
-                'is_enabled' => (bool) ($row['is_enabled'] ?? false),
-                'access_key_id' => $this->support->normalizeNullableString($row['access_key_id'] ?? null),
-                'bucket_id' => $this->support->normalizeNullableString($row['bucket_id'] ?? null),
-                'secret_access_key' => $secretAccessKey,
-                'bucket_name' => $this->support->normalizeNullableString($row['bucket_name'] ?? null),
-                'region' => $this->resolveRegion($row['region'] ?? null),
-                'endpoint' => $this->resolveEndpoint($row['region'] ?? null, $row['endpoint'] ?? null),
-                'file_prefix' => $this->support->normalizeNullableString($row['file_prefix'] ?? null),
-                'has_secret_access_key' => $secretAccessKey !== null,
-                'source' => 'DB',
+                'is_enabled' => false,
+                'access_key_id' => null,
+                'bucket_id' => null,
+                'secret_access_key' => null,
+                'bucket_name' => null,
+                'region' => null,
+                'endpoint' => null,
+                'file_prefix' => null,
+                'has_secret_access_key' => false,
+                'source' => 'DEFAULT',
             ];
         }
 
-        $secretAccessKey = $this->getSecretAccessKeyFromEnv();
-        $region = $this->resolveRegion($this->getEnvValue('B2_REGION', 'BACKBLAZE_B2_REGION'));
+        $region = $this->support->normalizeNullableString($row['region'] ?? null);
+        $endpoint = $this->support->normalizeNullableString($row['endpoint'] ?? null);
+        if ($endpoint === null && $region !== null) {
+            $endpoint = $this->resolveEndpoint($region);
+        }
 
         return [
-            'is_enabled' => filter_var(
-                $this->getEnvValue('B2_ENABLED', 'BACKBLAZE_B2_ENABLED') ?? false,
-                FILTER_VALIDATE_BOOLEAN
-            ),
-            'access_key_id' => $this->getEnvValue('B2_KEY_ID', 'BACKBLAZE_B2_ACCESS_KEY_ID'),
-            'bucket_id' => $this->getEnvValue('B2_BUCKET_ID'),
-            'secret_access_key' => $secretAccessKey,
-            'bucket_name' => $this->getEnvValue('B2_BUCKET_NAME', 'BACKBLAZE_B2_BUCKET'),
+            'is_enabled' => (bool) ($row['is_enabled'] ?? false),
+            'access_key_id' => $this->support->normalizeNullableString($row['access_key_id'] ?? null),
+            'bucket_id' => $this->support->normalizeNullableString($row['bucket_id'] ?? null),
+            'secret_access_key' => $this->decodeSecretAccessKey($row['secret_access_key'] ?? null),
+            'bucket_name' => $this->support->normalizeNullableString($row['bucket_name'] ?? null),
             'region' => $region,
-            'endpoint' => $this->resolveEndpoint(
-                $region,
-                $this->getEnvValue('B2_ENDPOINT', 'BACKBLAZE_B2_ENDPOINT')
-            ),
-            'file_prefix' => $this->getEnvValue('B2_FILE_PREFIX', 'BACKBLAZE_B2_FILE_PREFIX'),
-            'has_secret_access_key' => $secretAccessKey !== null,
-            'source' => 'ENV',
+            'endpoint' => $endpoint,
+            'file_prefix' => $this->support->normalizeNullableString($row['file_prefix'] ?? null),
+            'has_secret_access_key' => $this->decodeSecretAccessKey($row['secret_access_key'] ?? null) !== null,
+            'source' => 'DB',
         ];
     }
 
@@ -438,30 +430,6 @@ class BackblazeB2IntegrationService
             ->first();
 
         return $record !== null ? (array) $record : null;
-    }
-
-    private function getEnvValue(string $primaryKey, ?string $legacyKey = null): ?string
-    {
-        $primaryValue = $this->support->normalizeNullableString(env($primaryKey));
-        if ($primaryValue !== null) {
-            return $primaryValue;
-        }
-
-        if ($legacyKey !== null) {
-            return $this->support->normalizeNullableString(env($legacyKey));
-        }
-
-        return null;
-    }
-
-    private function getSecretAccessKeyFromEnv(): ?string
-    {
-        return $this->getEnvValue('B2_APPLICATION_KEY', 'BACKBLAZE_B2_SECRET_ACCESS_KEY');
-    }
-
-    private function resolveRegion(mixed $value): string
-    {
-        return $this->support->normalizeNullableString($value) ?? self::DEFAULT_REGION;
     }
 
     private function resolveEndpoint(mixed $region, mixed $fallbackEndpoint = null): string

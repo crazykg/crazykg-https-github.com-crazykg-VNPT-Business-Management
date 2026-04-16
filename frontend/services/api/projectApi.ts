@@ -1,4 +1,4 @@
-import type { Attachment } from '../../types';
+import type { Attachment, ContractSignerOption } from '../../types';
 import type { PaginatedQuery, PaginatedResult } from '../../types/common';
 import type {
   AddWorklogPayload,
@@ -156,7 +156,7 @@ const normalizeNullableProjectInvestmentMode = (value: unknown): string | null =
 
 const normalizeProjectItems = (
   items: Partial<Project>['items']
-): Array<{ product_id: number; quantity: number; unit_price: number }> | undefined => {
+): Array<{ product_id: number; product_package_id?: number; quantity: number; unit_price: number }> | undefined => {
   if (!Array.isArray(items)) {
     return undefined;
   }
@@ -173,13 +173,22 @@ const normalizeProjectItems = (
         return null;
       }
 
+      const productPackageId = normalizeNullableNumber(
+        source.productPackageId ?? source.product_package_id
+      );
+
       return {
         product_id: productId,
+        ...(productPackageId !== null && productPackageId > 0
+          ? { product_package_id: productPackageId }
+          : {}),
         quantity: normalizeNumber(source.quantity, 1),
         unit_price: normalizeNumber(source.unitPrice ?? source.unit_price, 0),
       };
     })
-    .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null);
+    .filter((
+      item
+    ): item is { product_id: number; product_package_id?: number; quantity: number; unit_price: number } => item !== null);
 };
 
 const normalizeProjectRaci = (
@@ -323,6 +332,9 @@ export const fetchProjectTypes = async (includeInactive = false): Promise<Projec
   return fetchList<ProjectTypeOption>(`/api/v5/project-types${query}`);
 };
 
+export const fetchProjectImplementationUnitOptions = async (): Promise<ContractSignerOption[]> =>
+  fetchList<ContractSignerOption>('/api/v5/projects/implementation-unit-options');
+
 export const createProject = async (payload: Partial<Project> & Record<string, unknown>): Promise<Project> => {
   const res = await projectMutationRequest('/api/v5/projects', {
     method: 'POST',
@@ -335,8 +347,12 @@ export const createProject = async (payload: Partial<Project> & Record<string, u
       status: payload.status,
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
+      opportunity_score: normalizeNullableNumber(payload.opportunity_score),
       investment_mode: normalizeNullableProjectInvestmentMode(payload.investment_mode),
       payment_cycle: normalizeNullablePaymentCycle(payload.payment_cycle),
+      implementation_user_id: Object.prototype.hasOwnProperty.call(payload, 'implementation_user_id')
+        ? normalizeNullableNumber(payload.implementation_user_id)
+        : undefined,
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
@@ -369,8 +385,12 @@ export const updateProject = async (
       status: payload.status,
       status_reason: normalizeNullableText(payload.status_reason),
       opportunity_id: normalizeNullableNumber(payload.opportunity_id),
+      opportunity_score: normalizeNullableNumber(payload.opportunity_score),
       investment_mode: normalizeNullableProjectInvestmentMode(payload.investment_mode),
       payment_cycle: normalizeNullablePaymentCycle(payload.payment_cycle),
+      implementation_user_id: Object.prototype.hasOwnProperty.call(payload, 'implementation_user_id')
+        ? normalizeNullableNumber(payload.implementation_user_id)
+        : undefined,
       start_date: payload.start_date,
       expected_end_date: payload.expected_end_date,
       actual_end_date: payload.actual_end_date,
@@ -501,6 +521,20 @@ export const updateProcedureTemplate = async (
   return parseItemJson<ProcedureTemplate>(res);
 };
 
+export const deleteProcedureTemplate = async (
+  id: string | number
+): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-templates/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_TEMPLATE_FAILED'));
+  }
+};
+
 export const fetchProcedureTemplateSteps = async (
   templateId: string | number
 ): Promise<ProcedureTemplateStep[]> =>
@@ -577,6 +611,28 @@ export const deleteProcedureTemplateStep = async (
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'DELETE_TEMPLATE_STEP_FAILED'));
+  }
+};
+
+export const deleteProcedureTemplateSteps = async (
+  templateId: string | number,
+  stepIds: Array<string | number>
+): Promise<void> => {
+  const res = await projectMutationRequest(
+    `/api/v5/project-procedure-templates/${templateId}/steps`,
+    {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        step_ids: stepIds.map((stepId) => Number(stepId)).filter((stepId) => Number.isFinite(stepId) && stepId > 0),
+      }),
+    },
+    'Xóa nhiều bước quá lâu, vui lòng thử lại.'
+  );
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_TEMPLATE_STEPS_FAILED'));
   }
 };
 
@@ -1021,6 +1077,7 @@ export const fetchTemplateSteps = fetchProcedureTemplateSteps;
 export const createTemplateStep = createProcedureTemplateStep;
 export const updateTemplateStep = updateProcedureTemplateStep;
 export const deleteTemplateStep = deleteProcedureTemplateStep;
+export const deleteTemplateSteps = deleteProcedureTemplateSteps;
 export const createProcedureStep = addCustomProcedureStep;
 export const batchAssignStepRaci = batchSetStepRaci;
 export const linkExistingAttachmentToStep = linkStepAttachment;

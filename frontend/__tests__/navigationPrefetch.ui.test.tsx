@@ -48,6 +48,7 @@ describe('navigation prefetch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(queryClient, 'prefetchQuery').mockResolvedValue(undefined as never);
+    window.sessionStorage.clear();
     useRevenueStore.setState({
       activeView: 'OVERVIEW',
       reportTab: 'department',
@@ -62,7 +63,40 @@ describe('navigation prefetch', () => {
     });
   });
 
+  it('cleans legacy revenue query params on mount while preserving the screen state', () => {
+    const departments = [{ id: 1, dept_name: 'Kinh doanh số' } as Department];
+
+    window.history.replaceState(
+      {},
+      '',
+      '/?tab=revenue_mgmt&rev_view=REPORT&rev_report_tab=time&rev_horizon=12&rev_period_type=YEARLY&rev_grouping=quarter'
+    );
+
+    render(
+      <RevenueManagementHub
+        canRead
+        canManageTargets
+        departments={departments}
+      />,
+    );
+
+    expect(window.location.search).toBe('?tab=revenue_mgmt');
+    expect(useRevenueStore.getState()).toMatchObject({
+      activeView: 'REPORT',
+      reportTab: 'time',
+      forecastHorizon: 12,
+      periodType: 'YEARLY',
+      grouping: 'quarter',
+    });
+  });
+
   it('prefetches fee-collection list queries when hovering sub-view tabs', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/fee-collection?fc_view=INVOICES&fc_period_from=2026-01-01&fc_period_to=2026-12-31'
+    );
+
     render(
       <FeeCollectionHub
         contracts={[]}
@@ -71,8 +105,10 @@ describe('navigation prefetch', () => {
       />,
     );
 
-    fireEvent.mouseEnter(screen.getByText('Hóa đơn'));
-    fireEvent.mouseEnter(screen.getByText('Phiếu thu'));
+    expect(window.location.search).toBe('');
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Hóa đơn/i }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Phiếu thu/i }));
 
     expect(queryClient.prefetchQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryKey: queryKeys.invoices.list({
@@ -94,7 +130,7 @@ describe('navigation prefetch', () => {
     }));
   });
 
-  it('prefetches revenue overview, forecast, and report queries on hover', () => {
+  it('prefetches revenue overview and forecast queries on hover without preloading report', () => {
     const departments = [{ id: 1, dept_name: 'Kinh doanh số' } as Department];
 
     render(
@@ -105,9 +141,9 @@ describe('navigation prefetch', () => {
       />,
     );
 
-    fireEvent.mouseEnter(screen.getByText('Tổng quan'));
-    fireEvent.mouseEnter(screen.getByText('Dự báo'));
-    fireEvent.mouseEnter(screen.getByText('Báo cáo'));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Tổng quan$/ }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Dự báo$/ }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Báo cáo$/ }));
 
     expect(queryClient.prefetchQuery).toHaveBeenCalledWith(expect.objectContaining({
       queryKey: queryKeys.revenue.overview({
@@ -123,7 +159,7 @@ describe('navigation prefetch', () => {
         dept_id: undefined,
       }),
     }));
-    expect(queryClient.prefetchQuery).toHaveBeenCalledWith(expect.objectContaining({
+    expect(queryClient.prefetchQuery).not.toHaveBeenCalledWith(expect.objectContaining({
       queryKey: queryKeys.revenue.report({
         period_from: '2026-01-01',
         period_to: '2026-12-31',

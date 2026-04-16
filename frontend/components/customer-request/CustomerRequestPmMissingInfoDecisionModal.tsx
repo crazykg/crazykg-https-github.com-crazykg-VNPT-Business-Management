@@ -69,7 +69,7 @@ export const CustomerRequestPmMissingInfoDecisionModal: React.FC<
           </span>
           <span className="material-symbols-outlined text-[18px] text-slate-400">arrow_forward</span>
           <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-700">
-            PM đánh giá thiếu TT KH
+            Chờ khách hàng cung cấp thông tin
           </span>
         </div>
 

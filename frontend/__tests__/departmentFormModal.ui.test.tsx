@@ -44,6 +44,7 @@ describe('DepartmentFormModal', () => {
     const parentTrigger = parentField?.querySelector('[role="button"]');
 
     expect(parentTrigger).not.toBeNull();
+    expect(parentTrigger).toHaveClass('h-8', 'rounded');
     await user.click(parentTrigger as HTMLElement);
 
     expect(screen.getAllByRole('button', { name: /BGDVT - Ban giám đốc/i }).length).toBeGreaterThan(0);

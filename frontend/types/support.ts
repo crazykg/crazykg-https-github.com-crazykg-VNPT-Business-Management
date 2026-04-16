@@ -78,6 +78,22 @@ export interface ProductUnitMaster {
   updated_by?: string | number | null;
 }
 
+export interface ContractSignerMaster {
+  id: string | number;
+  internal_user_id: string | number;
+  user_code?: string | null;
+  full_name?: string | null;
+  department_id?: string | number | null;
+  dept_code?: string | null;
+  dept_name?: string | null;
+  used_in_contracts?: number;
+  is_active: boolean;
+  created_at?: string | null;
+  created_by?: string | number | null;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+}
+
 export interface SupportRequestStatusOption {
   id: string | number | null;
   status_code: string;

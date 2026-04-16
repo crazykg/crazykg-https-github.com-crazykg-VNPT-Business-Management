@@ -6,6 +6,7 @@ use App\Models\WorkflowDefinition;
 use App\Models\WorkflowTransition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Feature\Concerns\InteractsWithWorkflowTestSchema;
 
 /**
  * Class WorkflowTransitionTest
@@ -15,12 +16,14 @@ use Tests\TestCase;
 class WorkflowTransitionTest extends TestCase
 {
     use RefreshDatabase;
+    use InteractsWithWorkflowTestSchema;
 
     protected WorkflowDefinition $workflow;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->setUpWorkflowSchema();
         
         $this->workflow = WorkflowDefinition::create([
             'code' => 'LUONG_TEST',
@@ -401,7 +404,7 @@ class WorkflowTransitionTest extends TestCase
     /**
      * Test: Soft deletes
      */
-    public function test_soft_deletes(): void
+    public function test_deletes_transition_record(): void
     {
         $transition = WorkflowTransition::create([
             'workflow_definition_id' => $this->workflow->id,
@@ -414,8 +417,7 @@ class WorkflowTransitionTest extends TestCase
 
         $transition->delete();
 
-        $this->assertSoftDeleted('customer_request_status_transitions', ['id' => $transitionId]);
+        $this->assertDatabaseMissing('customer_request_status_transitions', ['id' => $transitionId]);
         $this->assertNull(WorkflowTransition::find($transitionId));
-        $this->assertNotNull(WorkflowTransition::withTrashed()->find($transitionId));
     }
 }

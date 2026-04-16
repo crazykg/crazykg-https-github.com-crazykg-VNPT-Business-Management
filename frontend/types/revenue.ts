@@ -113,9 +113,8 @@ export interface RevenueSuggestionPreviewProjectSource {
   project_name: string;
   investment_mode: string;
   project_status: string;
-  accountable_user_id: number | null;
-  accountable_user_code: string | null;
-  accountable_full_name: string | null;
+  dept_id: number;
+  department_name: string;
   schedule_count: number;
   total_amount: number;
   periods: RevenueSuggestionPreviewProjectPeriod[];
@@ -160,6 +159,9 @@ export interface ProjectRevenueSchedule {
   expected_date: string | null;
   expected_amount: number;
   notes: string | null;
+  created_by?: number | null;
+  updated_by?: number | null;
+  created_by_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

@@ -1,5 +1,7 @@
-import type { Employee, Product, ProjectItem, ProjectItemMaster, ProjectRACI } from '../../types';
+import type { Employee, ProductPackage, ProjectItem, ProjectItemMaster, ProjectRACI } from '../../types';
 import {
+  buildProjectItemIdentityKey,
+  buildProjectPackageCatalogValue,
   buildProjectItemHeaderIndex,
   findProjectImportSheet,
   getProjectItemImportCell,
@@ -71,7 +73,7 @@ interface ExecuteProjectItemsImportOptions {
   onSetSummary: (summary: ProjectImportSummary) => void;
   parseNumber: (value: string | number) => number;
   payload: ImportPayload;
-  productLookupMap: Map<string, Product>;
+  productLookupMap: Map<string, ProductPackage>;
   now?: () => number;
 }
 
@@ -163,6 +165,14 @@ export const executeProjectItemsImport = async ({
       const projectCodeRaw = getProjectItemImportCell(row, headerIndex, ['mada', 'maduan', 'projectcode', 'code']);
       const projectRefRaw = getProjectItemImportCell(row, headerIndex, ['duan', 'project', 'tenduan', 'projectname', 'name']);
       const productRaw = getProjectItemImportCell(row, headerIndex, [
+        'magoicuoc',
+        'goicuoc',
+        'hangmuc',
+        'mahangmuc',
+        'mapackage',
+        'package',
+        'packagecode',
+        'packagename',
         'masanpham',
         'sanpham',
         'product',
@@ -219,13 +229,13 @@ export const executeProjectItemsImport = async ({
       }
 
       if (!productRaw) {
-        errors.push(`Dòng ${lineNumber}: thiếu mã/tên sản phẩm.`);
+        errors.push(`Dòng ${lineNumber}: thiếu mã/tên hạng mục.`);
         return;
       }
 
       const product = productLookupMap.get(normalizeProjectItemImportToken(productRaw));
       if (!product) {
-        errors.push(`Dòng ${lineNumber}: không tìm thấy sản phẩm "${productRaw}".`);
+        errors.push(`Dòng ${lineNumber}: không tìm thấy hạng mục "${productRaw}".`);
         return;
       }
 
@@ -272,7 +282,12 @@ export const executeProjectItemsImport = async ({
       }
 
       const lineTotal = Math.max(0, baseTotal - (discountAmount || 0));
-      const productKey = normalizeProjectItemImportToken(product.id);
+      const productKey = buildProjectItemIdentityKey({
+        productId: String(product.product_id),
+        productPackageId: String(product.id),
+        product_id: String(product.product_id),
+        product_package_id: String(product.id),
+      });
       const normalizedProjectCode = String(resolvedProjectCode).trim().toUpperCase();
       const normalizedProjectToken = normalizeProjectItemImportToken(normalizedProjectCode);
       const projectGroup = importRowsByProject.get(normalizedProjectToken) || {
@@ -281,12 +296,16 @@ export const executeProjectItemsImport = async ({
       };
 
       if (projectGroup.itemsByProduct.has(productKey)) {
-        warnings.push(`Dòng ${lineNumber}: sản phẩm "${productRaw}" bị trùng trong dự án "${normalizedProjectCode}", hệ thống dùng dòng sau.`);
+        warnings.push(`Dòng ${lineNumber}: hạng mục "${productRaw}" bị trùng trong dự án "${normalizedProjectCode}", hệ thống dùng dòng sau.`);
       }
 
       projectGroup.itemsByProduct.set(productKey, {
         id: `ITEM_${now()}_${lineNumber}`,
-        productId: String(product.id),
+        productId: String(product.product_id),
+        productPackageId: String(product.id),
+        catalogValue: buildProjectPackageCatalogValue(product.id),
+        product_id: String(product.product_id),
+        product_package_id: String(product.id),
         quantity,
         unitPrice,
         discountPercent,
@@ -313,6 +332,7 @@ export const executeProjectItemsImport = async ({
       project_code: group.project_code,
       items: Array.from(group.itemsByProduct.values()).map((item) => ({
         product_id: Number(item.productId),
+        product_package_id: item.productPackageId ? Number(item.productPackageId) : undefined,
         quantity: Number(item.quantity) || 0,
         unit_price: Number(item.unitPrice) || 0,
       })),

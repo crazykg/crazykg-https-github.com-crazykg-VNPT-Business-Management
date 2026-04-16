@@ -1,10 +1,12 @@
 import React from 'react';
-import type { Contract, ContractItem, Product, Project, ProjectItemMaster } from '../../types';
+import type { Attachment, Contract, ContractItem, Product, Project, ProjectItemMaster } from '../../types';
+import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
+import { resolveContractItemCatalogValue } from './contractItemCatalogUtils';
 
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
 
-interface ContractDraftItemComputedRow {
+export interface ContractDraftItemComputedRow {
   product: Product | null;
   vatRate: number | null;
   vatLabel: string;
@@ -14,10 +16,12 @@ interface ContractDraftItemComputedRow {
 }
 
 interface ContractDetailsTabProps {
+  modalType: 'ADD' | 'EDIT';
   formData: Partial<Contract>;
   errors: Record<string, string>;
   sourceMode: ContractSourceMode;
   sourceSelection: {
+    fixedSourceMode?: ContractSourceMode | null;
     areScheduleSourceFieldsLocked: boolean;
     projectTypeLockMessage: string;
     isProjectSelectionLoading: boolean;
@@ -46,10 +50,15 @@ interface ContractDetailsTabProps {
     draftItemsTotal: number;
     draftItemsVatTotal: number;
     draftItemsGrandTotal: number;
+    projectFallbackComputedRows: ContractDraftItemComputedRow[];
+    projectFallbackTotal: number;
+    projectFallbackVatTotal: number;
+    projectFallbackGrandTotal: number;
     isItemsEditable: boolean;
     isContractProductOptionsLoading: boolean;
     productSelectOptions: SearchableSelectOption[];
     onAddDraftItem: () => void;
+    onImportProjectItems: () => void;
     onRemoveDraftItem: (index: number) => void;
     onDraftProductChange: (index: number, nextProductId: string) => void;
     onDraftItemChange: (index: number, field: keyof ContractItem, value: unknown) => void;
@@ -60,6 +69,15 @@ interface ContractDetailsTabProps {
     isSignerOptionsLoading: boolean;
     signerOptionsError: string;
     selectedSignerDepartmentLabel: string;
+  };
+  contractAttachments: {
+    attachments: Attachment[];
+    isUploading: boolean;
+    error: string;
+    notice: string;
+    accept: string;
+    onUpload: (file: File) => Promise<void> | void;
+    onDelete: (id: string) => Promise<void> | void;
   };
   contractMeta: {
     inlineNotice: string;
@@ -84,13 +102,14 @@ interface ContractDetailsTabProps {
   };
 }
 
-const fieldLabelClass = 'text-xs font-semibold text-neutral';
-const fieldInputClass = 'w-full h-8 rounded border border-slate-300 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
+const fieldLabelClass = 'text-sm font-semibold leading-5 text-neutral';
+const fieldInputClass = 'w-full h-11 rounded-lg border border-slate-300 bg-white px-3.5 text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
 const fieldInputErrorClass = 'border-error ring-1 ring-error/20';
 const cardClass = 'rounded-lg border border-slate-200 bg-white shadow-sm';
-const compactTriggerClass = 'h-8 rounded border border-slate-300 px-3 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+const compactTriggerClass = 'h-11 rounded-lg border border-slate-300 px-3.5 text-sm leading-5 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
 
 export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
+  modalType,
   formData,
   errors,
   sourceMode,
@@ -98,11 +117,13 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   projectReference,
   contractItems,
   signerSelection,
+  contractAttachments,
   contractMeta,
   callbacks,
   formatters,
 }) => {
   const {
+    fixedSourceMode,
     areScheduleSourceFieldsLocked,
     projectTypeLockMessage,
     isProjectSelectionLoading,
@@ -131,10 +152,15 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
     draftItemsTotal,
     draftItemsVatTotal,
     draftItemsGrandTotal,
+    projectFallbackComputedRows,
+    projectFallbackTotal,
+    projectFallbackVatTotal,
+    projectFallbackGrandTotal,
     isItemsEditable,
     isContractProductOptionsLoading,
     productSelectOptions,
     onAddDraftItem,
+    onImportProjectItems,
     onRemoveDraftItem,
     onDraftProductChange,
     onDraftItemChange,
@@ -146,6 +172,15 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
     signerOptionsError,
     selectedSignerDepartmentLabel,
   } = signerSelection;
+  const {
+    attachments,
+    isUploading,
+    error: attachmentError,
+    notice: attachmentNotice,
+    accept: attachmentAccept,
+    onUpload,
+    onDelete,
+  } = contractAttachments;
   const {
     inlineNotice,
     scheduleSourceLockMessage,
@@ -159,6 +194,33 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   } = contractMeta;
   const { onFieldChange, onFieldBlur, onExpiryDateChange } = callbacks;
   const { formatCurrency, formatQuantity, parseCurrency } = formatters;
+  const shouldUseProjectItemsFallback = !isItemsEditable
+    && sourceMode === 'PROJECT'
+    && draftItems.length === 0
+    && selectedProjectItems.length > 0
+    && Math.abs(Number(selectedProjectValue || 0) - Number(formData.value || 0)) <= 0.01;
+  const visibleContractItems: ContractItem[] = shouldUseProjectItemsFallback
+    ? selectedProjectItems.map((item, index) => ({
+        id: `project-fallback-${item.id || index}`,
+        contract_id: String(formData.id || 'project-fallback'),
+        product_id: String(item.product_id || ''),
+        product_package_id: item.product_package_id ?? null,
+        productPackageId: item.product_package_id ?? null,
+        product_code: item.product_code || null,
+        product_name: item.product_name || null,
+        unit: item.unit || null,
+        quantity: Number(item.quantity || 0) || 0,
+        unit_price: Number(item.unit_price || 0) || 0,
+        vat_rate: null,
+        vat_amount: null,
+      }))
+    : draftItems;
+  const visibleComputedRows: ContractDraftItemComputedRow[] = shouldUseProjectItemsFallback
+    ? projectFallbackComputedRows
+    : computedRows;
+  const visibleDraftItemsTotal = shouldUseProjectItemsFallback ? projectFallbackTotal : draftItemsTotal;
+  const visibleDraftItemsVatTotal = shouldUseProjectItemsFallback ? projectFallbackVatTotal : draftItemsVatTotal;
+  const visibleDraftItemsGrandTotal = shouldUseProjectItemsFallback ? projectFallbackGrandTotal : draftItemsGrandTotal;
 
   return (
     <div className="space-y-3 p-4">
@@ -207,14 +269,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           )}
         </div>
 
-        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 shadow-sm">
-          <div className="flex flex-col gap-1">
-            <p className="text-xs font-bold text-slate-700">Nguồn hợp đồng</p>
-            <p className="text-[11px] text-slate-500">
-              Chọn hợp đồng theo dự án để lấy khách hàng từ dự án, hoặc chuyển sang đầu kỳ khi hợp đồng chưa gắn dự án cụ thể.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {modalType !== 'EDIT' && !fixedSourceMode && (
+          <div className="md:col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => onSourceModeChange('PROJECT')}
@@ -242,7 +298,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               Đầu kỳ
             </button>
           </div>
-        </div>
+        )}
 
         {sourceMode === 'PROJECT' ? (
           <div
@@ -355,14 +411,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                 className="flex w-full flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <h4 className="text-xs font-bold text-slate-700">
-                    Hạng mục dự án gốc ({selectedProjectItems.length} hạng mục)
-                  </h4>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    Chỉ để tham chiếu read-only từ dự án liên kết, không ràng buộc logic hợp đồng.
-                  </p>
-                </div>
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600">
+                    <h4 className="text-sm font-bold leading-5 text-slate-700">
+                      Hạng mục dự án gốc ({selectedProjectItems.length} hạng mục)
+                    </h4>
+                  </div>
+                <span className="inline-flex items-center gap-1 text-[13px] font-semibold leading-[18px] text-slate-600">
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
                     {isProjectItemsReferenceOpen ? 'expand_less' : 'expand_more'}
                   </span>
@@ -378,13 +431,13 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                     </div>
                   )}
                   <table className="w-full min-w-[720px] border-collapse">
-                    <thead className="bg-slate-50 border-b border-slate-200">
+                    <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">#</th>
-                        <th className="px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Sản phẩm/Dịch vụ</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">SL</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
-                        <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thành tiền</th>
+                        <th className="w-14 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">#</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Sản phẩm/Dịch vụ</th>
+                        <th className="w-32 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Số lượng</th>
+                        <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
+                        <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -412,11 +465,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
 
                           return (
                             <tr key={`project-item-${item.id}-${index}`} className="hover:bg-slate-50">
-                              <td className="px-4 py-3 text-sm font-medium text-slate-600">{index + 1}</td>
-                              <td className="px-4 py-3 text-sm text-slate-900">{itemLabel}</td>
-                              <td className="px-4 py-3 text-sm text-right text-slate-600">{formatQuantity(quantity)}</td>
-                              <td className="px-4 py-3 text-sm text-right text-slate-600">{formatCurrency(unitPrice)} đ</td>
-                              <td className="px-4 py-3 text-sm text-right font-semibold text-slate-900">{formatCurrency(amount)} đ</td>
+                              <td className="w-14 px-4 py-3 text-center text-sm font-medium text-slate-600">{index + 1}</td>
+                              <td className="px-4 py-3 text-sm leading-5 text-on-surface">{itemLabel}</td>
+                              <td className="w-32 px-4 py-3 text-center text-sm text-slate-600">{formatQuantity(quantity)}</td>
+                              <td className="w-40 px-4 py-3 text-right text-sm text-slate-600">{formatCurrency(unitPrice)} đ</td>
+                              <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface">{formatCurrency(amount)} đ</td>
                             </tr>
                           );
                         })
@@ -427,7 +480,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                         <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Tổng hạng mục dự án
                         </td>
-                        <td className="px-4 py-2.5 text-right text-sm font-bold text-slate-900">
+                        <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
                           {formatCurrency(selectedProjectValue)} đ
                         </td>
                       </tr>
@@ -439,28 +492,40 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
 
             <div className={cardClass}>
               <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
-                    <h4 className="text-xs font-bold text-slate-700">
-                      Hạng mục hợp đồng ({draftItems.length} hạng mục)
+                    <h4 className="text-sm font-bold leading-5 text-slate-700">
+                      Hạng mục hợp đồng ({visibleContractItems.length} hạng mục)
                     </h4>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Snapshot thương mại riêng của hợp đồng, không ghi ngược về dự án.
-                    </p>
                   </div>
                   {isItemsEditable ? (
-                    <button
-                      type="button"
-                      onClick={onAddDraftItem}
-                      className="inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
-                        add
-                      </span>
-                      Thêm hạng mục
-                    </button>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {sourceMode === 'PROJECT' && (
+                        <button
+                          type="button"
+                          onClick={onImportProjectItems}
+                          disabled={isContractProjectReferenceLoading || selectedProjectItems.length === 0}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-400"
+                        >
+                          <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                            playlist_add
+                          </span>
+                          Lấy hạng mục từ dự án
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={onAddDraftItem}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600 hover:bg-slate-50"
+                      >
+                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                          add
+                        </span>
+                        Thêm hạng mục
+                      </button>
+                    </div>
                   ) : (
-                    <div className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-warning">
+                    <div className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-bold text-warning">
                       <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
                       Không thể sửa - đã có kỳ thanh toán
                     </div>
@@ -469,62 +534,71 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               </div>
 
               <div className="overflow-auto">
+                {shouldUseProjectItemsFallback && (
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                    Hợp đồng này chưa có snapshot riêng cho hạng mục. Hệ thống đang hiển thị tạm từ hạng mục dự án liên kết để bạn đối chiếu.
+                  </div>
+                )}
                 <table className="w-full min-w-[1180px] border-collapse">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="border-b border-slate-200 bg-slate-50">
                     <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">#</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Sản phẩm/DV</th>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">ĐVT</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">SL</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thành tiền trước VAT</th>
-                      <th className="px-4 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-500">VAT</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Tiền VAT</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thành tiền VAT</th>
+                      <th className="w-14 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">#</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Sản phẩm/DV</th>
+                      <th className="w-52 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">ĐVT</th>
+                      <th className="w-32 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Số lượng</th>
+                      <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
+                      <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền trước VAT</th>
+                      <th className="w-24 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">VAT</th>
+                      <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Tiền VAT</th>
+                      <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền VAT</th>
                       {isItemsEditable && (
-                        <th className="px-4 py-2.5 text-right text-[11px] font-bold uppercase tracking-wide text-slate-500">Thao tác</th>
+                        <th className="w-28 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Thao tác</th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {draftItems.length === 0 ? (
+                    {visibleContractItems.length === 0 ? (
                       <tr>
                         <td colSpan={isItemsEditable ? 10 : 9} className="px-4 py-5 text-center text-sm text-slate-500">
                           Chưa có hạng mục hợp đồng.
                         </td>
                       </tr>
                     ) : (
-                      draftItems.map((item, index) => {
+                      visibleContractItems.map((item, index) => {
                         const quantity = Number(item.quantity || 0);
                         const unitPrice = Number(item.unit_price || 0);
-                        const computedRow = computedRows[index];
+                        const computedRow = visibleComputedRows[index];
                         const product = computedRow?.product || null;
                         const amountBeforeVat = computedRow?.amountBeforeVat ?? 0;
                         const vatLabel = computedRow?.vatLabel ?? '--';
                         const vatAmount = computedRow?.vatAmount ?? 0;
                         const amountWithVat = computedRow?.amountWithVat ?? amountBeforeVat;
                         const hasStoredVatAmount = Number.isFinite(Number(item.vat_amount));
-                        const takenProductIds = new Set(
-                          draftItems
-                            .filter((_, itemIndex) => itemIndex !== index)
-                            .map((draftItem) => String(draftItem.product_id || ''))
-                            .filter(Boolean)
-                        );
+                        const rowCatalogValue = resolveContractItemCatalogValue(item);
                         const rowProductOptions = productSelectOptions.map((option) => ({
                           ...option,
-                          disabled: takenProductIds.has(String(option.value)),
+                          label:
+                            String(option.value) === String(rowCatalogValue)
+                            && String(item.product_name || '').trim() !== ''
+                              ? String(item.product_name || '').trim()
+                              : option.label,
+                          searchText:
+                            String(option.value) === String(rowCatalogValue)
+                            && String(item.product_name || '').trim() !== ''
+                              ? `${String(item.product_name || '').trim()} ${option.searchText ?? option.label}`
+                              : option.searchText,
                         }));
 
                         return (
                           <tr key={`contract-item-${String(item.id)}`} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 text-sm font-medium text-slate-600">{index + 1}</td>
-                            <td className="px-4 py-3 text-sm text-slate-900 min-w-[260px]">
+                            <td className="w-14 px-4 py-3 text-center text-sm font-medium text-slate-600">{index + 1}</td>
+                            <td className="px-4 py-3 text-sm leading-5 text-on-surface min-w-[260px]">
                               {isItemsEditable ? (
                                 <SearchableSelect
-                                  value={String(item.product_id || '')}
+                                  value={rowCatalogValue}
                                   onChange={(value) => onDraftProductChange(index, value)}
                                   options={rowProductOptions}
-                                  placeholder={isContractProductOptionsLoading ? 'Đang tải sản phẩm...' : 'Chọn sản phẩm'}
+                                  placeholder={isContractProductOptionsLoading ? 'Đang tải gói cước...' : 'Chọn gói cước'}
                                   compact
                                   usePortal
                                   disabled={isContractProductOptionsLoading}
@@ -534,72 +608,78 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                 item.product_name || item.product_code || '--'
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                            <td className="w-52 px-4 py-3 text-left text-sm text-slate-600 whitespace-nowrap">
                               {item.unit || product?.unit || '--'}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right text-slate-600">
+                            <td className="w-32 px-4 py-3 text-center text-sm text-slate-600">
                               {isItemsEditable ? (
-                                <input
-                                  type="number"
-                                  min={0.01}
-                                  step={0.01}
-                                  value={quantity || ''}
-                                  onChange={(event) => {
-                                    const parsed = Number(event.target.value);
-                                    onDraftItemChange(index, 'quantity', Number.isFinite(parsed) ? parsed : 0);
-                                  }}
-                                  className="h-8 w-24 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                                />
+                                <div className="flex justify-center">
+                                  <input
+                                    type="number"
+                                    min={0.01}
+                                    step={0.01}
+                                    value={quantity || ''}
+                                    onChange={(event) => {
+                                      const parsed = Number(event.target.value);
+                                      onDraftItemChange(index, 'quantity', Number.isFinite(parsed) ? parsed : 0);
+                                    }}
+                                    className="h-10 w-24 rounded-lg border border-slate-300 bg-white px-3 text-center text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                  />
+                                </div>
                               ) : (
                                 formatQuantity(quantity)
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right text-slate-600">
+                            <td className="w-40 px-4 py-3 text-right text-sm text-slate-600">
                               {isItemsEditable ? (
-                                <input
-                                  type="text"
-                                  value={formatCurrency(unitPrice)}
-                                  onChange={(event) => onDraftItemChange(index, 'unit_price', parseCurrency(event.target.value))}
-                                  className="h-8 w-36 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                                />
+                                <div className="flex justify-end">
+                                  <input
+                                    type="text"
+                                    value={formatCurrency(unitPrice)}
+                                    onChange={(event) => onDraftItemChange(index, 'unit_price', parseCurrency(event.target.value))}
+                                    className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                  />
+                                </div>
                               ) : (
                                 `${formatCurrency(unitPrice)} đ`
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right font-semibold text-slate-900 whitespace-nowrap">
+                            <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface whitespace-nowrap">
                               {formatCurrency(amountBeforeVat)} đ
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="w-24 px-4 py-3 text-center">
                               {vatLabel !== '--' ? (
-                                <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-0.5 text-[10px] font-bold text-tertiary">
+                                <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-1 text-xs font-bold text-tertiary">
                                   {vatLabel}
                                 </span>
                               ) : (
                                 <span className="text-sm text-slate-400">--</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                            <td className="w-40 px-4 py-3 text-right text-sm whitespace-nowrap">
                               {isItemsEditable ? (
-                                <input
-                                  type="text"
-                                  value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
-                                  onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
-                                  placeholder="0"
-                                  className="h-8 w-36 rounded border border-slate-300 bg-white px-3 text-right text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                                />
+                                <div className="flex justify-end">
+                                  <input
+                                    type="text"
+                                    value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
+                                    onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
+                                    placeholder="0"
+                                    className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                  />
+                                </div>
                               ) : (
-                                <span className="font-semibold text-slate-900">
+                                <span className="font-semibold text-on-surface">
                                   {vatAmount > 0 || hasStoredVatAmount
                                     ? `${formatCurrency(vatAmount)} đ`
                                     : '--'}
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right font-semibold text-slate-900 whitespace-nowrap">
+                            <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface whitespace-nowrap">
                               {formatCurrency(amountWithVat)} đ
                             </td>
                             {isItemsEditable && (
-                              <td className="px-4 py-3 text-right">
+                              <td className="w-28 px-4 py-3 text-center">
                                 <button
                                   type="button"
                                   onClick={() => onRemoveDraftItem(index)}
@@ -622,17 +702,17 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                       <td colSpan={5} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Tổng cộng
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm font-bold text-slate-900">
-                        {formatCurrency(draftItemsTotal)} đ
+                      <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
+                        {formatCurrency(visibleDraftItemsTotal)} đ
                       </td>
-                      <td className="px-4 py-2.5" />
-                      <td className="px-4 py-2.5 text-right text-sm font-bold text-slate-900">
-                        {formatCurrency(draftItemsVatTotal)} đ
+                      <td className="w-24 px-4 py-2.5" />
+                      <td className="w-40 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
+                        {formatCurrency(visibleDraftItemsVatTotal)} đ
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm font-bold text-slate-900">
-                        {formatCurrency(draftItemsGrandTotal)} đ
+                      <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
+                        {formatCurrency(visibleDraftItemsGrandTotal)} đ
                       </td>
-                      {isItemsEditable && <td className="px-4 py-2.5" />}
+                      {isItemsEditable && <td className="w-28 px-4 py-2.5" />}
                     </tr>
                   </tfoot>
                 </table>
@@ -663,7 +743,6 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             value={formData.status || 'DRAFT'}
             onChange={(value) => onFieldChange('status', value)}
             options={statusOptions}
-            disabled={areScheduleSourceFieldsLocked}
             triggerClassName={compactTriggerClass}
             denseLabel
           />
@@ -683,11 +762,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             triggerClassName={compactTriggerClass}
             denseLabel
           />
-          {selectedSignerDepartmentLabel ? (
-            <p className="text-[11px] text-slate-500">
-              Phòng ban ownership sẽ lưu cho hợp đồng: <span className="font-semibold text-slate-700">{selectedSignerDepartmentLabel}</span>
-            </p>
-          ) : signerOptionsError ? (
+          {signerOptionsError ? (
             <p className="inline-flex items-center gap-1 text-xs text-warning">
               <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
                 warning
@@ -766,7 +841,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             <div className="mt-1 rounded border border-primary/20 bg-primary/5 px-3 py-1.5">
               <p className="text-xs leading-relaxed text-deep-teal">
                 <span className="font-bold uppercase tracking-wide">Số tiền bằng chữ:</span>{' '}
-                <span className="font-bold text-slate-900 break-words">{valueInWords}</span>
+                <span className="font-bold text-on-surface break-words">{valueInWords}</span>
               </p>
             </div>
           )}
@@ -818,11 +893,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               </span>
               {errors.term_value}
             </p>
-          ) : (
-            <p className="text-[11px] text-slate-500">
-              Mốc tính hạn: Ngày hiệu lực {'->'} Ngày ký {'->'} hôm qua. Công thức: hạn = mốc bắt đầu + N - 1.
-            </p>
-          )}
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -896,6 +967,43 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           {!errors.expiry_date && expiryDateManualOverride && (
             <p className="text-[11px] text-slate-500">Đang dùng ngày hết hiệu lực chỉnh tay.</p>
           )}
+        </div>
+
+        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+          <div className="mb-3">
+            <p className="text-xs font-bold text-slate-700">Tệp hợp đồng</p>
+          </div>
+
+          <AttachmentManager
+            attachments={attachments}
+            onUpload={onUpload}
+            onDelete={onDelete}
+            isUploading={isUploading}
+            compact
+            accept={attachmentAccept}
+            helperText="Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án."
+            emptyStateDescription="Tải lên file PDF để lưu kèm hồ sơ hợp đồng."
+            uploadButtonLabel="Tải PDF"
+            showSummaryMeta={false}
+          />
+
+          {attachmentError ? (
+            <p className="mt-2 inline-flex items-center gap-1 text-xs text-error">
+              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
+                error
+              </span>
+              {attachmentError}
+            </p>
+          ) : null}
+
+          {!attachmentError && attachmentNotice ? (
+            <p className="mt-2 inline-flex items-center gap-1 text-xs text-warning">
+              <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
+                warning
+              </span>
+              {attachmentNotice}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

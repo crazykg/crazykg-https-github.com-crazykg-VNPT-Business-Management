@@ -3,7 +3,6 @@ import { useRevenueStore } from '../shared/stores/revenueStore';
 import {
   fetchRevenueForecast,
   fetchRevenueOverview,
-  fetchRevenueReport,
   fetchRevenueTargets,
 } from '../services/v5Api';
 import { queryClient } from '../shared/queryClient';
@@ -37,7 +36,6 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
     periodFrom,
     periodTo,
     periodType,
-    reportTab,
     selectedDeptId,
     setActiveView,
     syncFromUrl,
@@ -109,21 +107,7 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
       return;
     }
 
-    if (view === 'REPORT') {
-      const reportFilters = {
-        period_from: periodFrom,
-        period_to: periodTo,
-        dimension: reportTab,
-        dept_id: selectedDeptId ?? undefined,
-      };
-
-      void queryClient.prefetchQuery({
-        queryKey: queryKeys.revenue.report(reportFilters),
-        queryFn: () => fetchRevenueReport(reportFilters),
-        staleTime: 60_000,
-      });
-    }
-  }, [forecastHorizon, grouping, periodFrom, periodTo, periodType, reportTab, selectedDeptId, year]);
+  }, [forecastHorizon, grouping, periodFrom, periodTo, periodType, selectedDeptId, year]);
 
   const activeViewNode = useMemo(() => {
     if (activeView === 'OVERVIEW') {
@@ -162,11 +146,7 @@ export function RevenueManagementHub({ canRead, canManageTargets, departments }:
                 </span>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Revenue Management</p>
                 <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản trị doanh thu</h2>
-                <p className="text-[11px] leading-tight text-slate-400">
-                  Theo dõi kế hoạch, thực thu, dự báo và báo cáo doanh thu theo từng lát cắt vận hành.
-                </p>
               </div>
             </div>
 

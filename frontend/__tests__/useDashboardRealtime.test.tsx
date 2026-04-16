@@ -90,4 +90,26 @@ describe('useDashboardRealtime', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.revenue.all, refetchType: 'active' });
   });
+
+  it('skips fallback polling when the caller disables polling fallback', async () => {
+    const { queryClient, wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined as never);
+
+    const { result } = renderHook(
+      () => useDashboardRealtime(['revenue'], true, { allowPollingFallback: false }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      subscriptions[0]?.onPollingChange?.(true);
+    });
+
+    expect(result.current.pollingEnabled).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: queryKeys.revenue.all, refetchType: 'active' });
+  });
 });

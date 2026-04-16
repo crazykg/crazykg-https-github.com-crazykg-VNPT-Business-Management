@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V5\DepartmentController;
 use App\Http\Controllers\Api\V5\EmployeeController;
 use App\Http\Controllers\Api\V5\EmployeePartyProfileController;
 use App\Http\Controllers\Api\V5\ProductController;
+use App\Http\Controllers\Api\V5\ProductPackageController;
 use App\Http\Controllers\Api\V5\VendorController;
 use Illuminate\Support\Facades\Route;
 
@@ -71,6 +72,14 @@ Route::delete('/businesses/{id}', [BusinessController::class, 'destroy'])
 
 Route::get('/products', [ProductController::class, 'index'])
     ->middleware('permission:products.read');
+Route::get('/product-packages', [ProductPackageController::class, 'index'])
+    ->middleware('permission:products.read');
+Route::post('/product-packages/bulk', [ProductPackageController::class, 'storeBulk'])
+    ->middleware(['permission:products.write', 'throttle:api.write.heavy']);
+Route::get('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'featureCatalog'])
+    ->middleware('permission:products.read');
+Route::get('/product-packages/{id}/feature-catalog/list', [ProductPackageController::class, 'featureCatalogList'])
+    ->middleware('permission:products.read');
 Route::get('/products/{id}/feature-catalog', [ProductController::class, 'featureCatalog'])
     ->middleware('permission:products.read');
 Route::get('/products/{id}/feature-catalog/list', [ProductController::class, 'featureCatalogList'])
@@ -107,11 +116,19 @@ Route::post('/products/bulk', [ProductController::class, 'storeBulk'])
     ->middleware('permission:products.write');
 Route::post('/products', [ProductController::class, 'store'])
     ->middleware('permission:products.write');
+Route::post('/product-packages', [ProductPackageController::class, 'store'])
+    ->middleware('permission:products.write');
+Route::put('/product-packages/{id}/feature-catalog', [ProductPackageController::class, 'updateFeatureCatalog'])
+    ->middleware('permission:products.write');
 Route::put('/products/{id}/feature-catalog', [ProductController::class, 'updateFeatureCatalog'])
     ->middleware('permission:products.write');
 Route::put('/products/{id}/target-segments-sync', [ProductController::class, 'syncTargetSegments'])
     ->middleware('permission:products.write');
 Route::put('/products/{id}', [ProductController::class, 'update'])
     ->middleware('permission:products.write');
+Route::put('/product-packages/{id}', [ProductPackageController::class, 'update'])
+    ->middleware('permission:products.write');
 Route::delete('/products/{id}', [ProductController::class, 'destroy'])
+    ->middleware('permission:products.delete');
+Route::delete('/product-packages/{id}', [ProductPackageController::class, 'destroy'])
     ->middleware('permission:products.delete');

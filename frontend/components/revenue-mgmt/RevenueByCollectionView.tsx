@@ -8,6 +8,7 @@ import {
   formatCurrencyVnd,
   formatDateRangeDdMmYyyy,
 } from '../../utils/revenueDisplay';
+import { RevenueWorkspaceHeader } from './RevenueWorkspaceHeader';
 
 function pctColor(pct: number): string {
   if (pct >= 100) return 'text-green-600';
@@ -60,11 +61,44 @@ export function RevenueByCollectionView() {
   const kpis: FeeCollectionKpis = data.kpis;
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <span className="material-symbols-outlined text-[16px]">date_range</span>
-        {formatDateRangeDdMmYyyy(periodFrom, periodTo)}
-      </div>
+    <div className="space-y-4 p-3 pb-6">
+      <RevenueWorkspaceHeader
+        icon="receipt_long"
+        title="Theo thu cước"
+        description="Theo dõi phát hành, thực thu, nợ quá hạn và nhóm khách hàng cần ưu tiên xử lý trong kỳ."
+        badges={[
+          {
+            label: formatDateRangeDdMmYyyy(periodFrom, periodTo),
+            icon: 'date_range',
+            tone: 'primary',
+          },
+          {
+            label: 'Theo dõi hóa đơn và công nợ',
+            icon: 'payments',
+            tone: 'neutral',
+          },
+        ]}
+        metrics={[
+          {
+            label: 'Phát hành trong kỳ',
+            value: formatCompactCurrencyVnd(kpis.expected_revenue),
+            detail: 'Tổng giá trị hóa đơn phát hành trong khoảng đang xem.',
+            tone: 'primary',
+          },
+          {
+            label: 'Đã thu trong kỳ',
+            value: formatCompactCurrencyVnd(kpis.actual_collected),
+            detail: `Tỷ lệ thu ${kpis.collection_rate}%`,
+            tone: 'success',
+          },
+          {
+            label: 'Nợ quá hạn',
+            value: formatCompactCurrencyVnd(kpis.overdue_amount),
+            detail: `${kpis.overdue_count} hóa đơn cần ưu tiên xử lý.`,
+            tone: kpis.overdue_amount > 0 ? 'warning' : 'success',
+          },
+        ]}
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

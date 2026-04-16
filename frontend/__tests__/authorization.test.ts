@@ -52,10 +52,18 @@ describe('authorization helpers', () => {
       expect(canAccessTab(user, 'dashboard')).toBe(true);
       expect(canAccessTab(user, 'projects')).toBe(false);
       expect(canAccessTab(user, 'internal_user_party_members')).toBe(false);
+      expect(canAccessTab(buildUser({ permissions: ['products.read'] }), 'product_quotes')).toBe(true);
+      expect(canAccessTab(buildUser({ permissions: ['contracts.read'] }), 'pass_contract')).toBe(true);
     });
 
     it('allows support master tab when any related permission is present', () => {
       const user = buildUser({ permissions: ['support_contact_positions.read'] });
+
+      expect(canAccessTab(user, 'support_master_management')).toBe(true);
+    });
+
+    it('allows support master tab for product management permissions', () => {
+      const user = buildUser({ permissions: ['products.read'] });
 
       expect(canAccessTab(user, 'support_master_management')).toBe(true);
     });

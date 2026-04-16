@@ -45,7 +45,9 @@ export interface DepartmentWeeklyScheduleEntry {
   created_by_name?: string | null;
   updated_by?: string | number | null;
   updated_by_name?: string | null;
+  can_edit?: boolean;
   can_delete?: boolean;
+  is_locked?: boolean;
 }
 
 export interface DepartmentWeeklyScheduleDay {

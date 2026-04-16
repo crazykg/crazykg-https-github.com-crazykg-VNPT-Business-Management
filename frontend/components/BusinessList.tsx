@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import type { ModalType } from '../types';
 import type { Business } from '../types/businessVendor';
 import type { Product } from '../types/product';
@@ -43,6 +44,23 @@ export const BusinessList: React.FC<BusinessListProps> = ({
   const [sortConfig, setSortConfig] = useState<BusinessSortConfig | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_BUSINESS'),
+    onUpdate: () => {
+      if (!selectedRowId) return;
+      const item = businesses.find((b) => String(b.id) === String(selectedRowId));
+      if (item) onOpenModal('EDIT_BUSINESS', item);
+    },
+    onDelete: () => {
+      if (!selectedRowId) return;
+      const item = businesses.find((b) => String(b.id) === String(selectedRowId));
+      if (item) onOpenModal('DELETE_BUSINESS', item);
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
   useEscKey(() => {
     setShowImportMenu(false);
@@ -259,7 +277,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({
   );
 
   return (
-    <div className="p-3 pb-6">
+    <section className="p-3 pb-6 rounded-b-lg border-t-0">
 
       {/* ── Page header ── */}
       <div className="flex items-center justify-between mb-3">
@@ -390,6 +408,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({
           <div className="relative flex-1 max-w-sm">
             <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
             <input
+              ref={searchInputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
@@ -511,7 +530,7 @@ export const BusinessList: React.FC<BusinessListProps> = ({
                   {currentData.map((item) => {
                     const productCount = productCountByBusiness.get(String(item.id)) ?? 0;
                     return (
-                      <tr key={String(item.id ?? item.domain_code)} className="transition-colors hover:bg-slate-50/60">
+                      <tr key={String(item.id ?? item.domain_code)} onClick={() => setSelectedRowId((prev) => String(prev) === String(item.id) ? null : (item.id ?? null))} className={`cursor-pointer transition-colors ${String(selectedRowId) === String(item.id) ? 'bg-secondary/10 ring-1 ring-inset ring-primary/30' : 'hover:bg-slate-50/60'}`}>
                         <td className="px-4 py-2 align-middle text-xs font-mono font-bold text-slate-500">{item.domain_code}</td>
                         <td className="px-4 py-2 align-middle text-xs font-semibold text-slate-800">
                           <div className="max-w-[250px] whitespace-normal break-words leading-5">{item.domain_name}</div>
@@ -587,6 +606,6 @@ export const BusinessList: React.FC<BusinessListProps> = ({
           onRowsPerPageChange={(rows) => { setRowsPerPage(rows); setCurrentPage(1); }}
         />
       </div>
-    </div>
+    </section>
   );
 };

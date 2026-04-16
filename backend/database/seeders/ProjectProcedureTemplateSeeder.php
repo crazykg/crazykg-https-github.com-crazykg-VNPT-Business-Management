@@ -29,7 +29,7 @@ class ProjectProcedureTemplateSeeder extends Seeder
             $thueDVId = DB::table('project_procedure_templates')->insertGetId([
                 'template_code' => 'THUE_DICH_VU_DACTHU',
                 'template_name' => 'Thủ tục dự án thuê dịch vụ CNTT đặc thù',
-                'description'   => 'Quy trình thủ tục cho dự án thuê dịch vụ công nghệ thông tin',
+                'description'   => 'Quy trình thủ tục cho dự án thuê dịch vụ công nghệ thông tin đặc thù',
                 'is_active'     => true,
                 'created_at'    => $now,
                 'updated_at'    => $now,
@@ -126,110 +126,47 @@ class ProjectProcedureTemplateSeeder extends Seeder
             // THUE_DICH_VU_DACTHU – Steps
             // ──────────────────────────────────────────────
             $sortOrder = 0;
+            $thueDvDacThuSteps = [
+                ['phase' => 'Phê duyệt chủ trương', 'step_name' => 'Đề án'],
+                ['phase' => 'Phê duyệt chủ trương', 'step_name' => 'Báo cáo đề xuất chủ trương'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Lập đề cương và dự toán chi tiết'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Báo cáo kinh tế kỹ thuật'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Kế hoạch thuê dịch vụ'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Báo cáo nghiên cứu khả thi'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Thiết kế chi tiết và dự toán'],
+                ['phase' => 'Phê duyệt dự án', 'step_name' => 'Kế hoạch mua sắm'],
+                ['phase' => 'Đấu thầu', 'step_name' => 'Xây dựng HSMT (Hồ sơ mời thầu)'],
+                ['phase' => 'Đấu thầu', 'step_name' => 'Xây dựng HSDT (Hồ sơ dự thầu)'],
+                ['phase' => 'Đấu thầu', 'step_name' => 'Đánh giá HSDT'],
+                ['phase' => 'Đàm phán thương thảo', 'step_name' => 'Đàm phán thương thảo'],
+                ['phase' => 'Ký hợp đồng', 'step_name' => 'Ký hợp đồng'],
+                ['phase' => 'Triển khai hợp đồng', 'step_name' => 'Khảo sát hiện trạng'],
+                ['phase' => 'Triển khai hợp đồng', 'step_name' => 'Phân tích nghiệp vụ; Thiết kế UI/UX, hệ thống; Lập trình'],
+                ['phase' => 'Triển khai hợp đồng', 'step_name' => 'Lắp đặt, cài đặt, Kiểm thử, vận hành thử hệ thống'],
+                ['phase' => 'Triển khai hợp đồng', 'step_name' => 'Đào tạo'],
+                ['phase' => 'Nghiệm thu', 'step_name' => 'Nghiệm thu hoàn thành đưa vào sử dụng'],
+                ['phase' => 'Thanh quyết toán', 'step_name' => 'Thanh toán theo đợt'],
+                ['phase' => 'Thanh quyết toán', 'step_name' => 'Hoàn thành quyết toán'],
+                ['phase' => 'Bảo hành', 'step_name' => 'Bảo hành, hỗ trợ kỹ thuật'],
+            ];
 
-            // Phase: CHUAN_BI_KH_THUE (Steps 1-11)
-
-            // Step 1 – parent for sub-step 1b
-            $tdv_step1Id = DB::table('project_procedure_template_steps')->insertGetId([
-                'template_id'          => $thueDVId,
-                'step_number'          => 1,
-                'parent_step_id'       => null,
-                'phase'                => 'CHUAN_BI_KH_THUE',
-                'step_name'            => 'Trình xin chủ trương thực hiện kế hoạch thuê',
-                'step_detail'          => null,
-                'lead_unit'            => 'Sở Tài chính',
-                'support_unit'         => null,
-                'expected_result'      => 'Tờ trình',
-                'default_duration_days' => 0,
-                'sort_order'           => ++$sortOrder,
-                'created_at'           => $now,
-                'updated_at'           => $now,
-            ]);
-
-            // Sub-step 1b
-            $this->insertStep($thueDVId, 1, $tdv_step1Id, 'CHUAN_BI_KH_THUE', 'Phê duyệt chủ trương thực hiện kế hoạch thuê', null, 'UBND Tỉnh Hậu Giang', null, 'Quyết định/Văn bản chấp thuận chủ trương', 0, ++$sortOrder, $now);
-
-            $this->insertStep($thueDVId, 2, null, 'CHUAN_BI_KH_THUE', 'Lập dự toán giai đoạn chuẩn bị đầu tư', null, 'Chủ đầu tư', null, 'Dự toán giai đoạn chuẩn bị đầu tư', 5, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 3, null, 'CHUAN_BI_KH_THUE', 'Phê duyệt dự toán giai đoạn chuẩn bị đầu tư', null, 'Chủ đầu tư', null, 'Quyết định phê duyệt dự toán - giai đoạn chuẩn bị đầu tư', 1, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 4, null, 'CHUAN_BI_KH_THUE', 'Lập kế hoạch lựa chọn nhà thầu giai đoạn chuẩn bị đầu tư', null, 'Chủ đầu tư', null, 'Kế hoạch lựa chọn nhà thầu - giai đoạn chuẩn bị đầu tư', 5, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 5, null, 'CHUAN_BI_KH_THUE', 'Phê duyệt kế hoạch lựa chọn nhà thầu giai đoạn chuẩn bị đầu tư', null, 'Chủ đầu tư', null, 'Quyết định phê duyệt KHLCNT - giai đoạn chuẩn bị đầu tư', 2, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 6, null, 'CHUAN_BI_KH_THUE', 'Chọn lựa nhà thầu tư vấn lập kế hoạch thuê, thẩm định giá, tư vấn thẩm tra kế hoạch thuê', null, 'Chủ đầu tư', 'Các đơn vị tư vấn', 'Biên bản thương thảo; Quyết định chỉ định thầu; Các hợp đồng tư vấn', 3, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 7, null, 'CHUAN_BI_KH_THUE', 'Lập kế hoạch thuê', null, 'Đơn vị tư vấn', 'Chủ đầu tư', 'Hồ sơ kế hoạch thuê', 10, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 8, null, 'CHUAN_BI_KH_THUE', 'Thẩm định giá', null, 'Thẩm định giá', 'Chủ đầu tư', 'Chứng thư thẩm định giá', 2, ++$sortOrder, $now);
-
-            // Step 9 – parent for sub-steps 9b, 9c
-            $tdv_step9Id = DB::table('project_procedure_template_steps')->insertGetId([
-                'template_id'          => $thueDVId,
-                'step_number'          => 9,
-                'parent_step_id'       => null,
-                'phase'                => 'CHUAN_BI_KH_THUE',
-                'step_name'            => 'Thẩm định công nghệ kế hoạch thuê',
-                'step_detail'          => null,
-                'lead_unit'            => 'Sở thông tin và TT và Sở tài chính',
-                'support_unit'         => 'Chủ đầu tư',
-                'expected_result'      => null,
-                'default_duration_days' => 2,
-                'sort_order'           => ++$sortOrder,
-                'created_at'           => $now,
-                'updated_at'           => $now,
-            ]);
-
-            // Sub-step 9b
-            $this->insertStep($thueDVId, 9, $tdv_step9Id, 'CHUAN_BI_KH_THUE', 'Thẩm tra kế hoạch thuê', null, 'Đơn vị tư vấn thẩm tra', 'Chủ đầu tư', 'Báo cáo thẩm tra kế hoạch thuê', 0, ++$sortOrder, $now);
-            // Sub-step 9c
-            $this->insertStep($thueDVId, 9, $tdv_step9Id, 'CHUAN_BI_KH_THUE', 'Thẩm định công nghệ kế hoạch thuê (lần 2)', null, 'Đơn vị đầu mối về CNTT', null, null, 0, ++$sortOrder, $now);
-
-            $this->insertStep($thueDVId, 10, null, 'CHUAN_BI_KH_THUE', 'Trình phê duyệt Hồ sơ kế hoạch thuê', null, 'Chủ đầu tư', 'Đơn vị tư vấn', 'Hồ sơ kế hoạch thuê - hoàn chỉnh', 3, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 11, null, 'CHUAN_BI_KH_THUE', 'Phê duyệt Hồ sơ kế hoạch thuê', null, 'Cơ quan có thẩm quyền', 'Chủ đầu tư', 'Quyết định phê duyệt Hồ sơ kế hoạch thuê', 0, ++$sortOrder, $now);
-
-            // Phase: THUC_HIEN_DAU_TU (Steps 12-33)
-            $this->insertStep($thueDVId, 12, null, 'THUC_HIEN_DAU_TU', 'Lập kế hoạch lựa chọn nhà thầu', null, 'Chủ đầu tư', null, 'Tờ trình phê duyệt KHLCNT giai đoạn thực hiện đầu tư', 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 13, null, 'THUC_HIEN_DAU_TU', 'Phê duyệt kế hoạch lựa chọn nhà thầu', null, 'Cơ quan có thẩm quyền', 'Chủ đầu tư', 'QĐ phê duyệt kế hoạch lựa chọn nhà thầu', 3, ++$sortOrder, $now);
-
-            // Step 14 – parent for sub-steps 14a, 14b, 14c
-            $tdv_step14Id = DB::table('project_procedure_template_steps')->insertGetId([
-                'template_id'          => $thueDVId,
-                'step_number'          => 14,
-                'parent_step_id'       => null,
-                'phase'                => 'THUC_HIEN_DAU_TU',
-                'step_name'            => 'Chọn lựa nhà thầu tư vấn QLDA, đấu thầu, tư vấn thẩm định HSMT-KQLCNT',
-                'step_detail'          => null,
-                'lead_unit'            => 'Chủ đầu tư',
-                'support_unit'         => 'Các đơn vị tư vấn',
-                'expected_result'      => 'Biên bản thương thảo; Quyết định chỉ định; Các hợp đồng tư vấn',
-                'default_duration_days' => 1,
-                'sort_order'           => ++$sortOrder,
-                'created_at'           => $now,
-                'updated_at'           => $now,
-            ]);
-
-            // Sub-steps 14a, 14b, 14c
-            $this->insertStep($thueDVId, 14, $tdv_step14Id, 'THUC_HIEN_DAU_TU', 'Thương thảo', null, 'Chủ đầu tư', 'Các đơn vị tư vấn', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 14, $tdv_step14Id, 'THUC_HIEN_DAU_TU', 'QĐ chỉ định thầu', null, 'Chủ đầu tư', 'Các đơn vị tư vấn', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 14, $tdv_step14Id, 'THUC_HIEN_DAU_TU', 'Hợp đồng', null, 'Chủ đầu tư', 'Các đơn vị tư vấn', null, 0, ++$sortOrder, $now);
-
-            $this->insertStep($thueDVId, 15, null, 'THUC_HIEN_DAU_TU', 'Tổ chức lập E-HSMT cho gói thầu thuê (Gói phi tư vấn)', null, 'Đơn vị tư vấn', 'Chủ đầu tư', 'E-HSMT (Phi tư vấn, 1 giai đoạn 2 túi hồ sơ)', 5, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 16, null, 'THUC_HIEN_DAU_TU', 'Tổ chức thẩm định E-HSMT', null, 'Đơn vị tư vấn thẩm định', null, 'Báo cáo thẩm định', 1, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 17, null, 'THUC_HIEN_DAU_TU', 'Phê duyệt E-HSMT', null, 'Chủ đầu tư', null, 'Quyết định phê duyệt E-HSMT; E-HSMT chính thức', 0, ++$sortOrder, $now);
-            // NOTE: Step 18 is intentionally skipped in original data (17 → 19)
-            $this->insertStep($thueDVId, 19, null, 'THUC_HIEN_DAU_TU', 'Phát hành E-HSMT', null, 'Chủ đầu tư', null, 'E-HSMT', 7, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 20, null, 'THUC_HIEN_DAU_TU', 'Đóng/mở thầu', null, 'Đơn vị tư vấn, nhà thầu', 'Chủ đầu tư', 'Biên bản đóng/mở thầu', 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 21, null, 'THUC_HIEN_DAU_TU', 'Đánh giá E-HSDT', null, 'Đơn vị tư vấn', null, 'Báo cáo đánh giá E-HSDT', 3, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 22, null, 'THUC_HIEN_DAU_TU', 'Bàn giao Báo cáo Đánh giá E-HSDT', null, 'Đơn vị tư vấn', 'Chủ đầu tư', 'Báo cáo Đánh giá E-HSDT, các QĐ, công văn, tờ trình', 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 23, null, 'THUC_HIEN_DAU_TU', 'Phê duyệt danh sách xếp hạng nhà thầu', null, 'Chủ đầu tư', null, 'Quyết định phê duyệt danh sách xếp hạng nhà thầu', 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 24, null, 'THUC_HIEN_DAU_TU', 'Mời thương thảo', null, 'Chủ đầu tư', 'Nhà thầu', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 25, null, 'THUC_HIEN_DAU_TU', 'Thương thảo hợp đồng', null, 'Chủ đầu tư, Nhà thầu đạt', null, null, 1, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 26, null, 'THUC_HIEN_DAU_TU', 'Bàn giao BC đánh giá E-HSDT và BB thương thảo', null, 'Chủ đầu tư', 'Đơn vị tư vấn thẩm định thầu', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 27, null, 'THUC_HIEN_DAU_TU', 'Tổ chức thẩm định kết quả lựa chọn nhà thầu', null, 'Đơn vị tư vấn thẩm định thầu', null, 'Báo cáo thẩm định kết quả lựa chọn nhà thầu', 2, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 28, null, 'THUC_HIEN_DAU_TU', 'Phê duyệt kết quả lựa chọn nhà thầu', null, 'Chủ đầu tư', 'Đơn vị tư vấn', 'Quyết định phê duyệt kết quả lựa chọn nhà thầu', 1, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 29, null, 'THUC_HIEN_DAU_TU', 'Thông báo', null, 'Chủ đầu tư', 'Đơn vị tư vấn', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 30, null, 'THUC_HIEN_DAU_TU', 'Đăng tải KQLCNT', null, 'Chủ đầu tư', 'Đơn vị tư vấn', null, 0, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 31, null, 'THUC_HIEN_DAU_TU', 'Thương thảo hoàn thiện hợp đồng, ký kết hợp đồng và tổ chức triển khai', null, 'Chủ đầu tư, Nhà thầu đạt', 'Đơn vị tư vấn', 'Hợp đồng', 1, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 32, null, 'THUC_HIEN_DAU_TU', 'Triển khai hợp đồng', null, 'Chủ đầu tư, Nhà thầu, Đơn vị tư vấn', 'Đơn vị tư vấn', 'Nhật ký cho thuê', 3, ++$sortOrder, $now);
-            $this->insertStep($thueDVId, 33, null, 'THUC_HIEN_DAU_TU', 'Giám sát (nếu có)', null, 'Chủ đầu tư, Nhà thầu, Đơn vị tư vấn', 'Đơn vị tư vấn', 'Báo cáo giám sát, nhật ký giám sát', 3, ++$sortOrder, $now);
-
-            // Phase: KET_THUC_DAU_TU (Step 34)
-            $this->insertStep($thueDVId, 34, null, 'KET_THUC_DAU_TU', 'Nghiệm thu khởi tạo dịch vụ - Bắt đầu tính thời gian thuê', null, 'Chủ đầu tư, Nhà thầu, Đơn vị tư vấn', 'Đơn vị tư vấn', 'Hồ sơ nghiệm thu và bàn giao', 1, ++$sortOrder, $now);
+            foreach ($thueDvDacThuSteps as $index => $step) {
+                $sortOrder += 10;
+                $this->insertStep(
+                    $thueDVId,
+                    $index + 1,
+                    null,
+                    $step['phase'],
+                    $step['step_name'],
+                    null,
+                    null,
+                    null,
+                    null,
+                    0,
+                    $sortOrder,
+                    $now,
+                );
+            }
         });
     }
 

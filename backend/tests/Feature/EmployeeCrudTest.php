@@ -250,6 +250,56 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.0.department.id', 1);
     }
 
+    public function test_it_requires_leave_date_when_marking_employee_as_inactive(): void
+    {
+        $response = $this->postJson('/api/v5/internal-users', [
+            'username' => 'inactive.employee',
+            'user_code' => 'VNPT000011',
+            'full_name' => 'Inactive Employee',
+            'email' => 'inactive.employee@example.com',
+            'department_id' => 1,
+            'status' => 'INACTIVE',
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Ngày nghỉ việc là bắt buộc khi chọn trạng thái Nghỉ việc.')
+            ->assertJsonPath('errors.leave_date.0', 'Ngày nghỉ việc là bắt buộc khi chọn trạng thái Nghỉ việc.');
+    }
+
+    public function test_it_persists_leave_date_for_inactive_employee(): void
+    {
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'uuid' => 'emp-1',
+            'username' => 'employee.inactive',
+            'user_code' => 'VNPT100020',
+            'full_name' => 'Employee Inactive',
+            'email' => 'employee.inactive@example.com',
+            'department_id' => 1,
+            'position_id' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->putJson('/api/v5/employees/1', [
+            'status' => 'INACTIVE',
+            'leave_date' => '2026-04-07',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.status', 'INACTIVE')
+            ->assertJsonPath('data.leave_date', '2026-04-07');
+
+        $this->assertDatabaseHas('internal_users', [
+            'id' => 1,
+            'status' => 'INACTIVE',
+            'leave_date' => '2026-04-07',
+        ]);
+    }
+
     public function test_it_blocks_employee_delete_when_related_data_exists(): void
     {
         DB::table('internal_users')->insert([
@@ -321,6 +371,7 @@ class EmployeeCrudTest extends TestCase
             $table->unsignedBigInteger('position_id')->nullable();
             $table->string('job_title_raw', 255)->nullable();
             $table->date('date_of_birth')->nullable();
+            $table->date('leave_date')->nullable();
             $table->string('phone_number', 50)->nullable();
             $table->string('phone', 50)->nullable();
             $table->string('mobile', 50)->nullable();

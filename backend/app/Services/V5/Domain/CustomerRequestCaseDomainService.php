@@ -11,6 +11,7 @@ use App\Services\V5\CustomerRequest\CustomerRequestCaseMetadataService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadModelService;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseTransitionEvaluator;
 use App\Services\V5\CustomerRequest\CustomerRequestCaseReadQueryService;
+use App\Services\V5\CustomerRequest\CustomerRequestCaseIntakeIoService;
 use App\Services\V5\CustomerRequest\Write\CaseWriteOrchestrator;
 use App\Services\V5\V5DomainSupportService;
 use App\Support\Auth\UserAccessService;
@@ -20,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CustomerRequestCaseDomainService
 {
@@ -28,6 +30,32 @@ class CustomerRequestCaseDomainService
     private const PM_MISSING_CUSTOMER_INFO_OUTCOME_CUSTOMER_MISSING_INFO = 'customer_missing_info';
 
     private const PM_MISSING_CUSTOMER_INFO_OUTCOME_OTHER_REASON = 'other_reason';
+
+    /**
+     * @var array<string, array{group_code:string,group_label:string}>
+     */
+    private array $statusGroups = [
+        'new_intake' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'assigned_to_receiver' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'waiting_customer_feedback' => ['group_code' => 'intake', 'group_label' => 'Tiếp nhận'],
+        'analysis' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'analysis_completed' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'analysis_suspended' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'returned_to_manager' => ['group_code' => 'analysis', 'group_label' => 'Phân tích'],
+        'in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding_in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'coding_suspended' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_transfer' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_task_created' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_in_progress' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'dms_suspended' => ['group_code' => 'processing', 'group_label' => 'Xử lý'],
+        'completed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'waiting_notification' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'customer_notified' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'closed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+        'not_executed' => ['group_code' => 'closure', 'group_label' => 'Kết quả'],
+    ];
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -38,6 +66,7 @@ class CustomerRequestCaseDomainService
         private readonly CustomerRequestCaseTransitionEvaluator $transitionEvaluator,
         private readonly CustomerRequestCaseReadQueryService $readQueryService,
         private readonly CustomerRequestCaseReadModelService $readModelService,
+        private readonly CustomerRequestCaseIntakeIoService $intakeIoService,
         private readonly CaseWriteOrchestrator $writeService,
         private readonly TransitionCaseAction $transitionCaseAction,
     ) {}
@@ -263,6 +292,21 @@ class CustomerRequestCaseDomainService
                 $userId
             )
         );
+    }
+
+    public function importIntakeTemplate(Request $request): JsonResponse
+    {
+        return $this->intakeIoService->importIntakeTemplate($request);
+    }
+
+    public function importIntake(Request $request): JsonResponse
+    {
+        return $this->intakeIoService->importIntake($request);
+    }
+
+    public function exportIntake(Request $request): StreamedResponse
+    {
+        return $this->intakeIoService->exportIntake($request);
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -712,6 +756,534 @@ class CustomerRequestCaseDomainService
         return $this->executionService->storeWorklog($request, $case, $actorId);
     }
 
+    public function storeDetailStatusWorklog(Request $request, int $id): JsonResponse
+    {
+        try {
+            if (($missing = $this->missingTablesResponse()) !== null) {
+                return $missing;
+            }
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o check missing tables',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+
+        try {
+            $this->mergeWorklogFieldsFromNestedPayload($request);
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o merge payload worklog',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+
+        try {
+            $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o find case',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        try {
+            $actorId = $this->resolveActorId($request);
+            if (! $this->canWriteCase($case, $actorId)) {
+                return response()->json(['message' => 'Bạn không có quyền thao tác yêu cầu này.'], 403);
+            }
+
+            $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền thao tác yêu cầu này.');
+            if ($scopeError instanceof JsonResponse) {
+                return $scopeError;
+            }
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o check quyen thao tac',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+
+        try {
+            if (! $this->support->hasTable('customer_request_status_detail_states')) {
+                return response()->json(['message' => 'Thiếu bảng customer_request_status_detail_states.'], 500);
+            }
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o check bang customer_request_status_detail_states',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+
+        try {
+            $action = $this->normalizeNullableString($request->input('detail_status_action'))
+                ?? $this->normalizeNullableString($request->input('action'));
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o doc detail_status_action',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+        if (! in_array($action, ['in_progress', 'paused'], true)) {
+            return response()->json([
+                'message' => 'action không hợp lệ.',
+                'errors' => ['action' => ['action phải là in_progress hoặc paused.']],
+            ], 422);
+        }
+
+        try {
+            $currentInstance = $this->currentStatusInstance($case);
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o query current status instance',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+        if ($currentInstance === null) {
+            return response()->json(['message' => 'Yêu cầu chưa có trạng thái hiện tại.'], 422);
+        }
+
+        $targetDetailStatus = $action;
+        $source = 'button_worklog_submit';
+
+        try {
+            $result = DB::transaction(function () use ($request, $case, $actorId, $currentInstance, $targetDetailStatus, $source): array {
+                try {
+                    $existingState = DB::table('customer_request_status_detail_states')
+                        ->where('status_instance_id', (int) $currentInstance->id)
+                        ->first();
+                } catch (\Throwable $exception) {
+                    throw new \RuntimeException('da loi o query customer_request_status_detail_states: '.$exception->getMessage(), 0, $exception);
+                }
+
+                $now = now();
+                $note = $this->normalizeNullableString($request->input('work_content'));
+                $fromDetailStatus = $this->normalizeNullableString($existingState?->detail_status) ?? 'open';
+
+                if ($existingState === null) {
+                    try {
+                        DB::table('customer_request_status_detail_states')->insert($this->filterDetailStatePayload([
+                            'request_case_id' => (int) $case->id,
+                            'status_instance_id' => (int) $currentInstance->id,
+                            'status_code' => (string) $currentInstance->status_code,
+                            'detail_status' => $targetDetailStatus,
+                            'started_at' => $now,
+                            'completed_at' => null,
+                            'changed_by' => $actorId,
+                            'note' => $note,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]));
+                    } catch (\Throwable $exception) {
+                        throw new \RuntimeException('da loi o insert customer_request_status_detail_states: '.$exception->getMessage(), 0, $exception);
+                    }
+                } elseif ($fromDetailStatus !== $targetDetailStatus) {
+                    try {
+                        DB::table('customer_request_status_detail_states')
+                            ->where('status_instance_id', (int) $currentInstance->id)
+                            ->update($this->filterDetailStatePayload([
+                                'detail_status' => $targetDetailStatus,
+                                'started_at' => $targetDetailStatus === 'in_progress' ? $now : ($existingState->started_at ?? $now),
+                                'completed_at' => $targetDetailStatus === 'completed' ? $now : null,
+                                'changed_by' => $actorId,
+                                'note' => $note,
+                                'updated_at' => $now,
+                            ]));
+                    } catch (\Throwable $exception) {
+                        throw new \RuntimeException('da loi o update customer_request_status_detail_states: '.$exception->getMessage(), 0, $exception);
+                    }
+                }
+
+                if ($this->support->hasTable('customer_request_status_detail_logs')) {
+                    try {
+                        DB::table('customer_request_status_detail_logs')->insert($this->filterDetailLogPayload([
+                            'request_case_id' => (int) $case->id,
+                            'status_instance_id' => (int) $currentInstance->id,
+                            'status_code' => (string) $currentInstance->status_code,
+                            'from_detail_status' => $fromDetailStatus,
+                            'to_detail_status' => $targetDetailStatus,
+                            'changed_by' => $actorId,
+                            'source' => $source,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]));
+                    } catch (\Throwable $exception) {
+                        throw new \RuntimeException('da loi o insert customer_request_status_detail_logs: '.$exception->getMessage(), 0, $exception);
+                    }
+                }
+
+                try {
+                    $request->merge([
+                        'status_instance_id' => (int) $currentInstance->id,
+                        'detail_status_action' => $targetDetailStatus,
+                    ]);
+                } catch (\Throwable $exception) {
+                    throw new \RuntimeException('da loi o merge request detail_status_action: '.$exception->getMessage(), 0, $exception);
+                }
+
+                try {
+                    $worklogResponse = $this->executionService->storeWorklog($request, $case, $actorId);
+                    $payload = $worklogResponse->getData(true);
+                } catch (\Throwable $exception) {
+                    throw new \RuntimeException('da loi o executionService->storeWorklog: '.$exception->getMessage(), 0, $exception);
+                }
+
+                return [
+                    'worklog_response' => $worklogResponse,
+                    'detail_status' => $targetDetailStatus,
+                    'worklog_payload' => is_array($payload) ? $payload : [],
+                ];
+            });
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 500);
+        }
+
+        try {
+            $baseResponse = $result['worklog_response'];
+            $payload = is_array($result['worklog_payload']) ? $result['worklog_payload'] : [];
+            $payload['meta'] = [
+                ...(is_array($payload['meta'] ?? null) ? $payload['meta'] : []),
+                'detail_status' => $result['detail_status'],
+            ];
+
+            return response()->json($payload, $baseResponse->getStatusCode());
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'message' => 'da loi o format response detail status worklog',
+                'debug' => $exception->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function updateWorklog(Request $request, int $id, int $worklogId): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        $actorId = $this->resolveActorId($request);
+        if (! $this->canWriteCase($case, $actorId)) {
+            return response()->json(['message' => 'Bạn không có quyền cập nhật worklog cho yêu cầu này.'], 403);
+        }
+
+        $scopeError = $this->authorizeCaseMutationScope($case, $actorId, 'Bạn không có quyền cập nhật worklog cho yêu cầu này.');
+        if ($scopeError instanceof JsonResponse) {
+            return $scopeError;
+        }
+
+        $worklog = DB::table('customer_request_worklogs')
+            ->where('id', $worklogId)
+            ->where('request_case_id', $case->id)
+            ->first();
+        if ($worklog === null) {
+            return response()->json(['message' => 'Worklog không tồn tại.'], 404);
+        }
+
+        $difficultyStatus = $this->normalizeNullableString($request->input('difficulty_status'));
+        if ($difficultyStatus !== null && ! in_array($difficultyStatus, ['none', 'has_issue', 'resolved'], true)) {
+            return response()->json(['message' => 'difficulty_status không hợp lệ.'], 422);
+        }
+
+        $startedAt = $this->normalizeDateTime($request->input('work_started_at'));
+        $endedAt = $this->normalizeDateTime($request->input('work_ended_at'));
+        $hoursSpent = $this->normalizeNullableDecimal($request->input('hours_spent'));
+        $workDate = $this->readQueryService->normalizeNullableDate($request->input('work_date'));
+        if ($hoursSpent === null && $startedAt !== null && $endedAt !== null) {
+            try {
+                $hoursSpent = round(\Illuminate\Support\Carbon::parse($startedAt)->diffInMinutes(\Illuminate\Support\Carbon::parse($endedAt), true) / 60, 2);
+            } catch (\Throwable) {
+                $hoursSpent = null;
+            }
+        }
+
+        if ($workDate === null && $startedAt !== null) {
+            try {
+                $workDate = \Illuminate\Support\Carbon::parse($startedAt)->format('Y-m-d');
+            } catch (\Throwable) {
+                $workDate = null;
+            }
+        }
+
+        $payload = $this->writeService->filterByTableColumns('customer_request_worklogs', [
+            'work_content' => $this->normalizeNullableString($request->input('work_content')),
+            'difficulty_note' => $this->normalizeNullableString($request->input('difficulty_note')),
+            'proposal_note' => $this->normalizeNullableString($request->input('proposal_note')),
+            'difficulty_status' => $difficultyStatus,
+            'work_started_at' => $startedAt,
+            'work_ended_at' => $endedAt,
+            'work_date' => $workDate,
+            'activity_type_code' => $this->normalizeNullableString($request->input('activity_type_code')),
+            'is_billable' => $this->readQueryService->resolveBooleanInput($request->input('is_billable')),
+            'hours_spent' => $hoursSpent,
+            'updated_by' => $actorId,
+            'updated_at' => now(),
+        ]);
+
+        unset($payload['status_instance_id'], $payload['status_code'], $payload['detail_status_action']);
+
+        DB::table('customer_request_worklogs')
+            ->where('id', $worklogId)
+            ->where('request_case_id', $case->id)
+            ->update($payload);
+
+        $hoursSummary = $this->executionService->buildHoursReportPayload($case->fresh() ?? $case);
+
+        $row = DB::table('customer_request_worklogs as wl')
+            ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
+            ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
+                $join->on('catalog.status_code', '=', 'instance.status_code')
+                    ->where('catalog.is_active', 1);
+            })
+            ->where('wl.id', $worklogId)
+            ->select([
+                'wl.*',
+                'performer.full_name as performed_by_name',
+                'performer.user_code as performed_by_code',
+                'catalog.status_name_vi as status_name_vi',
+            ])
+            ->first();
+
+        return response()->json([
+            'data' => $row === null ? null : $this->serializeWorklogRow($row),
+            'meta' => [
+                'hours_report' => $hoursSummary,
+            ],
+        ]);
+    }
+
+    public function detailStatus(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        if (! $this->support->hasTable('customer_request_status_detail_states')) {
+            return response()->json(['data' => [
+                'detail_status' => 'open',
+                'can_transition_main_status' => false,
+            ]]);
+        }
+
+        $currentInstance = $this->currentStatusInstance($case);
+        if ($currentInstance === null) {
+            return response()->json(['data' => [
+                'detail_status' => 'open',
+                'can_transition_main_status' => false,
+            ]]);
+        }
+
+        $state = DB::table('customer_request_status_detail_states')
+            ->where('status_instance_id', (int) $currentInstance->id)
+            ->first();
+
+        $detailStatus = $this->normalizeNullableString($state->detail_status ?? null) ?? 'open';
+
+        return response()->json([
+            'data' => [
+                'status_instance_id' => (int) $currentInstance->id,
+                'status_code' => (string) $currentInstance->status_code,
+                'detail_status' => $detailStatus,
+                'can_transition_main_status' => $detailStatus !== 'open',
+                'quick_actions' => [
+                    ['action' => 'in_progress', 'label' => 'Đang thực hiện'],
+                    ['action' => 'paused', 'label' => 'Tạm ngưng'],
+                ],
+            ],
+        ]);
+    }
+
+    private function filterDetailStatePayload(array $payload): array
+    {
+        return $this->writeService->filterByTableColumns('customer_request_status_detail_states', $payload);
+    }
+
+    private function filterDetailLogPayload(array $payload): array
+    {
+        return $this->writeService->filterByTableColumns('customer_request_status_detail_logs', $payload);
+    }
+
+
+    private function markDetailStatusCompletedForInstance(int $requestCaseId, int $statusInstanceId, string $statusCode, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('customer_request_status_detail_states')) {
+            return;
+        }
+
+        $existing = DB::table('customer_request_status_detail_states')
+            ->where('status_instance_id', $statusInstanceId)
+            ->first();
+
+        $now = now();
+        $fromDetailStatus = $this->normalizeNullableString($existing->detail_status ?? null) ?? 'open';
+
+        if ($existing === null) {
+            DB::table('customer_request_status_detail_states')->insert($this->filterDetailStatePayload([
+                'request_case_id' => $requestCaseId,
+                'status_instance_id' => $statusInstanceId,
+                'status_code' => $statusCode,
+                'detail_status' => 'completed',
+                'started_at' => $now,
+                'completed_at' => $now,
+                'changed_by' => $actorId,
+                'note' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]));
+        } elseif ($fromDetailStatus !== 'completed') {
+            DB::table('customer_request_status_detail_states')
+                ->where('status_instance_id', $statusInstanceId)
+                ->update($this->filterDetailStatePayload([
+                    'detail_status' => 'completed',
+                    'completed_at' => $now,
+                    'changed_by' => $actorId,
+                    'updated_at' => $now,
+                ]));
+        }
+
+        if ($this->support->hasTable('customer_request_status_detail_logs')) {
+            DB::table('customer_request_status_detail_logs')->insert($this->filterDetailLogPayload([
+                'request_case_id' => $requestCaseId,
+                'status_instance_id' => $statusInstanceId,
+                'status_code' => $statusCode,
+                'from_detail_status' => $fromDetailStatus,
+                'to_detail_status' => 'completed',
+                'changed_by' => $actorId,
+                'source' => 'system_transition',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]));
+        }
+    }
+
+    private function initializeDetailStatusOpenForInstance(int $requestCaseId, int $statusInstanceId, string $statusCode, ?int $actorId): void
+    {
+        if (! $this->support->hasTable('customer_request_status_detail_states')) {
+            return;
+        }
+
+        $exists = DB::table('customer_request_status_detail_states')
+            ->where('status_instance_id', $statusInstanceId)
+            ->exists();
+        if ($exists) {
+            return;
+        }
+
+        $now = now();
+        DB::table('customer_request_status_detail_states')->insert($this->filterDetailStatePayload([
+            'request_case_id' => $requestCaseId,
+            'status_instance_id' => $statusInstanceId,
+            'status_code' => $statusCode,
+            'detail_status' => 'open',
+            'started_at' => $now,
+            'completed_at' => null,
+            'changed_by' => $actorId,
+            'note' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]));
+
+        if ($this->support->hasTable('customer_request_status_detail_logs')) {
+            DB::table('customer_request_status_detail_logs')->insert($this->filterDetailLogPayload([
+                'request_case_id' => $requestCaseId,
+                'status_instance_id' => $statusInstanceId,
+                'status_code' => $statusCode,
+                'from_detail_status' => null,
+                'to_detail_status' => 'open',
+                'changed_by' => $actorId,
+                'source' => 'system_transition',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]));
+        }
+    }
+
+    private function currentDetailStatusForCase(CustomerRequestCase $case): ?string
+    {
+        if (! $this->support->hasTable('customer_request_status_detail_states')) {
+            return null;
+        }
+
+        $currentInstance = $this->currentStatusInstance($case);
+        if ($currentInstance === null) {
+            return null;
+        }
+
+        $state = DB::table('customer_request_status_detail_states')
+            ->where('status_instance_id', (int) $currentInstance->id)
+            ->first();
+
+        return $this->normalizeNullableString($state->detail_status ?? null);
+    }
+
+    private function isTransitionBlockedByDetailStatus(CustomerRequestCase $case): bool
+    {
+        $detailStatus = $this->currentDetailStatusForCase($case);
+
+        return $detailStatus === 'open';
+    }
+
+    private function augmentProcessDetailWithCurrentDetailStatus(array $payload, CustomerRequestCase $case): array
+    {
+        $detailStatus = $this->currentDetailStatusForCase($case) ?? 'open';
+
+        $payload['current_detail_status'] = $detailStatus;
+        $payload['can_transition_main_status'] = $detailStatus !== 'open';
+
+        return $payload;
+    }
+
+    private function ensureDetailStatusOpenForCurrentInstance(CustomerRequestCase $case, ?int $actorId): void
+    {
+        $currentInstance = $this->currentStatusInstance($case);
+        if ($currentInstance === null) {
+            return;
+        }
+
+        $this->initializeDetailStatusOpenForInstance(
+            (int) $case->id,
+            (int) $currentInstance->id,
+            (string) $currentInstance->status_code,
+            $actorId
+        );
+    }
+
+    private function mergeWorklogFieldsFromNestedPayload(Request $request): void
+    {
+        $worklogPayload = $request->input('worklog');
+        if (! is_array($worklogPayload)) {
+            return;
+        }
+
+        $request->merge([
+            'work_content' => $worklogPayload['work_content'] ?? $request->input('work_content'),
+            'work_date' => $worklogPayload['work_date'] ?? $request->input('work_date'),
+            'activity_type_code' => $worklogPayload['activity_type_code'] ?? $request->input('activity_type_code'),
+            'hours_spent' => $worklogPayload['hours_spent'] ?? $request->input('hours_spent'),
+            'is_billable' => $worklogPayload['is_billable'] ?? $request->input('is_billable'),
+            'difficulty_note' => $worklogPayload['difficulty_note'] ?? $request->input('difficulty_note'),
+            'proposal_note' => $worklogPayload['proposal_note'] ?? $request->input('proposal_note'),
+            'difficulty_status' => $worklogPayload['difficulty_status'] ?? $request->input('difficulty_status'),
+            'work_started_at' => $worklogPayload['work_started_at'] ?? $request->input('work_started_at'),
+            'work_ended_at' => $worklogPayload['work_ended_at'] ?? $request->input('work_ended_at'),
+        ]);
+    }
+
     /**
      * V4: Update sub-status (coding_phase or dms_phase) without full status transition.
      * PATCH /api/v5/customer-request-cases/{id}/sub-status
@@ -757,15 +1329,62 @@ class CustomerRequestCaseDomainService
 
     public function transition(Request $request, int $id): JsonResponse
     {
-        return $this->transitionCaseAction->execute(
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $actorId = $this->resolveActorId($request);
+        $case = $this->findAccessibleCaseModel($id, $actorId);
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        if ($this->isTransitionBlockedByDetailStatus($case)) {
+            return response()->json([
+                'message' => 'Không thể chuyển trạng thái chính khi trạng thái chi tiết đang ở Mở.',
+                'errors' => [
+                    'detail_status' => ['Không thể chuyển trạng thái chính khi trạng thái chi tiết đang ở Mở.'],
+                ],
+            ], 422);
+        }
+
+        $previousInstance = $this->currentStatusInstance($case);
+        $response = $this->transitionCaseAction->execute(
             $request,
             $id,
-            fn (CustomerRequestCase $case, string $statusCode, ?int $userId): array => $this->buildStatusDetailData(
-                $case,
-                $statusCode,
-                $userId
+            fn (CustomerRequestCase $resolvedCase, string $statusCode, ?int $userId): array => $this->augmentProcessDetailWithCurrentDetailStatus(
+                $this->buildStatusDetailData($resolvedCase, $statusCode, $userId),
+                $resolvedCase
             )
         );
+
+        if ($response->getStatusCode() >= 400) {
+            return $response;
+        }
+
+        $freshCase = $this->findAccessibleCaseModel($id, $actorId);
+        if ($freshCase !== null) {
+            if ($previousInstance !== null) {
+                $this->markDetailStatusCompletedForInstance(
+                    (int) $freshCase->id,
+                    (int) $previousInstance->id,
+                    (string) $previousInstance->status_code,
+                    $actorId
+                );
+            }
+
+            $currentInstance = $this->currentStatusInstance($freshCase);
+            if ($currentInstance !== null) {
+                $this->initializeDetailStatusOpenForInstance(
+                    (int) $freshCase->id,
+                    (int) $currentInstance->id,
+                    (string) $currentInstance->status_code,
+                    $actorId
+                );
+            }
+        }
+
+        return $response;
     }
 
     public function destroy(Request $request, int $id): JsonResponse
@@ -784,7 +1403,10 @@ class CustomerRequestCaseDomainService
         $statusRow = $requestedDefinition !== null && $requestedInstance !== null
             ? $this->loadStatusRow((string) $requestedDefinition['table_name'], $requestedInstance->status_row_id)
             : null;
-        $serializedCase = $this->serializeCaseModel($case);
+        $serializedCase = $this->augmentProcessDetailWithCurrentDetailStatus(
+            $this->serializeCaseModel($case),
+            $case
+        );
 
         $allowedNext = $currentDefinition === null
             ? []
@@ -841,7 +1463,39 @@ class CustomerRequestCaseDomainService
      */
     private function serializeStatusMeta(array $definition): array
     {
-        return $definition;
+        $statusCode = (string) $definition['status_code'];
+        $group = $this->statusGroups[$statusCode] ?? ['group_code' => 'statuses', 'group_label' => 'Trạng thái'];
+
+        return [
+            'status_code' => $statusCode,
+            'status_name_vi' => (string) $definition['status_name_vi'],
+            'process_code' => $statusCode,
+            'process_label' => (string) $definition['status_name_vi'],
+            'group_code' => $group['group_code'],
+            'group_label' => $group['group_label'],
+            'table_name' => (string) $definition['table_name'],
+            'default_status' => $statusCode,
+            'read_roles' => [],
+            'write_roles' => [],
+            'allowed_next_processes' => array_map(
+                static fn (array $row): string => (string) $row['to_status_code'],
+                $this->allowedTransitionRows($statusCode, 'forward')
+            ),
+            'allowed_previous_processes' => array_map(
+                static fn (array $row): string => (string) $row['to_status_code'],
+                $this->allowedTransitionRows($statusCode, 'backward')
+            ),
+            'list_columns' => array_values($definition['list_columns'] ?? []),
+            'form_fields' => [
+                ['name' => 'received_at', 'label' => 'Ngày bắt đầu', 'type' => 'datetime', 'required' => false],
+                ['name' => 'completed_at', 'label' => 'Ngày kết thúc', 'type' => 'datetime', 'required' => false],
+                ['name' => 'extended_at', 'label' => 'Ngày gia hạn', 'type' => 'datetime', 'required' => false],
+                ['name' => 'progress_percent', 'label' => 'Tiến độ phần trăm', 'type' => 'number', 'required' => false],
+                ['name' => 'from_user_id', 'label' => 'Người chuyển', 'type' => 'user_select', 'required' => false],
+                ['name' => 'to_user_id', 'label' => 'Người nhận', 'type' => 'user_select', 'required' => false],
+                ['name' => 'notes', 'label' => 'Ghi chú', 'type' => 'textarea', 'required' => false],
+            ],
+        ];
     }
 
     /**
@@ -933,12 +1587,18 @@ class CustomerRequestCaseDomainService
         string $statusCode,
         ?string $direction = null
     ): array {
-        return $this->transitionEvaluator->filterAllowedTransitionsForCase(
-            $case,
-            $statusCode,
-            $this->allowedTransitionRows($statusCode, $direction),
-            $direction
-        );
+        $rows = $this->allowedTransitionRows($statusCode, $direction);
+
+        if ($direction !== 'forward') {
+            return $rows;
+        }
+
+        $allowedTargets = $this->resolveXmlAlignedAllowedTargets($case, $statusCode);
+        if ($allowedTargets === null) {
+            return $rows;
+        }
+
+        return $this->alignTransitionRowsWithWorkflowTargets($rows, $statusCode, $allowedTargets);
     }
 
     /**
@@ -946,7 +1606,54 @@ class CustomerRequestCaseDomainService
      */
     private function resolveXmlAlignedAllowedTargets(?CustomerRequestCase $case, string $statusCode): ?array
     {
-        return null;
+        return CustomerRequestCaseRegistry::workflowaAllowedTargets($this->normalizeWorkflowStatusCode($statusCode));
+    }
+
+    private function normalizeWorkflowStatusCode(string $statusCode): string
+    {
+        return match ($statusCode) {
+            'pending_dispatch', 'dispatched' => 'new_intake',
+            default => $statusCode,
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<int, string> $allowedTargets
+     * @return array<int, array<string, mixed>>
+     */
+    private function alignTransitionRowsWithWorkflowTargets(array $rows, string $fromStatusCode, array $allowedTargets): array
+    {
+        $rowsByTarget = [];
+        foreach ($rows as $row) {
+            $toStatusCode = (string) ($row['to_status_code'] ?? '');
+            if ($toStatusCode === '') {
+                continue;
+            }
+
+            $rowsByTarget[$toStatusCode] = $row;
+        }
+
+        $aligned = [];
+        foreach ($allowedTargets as $index => $toStatusCode) {
+            $existing = $rowsByTarget[$toStatusCode] ?? null;
+            if ($existing !== null) {
+                $aligned[] = $existing;
+                continue;
+            }
+
+            $aligned[] = [
+                'from_status_code' => $fromStatusCode,
+                'to_status_code' => $toStatusCode,
+                'direction' => 'forward',
+                'is_default' => $index === 0,
+                'is_active' => 1,
+                'sort_order' => ($index + 1) * 10,
+                'notes' => 'WorkflowA fallback target injection',
+            ];
+        }
+
+        return $aligned;
     }
 
     private function isTransitionAllowedForCase(
@@ -997,6 +1704,7 @@ class CustomerRequestCaseDomainService
     {
         $decisionContextCode = $this->normalizeNullableString($row->decision_context_code ?? null);
         $decisionOutcomeCode = $this->normalizeNullableString($row->decision_outcome_code ?? null);
+        [$fromUserId, $fromUserName, $ownerUserId, $ownerName] = $this->resolveTimelineTransferSnapshot($row);
 
         return [
             'id' => (int) $row->id,
@@ -1026,9 +1734,52 @@ class CustomerRequestCaseDomainService
             'nguoi_thay_doi_id' => $this->support->parseNullableInt($row->created_by ?? null),
             'nguoi_thay_doi_name' => $this->normalizeNullableString($row->changed_by_name ?? null),
             'nguoi_thay_doi_code' => $this->normalizeNullableString($row->changed_by_code ?? null),
+            'nguoi_chuyen_id' => $fromUserId,
+            'nguoi_chuyen_name' => $fromUserName,
+            'nguoi_xu_ly_id' => $ownerUserId,
+            'nguoi_xu_ly_name' => $ownerName,
             'ly_do' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
             'thay_doi_luc' => $this->normalizeNullableString($row->entered_at ?? null) ?? $this->normalizeNullableString($row->created_at ?? null),
         ];
+    }
+
+    /**
+     * @return array{0:int|null,1:string|null,2:int|null,3:string|null}
+     */
+    private function resolveTimelineTransferSnapshot(object $row): array
+    {
+        $statusTable = $this->normalizeNullableString($row->status_table ?? null);
+        $statusRowId = $this->support->parseNullableInt($row->status_row_id ?? null);
+
+        if ($statusTable === null || $statusRowId === null || ! $this->support->hasTable($statusTable)) {
+            return [null, null, null, null];
+        }
+
+        $statusRow = DB::table($statusTable)
+            ->where('id', $statusRowId)
+            ->first();
+
+        if ($statusRow === null) {
+            return [null, null, null, null];
+        }
+
+        $fromUserId = $this->support->parseNullableInt($statusRow->from_user_id ?? null);
+        $ownerUserId = $this->support->parseNullableInt($statusRow->to_user_id ?? null)
+            ?? $this->support->parseNullableInt($statusRow->performer_user_id ?? null);
+
+        if (! $this->support->hasTable('internal_users')) {
+            return [$fromUserId, null, $ownerUserId, null];
+        }
+
+        $fromUserName = $fromUserId === null
+            ? null
+            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $fromUserId)->value('full_name'));
+
+        $ownerName = $ownerUserId === null
+            ? null
+            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $ownerUserId)->value('full_name'));
+
+        return [$fromUserId, $fromUserName, $ownerUserId, $ownerName];
     }
 
     private function resolveDecisionReasonLabel(?string $contextCode, ?string $outcomeCode): ?string
@@ -1161,6 +1912,19 @@ class CustomerRequestCaseDomainService
         return $this->support->normalizeNullableString($value);
     }
 
+    private function normalizeNullableDecimal(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return null;
+    }
+
     private function currentStatusInstance(CustomerRequestCase $case): ?CustomerRequestStatusInstance
     {
         $instanceId = $this->support->parseNullableInt($case->current_status_instance_id);
@@ -1230,41 +1994,45 @@ class CustomerRequestCaseDomainService
 
     private function serializeSimpleCaseRow(object|array $row): array
     {
-        $record = is_object($row) ? (array) $row : $row;
+        $case = $this->serializeCaseRow($row);
 
         return [
-            'id' => (int) ($record['id'] ?? 0),
-            'request_code' => (string) ($record['request_code'] ?? ''),
-            'ma_yc' => (string) ($record['request_code'] ?? ''),
-            'summary' => (string) ($record['summary'] ?? ''),
-            'tieu_de' => (string) ($record['summary'] ?? ''),
-            'current_status_code' => (string) ($record['current_status_code'] ?? null),
-            'current_status_name_vi' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
-            'current_process_label' => $this->normalizeNullableString($record['current_status_name_vi'] ?? null),
-            'trang_thai' => (string) ($record['current_status_code'] ?? null),
-            'tien_trinh_hien_tai' => (string) ($record['current_status_code'] ?? null),
-            'priority' => (int) ($record['priority'] ?? 2),
-            'do_uu_tien' => (int) ($record['priority'] ?? 2),
-            'project_name' => $this->normalizeNullableString($record['project_name'] ?? null),
-            'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
-            'khach_hang_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
-            'received_by_name' => $this->normalizeNullableString($record['received_by_name'] ?? null),
-            'dispatcher_name' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
-            'performer_name' => $this->normalizeNullableString($record['performer_name'] ?? null),
-            'current_entered_at' => $this->normalizeNullableString($record['current_entered_at'] ?? null),
-            'current_exited_at' => $this->normalizeNullableString($record['current_exited_at'] ?? null),
-            'previous_status_instance_id' => $this->support->parseNullableInt($record['previous_status_instance_id'] ?? null),
-            'next_status_instance_id' => $this->support->parseNullableInt($record['next_status_instance_id'] ?? null),
-            'current_started_at' => $this->normalizeNullableString($record['current_started_at'] ?? null),
-            'current_expected_completed_at' => $this->normalizeNullableString($record['current_expected_completed_at'] ?? null),
-            'current_completed_at' => $this->normalizeNullableString($record['current_completed_at'] ?? null),
-            'current_status_notes' => $this->normalizeNullableString($record['current_status_notes'] ?? null),
-            'current_progress_percent' => (int) ($record['current_progress_percent'] ?? 0),
-            'nguoi_xu_ly_id' => $this->support->parseNullableInt($record['nguoi_xu_ly_id'] ?? null),
-            'nguoi_xu_ly_name' => $this->normalizeNullableString($record['nguoi_xu_ly_name'] ?? null),
-            'created_by_name' => $this->normalizeNullableString($record['created_by_name'] ?? null),
-            'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
-            'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
+            'id' => $case['id'] ?? 0,
+            'request_code' => $case['request_code'] ?? '',
+            'ma_yc' => $case['ma_yc'] ?? ($case['request_code'] ?? ''),
+            'summary' => $case['summary'] ?? '',
+            'tieu_de' => $case['tieu_de'] ?? ($case['summary'] ?? ''),
+            'current_status_code' => $case['current_status_code'] ?? null,
+            'current_status_name_vi' => $case['current_status_name_vi'] ?? null,
+            'current_process_label' => $case['current_process_label'] ?? null,
+            'trang_thai' => $case['trang_thai'] ?? null,
+            'tien_trinh_hien_tai' => $case['tien_trinh_hien_tai'] ?? null,
+            'priority' => $case['priority'] ?? 2,
+            'do_uu_tien' => $case['do_uu_tien'] ?? ($case['priority'] ?? 2),
+            'project_name' => $case['project_name'] ?? null,
+            'customer_name' => $case['customer_name'] ?? null,
+            'khach_hang_name' => $case['khach_hang_name'] ?? ($case['customer_name'] ?? null),
+            'received_by_name' => $case['received_by_name'] ?? null,
+            'dispatcher_name' => $case['dispatcher_name'] ?? null,
+            'performer_name' => $case['performer_name'] ?? null,
+            'receiver_user_id' => $case['receiver_user_id'] ?? null,
+            'receiver_name' => $case['receiver_name'] ?? null,
+            'from_user_id_name' => $case['from_user_id_name'] ?? null,
+            'to_user_id_name' => $case['to_user_id_name'] ?? null,
+            'current_entered_at' => $case['current_entered_at'] ?? null,
+            'current_exited_at' => $case['current_exited_at'] ?? null,
+            'previous_status_instance_id' => $case['previous_status_instance_id'] ?? null,
+            'next_status_instance_id' => $case['next_status_instance_id'] ?? null,
+            'current_started_at' => $case['current_started_at'] ?? null,
+            'current_expected_completed_at' => $case['current_expected_completed_at'] ?? null,
+            'current_completed_at' => $case['current_completed_at'] ?? null,
+            'current_status_notes' => $case['current_status_notes'] ?? null,
+            'current_progress_percent' => $case['current_progress_percent'] ?? 0,
+            'nguoi_xu_ly_id' => $case['nguoi_xu_ly_id'] ?? null,
+            'nguoi_xu_ly_name' => $case['nguoi_xu_ly_name'] ?? null,
+            'created_by_name' => $case['created_by_name'] ?? null,
+            'updated_at' => $case['updated_at'] ?? null,
+            'created_at' => $case['created_at'] ?? null,
         ];
     }
 
@@ -1474,8 +2242,4 @@ class CustomerRequestCaseDomainService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function filterByTableColumns(string $table, array $payload): array
-    {
-        return $this->writeService->filterByTableColumns($table, $payload);
-    }
 }

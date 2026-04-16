@@ -25,6 +25,8 @@ interface EmployeePartyListProps {
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
   onQueryChange?: (query: EmployeePartyListQuery) => void;
+  forcedDepartmentFilter?: string;
+  hideDepartmentFilter?: boolean;
 }
 
 const QUALITY_OPTIONS = [
@@ -86,6 +88,8 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
   paginationMeta,
   isLoading = false,
   onQueryChange,
+  forcedDepartmentFilter,
+  hideDepartmentFilter = false,
 }: EmployeePartyListProps) => {
   const serverMode = Boolean(onQueryChange && paginationMeta);
   const [searchTerm, setSearchTerm] = useState('');
@@ -254,6 +258,24 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
     }
   }, [currentPage, totalPages]);
 
+  useEffect(() => {
+    if (forcedDepartmentFilter === undefined) {
+      return;
+    }
+
+    const normalizedForcedFilter = String(forcedDepartmentFilter || '').trim();
+    if (normalizedForcedFilter === String(departmentFilter || '').trim()) {
+      return;
+    }
+
+    setDepartmentFilter(normalizedForcedFilter);
+    setCurrentPage(1);
+  }, [departmentFilter, forcedDepartmentFilter]);
+
+  const filterGridClass = hideDepartmentFilter
+    ? 'grid grid-cols-1 gap-2 xl:grid-cols-[minmax(260px,1.2fr)_220px] xl:items-center'
+    : 'grid grid-cols-1 gap-2 xl:grid-cols-[minmax(260px,1.2fr)_240px_220px] xl:items-center';
+
   return (
     <div className="space-y-3 p-3 pb-6">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -373,7 +395,7 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(260px,1.2fr)_240px_220px] xl:items-center">
+          <div className={filterGridClass}>
             <div className="relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>search</span>
               <input
@@ -388,16 +410,18 @@ export const EmployeePartyList: React.FC<EmployeePartyListProps> = ({
               />
             </div>
 
-            <SearchableSelect
-              value={departmentFilter}
-              onChange={(value) => {
-                setDepartmentFilter(value);
-                setCurrentPage(1);
-              }}
-              options={departmentFilterOptions}
-              placeholder="Phòng ban"
-              triggerClassName={compactSelectTriggerClass}
-            />
+            {!hideDepartmentFilter ? (
+              <SearchableSelect
+                value={departmentFilter}
+                onChange={(value) => {
+                  setDepartmentFilter(value);
+                  setCurrentPage(1);
+                }}
+                options={departmentFilterOptions}
+                placeholder="Phòng ban"
+                triggerClassName={compactSelectTriggerClass}
+              />
+            ) : null}
 
             <SearchableSelect
               value={qualityFilter}

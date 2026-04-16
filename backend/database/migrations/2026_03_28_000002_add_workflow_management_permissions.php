@@ -19,15 +19,32 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (
+            ! Schema::hasTable('permissions')
+            || ! Schema::hasColumn('permissions', 'perm_key')
+            || ! Schema::hasTable('roles')
+            || ! Schema::hasTable('role_permission')
+        ) {
+            return;
+        }
+
         // Insert workflow.manage permission
-        $permId = DB::table('permissions')->insertGetId([
-            'perm_key' => 'workflow.manage',
-            'perm_name' => 'Quản lý luồng công việc',
-            'perm_group' => 'workflow',
-            'is_active' => 1,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $existingPermission = DB::table('permissions')
+            ->where('perm_key', 'workflow.manage')
+            ->first();
+
+        if ($existingPermission) {
+            $permId = (int) $existingPermission->id;
+        } else {
+            $permId = DB::table('permissions')->insertGetId([
+                'perm_key' => 'workflow.manage',
+                'perm_name' => 'Quản lý luồng công việc',
+                'perm_group' => 'workflow',
+                'is_active' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // Grant to ADMIN role
         $adminRole = DB::table('roles')->where('role_code', 'ADMIN')->first();
@@ -52,11 +69,18 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (! Schema::hasTable('permissions') || ! Schema::hasColumn('permissions', 'perm_key')) {
+            return;
+        }
+
         // Remove from role_permission
         $perm = DB::table('permissions')->where('perm_key', 'workflow.manage')->first();
         
-        if ($perm) {
+        if ($perm && Schema::hasTable('role_permission')) {
             DB::table('role_permission')->where('permission_id', $perm->id)->delete();
+        }
+
+        if ($perm) {
             DB::table('permissions')->where('id', $perm->id)->delete();
         }
     }

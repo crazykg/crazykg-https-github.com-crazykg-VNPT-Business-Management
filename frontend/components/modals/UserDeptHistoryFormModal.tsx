@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Department, Employee, UserDeptHistory } from '../../types';
 import { getEmployeeLabel, normalizeEmployeeCode } from '../../utils/employeeDisplay';
 import { getUserDeptHistoryDepartmentLabel } from '../../utils/userDeptHistoryDepartmentDisplay';
+import {
+  DEFAULT_USER_DEPT_HISTORY_TRANSFER_TYPE,
+  getUserDeptHistoryTransferTypeLabel,
+  normalizeUserDeptHistoryTransferType,
+  USER_DEPT_HISTORY_TRANSFER_TYPE_OPTIONS,
+} from '../../utils/userDeptHistoryTransferType';
 import { SearchableSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
@@ -37,6 +43,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
   onClose,
   onSave,
 }) => {
+  const fieldLabelClassName = 'text-xs font-semibold text-slate-500';
+  const fieldInputClassName = 'h-8 rounded px-3 text-xs leading-4';
+
   const resolveDeptId = (value: unknown): string => {
     const raw = String(value ?? '').trim();
     if (!raw) return '';
@@ -54,6 +63,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     toDeptId: resolveDeptId(data?.toDeptId),
     transferDate: data?.transferDate || new Date().toISOString().split('T')[0],
     decisionNumber: data?.decisionNumber || '',
+    transferType: normalizeUserDeptHistoryTransferType(data?.transferType),
     reason: data?.reason || '',
   });
 
@@ -72,7 +82,7 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     const nextErrors: Record<string, string> = {};
     if (!formData.userId) nextErrors.userId = 'Vui lòng chọn nhân sự';
     if (!formData.toDeptId) nextErrors.toDeptId = 'Vui lòng chọn đơn vị mới';
-    if (!formData.transferDate) nextErrors.transferDate = 'Ngày luân chuyển là bắt buộc';
+    if (!formData.transferDate) nextErrors.transferDate = 'Ngày hiệu lực là bắt buộc';
     if (formData.fromDeptId === formData.toDeptId) nextErrors.toDeptId = 'Đơn vị mới phải khác đơn vị hiện tại';
 
     setErrors(nextErrors);
@@ -160,31 +170,43 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
     return normalizeTransferCode(formData.id || data?.id || '');
   }, [type, formData.id, data?.id]);
 
+  const transferType = normalizeUserDeptHistoryTransferType(formData.transferType);
+  const transferTypeLabel = getUserDeptHistoryTransferTypeLabel(transferType);
+
   return (
     <ModalWrapper
       onClose={onClose}
-      title={type === 'ADD' ? 'Thêm mới Luân chuyển' : 'Cập nhật Luân chuyển'}
+      title={type === 'ADD' ? `Thêm mới ${transferTypeLabel}` : `Cập nhật ${transferTypeLabel}`}
       icon="history_edu"
-      width="max-w-lg"
+      width="max-w-md"
     >
-      <div className="space-y-5 p-6">
+      <div className="space-y-2 p-3">
         {type === 'EDIT' ? (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-slate-700">
-              Mã luân chuyển
-              <span className="text-red-500"> *</span>
-            </label>
+          <div className="flex flex-col gap-1">
+            <label className={fieldLabelClassName}>Mã lịch sử</label>
             <input
               type="text"
               value={transferCodeDisplay}
               disabled
-              className="h-11 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-4 text-slate-500"
+              className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400`}
             />
           </div>
         ) : null}
 
         <SearchableSelect
+          label="Loại hình"
+          labelClassName={fieldLabelClassName}
+          size="sm"
+          options={USER_DEPT_HISTORY_TRANSFER_TYPE_OPTIONS}
+          value={transferType || DEFAULT_USER_DEPT_HISTORY_TRANSFER_TYPE}
+          onChange={(value) => handleChange('transferType', value)}
+          placeholder="Chọn loại hình"
+        />
+
+        <SearchableSelect
           label="Nhân sự"
+          labelClassName={fieldLabelClassName}
+          size="sm"
           required
           options={employeeOptions}
           value={formData.userId || ''}
@@ -194,19 +216,21 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
           disabled={type === 'EDIT'}
         />
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Từ đơn vị</label>
+        <div className="flex flex-col gap-1">
+          <label className={fieldLabelClassName}>Từ đơn vị</label>
           <input
             type="text"
             value={fromDeptLabel}
             disabled
-            className="h-11 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-4 text-slate-500"
+            className={`${fieldInputClassName} w-full cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400`}
             placeholder="Tự động điền..."
           />
         </div>
 
         <SearchableSelect
           label="Đến đơn vị"
+          labelClassName={fieldLabelClassName}
+          size="sm"
           required
           options={toDepartmentOptions}
           value={formData.toDeptId || ''}
@@ -216,7 +240,9 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
         />
 
         <FormInput
-          label="Ngày luân chuyển"
+          label="Ngày hiệu lực"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           type="date"
           value={formData.transferDate}
           onChange={(e: any) => handleChange('transferDate', e.target.value)}
@@ -226,26 +252,28 @@ export const UserDeptHistoryFormModal: React.FC<UserDeptHistoryFormModalProps> =
 
         <FormInput
           label="Số quyết định"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
           value={formData.decisionNumber || ''}
           onChange={(e: any) => handleChange('decisionNumber', e.target.value)}
           placeholder="Nhập số quyết định..."
         />
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-slate-700">Lý do / Ghi chú</label>
+        <div className="flex flex-col gap-1">
+          <label className={fieldLabelClassName}>Lý do / Ghi chú</label>
           <textarea
-            className="min-h-[100px] w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
+            className="min-h-[80px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-4 text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/20"
             value={formData.reason}
             onChange={(e) => handleChange('reason', e.target.value)}
-            placeholder="Nhập lý do điều chuyển..."
+            placeholder="Nhập lý do / ghi chú..."
           />
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-        <button onClick={onClose} className="rounded-lg border border-slate-300 px-5 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-100">Hủy</button>
-        <button onClick={handleSubmit} className="flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-deep-teal">
-          <span className="material-symbols-outlined text-lg">check</span>
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-3 py-2.5">
+        <button onClick={onClose} className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100">Hủy</button>
+        <button onClick={handleSubmit} className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal">
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check</span>
           {type === 'ADD' ? 'Lưu & Cập nhật' : 'Cập nhật'}
         </button>
       </div>

@@ -83,15 +83,21 @@ describe('useCustomerRequests', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(fetchYeuCauPage).toHaveBeenCalledWith({
-      page: 1,
-      per_page: 20,
-      process_code: 'new_intake',
-      q: 'case',
-      filters: {
-        my_role: 'creator',
+    expect(fetchYeuCauPage).toHaveBeenCalledWith(
+      {
+        page: 1,
+        per_page: 20,
+        process_code: 'new_intake',
+        q: 'case',
+        filters: {
+          my_role: 'creator',
+        },
       },
-    });
+      expect.objectContaining({
+        cancelKey:
+          'page:/api/v5/customer-request-cases:{"page":1,"per_page":20,"process_code":"new_intake","q":"case","filters":{"my_role":"creator"}}',
+      })
+    );
     expect(result.current.data?.data).toHaveLength(1);
   });
 

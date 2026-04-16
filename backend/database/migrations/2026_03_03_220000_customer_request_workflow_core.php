@@ -272,9 +272,13 @@ return new class extends Migration
             return;
         }
 
-        $column = DB::selectOne(
-            "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attachments' AND COLUMN_NAME = 'reference_type'"
-        );
+        if (DB::getDriverName() !== 'sqlite') {
+            $column = DB::selectOne(
+                "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attachments' AND COLUMN_NAME = 'reference_type'"
+            );
+        } else {
+            $column = null;
+        }
 
         if ($column && is_string($column->COLUMN_TYPE ?? null)) {
             $enumValues = $this->parseEnumValues($column->COLUMN_TYPE);
@@ -607,10 +611,7 @@ return new class extends Migration
      */
     private function filterColumns(string $table, array $payload): array
     {
-        $columns = array_map(
-            static fn (object $col): string => (string) $col->Field,
-            DB::select("SHOW COLUMNS FROM `{$table}`")
-        );
+        $columns = Schema::getColumnListing($table);
 
         return array_filter(
             $payload,
@@ -621,6 +622,16 @@ return new class extends Migration
 
     private function indexExists(string $table, string $indexName): bool
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (DB::select("PRAGMA index_list('{$table}')") as $row) {
+                if (($row->name ?? null) === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         $database = DB::getDatabaseName();
         if (! is_string($database) || $database === '') {
             return false;

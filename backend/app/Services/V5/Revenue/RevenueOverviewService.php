@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class RevenueOverviewService
@@ -184,6 +185,8 @@ class RevenueOverviewService
     private function getContractRevenue(Carbon $from, Carbon $to, ?int $deptId): array
     {
         $monthKeyExpr = $this->monthKeyExpression('ps.expected_date');
+        $actualPaidColumn = $this->actualPaidColumn();
+        $today = now()->toDateString();
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
@@ -205,10 +208,10 @@ class RevenueOverviewService
         }
 
         $rows = $query->select([
-            DB::raw("DATE_FORMAT(ps.expected_date, '%Y-%m') as month_key"),
+            DB::raw("{$monthKeyExpr} as month_key"),
             DB::raw('COALESCE(SUM(ps.expected_amount), 0) as expected'),
-            DB::raw('COALESCE(SUM(ps.actual_paid_amount), 0) as actual'),
-            DB::raw('COALESCE(SUM(CASE WHEN ps.expected_date < CURDATE() AND (ps.actual_paid_amount IS NULL OR ps.actual_paid_amount < ps.expected_amount) THEN COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_paid_amount, 0) ELSE 0 END), 0) as overdue'),
+            DB::raw("COALESCE(SUM({$actualPaidColumn}), 0) as actual"),
+            DB::raw("COALESCE(SUM(CASE WHEN ps.expected_date < '{$today}' AND ({$actualPaidColumn} IS NULL OR {$actualPaidColumn} < ps.expected_amount) THEN COALESCE(ps.expected_amount, 0) - COALESCE({$actualPaidColumn}, 0) ELSE 0 END), 0) as overdue"),
         ])->groupBy('month_key')->get();
 
         $data = [];
@@ -399,19 +402,20 @@ class RevenueOverviewService
 
     private function computeOverdue(Carbon $from, Carbon $to, ?int $deptId): float
     {
+        $actualPaidColumn = $this->actualPaidColumn();
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
             ->where('ps.expected_date', '>=', $from->toDateString())
             ->where('ps.expected_date', '<', now()->toDateString())
-            ->whereRaw('(ps.actual_paid_amount IS NULL OR ps.actual_paid_amount < ps.expected_amount)');
+            ->whereRaw("({$actualPaidColumn} IS NULL OR {$actualPaidColumn} < ps.expected_amount)");
 
         if ($deptId !== null && $deptId > 0) {
             $query->where('c.dept_id', $deptId);
         }
 
         return (float) $query->selectRaw(
-            'COALESCE(SUM(COALESCE(ps.expected_amount, 0) - COALESCE(ps.actual_paid_amount, 0)), 0) as overdue'
+            "COALESCE(SUM(COALESCE(ps.expected_amount, 0) - COALESCE({$actualPaidColumn}, 0)), 0) as overdue"
         )->value('overdue');
     }
 
@@ -420,6 +424,7 @@ class RevenueOverviewService
         $periodLength = $from->diffInDays($to);
         $prevFrom = $from->copy()->subDays($periodLength + 1);
         $prevTo = $from->copy()->subDay();
+        $actualPaidColumn = $this->actualPaidColumn();
 
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
@@ -432,7 +437,7 @@ class RevenueOverviewService
         }
 
         $prevActual = (float) $query->selectRaw(
-            'COALESCE(SUM(ps.actual_paid_amount), 0) as total'
+            "COALESCE(SUM({$actualPaidColumn}), 0) as total"
         )->value('total');
 
         if ($prevActual <= 0) {
@@ -452,6 +457,8 @@ class RevenueOverviewService
             return [];
         }
 
+        $actualPaidColumn = $this->actualPaidColumn();
+
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->whereNull('c.deleted_at')
@@ -469,7 +476,7 @@ class RevenueOverviewService
                 WHEN c.payment_cycle IN ('MONTHLY','QUARTERLY','HALF_YEARLY','YEARLY') THEN 'RECURRING'
                 ELSE 'NEW_CONTRACT'
             END as source"),
-            DB::raw('COALESCE(SUM(ps.actual_paid_amount), 0) as amount'),
+            DB::raw("COALESCE(SUM({$actualPaidColumn}), 0) as amount"),
         ])->groupBy('source')->get();
 
         $total = $raw->sum('amount');
@@ -609,5 +616,19 @@ class RevenueOverviewService
         return $this->readReplica->driverName() === 'sqlite'
             ? "strftime('%Y-%m', {$column})"
             : "DATE_FORMAT({$column}, '%Y-%m')";
+    }
+
+    private function actualPaidColumn(string $alias = 'ps'): string
+    {
+        $connectionName = $this->readReplica->resolvedConnectionName();
+        if (Schema::connection($connectionName)->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            return "{$alias}.actual_paid_amount";
+        }
+
+        if (Schema::connection($connectionName)->hasColumn('payment_schedules', 'actual_amount')) {
+            return "{$alias}.actual_amount";
+        }
+
+        return '0';
     }
 }

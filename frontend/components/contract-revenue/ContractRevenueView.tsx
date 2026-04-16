@@ -16,6 +16,7 @@ interface ContractRevenueViewProps {
   periodFrom: string | null;
   periodTo: string | null;
   periodLabel: string;
+  fixedSourceMode?: 'PROJECT' | 'INITIAL';
   paymentSchedules?: PaymentSchedule[];
   contracts?: Contract[];
   customers?: Customer[];
@@ -80,6 +81,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
   periodFrom,
   periodTo,
   periodLabel,
+  fixedSourceMode,
   onNotify,
 }) => {
   const [analytics, setAnalytics] = useState<ContractRevenueAnalytics | null>(null);
@@ -112,6 +114,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
       period_from: periodFrom,
       period_to: periodTo,
       grouping,
+      source_mode: fixedSourceMode,
     })
       .then((result) => {
         if (loadVersionRef.current !== loadVersion) {
@@ -131,7 +134,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
           setIsLoading(false);
         }
       });
-  }, [grouping, onNotify, periodFrom, periodTo]);
+  }, [fixedSourceMode, grouping, onNotify, periodFrom, periodTo]);
 
   const sortedContracts = useMemo(() => {
     const rows = [...(analytics?.by_contract ?? [])];
@@ -168,6 +171,7 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
         period_to: periodTo,
         grouping,
         contract_id: contractId,
+        source_mode: fixedSourceMode,
       });
       if (detailLoadVersionRef.current !== detailVersion) {
         return;
@@ -270,7 +274,13 @@ export const ContractRevenueView: React.FC<ContractRevenueViewProps> = ({
       {/* ── Section header + grouping toggle ── */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-xs font-bold text-slate-700">Phân tích doanh thu hợp đồng</h3>
+          <h3 className="text-xs font-bold text-slate-700">
+            {fixedSourceMode === 'INITIAL'
+              ? 'Phân tích doanh thu HĐ đầu kỳ'
+              : fixedSourceMode === 'PROJECT'
+                ? 'Phân tích doanh thu HĐ theo dự án'
+                : 'Phân tích doanh thu hợp đồng'}
+          </h3>
           <p className="mt-0.5 text-[11px] text-slate-400">Theo dõi dự kiến, thực thu, tồn đọng và chi tiết thu tiền trong kỳ {periodLabel}.</p>
         </div>
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">

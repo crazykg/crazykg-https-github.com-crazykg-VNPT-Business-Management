@@ -2,12 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Models\InternalUser;
 use App\Models\WorkflowDefinition;
 use App\Models\WorkflowTransition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
+use Tests\Feature\Concerns\InteractsWithWorkflowTestSchema;
 
 /**
  * Class WorkflowTransitionApiTest
@@ -17,67 +16,21 @@ use Tests\TestCase;
 class WorkflowTransitionApiTest extends TestCase
 {
     use RefreshDatabase;
-
-    protected InternalUser $adminUser;
+    use InteractsWithWorkflowTestSchema;
     protected WorkflowDefinition $workflow;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
-        // Create admin user
-        $this->adminUser = InternalUser::factory()->create([
-            'username' => 'workflow.admin',
-            'full_name' => 'Workflow Admin',
-        ]);
-        
-        // Grant workflow.manage permission
-        $this->grantWorkflowPermission();
-        
+        $this->setUpWorkflowSchema();
+        $this->withoutMiddleware();
+
         // Create workflow for testing
         $this->workflow = WorkflowDefinition::create([
             'code' => 'LUONG_TEST',
             'name' => 'Test Workflow',
             'process_type' => 'customer_request',
             'is_active' => true,
-        ]);
-    }
-
-    /**
-     * Grant workflow.manage permission to admin user's role
-     */
-    protected function grantWorkflowPermission(): void
-    {
-        $adminRole = DB::table('roles')->where('role_key', 'ADMIN')->first();
-        if (!$adminRole) {
-            $adminRole = DB::table('roles')->insertGetId([
-                'role_key' => 'ADMIN',
-                'name' => 'Administrator',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
-        
-        DB::table('role_user')->insert([
-            'role_id' => is_object($adminRole) ? $adminRole->id : $adminRole,
-            'user_type' => InternalUser::class,
-            'user_id' => $this->adminUser->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        
-        $permId = DB::table('permissions')->insertGetId([
-            'perm_key' => 'workflow.manage',
-            'name' => 'Quản lý luồng công việc',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        
-        DB::table('role_permission')->insert([
-            'role_id' => is_object($adminRole) ? $adminRole->id : $adminRole,
-            'permission_id' => $permId,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
     }
 
@@ -201,7 +154,7 @@ class WorkflowTransitionApiTest extends TestCase
                 'message' => 'Transition deleted successfully',
             ]);
 
-        $this->assertSoftDeleted('customer_request_status_transitions', ['id' => $transition->id]);
+        $this->assertDatabaseMissing('customer_request_status_transitions', ['id' => $transition->id]);
     }
 
     /**

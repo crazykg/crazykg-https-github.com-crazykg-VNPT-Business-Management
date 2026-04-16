@@ -56,7 +56,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
         mode === 'inline'
           ? 'rounded-3xl border border-slate-200 shadow-sm'
           : mode === 'modal'
-          ? 'max-h-[calc(100dvh-16px)] w-full max-w-[1560px] rounded-[28px] border border-slate-200 shadow-2xl sm:max-h-[calc(100dvh-48px)]'
+          ? 'h-[calc(100dvh-16px)] w-full max-w-[1560px] rounded-[28px] border border-slate-200 shadow-2xl sm:h-[calc(100dvh-48px)]'
           : 'h-full w-full max-w-[920px] shadow-2xl'
       }`}
     >
@@ -133,10 +133,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
 
     return createPortal(
       <div className="fixed inset-0 z-[70] overflow-y-auto p-2 sm:p-6">
-        <div
-          className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
-          onClick={onClose}
-        />
+        <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]" />
         <div className="relative flex min-h-full items-start justify-center sm:items-center">
           {shell}
         </div>

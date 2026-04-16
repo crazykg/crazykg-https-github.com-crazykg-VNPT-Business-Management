@@ -1,8 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { UserDeptHistory, Employee, Department, ModalType } from '../types';
+import { PaginationControls } from './PaginationControls';
 import { getEmployeeCode, getEmployeeLabel as formatEmployeeLabel, normalizeEmployeeCode } from '../utils/employeeDisplay';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { findUserDeptHistoryDepartment, getUserDeptHistoryDepartmentLabel } from '../utils/userDeptHistoryDepartmentDisplay';
+import {
+  getUserDeptHistoryTransferTypeBadgeClassName,
+  getUserDeptHistoryTransferTypeLabel,
+  normalizeUserDeptHistoryTransferType,
+} from '../utils/userDeptHistoryTransferType';
 
 interface UserDeptHistoryListProps {
   history: UserDeptHistory[];
@@ -16,7 +22,7 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 }: UserDeptHistoryListProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const normalizeTransferCode = (value: unknown): string => {
     const raw = String(value ?? '').trim().toUpperCase();
@@ -71,12 +77,16 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   // Filter Data
   const filteredHistory = useMemo(() => {
+    const normalizedSearch = searchTerm.toLowerCase().trim();
+
     return (history || []).filter(item => {
       const transferCode = normalizeTransferCode(item.id).toLowerCase();
       const empName = getEmployeeLabel(item).toLowerCase();
+      const transferType = getUserDeptHistoryTransferTypeLabel(item.transferType).toLowerCase();
       const matchesSearch = 
-        transferCode.includes(searchTerm.toLowerCase()) || 
-        empName.includes(searchTerm.toLowerCase());
+        transferCode.includes(normalizedSearch) || 
+        empName.includes(normalizedSearch) ||
+        transferType.includes(normalizedSearch);
       
       return matchesSearch;
     });
@@ -84,18 +94,25 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
 
   // Pagination
   const totalItems = filteredHistory.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(totalItems / rowsPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const currentData = filteredHistory.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
   );
 
   return (
     <div className="p-3 pb-6 space-y-3">
       <div className="flex flex-col md:flex-row md:items-center justify-between md:gap-2">
         <div>
-          <h2 className="text-sm font-bold text-deep-teal">Lịch sử luân chuyển</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử điều chuyển nhân sự giữa các đơn vị</p>
+          <h2 className="text-sm font-bold text-deep-teal">Lịch sử điều động nhân sự</h2>
+          <p className="text-[11px] text-slate-400 mt-0.5">Quản lý lịch sử luân chuyển và biệt phái giữa các đơn vị</p>
         </div>
         <button
           onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY')}
@@ -107,15 +124,18 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3">
+      <div className="bg-white px-3 py-2 rounded border border-slate-200 flex flex-col md:flex-row gap-2">
         <div className="relative flex-1">
           <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
           <input
             type="text"
-            placeholder="Tìm kiếm theo mã LC, tên nhân viên..."
+            placeholder="Tìm kiếm theo mã, loại hình, tên nhân viên..."
             className="w-full h-8 pl-8 pr-3 rounded border border-slate-300 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none transition-all text-xs"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
           />
         </div>
       </div>
@@ -126,65 +146,90 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LC</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày luân chuyển</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mã LS</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Loại hình</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nhân sự</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Từ đơn vị</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đến đơn vị</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ngày hiệu lực</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Lý do</th>
+                <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {currentData.length > 0 ? (
-                currentData.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="font-mono font-medium text-primary text-xs">{normalizeTransferCode(item.id)}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900 text-xs">{getEmployeeLabel(item)}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary">
-                        {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">
-                      {formatDateDdMmYyyy(item.transferDate)}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
-                      {item.reason}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => onOpenModal('EDIT_USER_DEPT_HISTORY', item)}
-                          className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
-                          title="Chỉnh sửa"
+                currentData.map((item) => {
+                  const canDelete = item.canDelete !== false;
+                  const deleteTitle = canDelete
+                    ? 'Xóa'
+                    : (item.deleteRestrictionMessage || 'Chỉ người tạo dòng hoặc admin mới được xóa.');
+
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-3 py-2">
+                        <span className="font-mono font-medium text-primary text-xs">{normalizeTransferCode(item.id)}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getUserDeptHistoryTransferTypeBadgeClassName(item.transferType)}`}
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
-                        </button>
-                        <button
-                          onClick={() => onOpenModal('DELETE_USER_DEPT_HISTORY', item)}
-                          className="p-1.5 text-slate-400 hover:text-error hover:bg-error/10 rounded transition-all"
-                          title="Xóa"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {getUserDeptHistoryTransferTypeLabel(item.transferType)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900 text-xs">{getEmployeeLabel(item)}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">
+                        {getDeptLabel(item.fromDeptId, item.fromDeptCode, item.fromDeptName)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          normalizeUserDeptHistoryTransferType(item.transferType) === 'BIET_PHAI' ? 'bg-amber-100 text-amber-700' : 'bg-primary/10 text-primary'
+                        }`}>
+                          {getDeptLabel(item.toDeptId, item.toDeptCode, item.toDeptName)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">
+                        {formatDateDdMmYyyy(item.transferDate)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate" title={item.reason}>
+                        {item.reason}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => onOpenModal('EDIT_USER_DEPT_HISTORY', item)}
+                            className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded transition-all"
+                            title="Chỉnh sửa"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!canDelete) return;
+                              onOpenModal('DELETE_USER_DEPT_HISTORY', item);
+                            }}
+                            disabled={!canDelete}
+                            className={`p-1.5 rounded transition-all ${
+                              canDelete
+                                ? 'text-slate-400 hover:text-error hover:bg-error/10'
+                                : 'text-slate-300 cursor-not-allowed'
+                            }`}
+                            title={deleteTitle}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
                     <div className="flex flex-col items-center gap-2">
                       <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>history_edu</span>
-                      <p className="text-xs">Không tìm thấy dữ liệu luân chuyển nào.</p>
+                      <p className="text-xs">Không tìm thấy dữ liệu điều động nào.</p>
                     </div>
                   </td>
                 </tr>
@@ -193,43 +238,18 @@ export const UserDeptHistoryList: React.FC<UserDeptHistoryListProps> = ({
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-            <p className="text-xs text-slate-400">
-              Hiển thị <span className="font-bold text-slate-900">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalItems)}</span> trong tổng số <span className="font-bold text-slate-900">{totalItems}</span> bản ghi
-            </p>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 border border-slate-200 rounded hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_left</span>
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
-                .map((page, idx, arr) => (
-                  <React.Fragment key={page}>
-                    {idx > 0 && page > arr[idx - 1] + 1 && <span className="px-1.5 text-slate-400 text-xs">...</span>}
-                    <button
-                      onClick={() => setCurrentPage(page)}
-                      className={`w-8 h-8 rounded text-xs font-medium transition-colors ${currentPage === page ? 'bg-primary text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {page}
-                    </button>
-                  </React.Fragment>
-              ))}
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="p-1.5 border border-slate-200 rounded hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationControls
+          currentPage={currentPage}
+          totalItems={totalItems}
+          rowsPerPage={rowsPerPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          onRowsPerPageChange={(rows) => {
+            setRowsPerPage(rows);
+            setCurrentPage(1);
+          }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+        />
       </div>
     </div>
   );

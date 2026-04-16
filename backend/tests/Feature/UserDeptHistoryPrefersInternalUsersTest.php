@@ -59,6 +59,7 @@ class UserDeptHistoryPrefersInternalUsersTest extends TestCase
                 'to_dept_id' => 2,
                 'transfer_date' => '2026-03-20',
                 'decision_number' => 'QD-001',
+                'transfer_type' => 'BIET_PHAI',
                 'reason' => 'Dieu chuyen noi bo',
                 'created_at' => now(),
             ],
@@ -69,6 +70,7 @@ class UserDeptHistoryPrefersInternalUsersTest extends TestCase
                 'to_dept_id' => 1,
                 'transfer_date' => '2026-03-19',
                 'decision_number' => 'QD-002',
+                'transfer_type' => null,
                 'reason' => 'Ban giao',
                 'created_at' => now(),
             ],
@@ -87,10 +89,12 @@ class UserDeptHistoryPrefersInternalUsersTest extends TestCase
         $this->assertIsArray($internalUserRow);
         $this->assertSame('Internal User', $internalUserRow['userName']);
         $this->assertSame('VNPT123456', $internalUserRow['userCode']);
+        $this->assertSame('BIET_PHAI', $internalUserRow['transferType']);
 
         $this->assertIsArray($legacyOnlyRow);
         $this->assertSame('', $legacyOnlyRow['userName']);
         $this->assertSame('VNPT000202', $legacyOnlyRow['userCode']);
+        $this->assertSame('LUAN_CHUYEN', $legacyOnlyRow['transferType']);
     }
 
     private function setUpSchema(): void
@@ -125,6 +129,7 @@ class UserDeptHistoryPrefersInternalUsersTest extends TestCase
             $table->unsignedBigInteger('to_dept_id')->nullable();
             $table->date('transfer_date')->nullable();
             $table->string('decision_number')->nullable();
+            $table->string('transfer_type')->nullable();
             $table->text('reason')->nullable();
             $table->timestamp('created_at')->nullable();
         });

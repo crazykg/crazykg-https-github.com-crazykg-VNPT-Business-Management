@@ -53,28 +53,39 @@ class RevenueReportService
 
     private function byDepartment(string $from, string $to): array
     {
+        $actualPaidColumn = $this->actualPaidColumn('ps');
+        $departmentNameColumn = $this->departmentNameColumn('d');
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
-            ->leftJoin('departments as d', 'd.id', '=', 'c.dept_id')
             ->whereNull('c.deleted_at')
             ->whereNull('ps.deleted_at')
             ->where('ps.expected_date', '>=', $from)
-            ->where('ps.expected_date', '<=', $to)
-            ->groupBy('c.dept_id', 'd.department_name')
-            ->selectRaw('
+            ->where('ps.expected_date', '<=', $to);
+
+        if ($this->support->hasTable('departments')) {
+            $query->leftJoin('departments as d', 'd.id', '=', 'c.dept_id');
+        }
+
+        $departmentNameExpression = $departmentNameColumn !== null
+            ? "MAX(COALESCE({$departmentNameColumn}, ?))"
+            : 'MAX(?)';
+
+        $results = $query
+            ->groupBy('c.dept_id')
+            ->selectRaw("
                 c.dept_id as department_id,
-                COALESCE(d.department_name, ?) as department_name,
+                {$departmentNameExpression} as department_name,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
+                COALESCE(SUM({$actualPaidColumn}), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count,
                 COUNT(ps.id) as schedule_count
-            ', ['Chung'])
+            ", ['Chung'])
             ->orderByDesc('expected')
             ->get();
 
-        $totalExpected = $query->sum('expected');
+        $totalExpected = $results->sum('expected');
 
-        $rows = $query->map(fn ($r) => [
+        $rows = $results->map(fn ($r) => [
             'department_id'   => (int) $r->department_id,
             'department_name' => $r->department_name,
             'expected'        => round((float) $r->expected, 2),
@@ -100,6 +111,7 @@ class RevenueReportService
 
     private function byCustomer(string $from, string $to, ?int $deptId): array
     {
+        $actualPaidColumn = $this->actualPaidColumn('ps');
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
             ->join('customers as cu', 'cu.id', '=', 'c.customer_id')
@@ -118,7 +130,7 @@ class RevenueReportService
                 cu.id as customer_id,
                 cu.customer_name,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
+                COALESCE(SUM('.$actualPaidColumn.'), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count
             ')
             ->orderByDesc('expected')
@@ -205,6 +217,7 @@ class RevenueReportService
     private function byTime(string $from, string $to, ?int $deptId): array
     {
         $monthKeyExpr = $this->monthKeyExpression('ps.expected_date');
+        $actualPaidColumn = $this->actualPaidColumn('ps');
 
         $query = $this->readReplica->table('payment_schedules as ps')
             ->join('contracts as c', 'ps.contract_id', '=', 'c.id')
@@ -220,7 +233,7 @@ class RevenueReportService
         $results = $query->selectRaw("
                 {$monthKeyExpr} as month_key,
                 COALESCE(SUM(ps.expected_amount), 0) as expected,
-                COALESCE(SUM(ps.actual_paid_amount), 0) as collected,
+                COALESCE(SUM({$actualPaidColumn}), 0) as collected,
                 COUNT(DISTINCT c.id) as contract_count,
                 COUNT(ps.id) as schedule_count
             ")
@@ -294,5 +307,35 @@ class RevenueReportService
         return $this->readReplica->driverName() === 'sqlite'
             ? "strftime('%Y-%m', {$column})"
             : "DATE_FORMAT({$column}, '%Y-%m')";
+    }
+
+    private function actualPaidColumn(string $alias = 'ps'): string
+    {
+        if ($this->support->hasColumn('payment_schedules', 'actual_paid_amount')) {
+            return "{$alias}.actual_paid_amount";
+        }
+
+        if ($this->support->hasColumn('payment_schedules', 'actual_amount')) {
+            return "{$alias}.actual_amount";
+        }
+
+        return '0';
+    }
+
+    private function departmentNameColumn(string $alias = 'd'): ?string
+    {
+        if (! $this->support->hasTable('departments')) {
+            return null;
+        }
+
+        if ($this->support->hasColumn('departments', 'dept_name')) {
+            return "{$alias}.dept_name";
+        }
+
+        if ($this->support->hasColumn('departments', 'department_name')) {
+            return "{$alias}.department_name";
+        }
+
+        return null;
     }
 }

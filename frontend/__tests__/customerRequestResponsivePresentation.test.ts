@@ -52,8 +52,8 @@ describe('customer request responsive helpers', () => {
         'performer'
       )
     ).toMatchObject({
-      kind: 'worklog',
-      label: 'Cập nhật tiến độ',
+      kind: 'detail',
+      label: 'Xem chi tiết',
     });
 
     expect(
@@ -68,8 +68,8 @@ describe('customer request responsive helpers', () => {
         'dispatcher'
       )
     ).toMatchObject({
-      kind: 'transition',
-      targetStatusCode: 'pm_missing_customer_info_review',
+      kind: 'detail',
+      label: 'Xem chi tiết',
     });
   });
 });

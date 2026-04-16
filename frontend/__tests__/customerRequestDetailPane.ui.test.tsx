@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Employee, ProjectItemMaster } from '../types';
 import { CustomerRequestDetailPane } from '../components/customer-request/CustomerRequestDetailPane';
-import { buildInitialCreateFlowDraft } from '../components/customer-request/createFlow';
 
 const employees: Employee[] = [
   {
@@ -59,9 +58,6 @@ describe('CustomerRequestDetailPane UI', () => {
         availableProjectItems={[selectedProjectItem]}
         selectedProjectItem={selectedProjectItem}
         selectedCustomerId="20"
-        currentUserName="Nguyễn A"
-        createFlowDraft={buildInitialCreateFlowDraft(7)}
-        onCreateFlowDraftChange={vi.fn()}
         activeTaskTab="IT360"
         onActiveTaskTabChange={vi.fn()}
         onAddTaskRow={vi.fn()}
@@ -69,6 +65,8 @@ describe('CustomerRequestDetailPane UI', () => {
         onUpdateIt360TaskRow={vi.fn()}
         onRemoveIt360TaskRow={vi.fn()}
         formReferenceTasks={[{ local_id: 'r1', task_code: '' }]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
         taskReferenceOptions={[]}
         onUpdateReferenceTaskRow={vi.fn()}
         onTaskReferenceSearchTermChange={vi.fn()}
@@ -93,6 +91,8 @@ describe('CustomerRequestDetailPane UI', () => {
         onOpenNotifyCustomerModal={vi.fn()}
         canOpenWorklogModal={false}
         onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
         isSubmittingWorklog={false}
         canOpenEstimateModal={false}
         onOpenEstimateModal={vi.fn()}
@@ -101,10 +101,10 @@ describe('CustomerRequestDetailPane UI', () => {
         onRunDispatcherAction={vi.fn()}
         performerQuickActions={[]}
         onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
       />
     );
 
-    expect(screen.getByText('Khởi tạo xử lý')).toBeInTheDocument();
     expect(screen.getByText('Đính kèm nhanh')).toBeInTheDocument();
     expect(screen.getByText('Kế hoạch khi tạo')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Task\/Ref/i })).toBeInTheDocument();
@@ -185,9 +185,6 @@ describe('CustomerRequestDetailPane UI', () => {
         availableProjectItems={[selectedProjectItem]}
         selectedProjectItem={selectedProjectItem}
         selectedCustomerId="20"
-        currentUserName="Nguyễn A"
-        createFlowDraft={buildInitialCreateFlowDraft(7)}
-        onCreateFlowDraftChange={vi.fn()}
         activeTaskTab="IT360"
         onActiveTaskTabChange={vi.fn()}
         onAddTaskRow={vi.fn()}
@@ -195,6 +192,8 @@ describe('CustomerRequestDetailPane UI', () => {
         onUpdateIt360TaskRow={vi.fn()}
         onRemoveIt360TaskRow={vi.fn()}
         formReferenceTasks={[]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
         taskReferenceOptions={[]}
         onUpdateReferenceTaskRow={vi.fn()}
         onTaskReferenceSearchTermChange={vi.fn()}
@@ -225,6 +224,8 @@ describe('CustomerRequestDetailPane UI', () => {
         onOpenNotifyCustomerModal={vi.fn()}
         canOpenWorklogModal={true}
         onOpenWorklogModal={onOpenWorklogModal}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
         isSubmittingWorklog={false}
         canOpenEstimateModal={true}
         onOpenEstimateModal={onOpenEstimateModal}
@@ -233,6 +234,7 @@ describe('CustomerRequestDetailPane UI', () => {
         onRunDispatcherAction={vi.fn()}
         performerQuickActions={[]}
         onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
       />
     );
 

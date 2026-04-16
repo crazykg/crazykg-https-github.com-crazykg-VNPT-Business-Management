@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\InternalUser;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -14,7 +16,15 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         parent::setUp();
 
         $this->withoutMiddleware();
+        CarbonImmutable::setTestNow('2026-01-10 09:00:00');
         $this->setUpSchema();
+    }
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+
+        parent::tearDown();
     }
 
     public function test_create_department_weekly_schedule_accepts_hybrid_participants_and_returns_entry_audit(): void
@@ -106,7 +116,77 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             ->assertJson(['message' => 'entries.0.calendar_date nằm ngoài tuần đã chọn.']);
     }
 
-    public function test_update_department_weekly_schedule_preserves_entry_created_audit(): void
+    public function test_non_admin_department_scope_follows_current_transfer_history_for_schedule_reads_and_writes(): void
+    {
+        DB::table('internal_users')->where('id', 1)->update(['department_id' => 10]);
+        DB::table('user_dept_history')->insert([
+            'user_id' => 1,
+            'from_dept_id' => 10,
+            'to_dept_id' => 20,
+            'transfer_date' => '2026-01-09',
+            'transfer_type' => 'BIET_PHAI',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('department_weekly_schedules')->insert([
+            [
+                'id' => 100,
+                'department_id' => 10,
+                'week_start_date' => '2026-01-19',
+                'created_at' => now(),
+                'updated_at' => now(),
+                'created_by' => 1,
+                'updated_by' => 1,
+            ],
+            [
+                'id' => 200,
+                'department_id' => 20,
+                'week_start_date' => '2026-01-19',
+                'created_at' => now(),
+                'updated_at' => now(),
+                'created_by' => 1,
+                'updated_by' => 1,
+            ],
+        ]);
+
+        $this->actingAs(InternalUser::query()->findOrFail(1));
+
+        $this->getJson('/api/v5/department-weekly-schedules')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.department_id', 20);
+
+        $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-19',
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-19',
+                    'session' => 'MORNING',
+                    'work_content' => 'Khong duoc tao o don vi cu',
+                ],
+            ],
+        ])
+            ->assertStatus(403)
+            ->assertJson(['message' => 'Bạn chỉ được xem và cập nhật lịch tuần của đơn vị hiện tại.']);
+
+        $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 20,
+            'week_start_date' => '2026-01-26',
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-26',
+                    'session' => 'MORNING',
+                    'work_content' => 'Duoc tao o don vi hien tai',
+                ],
+            ],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.department_id', 20);
+    }
+
+    public function test_admin_update_department_weekly_schedule_preserves_entry_created_audit(): void
     {
         $created = $this->postJson('/api/v5/department-weekly-schedules', [
             'department_id' => 10,
@@ -133,7 +213,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         $updated = $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
             'department_id' => 10,
             'week_start_date' => '2026-01-19',
-            'updated_by' => 2,
+            'updated_by' => 3,
             'entries' => [
                 [
                     'id' => $entryId,
@@ -152,17 +232,58 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.entries.0.created_by', 1)
             ->assertJsonPath('data.entries.0.created_by_name', 'Quỳnh')
-            ->assertJsonPath('data.entries.0.updated_by', 2)
-            ->assertJsonPath('data.entries.0.updated_by_name', 'Thuận');
+            ->assertJsonPath('data.entries.0.updated_by', 3)
+            ->assertJsonPath('data.entries.0.updated_by_name', 'Admin')
+            ->assertJsonPath('data.entries.0.can_edit', true)
+            ->assertJsonPath('data.entries.0.can_delete', true)
+            ->assertJsonPath('data.entries.0.is_locked', false);
 
         $after = DB::table('department_weekly_schedule_entries')->where('id', $entryId)->first();
         $this->assertNotNull($before);
         $this->assertNotNull($after);
         $this->assertSame((int) $before->created_by, (int) $after->created_by);
         $this->assertSame((string) $before->created_at, (string) $after->created_at);
-        $this->assertSame(2, (int) $after->updated_by);
+        $this->assertSame(3, (int) $after->updated_by);
         $this->assertSame('Noi dung da cap nhat', (string) $after->work_content);
         $this->assertSame(1, DB::table('department_weekly_schedule_entries')->count());
+    }
+
+    public function test_non_owner_cannot_update_persisted_entry_without_admin_role(): void
+    {
+        $created = $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-19',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-19',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'Noi dung goc',
+                ],
+            ],
+        ])->assertCreated();
+
+        $scheduleId = (int) $created->json('data.id');
+        $entryId = (int) $created->json('data.entries.0.id');
+
+        $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-19',
+            'updated_by' => 2,
+            'entries' => [
+                [
+                    'id' => $entryId,
+                    'calendar_date' => '2026-01-19',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'User khac khong duoc sua',
+                ],
+            ],
+        ])
+            ->assertStatus(403)
+            ->assertJson(['message' => 'Chỉ người đăng ký hoặc quản trị viên mới được chỉnh sửa dòng này.']);
     }
 
     public function test_owner_can_delete_persisted_entry(): void
@@ -253,6 +374,72 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         $this->assertSame(0, DB::table('department_weekly_schedule_entries')->count());
     }
 
+    public function test_create_department_weekly_schedule_rejects_past_entries(): void
+    {
+        $this->postJson('/api/v5/department-weekly-schedules', [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'created_by' => 1,
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'calendar_date' => '2026-01-05',
+                    'session' => 'MORNING',
+                    'work_content' => 'Lich da qua',
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'entries.0: Lịch làm việc đã qua không thể chỉnh sửa.']);
+    }
+
+    public function test_past_persisted_entry_cannot_be_updated_or_deleted(): void
+    {
+        $scheduleId = (int) DB::table('department_weekly_schedules')->insertGetId([
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'created_by' => 1,
+            'updated_by' => 1,
+        ]);
+
+        $entryId = (int) DB::table('department_weekly_schedule_entries')->insertGetId([
+            'schedule_id' => $scheduleId,
+            'calendar_date' => '2026-01-05',
+            'session' => 'MORNING',
+            'sort_order' => 10,
+            'work_content' => 'Lich cu',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'created_by' => 1,
+            'updated_by' => 1,
+        ]);
+
+        $this->putJson("/api/v5/department-weekly-schedules/{$scheduleId}", [
+            'department_id' => 10,
+            'week_start_date' => '2026-01-05',
+            'updated_by' => 1,
+            'entries' => [
+                [
+                    'id' => $entryId,
+                    'calendar_date' => '2026-01-05',
+                    'session' => 'MORNING',
+                    'sort_order' => 10,
+                    'work_content' => 'Khong duoc sua',
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'entries.0: Lịch làm việc đã qua không thể chỉnh sửa.']);
+
+        $this->deleteJson("/api/v5/department-weekly-schedules/{$scheduleId}/entries/{$entryId}", [
+            'actor_id' => 1,
+        ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Lịch làm việc đã qua không thể xóa.']);
+    }
+
     public function test_delete_department_weekly_schedule_is_admin_only(): void
     {
         $created = $this->postJson('/api/v5/department-weekly-schedules', [
@@ -297,6 +484,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
         Schema::dropIfExists('department_weekly_schedule_entry_participants');
         Schema::dropIfExists('department_weekly_schedule_entries');
         Schema::dropIfExists('department_weekly_schedules');
+        Schema::dropIfExists('user_dept_history');
         Schema::dropIfExists('monthly_calendars');
         Schema::dropIfExists('user_roles');
         Schema::dropIfExists('roles');
@@ -315,7 +503,19 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             $table->string('user_code', 50)->nullable();
             $table->string('username', 100)->nullable();
             $table->string('full_name', 255)->nullable();
+            $table->unsignedBigInteger('department_id')->nullable();
             $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('user_dept_history', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('from_dept_id')->nullable();
+            $table->unsignedBigInteger('to_dept_id');
+            $table->date('transfer_date');
+            $table->string('transfer_type', 50)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
 
         Schema::create('roles', function (Blueprint $table): void {
@@ -399,11 +599,16 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             'dept_code' => 'GIAI_PHAP_2',
             'dept_name' => 'Phòng giải pháp 2',
         ]);
+        DB::table('departments')->insert([
+            'id' => 20,
+            'dept_code' => 'VNPT_NINH_KIEU',
+            'dept_name' => 'VNPT Ninh Kiều',
+        ]);
 
         DB::table('internal_users')->insert([
-            ['id' => 1, 'user_code' => 'VNPT0001', 'username' => 'quynh', 'full_name' => 'Quỳnh'],
-            ['id' => 2, 'user_code' => 'VNPT0002', 'username' => 'thuan', 'full_name' => 'Thuận'],
-            ['id' => 3, 'user_code' => 'VNPT0003', 'username' => 'admin', 'full_name' => 'Admin'],
+            ['id' => 1, 'user_code' => 'VNPT0001', 'username' => 'quynh', 'full_name' => 'Quỳnh', 'department_id' => 10],
+            ['id' => 2, 'user_code' => 'VNPT0002', 'username' => 'thuan', 'full_name' => 'Thuận', 'department_id' => 10],
+            ['id' => 3, 'user_code' => 'VNPT0003', 'username' => 'admin', 'full_name' => 'Admin', 'department_id' => 20],
         ]);
 
         DB::table('roles')->insert([
@@ -417,6 +622,7 @@ class DepartmentWeeklyScheduleCrudTest extends TestCase
             'is_active' => 1,
         ]);
 
+        $this->seedCalendarWeek('2026-01-05', 2);
         $this->seedCalendarWeek('2026-01-19', 4);
         $this->seedCalendarWeek('2026-01-26', 5);
     }

@@ -11,6 +11,7 @@ import {
   resolveHealthcareFacilityType,
 } from '../../utils/customerClassification';
 import { FormInput, ModalWrapper } from './shared';
+import { useModalShortcuts } from '../../hooks/useModalShortcuts';
 
 type CustomerFormField =
   | 'customer_code'
@@ -225,6 +226,8 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ type, data
       }
     }
   };
+
+  useModalShortcuts({ onSave: handleSubmit, enabled: !isSubmitting });
 
   return (
     <ModalWrapper

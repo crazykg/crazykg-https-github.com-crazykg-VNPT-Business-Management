@@ -6,6 +6,7 @@ import type {
   YeuCauProcessDetail,
   YeuCauProcessField,
   YeuCauProcessMeta,
+  YeuCauTag,
   YeuCauTimelineEntry,
   YeuCauWorklog,
 } from '../../types/customerRequest';
@@ -13,22 +14,21 @@ import type { Customer, CustomerPersonnel } from '../../types/customer';
 import type { Employee } from '../../types/employee';
 import type { ProjectItemMaster } from '../../types/project';
 import type { SupportServiceGroup } from '../../types/support';
-import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
+import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
-import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
+import { TagInput } from './TagInput';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { CustomerRequestEstimatePanel } from './CustomerRequestEstimatePanel';
 import { CustomerRequestHoursPanel } from './CustomerRequestHoursPanel';
-import type { CustomerRequestCreateFlowDraft } from './createFlow';
 import {
   type DispatcherQuickAction,
-  isPmMissingCustomerInfoDecisionProcessCode,
   type PerformerQuickAction,
   SUPPORT_TASK_STATUS_OPTIONS,
   formatHoursValue,
   humanizeKetQua,
+  resolveRequestProcessCode,
   resolveRequestStatusMeta,
   resolveStatusMeta,
   resolveTransitionStatusMeta,
@@ -67,6 +67,7 @@ type CustomerRequestDetailPaneProps = {
   editorProcessMeta: YeuCauProcessMeta | null | undefined;
   processDraft: Record<string, unknown>;
   onProcessDraftChange: (fieldName: string, value: unknown) => void;
+  onSaveStatusDetail: () => void;
   customers: Customer[];
   employees: Employee[];
   customerPersonnel: CustomerPersonnel[];
@@ -74,9 +75,6 @@ type CustomerRequestDetailPaneProps = {
   availableProjectItems: ProjectItemMaster[];
   selectedProjectItem: ProjectItemMaster | null;
   selectedCustomerId: string;
-  currentUserName: string;
-  createFlowDraft: CustomerRequestCreateFlowDraft;
-  onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
   activeTaskTab: CustomerRequestTaskSource;
   onActiveTaskTabChange: (tab: CustomerRequestTaskSource) => void;
   onAddTaskRow: () => void;
@@ -84,6 +82,8 @@ type CustomerRequestDetailPaneProps = {
   onUpdateIt360TaskRow: (localId: string, fieldName: keyof Omit<It360TaskFormRow, 'local_id'>, value: unknown) => void;
   onRemoveIt360TaskRow: (localId: string) => void;
   formReferenceTasks: ReferenceTaskFormRow[];
+  formTags: YeuCauTag[];
+  onFormTagsChange: (tags: YeuCauTag[]) => void;
   taskReferenceOptions: SearchableSelectOption[];
   onUpdateReferenceTaskRow: (localId: string, value: string) => void;
   onTaskReferenceSearchTermChange: (value: string) => void;
@@ -93,7 +93,7 @@ type CustomerRequestDetailPaneProps = {
   onRemoveReferenceTaskRow: (localId: string) => void;
   formAttachments: Attachment[];
   onUploadAttachment: (file: File) => Promise<void>;
-  onDeleteAttachment: (id: string) => Promise<void>;
+  onDeleteAttachment: (id: string | number) => Promise<void>;
   isUploadingAttachment: boolean;
   attachmentError: string;
   attachmentNotice: string;
@@ -108,6 +108,8 @@ type CustomerRequestDetailPaneProps = {
   onOpenNotifyCustomerModal: () => void;
   canOpenWorklogModal: boolean;
   onOpenWorklogModal: () => void;
+  onOpenDetailStatusWorklogModal: (action: 'in_progress' | 'paused' | 'completed') => void;
+  onEditWorklog: (worklog: YeuCauWorklog) => void;
   isSubmittingWorklog: boolean;
   canOpenEstimateModal: boolean;
   onOpenEstimateModal: () => void;
@@ -134,6 +136,32 @@ const EmptyTabState: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
+const resolveWorklogDetailStatusLabel = (detailStatusAction: string | null | undefined): string | null => {
+  const normalized = normalizeText(detailStatusAction).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === 'in_progress') {
+    return 'Đang thực hiện';
+  }
+  if (normalized === 'paused') {
+    return 'Tạm ngưng';
+  }
+  if (normalized === 'completed') {
+    return 'Hoàn thành';
+  }
+  if (normalized === 'open') {
+    return 'Mở';
+  }
+  return normalized;
+};
+
+const resolveWorklogMainStatusLabel = (worklog: YeuCauWorklog): string | null => (
+  normalizeText(worklog.status_name_vi)
+  || normalizeText(worklog.status_code)
+  || null
+);
+
 export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps> = ({
   isDetailLoading,
   isListLoading,
@@ -154,6 +182,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   editorProcessMeta,
   processDraft,
   onProcessDraftChange,
+  onSaveStatusDetail,
   customers,
   employees,
   customerPersonnel,
@@ -161,9 +190,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   availableProjectItems,
   selectedProjectItem,
   selectedCustomerId,
-  currentUserName,
-  createFlowDraft,
-  onCreateFlowDraftChange,
   activeTaskTab,
   onActiveTaskTabChange,
   onAddTaskRow,
@@ -171,6 +197,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onUpdateIt360TaskRow,
   onRemoveIt360TaskRow,
   formReferenceTasks,
+  formTags,
+  onFormTagsChange,
   taskReferenceOptions,
   onUpdateReferenceTaskRow,
   onTaskReferenceSearchTermChange,
@@ -195,6 +223,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   onOpenNotifyCustomerModal,
   canOpenWorklogModal,
   onOpenWorklogModal,
+  onOpenDetailStatusWorklogModal,
+  onEditWorklog,
   isSubmittingWorklog,
   canOpenEstimateModal,
   onOpenEstimateModal,
@@ -249,29 +279,44 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
-  const transitionCtaLabel = isPmMissingCustomerInfoDecisionProcessCode(transitionStatusCode)
-    ? 'Đánh giá →'
-    : 'Chuyển →';
+  const transitionCtaLabel = 'Chuyển →';
+  const rawDetailStatus = processDetail?.current_detail_status;
+  // Map Vietnamese status values to English equivalents
+  const mapVietnameseToEnglishStatus = (status: string | null | undefined): string => {
+    if (!status) return '';
+    const normalized = normalizeText(status).toLowerCase();
+    switch (normalized) {
+      case 'mở':
+        return 'open';
+      case 'đang thực hiện':
+        return 'in_progress';
+      case 'tạm ngưng':
+        return 'paused';
+      case 'hoàn thành':
+        return 'completed';
+      default:
+        return normalized; // Return as-is if not a known Vietnamese term
+    }
+  };
+  const currentDetailStatus = mapVietnameseToEnglishStatus(rawDetailStatus);
+  const isDetailInProgress = currentDetailStatus === 'in_progress';
+  const isDetailPaused = currentDetailStatus === 'paused';
+  const isDetailOpen = currentDetailStatus === 'open';
+  const isDetailCompleted = currentDetailStatus === 'completed';
   const quickStats = [
     { label: 'Tác vụ/YC', value: formIt360Tasks.length + formReferenceTasks.length },
     { label: 'Tệp', value: formAttachments.length },
     { label: 'Dòng thời gian', value: timeline.length },
     { label: 'Nhật ký', value: caseWorklogs.length },
   ];
+
+  const visibleRelatedSummaryItems = relatedSummaryItems.filter((item) => item.label !== 'Người xử lý');
+  const shouldHideInitialIntakeSection = !isCreateMode
+    && resolveRequestProcessCode(processDetail?.yeu_cau ?? {}) === 'new_intake';
   const selectedCustomerName =
     customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
     || selectedProjectItem?.customer_name
     || '';
-  const createDirectionLabel = createFlowDraft.handlingMode === 'self_handle' ? 'Tự xử lý' : 'Chuyển PM';
-  const createDirectionUserId =
-    createFlowDraft.handlingMode === 'self_handle'
-      ? createFlowDraft.performerUserId
-      : createFlowDraft.dispatcherUserId;
-  const createDirectionUserName =
-    employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.full_name
-    || employees.find((employee) => String(employee.id) === String(createDirectionUserId || ''))?.username
-    || (createFlowDraft.handlingMode === 'self_handle' ? currentUserName : '')
-    || '--';
 
   const actionFlagItems = [
     { key: 'can_write', label: 'Có thể cập nhật', active: Boolean(actionFlags.can_write) },
@@ -329,15 +374,25 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </button>
           ) : null}
           {canEditActiveForm ? (
-            <button
-              type="button"
-              onClick={onAddTaskRow}
-              disabled={isSaving}
-              className="group inline-flex items-center gap-1.5 rounded-xl bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-all hover:bg-primary/20 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">add</span>
-              {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onSaveStatusDetail}
+                disabled={isSaving}
+                className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+              </button>
+              <button
+                type="button"
+                onClick={onAddTaskRow}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3.5 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+              </button>
+            </>
           ) : null}
         </div>
       </div>
@@ -412,7 +467,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     Task tham chiếu #{index + 1}
                   </p>
                   <SearchableSelect
-                    value={task.task_code || (task.id != null ? String(task.id) : '')}
+                    value={task.task_code}
                     options={taskReferenceOptions}
                     onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
                     onSearchTermChange={onTaskReferenceSearchTermChange}
@@ -551,27 +606,40 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
               {latestWorklogs.length === 0 ? (
                 <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
               ) : (
-                latestWorklogs.map((worklog) => (
-                  <div key={worklog.id} className="group rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-4 py-3.5 shadow-sm transition-shadow hover:shadow-md">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {worklog.performed_by_name || 'Chưa xác định'}
+                latestWorklogs.map((worklog) => {
+                  const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
+                  const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+
+                  return (
+                    <button
+                      key={worklog.id}
+                      type="button"
+                      onClick={() => onEditWorklog(worklog)}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className="group w-full rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-4 py-3.5 text-left shadow-sm transition-shadow hover:shadow-md disabled:opacity-50"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {worklog.performed_by_name || 'Chưa xác định'}
+                        </p>
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                          {formatHoursValue(worklog.hours_spent)}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        {[
+                          worklog.activity_type_code,
+                          mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
+                          detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                          formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </p>
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                        {formatHoursValue(worklog.hours_spent)}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      {[
-                        worklog.activity_type_code,
-                        worklog.work_date || worklog.work_started_at,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                    {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                  </div>
-                ))
+                      {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-3 py-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -646,7 +714,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   const renderDetailOverviewTab = () => (
-    <div className="min-w-0">
+    <div className="grid min-w-0 gap-5">
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -689,18 +757,34 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             {latestWorklogs.length === 0 ? (
               <EmptyTabState message="Chưa có nhật ký công việc gần đây." />
             ) : (
-              latestWorklogs.map((worklog) => (
-                <div key={worklog.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
-                    <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {[worklog.activity_type_code, worklog.work_date || worklog.work_started_at].filter(Boolean).join(' · ')}
-                  </p>
-                  {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                </div>
-              ))
+              latestWorklogs.map((worklog) => {
+                const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
+                const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+
+                return (
+                  <button
+                    key={worklog.id}
+                    type="button"
+                    onClick={() => onEditWorklog(worklog)}
+                    disabled={isSaving || isSubmittingWorklog}
+                    className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-left transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
+                      <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {[
+                        worklog.activity_type_code,
+                        mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
+                        detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                        formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
+                      ].filter(Boolean).join(' · ')}
+                    </p>
+                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -735,6 +819,48 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <div className="mb-6 border-b border-slate-100 pb-6">
               <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
               <div className="flex flex-wrap items-center gap-3">
+                {canOpenWorklogModal ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                        isDetailInProgress
+                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                      Đang thực hiện
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetailStatusWorklogModal('paused')}
+                      disabled={isSaving || isSubmittingWorklog}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                        isDetailPaused
+                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">pause_circle</span>
+                      Tạm ngưng
+                    </button>
+                    {/* {!isDetailOpen && !isDetailCompleted && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenDetailStatusWorklogModal('completed')}
+                        disabled={isSaving || isSubmittingWorklog}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        Hoàn thành text
+                      </button>
+                    )} */}
+                  </>
+                ) : null}
+
                 {(() => {
                   const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
                   return (
@@ -746,7 +872,18 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
                 {canTransitionActiveRequest ? (
                   <>
-                    {canOpenCreatorFeedbackModal ? (
+                    {!isDetailOpen && (
+                      <button
+                        type="button"
+                        onClick={onOpenTransitionModal}
+                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+                        Hoàn thành
+                      </button>
+                    )}
+                    {/* {canOpenCreatorFeedbackModal ? (
                       <button
                         type="button"
                         onClick={onOpenCreatorFeedbackModal}
@@ -756,8 +893,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         <span className="material-symbols-outlined text-[16px]">fact_check</span>
                         Đánh giá KH
                       </button>
-                    ) : null}
-                    {canOpenNotifyCustomerModal ? (
+                    ) : null} */}
+                    {/* {canOpenNotifyCustomerModal ? (
                       <button
                         type="button"
                         onClick={onOpenNotifyCustomerModal}
@@ -767,62 +904,32 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                         <span className="material-symbols-outlined text-[16px]">campaign</span>
                         Báo KH
                       </button>
-                    ) : null}
-                    {dispatcherQuickActions.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowDispatcherActionModal(true)}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                    ) : null} */}
+                    {!isDetailOpen && (
+                      <select
+                        value={transitionStatusCode}
+                        onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                        disabled={isSaving || !canTransitionActiveRequest}
+                        className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
                       >
-                        <span className="material-symbols-outlined text-[16px]">conversion_path</span>
-                        Điều phối nhanh
-                      </button>
-                    ) : null}
-                    {performerQuickActions.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowPerformerActionModal(true)}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">bolt</span>
-                        Xử lý nhanh
-                      </button>
-                    ) : null}
-                    <span className="material-symbols-outlined text-[18px] text-slate-300">arrow_forward</span>
-                    <select
-                      value={transitionStatusCode}
-                      onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
-                      disabled={isSaving || !canTransitionActiveRequest}
-                      className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-                    >
-                      {transitionOptions.length > 0 ? (
-                        transitionOptions.map((option) => {
-                          const meta = resolveTransitionStatusMeta(option);
-                          return (
-                            <option key={option.process_code} value={option.process_code}>
-                              {meta.label}
-                            </option>
-                          );
-                        })
-                      ) : (
-                        <option value="">-- Không có bước tiếp theo --</option>
-                      )}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={onOpenTransitionModal}
-                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                      {transitionCtaLabel || 'Chuyển trạng thái'}
-                    </button>
+                        {transitionOptions.length > 0 ? (
+                          transitionOptions.map((option) => {
+                            const meta = resolveTransitionStatusMeta(option);
+                            return (
+                              <option key={option.process_code} value={option.process_code}>
+                                {meta.label}
+                              </option>
+                            );
+                          })
+                        ) : (
+                          <option value="">-- Không có bước tiếp theo --</option>
+                        )}
+                      </select>
+                    )}
                   </>
                 ) : null}
 
-                {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
+                {/* {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
                   <button
                     type="button"
                     onClick={onOpenCreatorFeedbackModal}
@@ -843,7 +950,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     <span className="material-symbols-outlined text-[16px]">campaign</span>
                     Báo KH
                   </button>
-                ) : null}
+                ) : null} */}
 
                 {canTransitionActiveRequest && transitionOptions.length === 0 ? (
                   <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
@@ -900,48 +1007,63 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </div>
           </div>
 
-          {editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+          {!isCreateMode ? (
             <div className="mt-6 border-t border-slate-100 pt-6">
-              <div className="mb-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thẻ (Tags)</h4>
+              </div>
+              <TagInput
+                value={formTags}
+                onChange={onFormTagsChange}
+                disabled={!canEditActiveForm || isSaving}
+                placeholder="Thêm tag cho yêu cầu..."
+              />
+            </div>
+          ) : null}
+
+          {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+            <div className="mt-6 border-t border-slate-100 pt-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
+                <button
+                  type="button"
+                  onClick={onSaveStatusDetail}
+                  disabled={!canEditActiveForm || isSaving}
+                  className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+                </button>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {editorProcessMeta.form_fields
-                  .filter((field) => ![
-                    editorProcessMeta.process_code === 'assigned_to_receiver' ? 'receiver_user_id' : null,
-                    editorProcessMeta.process_code === 'pending_dispatch' ? 'dispatcher_user_id' : null,
-                  ].filter(Boolean).includes(field.name))
-                  .map((field) => (
-                    <ProcessFieldInput
-                      key={field.name}
-                      field={field}
-                      value={processDraft[field.name]}
-                      customers={customers}
-                      employees={employees}
-                      customerPersonnel={customerPersonnel}
-                      supportServiceGroups={supportServiceGroups}
-                      projectItems={availableProjectItems}
-                      selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                      disabled={!canEditActiveForm || isSaving}
-                      onChange={onProcessDraftChange}
-                    />
-                  ))}
+                {([
+                  { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
+                  { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
+                  { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
+                  { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
+                  { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+                  { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+                  { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
+                ] satisfies YeuCauProcessField[]).map((field) => (
+                  <ProcessFieldInput
+                    key={field.name}
+                    field={field}
+                    value={processDraft[field.name]}
+                    customers={customers}
+                    employees={employees}
+                    customerPersonnel={customerPersonnel}
+                    supportServiceGroups={supportServiceGroups}
+                    projectItems={availableProjectItems}
+                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                    disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                    onChange={onProcessDraftChange}
+                  />
+                ))}
               </div>
             </div>
           ) : null}
 
           {isCreateMode ? (
             <>
-              <CustomerRequestCreateFlowPanel
-                draft={createFlowDraft}
-                employees={employees}
-                currentUserName={currentUserName}
-                selectedProjectItem={selectedProjectItem}
-                selectedCustomerName={selectedCustomerName}
-                onChange={onCreateFlowDraftChange}
-                disabled={!canEditActiveForm || isSaving}
-              />
-
               <div className="mt-6 border-t border-slate-100 pt-6">
                 <div className="mb-4">
                   <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Đính kèm nhanh</h4>
@@ -959,7 +1081,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           <div className="rounded-2xl border border-slate-200 p-4">
             <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
             <div className="mt-4 space-y-3">
-              {relatedSummaryItems.map((item) => (
+              {visibleRelatedSummaryItems.map((item) => (
                 <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
@@ -973,22 +1095,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <div className="rounded-2xl border border-slate-200 p-4">
               <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Kế hoạch khi tạo</h4>
               <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Estimate ban đầu</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">
-                    {createFlowDraft.initialEstimatedHours.trim() ? `${createFlowDraft.initialEstimatedHours.trim()}h` : '--'}
-                  </p>
-                  {createFlowDraft.estimateNote.trim() ? (
-                    <p className="mt-1 text-xs text-slate-500">{createFlowDraft.estimateNote.trim()}</p>
-                  ) : null}
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Hướng xử lý</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{createDirectionLabel}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {createFlowDraft.handlingMode === 'self_handle' ? 'Người xử lý' : 'PM điều phối'}: {createDirectionUserName}
-                  </p>
-                </div>
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngữ cảnh đã chọn</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">

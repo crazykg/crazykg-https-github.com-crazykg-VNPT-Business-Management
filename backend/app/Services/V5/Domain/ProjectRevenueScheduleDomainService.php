@@ -4,12 +4,15 @@ namespace App\Services\V5\Domain;
 
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ProjectRevenueScheduleDomainService
 {
+    private const SYNC_AMOUNT_TOLERANCE = 0.5;
     private const PAYMENT_CYCLES = ['ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
 
     public function __construct(
@@ -26,19 +29,56 @@ class ProjectRevenueScheduleDomainService
             return response()->json(['data' => []]);
         }
 
-        $rows = DB::table('project_revenue_schedules as prs')
+        $hasCreatedBy = $this->support->hasColumn('project_revenue_schedules', 'created_by');
+        $hasUpdatedBy = $this->support->hasColumn('project_revenue_schedules', 'updated_by');
+        $hasCreatedAt = $this->support->hasColumn('project_revenue_schedules', 'created_at');
+        $hasUpdatedAt = $this->support->hasColumn('project_revenue_schedules', 'updated_at');
+        $hasInternalUsersTable = $hasCreatedBy && $this->support->hasTable('internal_users');
+        $hasInternalUserFullName = $hasInternalUsersTable && $this->support->hasColumn('internal_users', 'full_name');
+        $hasInternalUserUsername = $hasInternalUsersTable && $this->support->hasColumn('internal_users', 'username');
+
+        $query = DB::table('project_revenue_schedules as prs')
             ->where('prs.project_id', $projectId)
-            ->orderBy('prs.cycle_number')
-            ->select([
-                'prs.id',
-                'prs.project_id',
-                'prs.cycle_number',
-                'prs.expected_date',
-                'prs.expected_amount',
-                'prs.notes',
-                'prs.created_at',
-                'prs.updated_at',
-            ])
+            ->orderBy('prs.cycle_number');
+
+        if ($hasInternalUsersTable) {
+            $query->leftJoin('internal_users as creator', 'prs.created_by', '=', 'creator.id');
+        }
+
+        $selects = [
+            'prs.id',
+            'prs.project_id',
+            'prs.cycle_number',
+            'prs.expected_date',
+            'prs.expected_amount',
+            'prs.notes',
+        ];
+
+        if ($hasCreatedBy) {
+            $selects[] = 'prs.created_by';
+        }
+        if ($hasUpdatedBy) {
+            $selects[] = 'prs.updated_by';
+        }
+        if ($hasCreatedAt) {
+            $selects[] = 'prs.created_at';
+        }
+        if ($hasUpdatedAt) {
+            $selects[] = 'prs.updated_at';
+        }
+
+        if ($hasInternalUsersTable && $hasInternalUserFullName && $hasInternalUserUsername) {
+            $selects[] = DB::raw("COALESCE(NULLIF(TRIM(creator.full_name), ''), creator.username) as created_by_name");
+        } elseif ($hasInternalUsersTable && $hasInternalUserFullName) {
+            $selects[] = 'creator.full_name as created_by_name';
+        } elseif ($hasInternalUsersTable && $hasInternalUserUsername) {
+            $selects[] = 'creator.username as created_by_name';
+        } else {
+            $selects[] = DB::raw('NULL as created_by_name');
+        }
+
+        $rows = $query
+            ->select($selects)
             ->get()
             ->map(fn (object $row): array => [
                 'id' => (int) $row->id,
@@ -47,8 +87,11 @@ class ProjectRevenueScheduleDomainService
                 'expected_date' => $row->expected_date,
                 'expected_amount' => round((float) $row->expected_amount, 2),
                 'notes' => $row->notes,
-                'created_at' => $row->created_at,
-                'updated_at' => $row->updated_at,
+                'created_by' => $hasCreatedBy ? $this->support->parseNullableInt($row->created_by ?? null) : null,
+                'updated_by' => $hasUpdatedBy ? $this->support->parseNullableInt($row->updated_by ?? null) : null,
+                'created_by_name' => $this->support->normalizeNullableString($row->created_by_name ?? null),
+                'created_at' => $hasCreatedAt ? $row->created_at : null,
+                'updated_at' => $hasUpdatedAt ? $row->updated_at : null,
             ])
             ->all();
 
@@ -70,43 +113,94 @@ class ProjectRevenueScheduleDomainService
         }
 
         $validated = $request->validate([
-            'schedules' => ['required', 'array', 'max:120'],
+            'schedules' => ['present', 'array', 'max:120'],
             'schedules.*' => ['required', 'array'],
+            'schedules.*.id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'schedules.*.expected_date' => ['required', 'date'],
             'schedules.*.expected_amount' => ['required', 'numeric', 'min:0'],
             'schedules.*.notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $schedules = $validated['schedules'];
+        $project = DB::table('projects')->where('id', $projectId)->first();
+        if (! $project) {
+            return response()->json(['message' => 'Dự án không tồn tại.'], 404);
+        }
+
+        $existingSchedules = DB::table('project_revenue_schedules')
+            ->where('project_id', $projectId)
+            ->orderBy('cycle_number')
+            ->get();
+        $existingScheduleMap = $existingSchedules
+            ->keyBy(fn (object $row): string => (string) $row->id)
+            ->all();
+
+        $this->validateScheduleSyncPayload($project, $projectId, $schedules, $existingSchedules->sum('expected_amount'), $existingScheduleMap);
+
         $now = now();
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
 
-        DB::transaction(function () use ($projectId, $schedules, $now, $actorId): void {
-            DB::table('project_revenue_schedules')
-                ->where('project_id', $projectId)
-                ->delete();
+        DB::transaction(function () use ($projectId, $schedules, $now, $actorId, $existingScheduleMap): void {
+            $incomingIds = collect($schedules)
+                ->map(fn (array $schedule): ?int => $this->support->parseNullableInt($schedule['id'] ?? null))
+                ->filter(fn (?int $id): bool => $id !== null)
+                ->values()
+                ->all();
 
-            if ($schedules === []) {
-                return;
+            $deleteQuery = DB::table('project_revenue_schedules')->where('project_id', $projectId);
+            if ($incomingIds === []) {
+                $deleteQuery->delete();
+            } else {
+                $deleteQuery->whereNotIn('id', $incomingIds)->delete();
             }
 
-            $rows = [];
             foreach ($schedules as $index => $schedule) {
-                $rows[] = [
-                    'project_id' => $projectId,
+                $payload = [
                     'cycle_number' => $index + 1,
                     'expected_date' => $schedule['expected_date'],
                     'expected_amount' => round((float) $schedule['expected_amount'], 2),
                     'notes' => $schedule['notes'] ?? null,
-                    'created_by' => $actorId,
-                    'updated_by' => $actorId,
-                    'created_at' => $now,
-                    'updated_at' => $now,
                 ];
-            }
 
-            foreach (array_chunk($rows, 100) as $chunk) {
-                DB::table('project_revenue_schedules')->insert($chunk);
+                if ($this->support->hasColumn('project_revenue_schedules', 'updated_by')) {
+                    $payload['updated_by'] = $actorId;
+                }
+                if ($this->support->hasColumn('project_revenue_schedules', 'updated_at')) {
+                    $payload['updated_at'] = $now;
+                }
+
+                $scheduleId = $this->support->parseNullableInt($schedule['id'] ?? null);
+                if ($scheduleId !== null && isset($existingScheduleMap[(string) $scheduleId])) {
+                    DB::table('project_revenue_schedules')
+                        ->where('id', $scheduleId)
+                        ->where('project_id', $projectId)
+                        ->update($payload);
+
+                    continue;
+                }
+
+                $insertPayload = [
+                    'project_id' => $projectId,
+                    'cycle_number' => $payload['cycle_number'],
+                    'expected_date' => $payload['expected_date'],
+                    'expected_amount' => $payload['expected_amount'],
+                    'notes' => $payload['notes'],
+                ];
+
+                if ($this->support->hasColumn('project_revenue_schedules', 'created_by')) {
+                    $insertPayload['created_by'] = $actorId;
+                }
+                if ($this->support->hasColumn('project_revenue_schedules', 'updated_by')) {
+                    $insertPayload['updated_by'] = $actorId;
+                }
+                if ($this->support->hasColumn('project_revenue_schedules', 'created_at')) {
+                    $insertPayload['created_at'] = $now;
+                }
+                if ($this->support->hasColumn('project_revenue_schedules', 'updated_at')) {
+                    $insertPayload['updated_at'] = $now;
+                }
+
+                DB::table('project_revenue_schedules')->insert($insertPayload);
             }
         });
 
@@ -205,6 +299,123 @@ class ProjectRevenueScheduleDomainService
         $request->merge(['schedules' => $schedules]);
 
         return $this->sync($request, $projectId);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $schedules
+     * @param array<string, object> $existingScheduleMap
+     */
+    private function validateScheduleSyncPayload(
+        object $project,
+        int $projectId,
+        array $schedules,
+        float $currentScheduleTotal,
+        array $existingScheduleMap
+    ): void {
+        if ($schedules === []) {
+            return;
+        }
+
+        $projectStartDate = $this->support->normalizeNullableString(
+            $project->start_date ?? null
+        );
+        $projectEndDate = $this->support->normalizeNullableString(
+            $project->expected_end_date ?? null
+        );
+
+        $errors = [];
+
+        if ($projectStartDate === null || $projectEndDate === null) {
+            $errors['schedules'][] = 'Dự án phải có ngày bắt đầu và ngày kết thúc để chỉnh phân kỳ doanh thu.';
+        }
+
+        $startDate = $projectStartDate !== null ? Carbon::parse($projectStartDate)->startOfDay() : null;
+        $endDate = $projectEndDate !== null ? Carbon::parse($projectEndDate)->startOfDay() : null;
+        if ($startDate !== null && $endDate !== null && $startDate->greaterThan($endDate)) {
+            $errors['schedules'][] = 'Khoảng thời gian dự án không hợp lệ.';
+        }
+
+        $expectedTotal = $this->resolveProjectRevenueTotal($project, $projectId);
+        if ($expectedTotal <= 0 && $currentScheduleTotal > 0) {
+            $expectedTotal = round($currentScheduleTotal, 2);
+        }
+
+        $payloadTotal = 0.0;
+        $previousDate = null;
+        foreach ($schedules as $index => $schedule) {
+            $scheduleId = $this->support->parseNullableInt($schedule['id'] ?? null);
+            if ($scheduleId !== null && ! isset($existingScheduleMap[(string) $scheduleId])) {
+                $errors["schedules.{$index}.id"][] = 'Kỳ doanh thu không thuộc dự án hiện tại.';
+            }
+
+            $payloadTotal += round((float) ($schedule['expected_amount'] ?? 0), 2);
+
+            $currentDate = Carbon::parse((string) $schedule['expected_date'])->startOfDay();
+            if ($startDate !== null && $currentDate->lessThan($startDate)) {
+                $errors["schedules.{$index}.expected_date"][] = sprintf(
+                    'Ngày dự kiến kỳ %d phải từ %s trở đi.',
+                    $index + 1,
+                    $startDate->format('d/m/Y')
+                );
+            }
+
+            if ($endDate !== null && $currentDate->greaterThan($endDate)) {
+                $errors["schedules.{$index}.expected_date"][] = sprintf(
+                    'Ngày dự kiến kỳ %d không được vượt quá %s.',
+                    $index + 1,
+                    $endDate->format('d/m/Y')
+                );
+            }
+
+            if ($previousDate !== null && $currentDate->lessThanOrEqualTo($previousDate)) {
+                $errors["schedules.{$index}.expected_date"][] = sprintf(
+                    'Ngày dự kiến kỳ %d phải sau kỳ %d.',
+                    $index + 1,
+                    $index
+                );
+            }
+
+            $previousDate = $currentDate;
+        }
+
+        if (abs(round($payloadTotal, 2) - round($expectedTotal, 2)) > self::SYNC_AMOUNT_TOLERANCE) {
+            $errors['schedules'][] = sprintf(
+                'Tổng phân kỳ phải giữ nguyên %s.',
+                number_format($expectedTotal, 0, ',', '.').' đ'
+            );
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function resolveProjectRevenueTotal(object $project, int $projectId): float
+    {
+        if ($this->support->hasColumn('projects', 'estimated_value')) {
+            $estimatedValue = round((float) ($project->estimated_value ?? 0), 2);
+            if ($estimatedValue > 0) {
+                return $estimatedValue;
+            }
+        }
+
+        if (
+            ! $this->support->hasTable('project_items')
+            || ! $this->support->hasColumn('project_items', 'project_id')
+            || ! $this->support->hasColumn('project_items', 'quantity')
+            || ! $this->support->hasColumn('project_items', 'unit_price')
+        ) {
+            return 0.0;
+        }
+
+        $query = DB::table('project_items')->where('project_id', $projectId);
+        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        return round((float) $query
+            ->selectRaw('COALESCE(SUM(COALESCE(quantity, 0) * COALESCE(unit_price, 0)), 0) as total')
+            ->value('total'), 2);
     }
 
     /**

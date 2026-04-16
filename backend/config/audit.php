@@ -28,5 +28,24 @@ return [
     ],
 
     'mask' => '[REDACTED]',
-];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Product Feature Catalog Notification Recipients
+    |--------------------------------------------------------------------------
+    */
+    'product_feature_catalog_notification_recipients' => [
+        'pvro86@gmail.com',
+        'vnpthishg@gmail.com',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Product Quotation Print Notification Recipients
+    |--------------------------------------------------------------------------
+    */
+    'product_quotation_print_notification_recipients' => [
+        'pvro86@gmail.com',
+        'vnpthishg@gmail.com',
+    ],
+];

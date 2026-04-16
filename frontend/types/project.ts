@@ -7,6 +7,7 @@ export interface ProjectItemMaster {
   customer_code?: string | null;
   customer_name?: string | null;
   product_id: string | number;
+  product_package_id?: string | number | null;
   product_code?: string | null;
   product_name?: string | null;
   unit?: string | null;
@@ -42,12 +43,15 @@ export interface ProjectTypeOption {
 export interface ProjectItem {
   id: string;
   productId: string | number;
+  productPackageId?: string | number | null;
+  catalogValue?: string;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;
   discountAmount: number | string;
   lineTotal?: number;
   product_id?: string | number | null;
+  product_package_id?: string | number | null;
   unit_price?: number | null;
   line_total?: number | null;
   discountMode?: 'PERCENT' | 'AMOUNT';
@@ -84,9 +88,15 @@ export interface Project {
   project_name: string;
   customer_id: string | number | null;
   opportunity_id?: string | number | null;
+  implementation_user_id?: string | number | null;
+  implementation_user_code?: string | null;
+  implementation_full_name?: string | null;
+  implementation_unit_code?: string | null;
+  implementation_unit_name?: string | null;
   start_date?: string | null;
   expected_end_date?: string | null;
   actual_end_date?: string | null;
+  opportunity_score?: string | number | null;
   status: ProjectStatus;
   status_reason?: string | null;
   investment_mode?: InvestmentMode | string | null;
@@ -109,6 +119,9 @@ export interface ProcedureTemplate {
   description?: string | null;
   is_active: boolean;
   phases?: string[];
+  steps_count?: number;
+  procedures_count?: number;
+  can_delete?: boolean;
 }
 
 export interface ProcedureTemplateStep {

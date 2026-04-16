@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('customer_request_coding')) {
+            return;
+        }
+
         Schema::create('customer_request_coding', function (Blueprint $table): void {
             $table->bigIncrements('id')->comment('ID dòng trạng thái');
             $table->unsignedBigInteger('request_case_id')->comment('Yêu cầu');

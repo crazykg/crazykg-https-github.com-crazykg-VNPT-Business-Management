@@ -40,12 +40,15 @@ const normalizeUserDeptHistoryRecord = (payload: Record<string, unknown>): UserD
   reason: String(payload.reason ?? ''),
   createdDate: normalizeNullableText(payload.createdDate) ?? undefined,
   decisionNumber: normalizeNullableText(payload.decisionNumber) ?? undefined,
+  transferType: normalizeNullableText(payload.transferType) === 'BIET_PHAI' ? 'BIET_PHAI' : 'LUAN_CHUYEN',
   employeeCode: normalizeNullableText(payload.employeeCode ?? payload.userCode) ?? undefined,
   employeeName: normalizeNullableText(payload.employeeName ?? payload.userName) ?? undefined,
   fromDeptCode: normalizeNullableText(payload.fromDeptCode),
   fromDeptName: normalizeNullableText(payload.fromDeptName),
   toDeptCode: normalizeNullableText(payload.toDeptCode),
   toDeptName: normalizeNullableText(payload.toDeptName),
+  canDelete: typeof payload.canDelete === 'boolean' ? payload.canDelete : undefined,
+  deleteRestrictionMessage: normalizeNullableText(payload.deleteRestrictionMessage),
 });
 
 export const fetchUserDeptHistory = async (): Promise<UserDeptHistory[]> => {
@@ -67,6 +70,7 @@ const buildUserDeptHistoryRequestPayload = (payload: Partial<UserDeptHistory>) =
   to_dept_id: normalizeNullableNumber(payload.toDeptId),
   transfer_date: normalizeNullableText(payload.transferDate),
   decision_number: normalizeNullableText(payload.decisionNumber),
+  transfer_type: normalizeNullableText(payload.transferType),
   reason: normalizeNullableText(payload.reason),
 });
 
@@ -419,6 +423,7 @@ export const updateEmailSmtpIntegrationSettings = async (
       smtp_port: payload.smtp_port,
       smtp_encryption: payload.smtp_encryption,
       smtp_username: normalizeNullableText(payload.smtp_username),
+      smtp_recipient_emails: normalizeNullableText(payload.smtp_recipient_emails),
       smtp_password: normalizeNullableText(payload.smtp_password),
       clear_smtp_password: Boolean(payload.clear_smtp_password),
       smtp_from_address: normalizeNullableText(payload.smtp_from_address),

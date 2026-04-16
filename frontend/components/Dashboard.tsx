@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   ContractStatusBreakdown,
   ExpiringContractSummary,
   ProjectStatusBreakdown,
+  ProcedureTemplate,
   Contract,
   PaymentSchedule,
   Project,
@@ -21,8 +22,9 @@ import {
   Employee,
 } from '../types';
 import type { DashboardStats } from '../types/dashboard';
-import { calculateDashboardStats, EMPTY_DASHBOARD_STATS } from '../utils/dashboardCalculations';
+import { calculateDashboardStats, DEFAULT_PROJECT_STATUS_ORDER } from '../utils/dashboardCalculations';
 import { getProjectStatusLabel } from '../constants';
+import { fetchProcedureTemplates } from '../services/api/projectApi';
 
 const resolveProjectStatusColor = (status: string): string => {
   const normalized = String(status || '').trim().toUpperCase();
@@ -57,6 +59,58 @@ const resolveProjectStatusColor = (status: string): string => {
   }
 };
 
+const DASHBOARD_SPECIAL_PROJECT_STATUSES = ['TAM_NGUNG', 'HUY'] as const;
+
+const normalizeProjectStatusToken = (value: unknown): string =>
+  String(value ?? '').trim().toUpperCase();
+
+const collectConfiguredProjectStatuses = (templates: ProcedureTemplate[]): string[] => {
+  const orderedStatuses: string[] = [];
+  const seenStatuses = new Set<string>();
+
+  const pushStatus = (value: unknown): void => {
+    const normalized = normalizeProjectStatusToken(value);
+    if (!normalized || seenStatuses.has(normalized)) {
+      return;
+    }
+
+    seenStatuses.add(normalized);
+    orderedStatuses.push(normalized);
+  };
+
+  (templates || [])
+    .filter((template) => template.is_active !== false)
+    .forEach((template) => {
+      (template.phases || []).forEach(pushStatus);
+    });
+
+  return orderedStatuses;
+};
+
+const buildDashboardProjectStatusOrder = (
+  configuredStatuses: string[],
+  projects: Project[]
+): string[] => {
+  const orderedStatuses: string[] = [];
+  const seenStatuses = new Set<string>();
+
+  const pushStatus = (value: unknown): void => {
+    const normalized = normalizeProjectStatusToken(value);
+    if (!normalized || seenStatuses.has(normalized)) {
+      return;
+    }
+
+    seenStatuses.add(normalized);
+    orderedStatuses.push(normalized);
+  };
+
+  (configuredStatuses.length > 0 ? configuredStatuses : DEFAULT_PROJECT_STATUS_ORDER).forEach(pushStatus);
+  DASHBOARD_SPECIAL_PROJECT_STATUSES.forEach(pushStatus);
+  (projects || []).forEach((project) => pushStatus(project.status));
+
+  return orderedStatuses;
+};
+
 const contractStatusColors: Record<ContractStatus, string> = {
   DRAFT: '#f59e0b',
   SIGNED: '#22c55e',
@@ -86,12 +140,12 @@ const formatDate = (value?: string | null): string => {
 };
 
 interface DashboardProps {
-  contracts: Contract[];
-  paymentSchedules: PaymentSchedule[];
-  projects: Project[];
-  customers: Customer[];
-  departments: Department[];
-  employees: Employee[];
+  contracts?: Contract[];
+  paymentSchedules?: PaymentSchedule[];
+  projects?: Project[];
+  customers?: Customer[];
+  departments?: Department[];
+  employees?: Employee[];
   /** @deprecated pass raw data instead; kept for compatibility */
   stats?: DashboardStats;
 }
@@ -136,17 +190,47 @@ function periodBounds(period: PeriodKey): { from: Date; to: Date } | null {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  contracts: allContracts,
-  paymentSchedules: allSchedules,
-  projects: allProjects,
-  customers,
-  departments,
-  employees,
+  contracts: allContracts = [],
+  paymentSchedules: allSchedules = [],
+  projects: allProjects = [],
+  customers = [],
+  departments = [],
+  employees = [],
+  stats: providedStats,
 }) => {
   // ── filter state ────────────────────────────────────────────────────────
   const [period, setPeriod] = useState<PeriodKey>('all');
   const [deptId, setDeptId] = useState<string>('all');
   const [employeeId, setEmployeeId] = useState<string>('all');
+  const [configuredProjectStatuses, setConfiguredProjectStatuses] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (providedStats) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    void fetchProcedureTemplates()
+      .then((templates) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setConfiguredProjectStatuses(
+          collectConfiguredProjectStatuses(Array.isArray(templates) ? templates : [])
+        );
+      })
+      .catch(() => {
+        if (isMounted) {
+          setConfiguredProjectStatuses([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [providedStats]);
 
   // ── derived: employees of selected dept ────────────────────────────────
   const deptEmployees = useMemo(() => {
@@ -195,10 +279,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return list;
   }, [allProjects, contracts, deptId, employeeId]);
 
+  const projectStatusOrder = useMemo(
+    () => buildDashboardProjectStatusOrder(configuredProjectStatuses, projects),
+    [configuredProjectStatuses, projects]
+  );
+
   // ── computed stats ──────────────────────────────────────────────────────
   const stats = useMemo<DashboardStats>(
-    () => calculateDashboardStats(contracts, paymentSchedules, projects, customers),
-    [contracts, paymentSchedules, projects, customers]
+    () => providedStats || calculateDashboardStats(contracts, paymentSchedules, projects, customers, projectStatusOrder),
+    [providedStats, contracts, paymentSchedules, projects, customers, projectStatusOrder]
   );
 
   const projectStatusCounts = stats.projectStatusCounts || [];
@@ -322,14 +411,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         {/* Summary badge: showing N/total contracts */}
-        <div className="ml-auto text-[11px] text-slate-400">
+        <div className="w-full text-[11px] text-slate-400 sm:ml-auto sm:w-auto">
           {contracts.length} / {allContracts.length} hợp đồng
           {projects.length !== allProjects.length && <span className="ml-2">{projects.length} / {allProjects.length} dự án</span>}
         </div>
       </div>
 
       {/* ── Hàng 1: 4 KPI thẻ tóm tắt ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
 
         {/* KPI 1 – Doanh thu thực tế + tỉ lệ hoàn thành */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -417,7 +509,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* ── Hàng 2: Biểu đồ doanh thu + Tỷ lệ thu tiền ── */}
-      <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
+      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
 
         {/* Biểu đồ cột Thực tế vs KH */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

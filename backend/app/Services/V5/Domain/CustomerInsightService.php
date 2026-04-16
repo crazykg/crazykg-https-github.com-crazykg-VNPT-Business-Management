@@ -169,7 +169,6 @@ class CustomerInsightService
             'product_code',
             'product_name',
             'standard_price',
-            'unit',
             'service_group',
         ];
 
@@ -179,6 +178,11 @@ class CustomerInsightService
 
         if ($this->support->hasColumn('products', 'description')) {
             $productQuery->addSelect('description');
+        }
+        if ($this->support->hasColumn('products', 'unit')) {
+            $productQuery->addSelect('unit');
+        } else {
+            $productQuery->selectRaw('NULL as unit');
         }
         if ($this->support->hasColumn('products', 'deleted_at')) {
             $productQuery->whereNull('deleted_at');
@@ -302,25 +306,33 @@ class CustomerInsightService
 
         $contractHasSoftDelete = $this->support->hasColumn('contracts', 'deleted_at');
         $productHasSoftDelete = $this->support->hasColumn('products', 'deleted_at');
+        $productHasUnit = $this->support->hasColumn('products', 'unit');
         $hasBusinessDomains = $this->support->hasTable('business_domains');
         $vatMap = $hasBusinessDomains ? $this->resolveVatRateMap() : [];
 
-        $rows = DB::table('contract_items as ci')
+        $query = DB::table('contract_items as ci')
             ->join('contracts as c', 'c.id', '=', 'ci.contract_id')
             ->join('products as p', 'p.id', '=', 'ci.product_id')
             ->when($contractHasSoftDelete, fn (Builder $query) => $query->whereNull('c.deleted_at'))
             ->when($productHasSoftDelete, fn (Builder $query) => $query->whereNull('p.deleted_at'))
             ->where('c.customer_id', $customerId)
-            ->groupBy('p.id', 'p.product_name', 'p.unit', 'p.service_group', 'p.domain_id')
+            ->groupBy('p.id', 'p.product_name', 'p.service_group', 'p.domain_id')
             ->select(
                 'p.id as product_id',
                 'p.product_name',
-                'p.unit',
                 'p.service_group',
                 'p.domain_id',
                 DB::raw('COUNT(DISTINCT ci.contract_id) as contract_count'),
                 DB::raw('SUM(ci.unit_price * ci.quantity) as raw_value')
-            )
+            );
+
+        if ($productHasUnit) {
+            $query->groupBy('p.unit')->addSelect('p.unit');
+        } else {
+            $query->selectRaw('NULL as unit');
+        }
+
+        $rows = $query
             ->orderByDesc('raw_value')
             ->get();
 
@@ -825,6 +837,7 @@ class CustomerInsightService
     {
         $productHasSoftDelete = $this->support->hasColumn('products', 'deleted_at');
         $hasDescription = $this->support->hasColumn('products', 'description');
+        $hasUnit = $this->support->hasColumn('products', 'unit');
 
         $query = DB::table('products as p')
             ->leftJoinSub($popularitySubquery, 'pop', 'pop.product_id', '=', 'p.id')
@@ -835,7 +848,6 @@ class CustomerInsightService
                 'p.product_code',
                 'p.product_name',
                 'p.standard_price',
-                'p.unit',
                 'p.service_group',
                 DB::raw('COALESCE(pop.pop_count, 0) as popularity')
             );
@@ -844,6 +856,12 @@ class CustomerInsightService
             $query->addSelect('p.description as product_description');
         } else {
             $query->selectRaw('NULL as product_description');
+        }
+
+        if ($hasUnit) {
+            $query->addSelect('p.unit');
+        } else {
+            $query->selectRaw('NULL as unit');
         }
 
         return $query;

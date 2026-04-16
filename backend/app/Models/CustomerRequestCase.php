@@ -6,6 +6,7 @@ use App\Services\V5\Domain\CustomerRequestCaseRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
@@ -172,5 +173,10 @@ class CustomerRequestCase extends Model
     public function dmsTransferRows(): HasMany
     {
         return $this->hasMany(CustomerRequestDmsTransfer::class, 'request_case_id');
+    }
+
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'customer_request_case_tags', 'request_case_id', 'tag_id');
     }
 }

@@ -72,11 +72,22 @@ const ResponsiveQuickAccessBar: React.FC<CustomerRequestQuickAccessBarProps> = (
     if (showAllSavedViews) {
       return savedViews;
     }
-    
-    // Collapse: chỉ hiển thị 4 items trên desktop, 2 items trên mobile
+
+    // Collapse: chỉ hiển thị 4 items trên desktop, 2 items trên mobile,
+    // nhưng vẫn giữ shortcut đang active để người dùng không bị mất ngữ cảnh.
     const maxVisible = isMobile ? 2 : 4;
-    return savedViews.slice(0, maxVisible);
-  }, [isMobile, savedViews, showAllSavedViews]);
+    const initialViews = savedViews.slice(0, maxVisible);
+    if (!activeSavedViewId) {
+      return initialViews;
+    }
+
+    const activeView = savedViews.find((view) => view.id === activeSavedViewId);
+    if (!activeView || initialViews.some((view) => view.id === activeView.id) || initialViews.length === 0) {
+      return initialViews;
+    }
+
+    return [...initialViews.slice(0, Math.max(0, maxVisible - 1)), activeView];
+  }, [activeSavedViewId, isMobile, savedViews, showAllSavedViews]);
   
   const hiddenSavedViewsCount = Math.max(0, savedViews.length - visibleSavedViews.length);
   const canToggleSavedViews = hiddenSavedViewsCount > 0;

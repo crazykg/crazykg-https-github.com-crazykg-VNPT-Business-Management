@@ -10,6 +10,7 @@ import {
   HRPositionBreakdown,
   HRStatistics,
   HRStatusBreakdown,
+  UserDeptHistory,
 } from '../types';
 import { getEmployeeCode, resolveJobTitleVi, resolvePositionName } from './employeeDisplay';
 
@@ -121,7 +122,8 @@ const isSystemAccount = (employee: Employee): boolean => {
 
 export const buildHrStatistics = (
   employees: Employee[] = [],
-  departments: Department[] = []
+  departments: Department[] = [],
+  userDeptHistory: UserDeptHistory[] = []
 ): HRStatistics => {
   // Loại bỏ tài khoản hệ thống (admin VNPT000001) khỏi mọi phép tính chỉ số
   const filteredEmployees = (employees || []).filter((e) => !isSystemAccount(e));
@@ -133,6 +135,49 @@ export const buildHrStatistics = (
     departmentById.set(String(department.id), department);
     departmentByCode.set(String(department.dept_code).trim().toUpperCase(), department);
   });
+
+  // Biệt phái rule: build map userId → latest history record
+  // - BIET_PHAI: employee được tính cho phòng ban GỐC (fromDeptId), không phải phòng đang công tác
+  // - LUAN_CHUYEN: employee đã chuyển hẳn, tính theo department_id hiện tại (đã cập nhật trên record)
+  const latestHistoryByUserId = new Map<string, UserDeptHistory>();
+  for (const record of (userDeptHistory || [])) {
+    const uid = String(record.userId || '').trim();
+    if (!uid) continue;
+    const existing = latestHistoryByUserId.get(uid);
+    if (!existing || String(record.transferDate || '') > String(existing.transferDate || '')) {
+      latestHistoryByUserId.set(uid, record);
+    }
+  }
+
+  /**
+   * Xác định phòng ban tính headcount cho một nhân viên.
+   * Nếu bản ghi lịch sử gần nhất là BIET_PHAI → trả về phòng ban gốc (fromDeptId).
+   */
+  const resolveEffectiveDept = (
+    employee: Employee
+  ): { department_id: string | number | null; dept_code: string; dept_name: string } => {
+    const uid = String(employee.id || '').trim();
+    const latest = latestHistoryByUserId.get(uid);
+
+    if (latest && String(latest.transferType || '').trim().toUpperCase() === 'BIET_PHAI') {
+      const fromId = String(latest.fromDeptId || '').trim();
+      if (fromId) {
+        const byId = departmentById.get(fromId);
+        if (byId) {
+          return { department_id: byId.id, dept_code: byId.dept_code, dept_name: byId.dept_name };
+        }
+        // Không tìm thấy trong map → dùng metadata từ history record
+        return {
+          department_id: fromId,
+          dept_code: String(latest.fromDeptCode || '--'),
+          dept_name: String(latest.fromDeptName || 'Chưa xác định'),
+        };
+      }
+    }
+
+    // Luân chuyển hoặc không có lịch sử → dùng department_id hiện tại
+    return resolveDepartmentBreakdownItem(employee, departmentById, departmentByCode);
+  };
 
   let officialEmployees = 0;
   let ctvEmployees = 0;
@@ -219,7 +264,7 @@ export const buildHrStatistics = (
       });
     }
 
-    const dept = resolveDepartmentBreakdownItem(employee, departmentById, departmentByCode);
+    const dept = resolveEffectiveDept(employee);
     const deptKey = String(dept.department_id ?? `${dept.dept_code}|${dept.dept_name}`);
     const currentDepartment = departmentCounter.get(deptKey);
 

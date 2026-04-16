@@ -15,6 +15,7 @@ export interface ProjectItemImportBatchGroup {
   project_code: string;
   items: Array<{
     product_id: number;
+    product_package_id?: number;
     quantity: number;
     unit_price: number;
   }>;

@@ -10,14 +10,18 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   businesses: 'businesses.read',
   vendors: 'vendors.read',
   products: 'products.read',
+  product_quotes: 'products.read',
+  product_packages: 'products.read',
   clients: 'customers.read',
   cus_personnel: 'customer_personnel.read',
   projects: 'projects.read',
   contracts: 'contracts.read',
+  pass_contract: 'contracts.read',
   documents: 'documents.read',
   reminders: 'reminders.read',
   department_weekly_schedule_management: 'support_requests.read',
   customer_request_management: 'support_requests.read',
+  workflow_mgmt: 'workflow.manage',
   support_master_management: null,
   procedure_template_config: 'projects.read',
   audit_logs: 'audit_logs.read',
@@ -46,6 +50,9 @@ const MODAL_PERMISSION_MAP: Partial<Record<Exclude<ModalType, null>, string | nu
   ADD_PRODUCT: 'products.write',
   EDIT_PRODUCT: 'products.write',
   DELETE_PRODUCT: 'products.delete',
+  ADD_PRODUCT_PACKAGE: 'products.write',
+  EDIT_PRODUCT_PACKAGE: 'products.write',
+  DELETE_PRODUCT_PACKAGE: 'products.delete',
   PRODUCT_FEATURE_CATALOG: 'products.read',
   PRODUCT_TARGET_SEGMENT: 'products.write',
   ADD_CUSTOMER: 'customers.write',
@@ -83,6 +90,7 @@ const IMPORT_PERMISSION_BY_MODULE: Record<string, string | null> = {
   businesses: 'businesses.import',
   vendors: 'vendors.import',
   products: 'products.import',
+  product_packages: 'products.import',
   clients: 'customers.import',
   cus_personnel: 'customer_personnel.write',
   projects: 'projects.import',
@@ -95,6 +103,7 @@ const SUPPORTED_IMPORT_MODULES = new Set<string>([
   'internal_user_list',
   'internal_user_party_members',
   'products',
+  'product_packages',
   'clients',
   'cus_personnel',
 ]);
@@ -126,6 +135,8 @@ export const canAccessTab = (user: AuthUser | null, tabId: string): boolean => {
       hasPermission(user, 'support_requests.read')
       || hasPermission(user, 'support_service_groups.read')
       || hasPermission(user, 'support_contact_positions.read')
+      || hasPermission(user, 'products.read')
+      || hasPermission(user, 'products.write')
     );
   }
 

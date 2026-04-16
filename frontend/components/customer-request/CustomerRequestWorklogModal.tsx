@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fetchWorklogActivityTypes } from '../../services/api/supportConfigApi';
 import type { WorklogActivityTypeOption } from '../../types/support';
-import type { YeuCauHoursReport } from '../../types/customerRequest';
+import type { YeuCauHoursReport, YeuCauWorklog } from '../../types/customerRequest';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
+
+export type CustomerRequestWorklogMode = 'worklog' | 'detail_status_worklog' | 'edit_worklog';
 
 export type CustomerRequestWorklogSubmission = {
   work_content: string;
@@ -12,7 +14,80 @@ export type CustomerRequestWorklogSubmission = {
   activity_type_code?: string | null;
   hours_spent: string;
   is_billable: boolean;
+  difficulty_note?: string | null;
+  proposal_note?: string | null;
+  difficulty_status?: 'none' | 'has_issue' | 'resolved' | null;
+  detail_status_action?: 'in_progress' | 'paused' | 'completed' | null;
 };
+
+export type CustomerRequestWorklogModalContext = {
+  mode: CustomerRequestWorklogMode;
+  title: string;
+  eyebrow?: string;
+  submitLabel?: string;
+  detailStatusAction?: 'in_progress' | 'paused' | null;
+  editingWorklog?: YeuCauWorklog | null;
+};
+
+const DEFAULT_MODAL_CONTEXT: CustomerRequestWorklogModalContext = {
+  mode: 'worklog',
+  title: 'Ghi giờ công',
+  eyebrow: 'Giờ công',
+  submitLabel: 'Lưu giờ công',
+  detailStatusAction: null,
+  editingWorklog: null,
+};
+
+const todayForDateInput = (): string => formatCurrentDateTimeForInput().slice(0, 10);
+
+const toHoursInputValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '';
+  }
+  return String(numeric);
+};
+
+const normalizeWorkDateInput = (value: string | null | undefined): string => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return todayForDateInput();
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+  if (/^\d{4}-\d{2}-\d{2}[ T]/.test(normalized)) {
+    return normalized.slice(0, 10);
+  }
+  return todayForDateInput();
+};
+
+const normalizeWorklogForForm = (
+  worklog: YeuCauWorklog,
+  fallbackDate: string
+): Pick<
+  CustomerRequestWorklogSubmission,
+  'work_content' | 'work_date' | 'activity_type_code' | 'hours_spent' | 'is_billable' | 'difficulty_note' | 'proposal_note' | 'difficulty_status' | 'detail_status_action'
+> => ({
+  work_content: String(worklog.work_content ?? ''),
+  work_date: normalizeWorkDateInput(worklog.work_date ?? worklog.work_started_at ?? fallbackDate),
+  activity_type_code: worklog.activity_type_code ?? null,
+  hours_spent: toHoursInputValue(worklog.hours_spent),
+  is_billable: worklog.is_billable === null || worklog.is_billable === undefined ? true : Boolean(worklog.is_billable),
+  difficulty_note: worklog.difficulty_note ?? null,
+  proposal_note: worklog.proposal_note ?? null,
+  difficulty_status: (worklog.difficulty_status as 'none' | 'has_issue' | 'resolved' | null) ?? null,
+  detail_status_action: (worklog.detail_status_action as 'in_progress' | 'paused' | 'completed' | null) ?? null,
+});
+
+const resolveHeaderCaption = (context: CustomerRequestWorklogModalContext): { eyebrow: string; title: string; submit: string } => ({
+  eyebrow: context.eyebrow ?? 'Giờ công',
+  title: context.title,
+  submit: context.submitLabel ?? 'Lưu giờ công',
+});
 
 type CustomerRequestWorklogModalProps = {
   open: boolean;
@@ -20,11 +95,10 @@ type CustomerRequestWorklogModalProps = {
   requestCode?: string | null;
   requestSummary?: string | null;
   hoursReport?: YeuCauHoursReport | null;
+  context?: CustomerRequestWorklogModalContext | null;
   onClose: () => void;
   onSubmit: (payload: CustomerRequestWorklogSubmission) => void;
 };
-
-const todayForDateInput = (): string => formatCurrentDateTimeForInput().slice(0, 10);
 
 export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalProps> = ({
   open,
@@ -32,18 +106,25 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
   requestCode,
   requestSummary,
   hoursReport,
+  context,
   onClose,
   onSubmit,
 }) => {
+  const resolvedContext = context ?? DEFAULT_MODAL_CONTEXT;
   const [workContent, setWorkContent] = useState('');
   const [workDate, setWorkDate] = useState(todayForDateInput());
   const [activityTypeCode, setActivityTypeCode] = useState('');
   const [hoursSpent, setHoursSpent] = useState('');
   const [isBillable, setIsBillable] = useState(true);
+  const [difficultyNote, setDifficultyNote] = useState('');
+  const [proposalNote, setProposalNote] = useState('');
+  const [difficultyStatus, setDifficultyStatus] = useState<'none' | 'has_issue' | 'resolved'>('none');
   const [activityTypes, setActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
   const [isActivityTypesLoading, setIsActivityTypesLoading] = useState(false);
   const [activityTypesError, setActivityTypesError] = useState('');
   const [validationMessage, setValidationMessage] = useState('');
+
+  const headerCaption = useMemo(() => resolveHeaderCaption(resolvedContext), [resolvedContext]);
 
   const summaryCaption = useMemo(() => {
     if (!hoursReport) {
@@ -61,13 +142,31 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
       return;
     }
 
+    const editing = resolvedContext.editingWorklog;
+    if (resolvedContext.mode === 'edit_worklog' && editing) {
+      const normalized = normalizeWorklogForForm(editing, todayForDateInput());
+      setWorkContent(normalized.work_content);
+      setWorkDate(normalized.work_date);
+      setActivityTypeCode(normalized.activity_type_code ?? '');
+      setHoursSpent(normalized.hours_spent);
+      setIsBillable(normalized.is_billable);
+      setDifficultyNote(normalized.difficulty_note ?? '');
+      setProposalNote(normalized.proposal_note ?? '');
+      setDifficultyStatus(normalized.difficulty_status ?? 'none');
+      setValidationMessage('');
+      return;
+    }
+
     setWorkContent('');
     setWorkDate(todayForDateInput());
     setActivityTypeCode('');
     setHoursSpent('');
     setIsBillable(true);
+    setDifficultyNote('');
+    setProposalNote('');
+    setDifficultyStatus('none');
     setValidationMessage('');
-  }, [open, requestCode]);
+  }, [open, requestCode, resolvedContext]);
 
   useEffect(() => {
     if (!open || activityTypes.length > 0) {
@@ -113,8 +212,8 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
     }
 
     const numericHours = Number(hoursSpent);
-    if (!Number.isFinite(numericHours) || numericHours <= 0) {
-      setValidationMessage('Giờ công phải là số lớn hơn 0.');
+    if (!Number.isFinite(numericHours) || numericHours < 0) {
+      setValidationMessage('Giờ công phải là số lớn hơn hoặc bằng 0.');
       return;
     }
 
@@ -125,23 +224,22 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
       activity_type_code: activityTypeCode.trim() || null,
       hours_spent: hoursSpent.trim(),
       is_billable: isBillable,
+      difficulty_note: normalizeText(difficultyNote) ? difficultyNote.trim() : null,
+      proposal_note: normalizeText(proposalNote) ? proposalNote.trim() : null,
+      difficulty_status: difficultyStatus,
+      detail_status_action: resolvedContext.mode === 'detail_status_worklog'
+        ? (resolvedContext.detailStatusAction ?? null)
+        : null,
     });
   };
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !isSubmitting) {
-          onClose();
-        }
-      }}
-    >
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <div className="w-full max-w-3xl rounded-3xl bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Giờ công</p>
-            <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">Ghi giờ công</h3>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{headerCaption.eyebrow}</p>
+            <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">{headerCaption.title}</h3>
             <p className="mt-1 text-sm text-slate-500">
               {requestCode ? `${requestCode} · ` : ''}
               {requestSummary || 'Yêu cầu hiện tại'}
@@ -157,7 +255,7 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
           </button>
         </div>
 
-        <div className="space-y-5 px-6 py-5">
+        <div className="space-y-4 px-6 py-5">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Tóm tắt giờ công</p>
             <p className="mt-1 text-sm font-semibold text-slate-800">{summaryCaption}</p>
@@ -169,12 +267,12 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
               <input
                 id="crc-worklog-hours"
                 type="number"
-                min="0.25"
+                min="0"
                 step="0.25"
                 value={hoursSpent}
                 onChange={(event) => setHoursSpent(event.target.value)}
                 disabled={isSubmitting}
-                placeholder="1.0"
+                placeholder="0"
                 className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
               />
             </div>
@@ -218,11 +316,42 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
             </div>
           </div>
 
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="crc-worklog-difficulty-status" className="mb-1.5 block text-sm font-semibold text-slate-700">Trạng thái xử lý khó khăn</label>
+              <select
+                id="crc-worklog-difficulty-status"
+                value={difficultyStatus}
+                onChange={(event) => setDifficultyStatus(event.target.value as 'none' | 'has_issue' | 'resolved')}
+                disabled={isSubmitting}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+              >
+                <option value="none">Không</option>
+                <option value="has_issue">Có</option>
+                <option value="resolved">Đã giải quyết</option>
+              </select>
+            </div>
+
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={isBillable}
+                onChange={(event) => setIsBillable(event.target.checked)}
+                disabled={isSubmitting}
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              <span className="text-sm font-semibold text-slate-700">
+                Tính giờ billable
+                {selectedActivity ? ` · ${selectedActivity.name}` : ''}
+              </span>
+            </label>
+          </div>
+
           <div>
             <label htmlFor="crc-worklog-content" className="mb-1.5 block text-sm font-semibold text-slate-700">Nội dung công việc</label>
             <textarea
               id="crc-worklog-content"
-              rows={5}
+              rows={4}
               value={workContent}
               onChange={(event) => setWorkContent(event.target.value)}
               disabled={isSubmitting}
@@ -231,19 +360,32 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
             />
           </div>
 
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <input
-              type="checkbox"
-              checked={isBillable}
-              onChange={(event) => setIsBillable(event.target.checked)}
-              disabled={isSubmitting}
-              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-            />
-            <span className="text-sm font-semibold text-slate-700">
-              Tính giờ billable
-              {selectedActivity ? ` · ${selectedActivity.name}` : ''}
-            </span>
-          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="crc-worklog-difficulty-note" className="mb-1.5 block text-sm font-semibold text-slate-700">Khó khăn</label>
+              <textarea
+                id="crc-worklog-difficulty-note"
+                rows={3}
+                value={difficultyNote}
+                onChange={(event) => setDifficultyNote(event.target.value)}
+                disabled={isSubmitting}
+                placeholder="Mô tả khó khăn (nếu có)."
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+              />
+            </div>
+            <div>
+              <label htmlFor="crc-worklog-proposal-note" className="mb-1.5 block text-sm font-semibold text-slate-700">Đề xuất</label>
+              <textarea
+                id="crc-worklog-proposal-note"
+                rows={3}
+                value={proposalNote}
+                onChange={(event) => setProposalNote(event.target.value)}
+                disabled={isSubmitting}
+                placeholder="Đề xuất hướng xử lý."
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+              />
+            </div>
+          </div>
 
           {validationMessage ? (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -270,7 +412,7 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
             <span className="material-symbols-outlined text-[18px]">
               {isSubmitting ? 'progress_activity' : 'history'}
             </span>
-            Lưu giờ công
+            {headerCaption.submit}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Product, ProjectItemMaster } from '../types';
+import type { ProductPackage, ProjectItemMaster } from '../types';
 import { executeProjectItemsImport, executeProjectRaciImport } from '../components/modals/projectImportHandlers';
 import type { ImportPayload } from '../components/modals/projectImportTypes';
 
@@ -59,13 +59,15 @@ describe('project import handlers', () => {
     const onNotify = vi.fn();
     const onMergeCurrentItems = vi.fn();
     const onCloseModal = vi.fn();
-    const product: Product = {
+    const product: ProductPackage = {
       id: 101,
-      product_code: 'SP001',
-      product_name: 'San pham 1',
+      product_id: 11,
+      package_code: 'SP001',
+      package_name: 'San pham 1',
+      product_name: 'San pham cha 1',
       standard_price: 1500000,
       unit: 'gói',
-    } as Product;
+    } as ProductPackage;
 
     const payload: ImportPayload = {
       moduleKey: 'project_items',
@@ -81,7 +83,7 @@ describe('project import handlers', () => {
         },
         {
           name: 'HangMuc',
-          headers: ['Mã DA', 'Mã sản phẩm', 'Số lượng', 'Đơn giá'],
+          headers: ['Mã DA', 'Mã gói cước', 'Số lượng', 'Đơn giá'],
           rows: [['DA001', 'SP001', '2', '1500000']],
         },
       ],
@@ -106,7 +108,8 @@ describe('project import handlers', () => {
     expect(onMergeCurrentItems).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'ITEM_123456_2',
-        productId: '101',
+        productId: '11',
+        productPackageId: '101',
         quantity: 2,
         unitPrice: 1500000,
         lineTotal: 3000000,

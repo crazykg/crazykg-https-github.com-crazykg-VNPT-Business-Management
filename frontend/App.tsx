@@ -10,6 +10,7 @@ import { useImportDepartments } from './hooks/useImportDepartments';
 import { useImportEmployees } from './hooks/useImportEmployees';
 import { useImportEmployeePartyProfiles } from './hooks/useImportEmployeePartyProfiles';
 import { useImportProducts } from './hooks/useImportProducts';
+import { useImportProductPackages } from './hooks/useImportProductPackages';
 import { useCustomerPersonnel } from './hooks/useCustomerPersonnel';
 import { useToastQueue } from './hooks/useToastQueue';
 import { useTabSession } from './hooks/useTabSession';
@@ -23,10 +24,10 @@ import type {
 } from './components/modals/projectImportTypes';
 import {
   AuditLog, Department, Employee, Business, Vendor, Product, Customer, CustomerPersonnel,
-  Project, ProjectItem, ProjectItemMaster, ProjectRACI, ProjectRaciRow, Contract, Document, Reminder, UserDeptHistory,
+  Project, ProjectItemMaster, ProjectRaciRow, Contract, Document, Reminder, UserDeptHistory,
   ModalType, DashboardStats, ContractAggregateKpis, CustomerAggregateKpis, PaymentSchedule,
   PaymentScheduleConfirmationPayload, HRStatistics, SupportServiceGroup, SupportContactPosition,
-  ProductUnitMaster, SupportRequestStatusOption, SupportSlaConfigOption, AuthUser, EmployeeProvisioning, Role,
+  ProductUnitMaster, ContractSignerMaster, SupportRequestStatusOption, SupportSlaConfigOption, AuthUser, EmployeeProvisioning, Role,
   Permission, UserAccessRecord, BackblazeB2IntegrationSettings, GoogleDriveIntegrationSettings,
   EmailSmtpIntegrationSettings, EmailSmtpIntegrationSettingsUpdatePayload,
   SendReminderEmailResult,
@@ -34,12 +35,11 @@ import {
   GoogleDriveIntegrationSettingsUpdatePayload, ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettingsUpdatePayload, PaginatedQuery, PaginationMeta, WorklogActivityTypeOption,
   ProjectTypeOption, FeedbackRequest, FeedbackPriority, FeedbackStatus, Attachment, ExpiringContractSummary,
-  EmployeePartyProfile,
+  EmployeePartyProfile, ProductPackage,
 } from './types';
 import { buildHrStatistics } from './utils/hrAnalytics';
 import { canAccessTab } from './utils/authorization';
 import { DEFAULT_PRODUCT_SERVICE_GROUP, normalizeProductServiceGroup } from './utils/productServiceGroup';
-import { normalizeProductUnitForSave } from './utils/productUnit';
 import { calculateDashboardStats, calculateContractKpis, calculateCustomerKpis } from './utils/dashboardCalculations';
 import {
   DEFAULT_PAGINATION_META, fetchAuthBootstrap, fetchCurrentUser, login, logout, changePasswordFirstLogin,
@@ -49,20 +49,20 @@ import {
   createReminder, updateReminder, deleteReminder, sendReminderEmail,
   createUserDeptHistory, updateUserDeptHistory, deleteUserDeptHistory,
   fetchSupportContactPositions, fetchProductUnitMasters, fetchSupportRequestStatuses, fetchProjectTypes, fetchWorklogActivityTypes,
-  fetchSupportSlaConfigs, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
+  fetchSupportSlaConfigs, fetchContractSignerMasters, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
   fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
   fetchFeedbacksPage, fetchEmployeesPage, fetchCustomersPage, fetchProjectsPage,
   fetchContractsPage, fetchDocumentsPage, fetchAuditLogsPage, createFeedback, updateFeedback, deleteFeedback,
   createSupportServiceGroup, createSupportServiceGroupsBulk, updateSupportServiceGroup,
   createSupportContactPosition, createProductUnitMaster, createSupportContactPositionsBulk, updateSupportContactPosition,
-  updateProductUnitMaster,
+  createContractSignerMaster, updateProductUnitMaster, updateContractSignerMaster,
   createSupportRequestStatus, updateSupportRequestStatusDefinition,
   createProjectType, updateProjectType, createWorklogActivityType, updateWorklogActivityType,
   createSupportSlaConfig, updateSupportSlaConfig, updateUserAccessRoles, updateUserAccessPermissions,
   updateUserAccessDeptScopes, updateBackblazeB2IntegrationSettings, updateGoogleDriveIntegrationSettings,
   updateEmailSmtpIntegrationSettings,
   updateContractExpiryAlertSettings, updateContractPaymentAlertSettings, testBackblazeB2IntegrationSettings,
-  testGoogleDriveIntegrationSettings, testEmailSmtpIntegrationSettings, generateContractPayments, updatePaymentSchedule,
+  testGoogleDriveIntegrationSettings, testEmailSmtpIntegrationSettings, generateContractPayments, updatePaymentSchedule, deletePaymentSchedule,
   createContract, updateContract, deleteContract,
   createDepartment, updateDepartment, deleteDepartment, createEmployeeWithProvisioning, updateEmployee,
   deleteEmployee, resetEmployeePassword, createBusiness, updateBusiness, deleteBusiness,
@@ -72,50 +72,61 @@ import {
   isRequestCanceledError, isTabEvictedMessage, registerTabEvictedHandler, unregisterTabEvictedHandler,
 } from './services/v5Api';
 import { fetchFeedbackDetail } from './services/api/adminApi';
+import {
+  createProductPackage,
+  deleteProductPackage,
+  fetchProductPackages,
+  updateProductPackage,
+} from './services/api/productApi';
 import type { GenerateContractPaymentsPayload } from './services/v5Api';
 import { normalizeImportToken, normalizeImportDate, isProductDeleteDependencyError, isCustomerDeleteDependencyError } from './utils/importUtils';
 import { normalizeQuerySignature } from './utils/queryUtils';
 import { canOpenModal, hasPermission, isImportSupportedModule } from './utils/authorization';
 import { fetchEmployeePartyProfilesPage, upsertEmployeePartyProfile } from './services/api/employeeApi';
+import { useContractStore } from './shared/stores';
+import { FILTER_DEFAULTS } from './shared/stores/filterStore';
 
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
 const ContractModal = lazy(() => import('./components/ContractModal').then((m) => ({ default: m.ContractModal })));
 const EmployeePartyProfileModal = lazy(() => import('./components/EmployeePartyProfileModal').then((m) => ({ default: m.EmployeePartyProfileModal })));
-const FeedbackFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackFormModal })));
-const FeedbackViewModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.FeedbackViewModal })));
-const DeleteFeedbackModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteFeedbackModal })));
-const DepartmentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DepartmentFormModal })));
-const ViewDepartmentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ViewDepartmentModal })));
-const DeleteWarningModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteWarningModal })));
-const CannotDeleteModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteModal })));
-const ImportModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ImportModal })));
-const EmployeeFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.EmployeeFormModal })));
-const DeleteEmployeeModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteEmployeeModal })));
-const BusinessFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.BusinessFormModal })));
-const DeleteBusinessModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteBusinessModal })));
-const VendorFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.VendorFormModal })));
-const DeleteVendorModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteVendorModal })));
-const ProductFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProductFormModal })));
-const DeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProductModal })));
-const CannotDeleteProductModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteProductModal })));
+const FeedbackFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackFormModal })));
+const FeedbackViewModal = lazy(() => import('./components/modals').then((m) => ({ default: m.FeedbackViewModal })));
+const DeleteFeedbackModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteFeedbackModal })));
+const DepartmentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DepartmentFormModal })));
+const ViewDepartmentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ViewDepartmentModal })));
+const DeleteWarningModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteWarningModal })));
+const CannotDeleteModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteModal })));
+const ImportModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ImportModal })));
+const EmployeeFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.EmployeeFormModal })));
+const DeleteEmployeeModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteEmployeeModal })));
+const BusinessFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.BusinessFormModal })));
+const DeleteBusinessModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteBusinessModal })));
+const VendorFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.VendorFormModal })));
+const DeleteVendorModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteVendorModal })));
+const ProductFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProductFormModal })));
+const ProductPackageFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProductPackageFormModal })));
+const DeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProductModal })));
+const DeleteProductPackageModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProductPackageModal })));
+const CannotDeleteProductModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteProductModal })));
 const ProductFeatureCatalogModal = lazy(() => import('./components/ProductFeatureCatalogModal').then((m) => ({ default: m.ProductFeatureCatalogModal })));
+const ProductPackageFeatureCatalogModal = lazy(() => import('./components/ProductPackageFeatureCatalogModal').then((m) => ({ default: m.ProductPackageFeatureCatalogModal })));
 const ProductTargetSegmentModal = lazy(() => import('./components/ProductTargetSegmentModal').then((m) => ({ default: m.ProductTargetSegmentModal })));
-const CannotDeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
+const CannotDeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CannotDeleteCustomerModal })));
 const CustomerInsightPanel = lazy(() => import('./components/CustomerInsightPanel'));
-const CustomerFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CustomerFormModal })));
-const DeleteCustomerModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCustomerModal })));
-const CusPersonnelFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.CusPersonnelFormModal })));
-const DeleteCusPersonnelModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
-const ProjectFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ProjectFormModal })));
-const DeleteProjectModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteProjectModal })));
-const DeleteContractModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteContractModal })));
-const DocumentFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DocumentFormModal })));
-const DeleteDocumentModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteDocumentModal })));
-const ReminderFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.ReminderFormModal })));
-const DeleteReminderModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteReminderModal })));
-const UserDeptHistoryFormModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
-const DeleteUserDeptHistoryModal = lazy(() => import('./components/Modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
+const CustomerFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CustomerFormModal })));
+const DeleteCustomerModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCustomerModal })));
+const CusPersonnelFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.CusPersonnelFormModal })));
+const DeleteCusPersonnelModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteCusPersonnelModal })));
+const ProjectFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ProjectFormModal })));
+const DeleteProjectModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteProjectModal })));
+const DeleteContractModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteContractModal })));
+const DocumentFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DocumentFormModal })));
+const DeleteDocumentModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteDocumentModal })));
+const ReminderFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.ReminderFormModal })));
+const DeleteReminderModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteReminderModal })));
+const UserDeptHistoryFormModal = lazy(() => import('./components/modals').then((m) => ({ default: m.UserDeptHistoryFormModal })));
+const DeleteUserDeptHistoryModal = lazy(() => import('./components/modals').then((m) => ({ default: m.DeleteUserDeptHistoryModal })));
 
 const LazyModuleFallback: React.FC = () => (
   <div className="min-h-[300px] flex items-center justify-center py-16 text-slate-500">
@@ -126,7 +137,43 @@ const LazyModuleFallback: React.FC = () => (
   </div>
 );
 
-const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'clients', 'cus_personnel', 'projects', 'contracts', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'workflow_mgmt', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
+const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'product_quotes', 'product_packages', 'clients', 'cus_personnel', 'projects', 'contracts', 'pass_contract', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'workflow_mgmt', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
+const PROJECT_SAVE_TIMEOUT_MS = 15000;
+type ContractSourceMode = 'PROJECT' | 'INITIAL';
+
+type ModuleDataLoaderRegistry = Partial<Record<(typeof AVAILABLE_TABS)[number], () => Promise<void>>>;
+
+const matchContractSourceMode = (
+  contract: Partial<Contract>,
+  sourceMode: ContractSourceMode
+): boolean => (
+  sourceMode === 'PROJECT'
+    ? String(contract.project_id ?? '').trim() !== ''
+    : String(contract.project_id ?? '').trim() === ''
+);
+
+const withAsyncTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> => {
+  let timeoutId: number | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+};
 
 const App: React.FC = () => {
   // Auth state
@@ -151,6 +198,7 @@ const App: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productPackages, setProductPackages] = useState<ProductPackage[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectItems, setProjectItems] = useState<ProjectItemMaster[]>([]);
@@ -164,6 +212,7 @@ const App: React.FC = () => {
   const [supportServiceGroups, setSupportServiceGroups] = useState<SupportServiceGroup[]>([]);
   const [supportContactPositions, setSupportContactPositions] = useState<SupportContactPosition[]>([]);
   const [productUnitMasters, setProductUnitMasters] = useState<ProductUnitMaster[]>([]);
+  const [contractSignerMasters, setContractSignerMasters] = useState<ContractSignerMaster[]>([]);
   const [supportRequestStatuses, setSupportRequestStatuses] = useState<SupportRequestStatusOption[]>([]);
   const [projectTypes, setProjectTypes] = useState<ProjectTypeOption[]>([]);
   const [worklogActivityTypes, setWorklogActivityTypes] = useState<WorklogActivityTypeOption[]>([]);
@@ -177,6 +226,33 @@ const App: React.FC = () => {
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
 
+  const replacePaymentSchedulesForContract = React.useCallback((contractId: string | number, rows: PaymentSchedule[]) => {
+    setPaymentSchedules((previous) => [
+      ...previous.filter((item) => String(item.contract_id) !== String(contractId)),
+      ...(rows || []),
+    ]);
+  }, []);
+
+  const upsertPaymentScheduleRecord = React.useCallback((nextRecord: PaymentSchedule) => {
+    setPaymentSchedules((previous) => {
+      const nextId = String(nextRecord.id);
+      let found = false;
+      const rows = previous.map((item) => {
+        if (String(item.id) !== nextId) {
+          return item;
+        }
+        found = true;
+        return nextRecord;
+      });
+
+      return found ? rows : [...rows, nextRecord];
+    });
+  }, []);
+
+  const removePaymentScheduleRecord = React.useCallback((scheduleId: string | number) => {
+    setPaymentSchedules((previous) => previous.filter((item) => String(item.id) !== String(scheduleId)));
+  }, []);
+
   // Page data state
   const [feedbacksPageRows, setFeedbacksPageRows] = useState<FeedbackRequest[]>([]);
   const [feedbacksPageMeta, setFeedbacksPageMeta] = useState<PaginationMeta | undefined>(undefined);
@@ -185,6 +261,7 @@ const App: React.FC = () => {
   const [customersPageRows, setCustomersPageRows] = useState<Customer[]>([]);
   const [projectsPageRows, setProjectsPageRows] = useState<Project[]>([]);
   const [contractsPageRows, setContractsPageRows] = useState<Contract[]>([]);
+  const [passContractsPageRows, setPassContractsPageRows] = useState<Contract[]>([]);
   const [documentsPageRows, setDocumentsPageRows] = useState<Document[]>([]);
   const [auditLogsPageRows, setAuditLogsPageRows] = useState<AuditLog[]>([]);
   const [employeesPageMeta, setEmployeesPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
@@ -192,6 +269,7 @@ const App: React.FC = () => {
   const [customersPageMeta, setCustomersPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [projectsPageMeta, setProjectsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [contractsPageMeta, setContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const [passContractsPageMeta, setPassContractsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [documentsPageMeta, setDocumentsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [auditLogsPageMeta, setAuditLogsPageMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
   const [employeesPageLoading, setEmployeesPageLoading] = useState(false);
@@ -199,6 +277,7 @@ const App: React.FC = () => {
   const [customersPageLoading, setCustomersPageLoading] = useState(false);
   const [projectsPageLoading, setProjectsPageLoading] = useState(false);
   const [contractsPageLoading, setContractsPageLoading] = useState(false);
+  const [passContractsPageLoading, setPassContractsPageLoading] = useState(false);
   const [documentsPageLoading, setDocumentsPageLoading] = useState(false);
   const [auditLogsPageLoading, setAuditLogsPageLoading] = useState(false);
   const [feedbacksPageLoading, setFeedbacksPageLoading] = useState(false);
@@ -212,6 +291,7 @@ const App: React.FC = () => {
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProductPackage, setSelectedProductPackage] = useState<ProductPackage | null>(null);
   const [productDeleteDependencyMessage, setProductDeleteDependencyMessage] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedCusPersonnel, setSelectedCusPersonnel] = useState<CustomerPersonnel | null>(null);
@@ -256,14 +336,53 @@ const App: React.FC = () => {
   const pageQueryInFlightSignatureRef = React.useRef<Record<string, string>>({});
   const pageQueryDebounceRef = React.useRef<Record<string, number>>({});
   const recentTabDataLoadRef = React.useRef<Map<string, number>>(new Map());
+  const backgroundLoadTimersRef = React.useRef<number[]>([]);
   const employeesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const partyProfilesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
-  const projectsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const projectsPageQueryRef = React.useRef<PaginatedQuery>({
+    ...FILTER_DEFAULTS.projectsPage,
+    filters: { ...(FILTER_DEFAULTS.projectsPage.filters || {}) },
+  });
   const contractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+  const passContractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const auditLogsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'created_at', sort_dir: 'desc', q: '', filters: {} });
   const feedbacksPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
+
+  const persistPageQueryRef = React.useCallback((key: string, query: PaginatedQuery) => {
+    switch (key) {
+      case 'employeesPage':
+        employeesPageQueryRef.current = query;
+        break;
+      case 'partyProfilesPage':
+        partyProfilesPageQueryRef.current = query;
+        break;
+      case 'customersPage':
+        customersPageQueryRef.current = query;
+        break;
+      case 'projectsPage':
+        projectsPageQueryRef.current = query;
+        break;
+      case 'contractsPage':
+        contractsPageQueryRef.current = query;
+        break;
+      case 'passContractsPage':
+        passContractsPageQueryRef.current = query;
+        break;
+      case 'documentsPage':
+        documentsPageQueryRef.current = query;
+        break;
+      case 'auditLogsPage':
+        auditLogsPageQueryRef.current = query;
+        break;
+      case 'feedbacksPage':
+        feedbacksPageQueryRef.current = query;
+        break;
+      default:
+        break;
+    }
+  }, []);
 
   const { toasts, addToast: enqueueToast, removeToast, clearToasts } = useToastQueue();
   const { handleImportDepartments } = useImportDepartments();
@@ -271,6 +390,7 @@ const App: React.FC = () => {
   const { handleImportCustomers } = useImportCustomers();
   const { handleImportEmployeePartyProfiles } = useImportEmployeePartyProfiles();
   const { handleImportProducts } = useImportProducts();
+  const { handleImportProductPackages } = useImportProductPackages();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -292,6 +412,7 @@ const App: React.FC = () => {
     handleDeleteCusPersonnel,
   } = useCustomerPersonnel(addToast);
   const { handleImportCustomerPersonnel } = useImportCustomerPersonnel();
+  const saveContract = useContractStore((state) => state.saveContract);
 
   // Navigation helpers
   const getRoutePathFromTabId = React.useCallback((tabId: string): string => {
@@ -301,6 +422,7 @@ const App: React.FC = () => {
     if (tabId === 'workflow_mgmt') return '/workflow-management';
     if (tabId === 'internal_user_dashboard') return '/internal-user-dashboard';
     if (tabId === 'internal_user_list') return '/internal-user-list';
+    if (tabId === 'product_quotes') return '/products/quote';
     return `/${tabId.replace(/_/g, '-')}`;
   }, []);
 
@@ -312,6 +434,7 @@ const App: React.FC = () => {
       'customer-request-management': 'customer_request_management',
       'workflow-management': 'workflow_mgmt',
       'internal-user-party-members': 'internal_user_dashboard',
+      'products/quote': 'product_quotes',
     };
     if (specialCases[normalizedPath]) return specialCases[normalizedPath];
     const [rootSegment] = normalizedPath.split('/');
@@ -334,6 +457,8 @@ const App: React.FC = () => {
           ? 'internal_user_party_members'
           : 'internal_user_dashboard'
     )
+    : activeTab === 'product_quotes'
+      ? 'products'
     : activeTab;
   const importModalModuleKey = importModuleOverride || activeModuleKey;
 
@@ -484,11 +609,18 @@ const App: React.FC = () => {
       case 'user_dept_history': prefetchTasks.push(import('./components/UserDeptHistoryList')); break;
       case 'businesses': prefetchTasks.push(import('./components/BusinessList')); break;
       case 'vendors': prefetchTasks.push(import('./components/VendorList')); break;
-      case 'products': prefetchTasks.push(import('./components/ProductList')); break;
+      case 'products':
+      case 'product_quotes':
+        prefetchTasks.push(import('./components/ProductList'));
+        break;
+      case 'product_packages': prefetchTasks.push(import('./components/ProductPackageList')); break;
       case 'clients': prefetchTasks.push(import('./components/CustomerList')); break;
       case 'cus_personnel': prefetchTasks.push(import('./components/CusPersonnelList')); break;
       case 'projects': prefetchTasks.push(import('./components/ProjectList')); break;
-      case 'contracts': prefetchTasks.push(import('./components/ContractList')); break;
+      case 'contracts':
+      case 'pass_contract':
+        prefetchTasks.push(import('./components/ContractList'));
+        break;
       case 'documents': prefetchTasks.push(import('./components/DocumentList')); break;
       case 'reminders': prefetchTasks.push(import('./components/ReminderList')); break;
       case 'customer_request_management': prefetchTasks.push(import('./components/CustomerRequestManagementHub')); break;
@@ -520,8 +652,9 @@ const App: React.FC = () => {
   const schedulePageQueryLoad = React.useCallback((key: string, query: PaginatedQuery, loader: (nextQuery: PaginatedQuery) => Promise<void>) => {
     const currentTimer = pageQueryDebounceRef.current[key];
     if (typeof currentTimer === 'number') window.clearTimeout(currentTimer);
+    persistPageQueryRef(key, query);
     pageQueryDebounceRef.current[key] = window.setTimeout(() => { delete pageQueryDebounceRef.current[key]; void loader(query); }, 250);
-  }, []);
+  }, [persistPageQueryRef]);
 
   // Load page functions
   const loadEmployeesPage = React.useCallback(async (query?: PaginatedQuery) => {
@@ -620,9 +753,20 @@ const App: React.FC = () => {
     }
   }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
 
+  const withContractSourceFilter = React.useCallback((
+    query: PaginatedQuery,
+    sourceMode: ContractSourceMode
+  ): PaginatedQuery => ({
+    ...query,
+    filters: {
+      ...(query.filters || {}),
+      source_mode: sourceMode,
+    },
+  }), []);
+
   const loadContractsPage = React.useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'contractsPage';
-    const effectiveQuery = query ?? contractsPageQueryRef.current;
+    const effectiveQuery = withContractSourceFilter(query ?? contractsPageQueryRef.current, 'PROJECT');
     const querySignature = normalizeQuerySignature(effectiveQuery);
     if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) return;
     pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
@@ -642,7 +786,31 @@ const App: React.FC = () => {
       if (isLatestPageLoad(requestKey, requestVersion)) setContractsPageLoading(false);
       if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) delete pageQueryInFlightSignatureRef.current[requestKey];
     }
-  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature]);
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature, withContractSourceFilter]);
+
+  const loadPassContractsPage = React.useCallback(async (query?: PaginatedQuery) => {
+    const requestKey = 'passContractsPage';
+    const effectiveQuery = withContractSourceFilter(query ?? passContractsPageQueryRef.current, 'INITIAL');
+    const querySignature = normalizeQuerySignature(effectiveQuery);
+    if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) return;
+    pageQueryInFlightSignatureRef.current[requestKey] = querySignature;
+    const requestVersion = beginPageLoad(requestKey);
+    passContractsPageQueryRef.current = effectiveQuery;
+    setPassContractsPageLoading(true);
+    try {
+      const result = await fetchContractsPage(effectiveQuery);
+      if (!isLatestPageLoad(requestKey, requestVersion)) return;
+      setPassContractsPageRows(result.data || []);
+      setPassContractsPageMeta(result.meta || DEFAULT_PAGINATION_META);
+    } catch (error) {
+      if (!isLatestPageLoad(requestKey, requestVersion) || isRequestCanceledError(error)) return;
+      const message = error instanceof Error ? error.message : 'Không thể tải danh sách hợp đồng đầu kỳ.';
+      addToast('error', 'Tải dữ liệu thất bại', message);
+    } finally {
+      if (isLatestPageLoad(requestKey, requestVersion)) setPassContractsPageLoading(false);
+      if (pageQueryInFlightSignatureRef.current[requestKey] === querySignature) delete pageQueryInFlightSignatureRef.current[requestKey];
+    }
+  }, [addToast, beginPageLoad, isLatestPageLoad, normalizeQuerySignature, withContractSourceFilter]);
 
   const loadDocumentsPage = React.useCallback(async (query?: PaginatedQuery) => {
     const requestKey = 'documentsPage';
@@ -721,6 +889,7 @@ const App: React.FC = () => {
   const handleCustomersPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('customersPage', query, loadCustomersPage), [loadCustomersPage, schedulePageQueryLoad]);
   const handleProjectsPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('projectsPage', query, loadProjectsPage), [loadProjectsPage, schedulePageQueryLoad]);
   const handleContractsPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('contractsPage', query, loadContractsPage), [loadContractsPage, schedulePageQueryLoad]);
+  const handlePassContractsPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('passContractsPage', query, loadPassContractsPage), [loadPassContractsPage, schedulePageQueryLoad]);
   const handleDocumentsPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('documentsPage', query, loadDocumentsPage), [loadDocumentsPage, schedulePageQueryLoad]);
   const handleAuditLogsPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('auditLogsPage', query, loadAuditLogsPage), [loadAuditLogsPage, schedulePageQueryLoad]);
   const handleFeedbacksPageQueryChange = React.useCallback((query: PaginatedQuery) => schedulePageQueryLoad('feedbacksPage', query, loadFeedbacksPage), [loadFeedbacksPage, schedulePageQueryLoad]);
@@ -739,6 +908,76 @@ const App: React.FC = () => {
       setIsSaving(false);
     }
   }, []);
+
+  const loadDepartments = React.useCallback(async () => {
+    try {
+      const rows = await fetchDepartments();
+      setDepartments(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadEmployees = React.useCallback(async () => {
+    try {
+      const rows = await fetchEmployees();
+      setEmployees(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadCustomers = React.useCallback(async () => {
+    try {
+      const rows = await fetchCustomers();
+      setCustomers(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProjects = React.useCallback(async () => {
+    try {
+      const rows = await fetchProjects();
+      setProjects(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProjectItems = React.useCallback(async () => {
+    try {
+      const rows = await fetchProjectItems();
+      setProjectItems(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadContracts = React.useCallback(async () => {
+    try {
+      const rows = await fetchContracts();
+      setContracts(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadPaymentSchedules = React.useCallback(async (contractId?: string | number) => {
+    setIsPaymentScheduleLoading(true);
+    try {
+      const rows = await fetchPaymentSchedules(contractId);
+      if (contractId === undefined || contractId === null || String(contractId) === '') {
+        setPaymentSchedules(rows || []);
+      } else {
+        replacePaymentSchedulesForContract(contractId, rows || []);
+      }
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    } finally {
+      setIsPaymentScheduleLoading(false);
+    }
+  }, [replacePaymentSchedulesForContract]);
 
   const refreshDepartmentsData = React.useCallback(async () => {
     await Promise.all([
@@ -781,6 +1020,10 @@ const App: React.FC = () => {
     await fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {});
   }, []);
 
+  const refreshProductPackagesData = React.useCallback(async () => {
+    await fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {});
+  }, []);
+
   const refreshCustomersData = React.useCallback(async () => {
     await loadCustomersPage();
     void fetchCustomers()
@@ -799,10 +1042,11 @@ const App: React.FC = () => {
   const refreshContractsData = React.useCallback(async () => {
     await Promise.all([
       loadContractsPage(),
+      loadPassContractsPage(),
       fetchContracts().then((rows) => setContracts(rows || [])).catch(() => {}),
       fetchPaymentSchedules().then((rows) => setPaymentSchedules(rows || [])).catch(() => {}),
     ]);
-  }, [loadContractsPage]);
+  }, [loadContractsPage, loadPassContractsPage]);
 
   const refreshDocumentsData = React.useCallback(async () => {
     await Promise.all([
@@ -822,6 +1066,7 @@ const App: React.FC = () => {
     setSelectedBusiness(null);
     setSelectedVendor(null);
     setSelectedProduct(null);
+    setSelectedProductPackage(null);
     setProductDeleteDependencyMessage(null);
     setSelectedCustomer(null);
     setSelectedCusPersonnel(null);
@@ -872,6 +1117,10 @@ const App: React.FC = () => {
 
   const removeProductCache = React.useCallback((productId: Product['id']) => {
     setProducts((previous) => (previous || []).filter((item) => String(item.id) !== String(productId)));
+  }, []);
+
+  const removeProductPackageCache = React.useCallback((productPackageId: ProductPackage['id']) => {
+    setProductPackages((previous) => (previous || []).filter((item) => String(item.id) !== String(productPackageId)));
   }, []);
 
   const handleSaveCustomer = React.useCallback(async (payload: Partial<Customer>, customerId?: Customer['id']) => {
@@ -935,6 +1184,58 @@ const App: React.FC = () => {
       setIsSaving(false);
     }
   }, [addToast, refreshProductsData, removeProductCache]);
+
+  const handleDeleteProductPackage = React.useCallback(async (productPackage: ProductPackage) => {
+    setIsSaving(true);
+    try {
+      await deleteProductPackage(productPackage.id);
+      removeProductPackageCache(productPackage.id);
+      await Promise.all([
+        refreshProductPackagesData(),
+        refreshProductsData(),
+      ]);
+      setSelectedProductPackage(null);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Đã xóa gói cước sản phẩm.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xóa gói cước sản phẩm.';
+      addToast('error', 'Xóa thất bại', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, refreshProductPackagesData, refreshProductsData, removeProductPackageCache]);
+
+  const handleDeleteProject = React.useCallback(async (project: Project) => {
+    setIsSaving(true);
+    try {
+      await deleteProject(project.id);
+      await refreshProjectsData();
+      setSelectedProject(null);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Đã xóa dự án.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xóa dự án.';
+      addToast('error', 'Xóa thất bại', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, refreshProjectsData]);
+
+  const handleDeleteUserDeptHistory = React.useCallback(async (historyItem: UserDeptHistory) => {
+    setIsSaving(true);
+    try {
+      await deleteUserDeptHistory(historyItem.id);
+      await refreshUserDeptHistoryData();
+      setSelectedUserDeptHistory(null);
+      setModalType(null);
+      addToast('success', 'Thành công', 'Đã xóa lịch sử luân chuyển.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể xóa lịch sử luân chuyển.';
+      addToast('error', 'Xóa thất bại', message);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, refreshUserDeptHistoryData]);
 
   const handleSavePartyProfile = React.useCallback(async (payload: Partial<EmployeePartyProfile>) => {
     setIsSaving(true);
@@ -1065,6 +1366,24 @@ const App: React.FC = () => {
           setImportLoadingText('');
         }
         return;
+      case 'product_packages':
+        setIsSaving(true);
+        try {
+          await handleImportProductPackages(
+            payload,
+            productPackages,
+            products,
+            addToast,
+            setImportLoadingText,
+            refreshProductPackagesData,
+            refreshProductsData,
+            closeImportModal,
+          );
+        } finally {
+          setIsSaving(false);
+          setImportLoadingText('');
+        }
+        return;
       case 'cus_personnel':
         setIsSaving(true);
         try {
@@ -1096,16 +1415,548 @@ const App: React.FC = () => {
     refreshEmployeesData,
     handleImportCustomers,
     handleImportProducts,
+    handleImportProductPackages,
     handleImportCustomerPersonnel,
+    productPackages,
     products,
     businesses,
     vendors,
+    refreshProductPackagesData,
     customers,
     supportContactPositions,
     loadCustomerPersonnel,
     loadPartyProfilesPage,
     refreshCustomersData,
     refreshProductsData,
+  ]);
+
+  const syncUpdatedCustomerState = React.useCallback((updatedCustomer: Customer) => {
+    setSelectedCustomer(updatedCustomer);
+    setCustomers((previous) =>
+      previous.map((item) => (String(item.id) === String(updatedCustomer.id) ? updatedCustomer : item))
+    );
+    setCustomersPageRows((previous) =>
+      previous.map((item) => (String(item.id) === String(updatedCustomer.id) ? updatedCustomer : item))
+    );
+  }, []);
+
+  const syncCreatedCustomerState = React.useCallback((createdCustomer: Customer) => {
+    setCustomers((previous) => [
+      createdCustomer,
+      ...previous.filter((item) => String(item.id) !== String(createdCustomer.id)),
+    ]);
+    setCustomersPageRows((previous) => [
+      createdCustomer,
+      ...previous.filter((item) => String(item.id) !== String(createdCustomer.id)),
+    ]);
+  }, []);
+
+  const handleCreateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
+    await runSavingTask(async () => {
+      const created = await createContract(payload);
+      await refreshContractsData();
+      setSelectedContract(created);
+      addToast('success', 'Thành công', 'Thêm mới hợp đồng thành công.');
+      setModalType('EDIT_CONTRACT');
+    });
+  }, [addToast, refreshContractsData, runSavingTask]);
+
+  const handleUpdateContractSave = React.useCallback(async (payload: Partial<Contract>) => {
+    if (!selectedContract) {
+      return;
+    }
+
+    const updated = await saveContract({
+      id: selectedContract.id,
+      data: payload,
+      previousStatus: selectedContract.status,
+    });
+    if (updated) {
+      setSelectedContract(updated);
+      setModalType(null);
+    }
+  }, [saveContract, selectedContract, setModalType, setSelectedContract]);
+
+  const handleCreateCustomerSave = React.useCallback(async (payload: Partial<Customer>) => {
+    setIsSaving(true);
+    try {
+      const created = await createCustomer(payload);
+      syncCreatedCustomerState(created);
+      await loadCustomersPage();
+      addToast('success', 'Thành công', 'Thêm mới khách hàng thành công.');
+      setModalType(null);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo khách hàng.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, loadCustomersPage, syncCreatedCustomerState]);
+
+  const handleUpdateCustomerSave = React.useCallback(async (payload: Partial<Customer>) => {
+    if (!selectedCustomer) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateCustomer(selectedCustomer.id, payload);
+      syncUpdatedCustomerState(updated);
+      await loadCustomersPage();
+      addToast('success', 'Thành công', 'Cập nhật khách hàng thành công.');
+      setModalType(null);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật khách hàng.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, loadCustomersPage, selectedCustomer, syncUpdatedCustomerState]);
+
+  const buildProjectMutationPayload = React.useCallback((data: Partial<Project>) => ({
+    ...data,
+    sync_items: Array.isArray(data.items),
+    sync_raci: Array.isArray(data.raci),
+  }), []);
+
+  const handleCreateProjectSave = React.useCallback(async (data: Partial<Project>) => {
+    setIsSaving(true);
+    try {
+      const created = await withAsyncTimeout(
+        createProject(buildProjectMutationPayload(data)),
+        PROJECT_SAVE_TIMEOUT_MS,
+        'Không thể tạo dự án (quá thời gian phản hồi). Vui lòng thử lại.'
+      );
+      setProjects((previous) => [
+        created,
+        ...previous.filter((project) => String(project.id) !== String(created.id)),
+      ]);
+      setProjectsPageRows((previous) => {
+        const exists = previous.some((project) => String(project.id) === String(created.id));
+        if (!exists) {
+          return [created, ...previous];
+        }
+
+        return previous.map((project) =>
+          String(project.id) === String(created.id) ? created : project
+        );
+      });
+      setSelectedProject(created);
+      setProjectModalInitialTab('info');
+      setModalType('EDIT_PROJECT');
+      addToast('success', 'Thành công', 'Tạo dự án thành công.');
+      void loadProjectItems();
+      void loadProjectsPage();
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo dự án.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, buildProjectMutationPayload, loadProjectItems, loadProjectsPage]);
+
+  const handleEditProjectSave = React.useCallback(async (data: Partial<Project>) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await withAsyncTimeout(
+        updateProject(selectedProject.id, buildProjectMutationPayload(data)),
+        PROJECT_SAVE_TIMEOUT_MS,
+        'Không thể cập nhật dự án (quá thời gian phản hồi). Vui lòng thử lại.'
+      );
+      setProjects((previous) => {
+        const exists = previous.some((project) => String(project.id) === String(updated.id));
+        if (!exists) {
+          return [updated, ...previous];
+        }
+
+        return previous.map((project) =>
+          String(project.id) === String(updated.id) ? updated : project
+        );
+      });
+      setProjectsPageRows((previous) =>
+        previous.map((project) => (String(project.id) === String(updated.id) ? updated : project))
+      );
+      setSelectedProject(updated);
+      addToast('success', 'Thành công', 'Cập nhật dự án thành công.');
+      void loadProjectItems();
+      void loadProjectsPage();
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể cập nhật dự án.';
+      addToast('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [addToast, buildProjectMutationPayload, loadProjectItems, loadProjectsPage, selectedProject]);
+
+  const handleSaveContractExpiryAlertSettings = React.useCallback(async (payload: { warning_days: number }) => {
+    await updateContractExpiryAlertSettings(payload);
+    await Promise.all([loadContractsPage(), loadPassContractsPage()]);
+  }, [loadContractsPage, loadPassContractsPage]);
+
+  const handleSaveContractPaymentAlertSettings = React.useCallback(async (payload: { warning_days: number }) => {
+    await updateContractPaymentAlertSettings(payload);
+    await Promise.all([loadContractsPage(), loadPassContractsPage()]);
+  }, [loadContractsPage, loadPassContractsPage]);
+
+  const handleGenerateContractSchedules = React.useCallback(async (
+    contractId: string | number,
+    options?: GenerateContractPaymentsPayload,
+  ) => {
+    try {
+      const result = await generateContractPayments(contractId, options);
+      replacePaymentSchedulesForContract(contractId, result.data || []);
+      addToast('success', 'Dòng tiền', `Đã đồng bộ ${result.meta.generated_count} kỳ thanh toán.`);
+      return result;
+    } catch (error) {
+      if (!isRequestCanceledError(error)) {
+        const message = error instanceof Error ? error.message : 'Không thể sinh kỳ thanh toán.';
+        addToast('error', 'Sinh dòng tiền thất bại', message);
+      }
+      throw error;
+    }
+  }, [addToast, replacePaymentSchedulesForContract]);
+
+  const handleRefreshContractSchedules = React.useCallback(async (contractId: string | number) => {
+    await loadPaymentSchedules(contractId);
+  }, [loadPaymentSchedules]);
+
+  const handleConfirmContractPayment = React.useCallback(async (
+    scheduleId: string | number,
+    payload: PaymentScheduleConfirmationPayload,
+  ) => {
+    try {
+      const updated = await updatePaymentSchedule(scheduleId, payload);
+      upsertPaymentScheduleRecord(updated);
+      addToast('success', 'Dòng tiền', 'Đã cập nhật kỳ thanh toán.');
+    } catch (error) {
+      if (!isRequestCanceledError(error)) {
+        const message = error instanceof Error ? error.message : 'Không thể cập nhật kỳ thanh toán.';
+        addToast('error', 'Cập nhật dòng tiền thất bại', message);
+      }
+      throw error;
+    }
+  }, [addToast, upsertPaymentScheduleRecord]);
+
+  const handleDeleteContractPayment = React.useCallback(async (scheduleId: string | number) => {
+    try {
+      await deletePaymentSchedule(scheduleId);
+      removePaymentScheduleRecord(scheduleId);
+      addToast('success', 'Dòng tiền', 'Đã xóa kỳ thanh toán chưa thu tiền.');
+    } catch (error) {
+      if (!isRequestCanceledError(error)) {
+        const message = error instanceof Error ? error.message : 'Không thể xóa kỳ thanh toán.';
+        addToast('error', 'Xóa dòng tiền thất bại', message);
+      }
+      throw error;
+    }
+  }, [addToast, removePaymentScheduleRecord]);
+
+  const clearBackgroundLoadTimers = React.useCallback(() => {
+    backgroundLoadTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    backgroundLoadTimersRef.current = [];
+  }, []);
+
+  const scheduleBackgroundLoads = React.useCallback((task: () => Promise<void> | void, delayMs = 120) => {
+    const timerId = window.setTimeout(() => {
+      backgroundLoadTimersRef.current = backgroundLoadTimersRef.current.filter((id) => id !== timerId);
+      void Promise.resolve(task());
+    }, delayMs);
+    backgroundLoadTimersRef.current.push(timerId);
+  }, []);
+
+  React.useEffect(() => () => {
+    clearBackgroundLoadTimers();
+  }, [clearBackgroundLoadTimers]);
+
+  const loadUserDeptHistoryData = React.useCallback(async () => {
+    try {
+      const rows = await fetchUserDeptHistory();
+      setUserDeptHistory(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadBusinessesData = React.useCallback(async () => {
+    try {
+      const rows = await fetchBusinesses();
+      setBusinesses(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadVendorsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchVendors();
+      setVendors(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProductsData = React.useCallback(async () => {
+    try {
+      const rows = await fetchProducts();
+      setProducts(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadProductPackagesData = React.useCallback(async () => {
+    try {
+      const rows = await fetchProductPackages();
+      setProductPackages(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadCustomerPersonnelData = React.useCallback(async () => {
+    try {
+      await loadCustomerPersonnel();
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, [loadCustomerPersonnel]);
+
+  const loadRemindersData = React.useCallback(async () => {
+    try {
+      const rows = await fetchReminders();
+      setReminders(rows || []);
+    } catch {
+      // Swallow background lookup failures to preserve current page rendering.
+    }
+  }, []);
+
+  const loadInternalUserModuleData = React.useCallback(async () => {
+    await loadDepartments();
+    if (activeInternalUserSubTab === 'list') {
+      await loadEmployeesPage();
+      return;
+    }
+    if (activeInternalUserSubTab === 'party') {
+      await Promise.all([
+        loadEmployees(),
+        loadPartyProfilesPage(),
+      ]);
+      return;
+    }
+    await loadEmployees();
+  }, [activeInternalUserSubTab, loadDepartments, loadEmployees, loadEmployeesPage, loadPartyProfilesPage]);
+
+  const loadProjectsModuleData = React.useCallback(async () => {
+    await loadProjectsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadEmployees(),
+      loadDepartments(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDepartments, loadEmployees, loadProjectItems, loadProductsData, loadProjectsPage, scheduleBackgroundLoads]);
+
+  const loadContractsModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadContractsPage(),
+      loadContracts(),
+      loadPaymentSchedules(),
+    ]);
+    scheduleBackgroundLoads(() => Promise.all([
+      loadProjects(),
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadBusinessesData(),
+    ]).then(() => undefined));
+  }, [loadBusinessesData, loadContracts, loadContractsPage, loadCustomers, loadPaymentSchedules, loadProductsData, loadProjectItems, loadProjects, scheduleBackgroundLoads]);
+
+  const loadPassContractsModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadPassContractsPage(),
+      loadContracts(),
+      loadPaymentSchedules(),
+    ]);
+    scheduleBackgroundLoads(() => Promise.all([
+      loadProjects(),
+      loadCustomers(),
+      loadProductsData(),
+      loadProjectItems(),
+      loadBusinessesData(),
+    ]).then(() => undefined));
+  }, [loadBusinessesData, loadContracts, loadCustomers, loadPassContractsPage, loadPaymentSchedules, loadProductsData, loadProjectItems, loadProjects, scheduleBackgroundLoads]);
+
+  const loadDocumentsModuleData = React.useCallback(async () => {
+    await loadDocumentsPage();
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProjects(),
+      loadProductsData(),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDocumentsPage, loadProductsData, loadProjects, scheduleBackgroundLoads]);
+
+  const loadCustomerRequestManagementModuleData = React.useCallback(async () => {
+    await Promise.all([
+      loadCustomers(),
+      loadCustomerPersonnelData(),
+      loadEmployees(),
+    ]);
+  }, [loadCustomerPersonnelData, loadCustomers, loadEmployees]);
+
+  const loadSupportMasterManagementModuleData = React.useCallback(async () => {
+    scheduleBackgroundLoads(() => Promise.all([
+      loadCustomers(),
+      loadProductsData(),
+      loadProductPackagesData(),
+      loadDepartments(),
+      loadEmployees(),
+      fetchContractSignerMasters(true).then((rows) => setContractSignerMasters(rows || [])).catch(() => {}),
+    ]).then(() => undefined));
+  }, [loadCustomers, loadDepartments, loadEmployees, loadProductPackagesData, loadProductsData, scheduleBackgroundLoads]);
+
+  const loadAuditLogsModuleData = React.useCallback(async () => {
+    await loadAuditLogsPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadAuditLogsPage, loadEmployees, scheduleBackgroundLoads]);
+
+  const loadUserFeedbackModuleData = React.useCallback(async () => {
+    await loadFeedbacksPage();
+    scheduleBackgroundLoads(() => loadEmployees());
+  }, [loadEmployees, loadFeedbacksPage, scheduleBackgroundLoads]);
+
+  const moduleDataLoaders = React.useMemo<ModuleDataLoaderRegistry>(() => ({
+    dashboard: async () => {
+      await Promise.all([
+        loadContracts(),
+        loadPaymentSchedules(),
+        loadProjects(),
+        loadCustomers(),
+      ]);
+    },
+    internal_user_dashboard: loadInternalUserModuleData,
+    internal_user_list: loadInternalUserModuleData,
+    internal_user_party_members: loadInternalUserModuleData,
+    departments: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    user_dept_history: async () => {
+      await Promise.all([
+        loadUserDeptHistoryData(),
+        loadEmployees(),
+        loadDepartments(),
+      ]);
+    },
+    businesses: async () => {
+      await Promise.all([
+        loadBusinessesData(),
+        loadProductsData(),
+      ]);
+    },
+    vendors: loadVendorsData,
+    products: async () => {
+      await Promise.all([
+        loadProductsData(),
+        loadBusinessesData(),
+        loadVendorsData(),
+        loadCustomers(),
+      ]);
+    },
+    product_packages: async () => {
+      await Promise.all([
+        loadProductPackagesData(),
+        loadProductsData(),
+        loadBusinessesData(),
+        loadVendorsData(),
+        fetchProductUnitMasters().then((rows) => setProductUnitMasters(rows || [])).catch(() => {}),
+      ]);
+    },
+    clients: async () => {
+      await Promise.all([
+        loadCustomers(),
+        loadCustomersPage(),
+      ]);
+    },
+    cus_personnel: async () => {
+      await Promise.all([
+        loadCustomerPersonnelData(),
+        loadCustomers(),
+      ]);
+    },
+    projects: loadProjectsModuleData,
+    contracts: loadContractsModuleData,
+    pass_contract: loadPassContractsModuleData,
+    documents: loadDocumentsModuleData,
+    reminders: async () => {
+      await Promise.all([
+        loadRemindersData(),
+        loadEmployees(),
+      ]);
+    },
+    customer_request_management: loadCustomerRequestManagementModuleData,
+    support_master_management: loadSupportMasterManagementModuleData,
+    procedure_template_config: async () => {},
+    department_weekly_schedule_management: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+      ]);
+    },
+    audit_logs: loadAuditLogsModuleData,
+    user_feedback: loadUserFeedbackModuleData,
+    access_control: async () => {
+      await loadDepartments();
+    },
+  }), [
+    loadAuditLogsModuleData,
+    loadBusinessesData,
+    loadContracts,
+    loadContractsModuleData,
+    loadPassContractsModuleData,
+    loadCustomers,
+    loadCustomersPage,
+    loadCustomerPersonnelData,
+    loadCustomerRequestManagementModuleData,
+    loadDepartments,
+    loadDocumentsModuleData,
+    loadEmployees,
+    loadFeedbacksPage,
+    loadInternalUserModuleData,
+    loadPaymentSchedules,
+    loadProductPackagesData,
+    loadProductsData,
+    loadProjects,
+    loadProjectsModuleData,
+    loadRemindersData,
+    loadSupportMasterManagementModuleData,
+    loadUserDeptHistoryData,
+    loadUserFeedbackModuleData,
+    loadVendorsData,
   ]);
 
   // Load data by activeTab - MUST be after load*Page functions
@@ -1164,12 +2015,23 @@ const App: React.FC = () => {
           await fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {});
           break;
         case 'products':
+        case 'product_quotes':
           await Promise.all([
             fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
+            fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {}),
             fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
             fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {}),
             fetchProductUnitMasters().then((rows) => setProductUnitMasters(rows || [])).catch(() => {}),
             fetchCustomers().then((rows) => setCustomers(rows || [])).catch(() => {}),
+          ]);
+          break;
+        case 'product_packages':
+          await Promise.all([
+            fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {}),
+            fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
+            fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
+            fetchVendors().then((rows) => setVendors(rows || [])).catch(() => {}),
+            fetchProductUnitMasters().then((rows) => setProductUnitMasters(rows || [])).catch(() => {}),
           ]);
           break;
         case 'clients':
@@ -1188,6 +2050,7 @@ const App: React.FC = () => {
             Promise.all([
               fetchCustomers().then((rows) => setCustomers(rows || [])).catch(() => {}),
               fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
+              fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {}),
               fetchProjectItems().then((rows) => setProjectItems(rows || [])).catch(() => {}),
               fetchProjectTypes().then((rows) => setProjectTypes(rows || [])).catch(() => {}),
               fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
@@ -1197,6 +2060,18 @@ const App: React.FC = () => {
           break;
         case 'contracts':
           loadContractsPage();
+          setTimeout(() => {
+            Promise.all([
+              fetchProjects().then((rows) => setProjects(rows || [])).catch(() => {}),
+              fetchCustomers().then((rows) => setCustomers(rows || [])).catch(() => {}),
+              fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
+              fetchProjectItems().then((rows) => setProjectItems(rows || [])).catch(() => {}),
+              fetchBusinesses().then((rows) => setBusinesses(rows || [])).catch(() => {}),
+            ]);
+          }, 120);
+          break;
+        case 'pass_contract':
+          loadPassContractsPage();
           setTimeout(() => {
             Promise.all([
               fetchProjects().then((rows) => setProjects(rows || [])).catch(() => {}),
@@ -1239,10 +2114,15 @@ const App: React.FC = () => {
             fetchSupportServiceGroups().then((rows) => setSupportServiceGroups(rows || [])).catch(() => {}),
             fetchSupportContactPositions().then((rows) => setSupportContactPositions(rows || [])).catch(() => {}),
             fetchProductUnitMasters(true).then((rows) => setProductUnitMasters(rows || [])).catch(() => {}),
+            fetchContractSignerMasters(true).then((rows) => setContractSignerMasters(rows || [])).catch(() => {}),
             fetchSupportRequestStatuses().then((rows) => setSupportRequestStatuses(rows || [])).catch(() => {}),
             fetchWorklogActivityTypes().then((rows) => setWorklogActivityTypes(rows || [])).catch(() => {}),
             fetchSupportSlaConfigs().then((rows) => setSupportSlaConfigs(rows || [])).catch(() => {}),
             fetchProjectTypes().then((rows) => setProjectTypes(rows || [])).catch(() => {}),
+            fetchProducts().then((rows) => setProducts(rows || [])).catch(() => {}),
+            fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {}),
+            fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
+            fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
           ]);
           setTimeout(() => {
             fetchCustomers().then((rows) => setCustomers(rows || [])).catch(() => {});
@@ -1272,6 +2152,7 @@ const App: React.FC = () => {
           await Promise.all([
             fetchBackblazeB2IntegrationSettings().then((data) => setBackblazeB2Settings(data)).catch(() => {}),
             fetchGoogleDriveIntegrationSettings().then((data) => setGoogleDriveSettings(data)).catch(() => {}),
+            fetchEmailSmtpIntegrationSettings().then((data) => setEmailSmtpSettings(data)).catch(() => {}),
             fetchContractExpiryAlertSettings().then((data) => setContractExpiryAlertSettings(data)).catch(() => {}),
             fetchContractPaymentAlertSettings().then((data) => setContractPaymentAlertSettings(data)).catch(() => {}),
           ]);
@@ -1290,7 +2171,7 @@ const App: React.FC = () => {
     };
 
     void loadByActiveTab();
-  }, [authUser, passwordChangeRequired, activeModuleKey, activeInternalUserSubTab, loadEmployeesPage, loadPartyProfilesPage, loadCustomersPage, loadProjectsPage, loadContractsPage, loadDocumentsPage, loadAuditLogsPage, loadFeedbacksPage, loadCustomerPersonnel]);
+  }, [authUser, passwordChangeRequired, activeModuleKey, activeInternalUserSubTab, loadEmployeesPage, loadPartyProfilesPage, loadCustomersPage, loadProjectsPage, loadContractsPage, loadPassContractsPage, loadDocumentsPage, loadAuditLogsPage, loadFeedbacksPage, loadCustomerPersonnel]);
 
   // Export functions
   const exportProjectsByCurrentQuery = async (): Promise<Project[]> => {
@@ -1310,7 +2191,22 @@ const App: React.FC = () => {
 
   const exportContractsByCurrentQuery = async (): Promise<Contract[]> => {
     if (!hasPermission(authUser, 'contracts.read')) throw new Error('Bạn không có quyền xuất dữ liệu hợp đồng.');
-    const seedQuery = { ...(contractsPageQueryRef.current || {}), page: 1, per_page: 200 } as PaginatedQuery;
+    const seedQuery = withContractSourceFilter({ ...(contractsPageQueryRef.current || {}), page: 1, per_page: 200 } as PaginatedQuery, 'PROJECT');
+    const rows: Contract[] = [];
+    let page = 1, totalPages = 1;
+    do {
+      const result = await fetchContractsPage({ ...seedQuery, page });
+      rows.push(...(result.data || []));
+      totalPages = Math.max(1, result.meta?.total_pages || 1);
+      page += 1;
+    } while (page <= totalPages);
+    const seen = new Set<string>();
+    return rows.filter((item) => { const key = String(item.id ?? ''); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  };
+
+  const exportPassContractsByCurrentQuery = async (): Promise<Contract[]> => {
+    if (!hasPermission(authUser, 'contracts.read')) throw new Error('Bạn không có quyền xuất dữ liệu hợp đồng đầu kỳ.');
+    const seedQuery = withContractSourceFilter({ ...(passContractsPageQueryRef.current || {}), page: 1, per_page: 200 } as PaginatedQuery, 'INITIAL');
     const rows: Contract[] = [];
     let page = 1, totalPages = 1;
     do {
@@ -1340,10 +2236,38 @@ const App: React.FC = () => {
   const EMPTY_CUSTOMER_AGGREGATE_KPIS: CustomerAggregateKpis = { totalCustomers: 0, healthcareCustomers: 0, governmentCustomers: 0, individualCustomers: 0, healthcareBreakdown: { publicHospital: 0, privateHospital: 0, medicalCenter: 0, privateClinic: 0, tytPkdk: 0, other: 0 } };
   const EMPTY_DASHBOARD_STATS: DashboardStats = { totalRevenue: 0, actualRevenue: 0, forecastRevenueMonth: 0, forecastRevenueQuarter: 0, monthlyRevenueComparison: [], projectStatusCounts: [], contractStatusCounts: [], collectionRate: 0, overduePaymentCount: 0, overduePaymentAmount: 0, expiringContracts: [] };
 
-  const contractAggregateKpis = useMemo<ContractAggregateKpis>(() => {
-    if (activeTab !== 'contracts' && activeTab !== 'dashboard') return EMPTY_CONTRACT_AGGREGATE_KPIS;
-    return calculateContractKpis(contracts, contractsPageMeta, paymentSchedules);
-  }, [activeTab, contracts, contractsPageMeta, paymentSchedules]);
+  const projectContracts = useMemo(
+    () => (contracts || []).filter((contract) => matchContractSourceMode(contract, 'PROJECT')),
+    [contracts]
+  );
+  const initialContracts = useMemo(
+    () => (contracts || []).filter((contract) => matchContractSourceMode(contract, 'INITIAL')),
+    [contracts]
+  );
+  const projectContractIds = useMemo(
+    () => new Set(projectContracts.map((contract) => String(contract.id))),
+    [projectContracts]
+  );
+  const initialContractIds = useMemo(
+    () => new Set(initialContracts.map((contract) => String(contract.id))),
+    [initialContracts]
+  );
+  const projectPaymentSchedules = useMemo(
+    () => (paymentSchedules || []).filter((schedule) => projectContractIds.has(String(schedule.contract_id))),
+    [paymentSchedules, projectContractIds]
+  );
+  const initialPaymentSchedules = useMemo(
+    () => (paymentSchedules || []).filter((schedule) => initialContractIds.has(String(schedule.contract_id))),
+    [paymentSchedules, initialContractIds]
+  );
+  const contractAggregateKpis = useMemo<ContractAggregateKpis>(
+    () => calculateContractKpis(projectContracts, contractsPageMeta, projectPaymentSchedules),
+    [contractsPageMeta, projectContracts, projectPaymentSchedules]
+  );
+  const passContractAggregateKpis = useMemo<ContractAggregateKpis>(
+    () => calculateContractKpis(initialContracts, passContractsPageMeta, initialPaymentSchedules),
+    [initialContracts, initialPaymentSchedules, passContractsPageMeta]
+  );
 
   const customerAggregateKpis = useMemo<CustomerAggregateKpis>(() => {
     if (activeTab !== 'clients') return EMPTY_CUSTOMER_AGGREGATE_KPIS;
@@ -1355,7 +2279,7 @@ const App: React.FC = () => {
     return calculateDashboardStats(contracts, paymentSchedules, projects, customers);
   }, [activeTab, contracts, customers, paymentSchedules, projects]);
 
-  const hrStatistics: HRStatistics = useMemo(() => buildHrStatistics(employees, departments), [employees, departments]);
+  const hrStatistics: HRStatistics = useMemo(() => buildHrStatistics(employees, departments, userDeptHistory), [employees, departments, userDeptHistory]);
 
   // Loading states
   if (isAuthLoading) {
@@ -1424,7 +2348,7 @@ const App: React.FC = () => {
         </div>
       </div>
       <Sidebar activeTab={activeTab} setActiveTab={handleNavigateTab} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} currentUser={authUser} visibleTabIds={visibleTabIds} onLogout={handleLogout} onPrefetchTab={prefetchTabModules} />
-      <main className="flex-1 overflow-y-auto bg-bg-light w-full">
+      <main className="min-w-0 flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages
             activeTab={activeTab} authUser={authUser} activeInternalUserSubTab={activeInternalUserSubTab} setInternalUserSubTab={setInternalUserSubTab}
@@ -1467,6 +2391,10 @@ const App: React.FC = () => {
                   addToast('error', 'Không có quyền', 'Bạn không có quyền thực hiện thao tác này.');
                 }
                 return;
+              }
+
+              if ((type === 'ADD_PROJECT' || type === 'EDIT_PROJECT') && productPackages.length === 0) {
+                void fetchProductPackages().then((rows) => setProductPackages(rows || [])).catch(() => {});
               }
 
               setModalType(type);
@@ -1535,6 +2463,11 @@ const App: React.FC = () => {
                 return;
               }
 
+              if (type.includes('PRODUCT_PACKAGE')) {
+                setSelectedProductPackage((item as ProductPackage) ?? null);
+                return;
+              }
+
               if (type.includes('PRODUCT')) {
                 setSelectedProduct((item as Product) ?? null);
                 return;
@@ -1562,7 +2495,10 @@ const App: React.FC = () => {
                   setIsContractDetailLoading(true);
                   void (async () => {
                     try {
-                      const detail = await fetchContractDetail(contract.id);
+                      const [detail] = await Promise.all([
+                        fetchContractDetail(contract.id),
+                        loadPaymentSchedules(contract.id),
+                      ]);
                       setSelectedContract(detail);
                     } catch (error) {
                       if (!isRequestCanceledError(error)) {
@@ -1618,16 +2554,17 @@ const App: React.FC = () => {
                 }
               }
             }} addToast={addToast}
-            departments={departments} employees={employees} businesses={businesses} vendors={vendors} products={products} customers={customers} cusPersonnel={cusPersonnel}
+            departments={departments} employees={employees} businesses={businesses} vendors={vendors} products={products} productPackages={productPackages} customers={customers} cusPersonnel={cusPersonnel}
             projects={projects} projectItems={projectItems} contracts={contracts} paymentSchedules={paymentSchedules} reminders={reminders} userDeptHistory={userDeptHistory}
-            supportServiceGroups={supportServiceGroups} supportContactPositions={supportContactPositions} productUnitMasters={productUnitMasters} supportRequestStatuses={supportRequestStatuses} projectTypes={projectTypes}
+            supportServiceGroups={supportServiceGroups} supportContactPositions={supportContactPositions} productUnitMasters={productUnitMasters} contractSignerMasters={contractSignerMasters} supportRequestStatuses={supportRequestStatuses} projectTypes={projectTypes}
             worklogActivityTypes={worklogActivityTypes} supportSlaConfigs={supportSlaConfigs} userAccessRecords={userAccessRecords} roles={roles} permissions={permissions}
-            dashboardStats={dashboardStats} hrStatistics={hrStatistics} contractAggregateKpis={contractAggregateKpis} customerAggregateKpis={customerAggregateKpis}
+            dashboardStats={dashboardStats} hrStatistics={hrStatistics} contractAggregateKpis={contractAggregateKpis} passContractAggregateKpis={passContractAggregateKpis} customerAggregateKpis={customerAggregateKpis}
             employeesPageRows={employeesPageRows} employeesPageMeta={employeesPageMeta} employeesPageLoading={employeesPageLoading} handleEmployeesPageQueryChange={handleEmployeesPageQueryChange}
             partyProfilesPageRows={partyProfilesPageRows} partyProfilesPageMeta={partyProfilesPageMeta} partyProfilesPageLoading={partyProfilesPageLoading} handlePartyProfilesPageQueryChange={handlePartyProfilesPageQueryChange}
             customersPageRows={customersPageRows} customersPageMeta={customersPageMeta} customersPageLoading={customersPageLoading} handleCustomersPageQueryChange={handleCustomersPageQueryChange}
             projectsPageRows={projectsPageRows} projectsPageMeta={projectsPageMeta} projectsPageLoading={projectsPageLoading} handleProjectsPageQueryChange={handleProjectsPageQueryChange}
             contractsPageRows={contractsPageRows} contractsPageMeta={contractsPageMeta} contractsPageLoading={contractsPageLoading} handleContractsPageQueryChange={handleContractsPageQueryChange}
+            passContractsPageRows={passContractsPageRows} passContractsPageMeta={passContractsPageMeta} passContractsPageLoading={passContractsPageLoading} handlePassContractsPageQueryChange={handlePassContractsPageQueryChange}
             documentsPageRows={documentsPageRows} documentsPageMeta={documentsPageMeta} documentsPageLoading={documentsPageLoading} handleDocumentsPageQueryChange={handleDocumentsPageQueryChange}
             auditLogsPageRows={auditLogsPageRows} auditLogsPageMeta={auditLogsPageMeta} auditLogsPageLoading={auditLogsPageLoading} handleAuditLogsPageQueryChange={handleAuditLogsPageQueryChange}
             feedbacksPageRows={feedbacksPageRows} feedbacksPageMeta={feedbacksPageMeta} feedbacksPageLoading={feedbacksPageLoading} handleFeedbacksPageQueryChange={handleFeedbacksPageQueryChange}
@@ -1636,14 +2573,16 @@ const App: React.FC = () => {
               const result = await sendReminderEmail(String(reminderId), { recipient_email: recipientEmail });
               return result;
             }}
-            exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds} exportContractsByCurrentQuery={exportContractsByCurrentQuery}
+            exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds} exportContractsByCurrentQuery={exportContractsByCurrentQuery} exportPassContractsByCurrentQuery={exportPassContractsByCurrentQuery}
             handleCreateSupportServiceGroup={async (d) => { const c = await createSupportServiceGroup(d); setSupportServiceGroups((p) => [c, ...p]); return c; }}
             handleUpdateSupportServiceGroup={async (id, d) => { const u = await updateSupportServiceGroup(id, d); setSupportServiceGroups((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateSupportContactPosition={async (d) => { const c = await createSupportContactPosition(d); setSupportContactPositions((p) => [c, ...p]); return c; }}
             handleCreateProductUnitMaster={async (d) => { const c = await createProductUnitMaster(d); setProductUnitMasters((p) => [c, ...p]); return c; }}
+            handleCreateContractSignerMaster={async (d) => { const c = await createContractSignerMaster(d); setContractSignerMasters((p) => [c, ...p]); return c; }}
             handleCreateSupportContactPositionsBulk={createSupportContactPositionsBulk}
             handleUpdateSupportContactPosition={async (id, d) => { const u = await updateSupportContactPosition(id, d); setSupportContactPositions((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleUpdateProductUnitMaster={async (id, d) => { const u = await updateProductUnitMaster(id, d); setProductUnitMasters((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
+            handleUpdateContractSignerMaster={async (id, d) => { const u = await updateContractSignerMaster(id, d); setContractSignerMasters((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateSupportRequestStatus={async (d) => { const c = await createSupportRequestStatus(d); setSupportRequestStatuses((p) => [c, ...p]); return c; }}
             handleUpdateSupportRequestStatusDefinition={async (id, d) => { const u = await updateSupportRequestStatusDefinition(id, d); setSupportRequestStatuses((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
             handleCreateProjectType={async (d) => { const c = await createProjectType(d); setProjectTypes((p) => [c, ...p]); return c; }}
@@ -1717,10 +2656,14 @@ const App: React.FC = () => {
         {modalType === 'EDIT_FEEDBACK' && <FeedbackFormModal type="EDIT" data={selectedFeedback} isSaving={isSaving || isFeedbackDetailLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedFeedback) { await updateFeedback(selectedFeedback.id, { title: d.title, description: d.description || null, priority: d.priority }); await refreshFeedbacksData(); setModalType(null); } }); }} />}
         {modalType === 'VIEW_FEEDBACK' && <FeedbackViewModal data={selectedFeedback} employees={employees} onClose={() => setModalType(null)} onEdit={() => { if (hasPermission(authUser, 'feedback_requests.write') && selectedFeedback) { setSelectedFeedback(selectedFeedback); setModalType('EDIT_FEEDBACK'); } }} />}
         {modalType === 'DELETE_FEEDBACK' && selectedFeedback && <DeleteFeedbackModal data={selectedFeedback} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteFeedback(selectedFeedback.id); await refreshFeedbacksData(); setModalType(null); }); }} />}
-        {modalType === 'ADD_PRODUCT' && <ProductFormModal type="ADD" data={selectedProduct} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProduct({ ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP), unit: normalizeProductUnitForSave(d.unit) }); await refreshProductsData(); setModalType(null); }); }} />}
-        {modalType === 'EDIT_PRODUCT' && <ProductFormModal type="EDIT" data={selectedProduct} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProduct) { await updateProduct(selectedProduct.id, { ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP), unit: normalizeProductUnitForSave(d.unit) }); await refreshProductsData(); setModalType(null); } }); }} />}
+        {modalType === 'ADD_PRODUCT' && <ProductFormModal type="ADD" data={selectedProduct} businesses={businesses} vendors={vendors} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProduct({ ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP) }); await refreshProductsData(); setModalType(null); }); }} />}
+        {modalType === 'EDIT_PRODUCT' && <ProductFormModal type="EDIT" data={selectedProduct} businesses={businesses} vendors={vendors} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProduct) { await updateProduct(selectedProduct.id, { ...d, service_group: normalizeProductServiceGroup(d.service_group || DEFAULT_PRODUCT_SERVICE_GROUP) }); await refreshProductsData(); setModalType(null); } }); }} />}
         {modalType === 'DELETE_PRODUCT' && selectedProduct && <DeleteProductModal data={selectedProduct} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteProduct(selectedProduct); }} />}
+        {modalType === 'ADD_PRODUCT_PACKAGE' && <ProductPackageFormModal type="ADD" data={selectedProductPackage} products={products} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProductPackage(d); await Promise.all([refreshProductPackagesData(), refreshProductsData()]); setModalType(null); }); }} />}
+        {modalType === 'EDIT_PRODUCT_PACKAGE' && <ProductPackageFormModal type="EDIT" data={selectedProductPackage} products={products} businesses={businesses} vendors={vendors} productUnitMasters={productUnitMasters} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProductPackage) { await updateProductPackage(selectedProductPackage.id, d); await Promise.all([refreshProductPackagesData(), refreshProductsData()]); setModalType(null); } }); }} />}
+        {modalType === 'DELETE_PRODUCT_PACKAGE' && selectedProductPackage && <DeleteProductPackageModal data={selectedProductPackage} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteProductPackage(selectedProductPackage); }} />}
         {modalType === 'CANNOT_DELETE_PRODUCT' && selectedProduct && <CannotDeleteProductModal data={selectedProduct} reason={productDeleteDependencyMessage} onClose={() => setModalType(null)} />}
+        {modalType === 'PRODUCT_PACKAGE_FEATURE_CATALOG' && selectedProductPackage && <ProductPackageFeatureCatalogModal productPackage={selectedProductPackage} canManage={hasPermission(authUser, 'products.write')} onClose={() => setModalType(null)} onNotify={addToast} />}
         {modalType === 'PRODUCT_FEATURE_CATALOG' && selectedProduct && <ProductFeatureCatalogModal product={selectedProduct} canManage={hasPermission(authUser, 'products.write')} onClose={() => setModalType(null)} onNotify={addToast} />}
         {modalType === 'PRODUCT_TARGET_SEGMENT' && selectedProduct && <ProductTargetSegmentModal product={selectedProduct} canManage={hasPermission(authUser, 'products.write')} onClose={() => setModalType(null)} onNotify={addToast} />}
         {modalType === 'ADD_CUSTOMER' && <CustomerFormModal type="ADD" data={selectedCustomer} onClose={() => setModalType(null)} onSave={async (d) => { await handleSaveCustomer(d); }} />}
@@ -1731,11 +2674,10 @@ const App: React.FC = () => {
         {modalType === 'ADD_CUS_PERSONNEL' && <CusPersonnelFormModal type="ADD" data={selectedCusPersonnel} customers={customers} supportContactPositions={supportContactPositions} isCustomersLoading={false} isSupportContactPositionsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { const success = await handleSaveCusPersonnel(d, 'ADD_CUS_PERSONNEL', null); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
         {modalType === 'EDIT_CUS_PERSONNEL' && <CusPersonnelFormModal type="EDIT" data={selectedCusPersonnel} customers={customers} supportContactPositions={supportContactPositions} isCustomersLoading={false} isSupportContactPositionsLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { const success = await handleSaveCusPersonnel(d, 'EDIT_CUS_PERSONNEL', selectedCusPersonnel); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
         {modalType === 'DELETE_CUS_PERSONNEL' && selectedCusPersonnel && <DeleteCusPersonnelModal data={selectedCusPersonnel} onClose={() => setModalType(null)} onConfirm={async () => { const success = await handleDeleteCusPersonnel(selectedCusPersonnel); if (success) { setSelectedCusPersonnel(null); setModalType(null); } }} />}
-        {modalType === 'ADD_PROJECT' && <ProjectFormModal type="ADD" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createProject({ ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setModalType(null); }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
-        {modalType === 'EDIT_PROJECT' && <ProjectFormModal type="EDIT" data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedProject) { const updated = await updateProject(selectedProject.id, { ...d, sync_items: Array.isArray(d.items), sync_raci: Array.isArray(d.raci), items: Array.isArray(d.items) ? d.items.map(i => ({ product_id: Number(i.productId), quantity: Number(i.quantity), unit_price: Number(i.unitPrice) })) as unknown as ProjectItem[] : undefined, raci: Array.isArray(d.raci) ? d.raci.map(r => ({ user_id: Number(r.userId), raci_role: r.roleType ?? r.raci_role })) as unknown as ProjectRACI[] : undefined }); await refreshProjectsData(); setSelectedProject(updated); addToast('success', 'Thành công', 'Cập nhật dự án thành công.'); } }); }} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
-        {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteProject(selectedProject.id); await refreshProjectsData(); setModalType(null); }); }} />}
-        {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={false} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createContract(d); await refreshContractsData(); setModalType(null); }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
-        {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} projects={projects} businesses={businesses} products={products} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={isContractDetailLoading} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedContract) { await updateContract(selectedContract.id, d); await refreshContractsData(); setModalType(null); } }); }} onGenerateSchedules={async (contractId) => { await generateContractPayments(contractId); }} onRefreshSchedules={async (contractId) => { const rows = await fetchPaymentSchedules(contractId); setPaymentSchedules(rows || []); }} onConfirmPayment={async (scheduleId, payload) => { await updatePaymentSchedule(scheduleId, payload); }} />}
+        {(modalType === 'ADD_PROJECT' || modalType === 'EDIT_PROJECT') && <ProjectFormModal type={modalType === 'ADD_PROJECT' ? 'ADD' : 'EDIT'} data={selectedProject} initialTab={projectModalInitialTab} customers={customers} products={products} productPackages={productPackages} projectItems={projectItems} projectTypes={projectTypes} employees={employees} departments={departments} isCustomersLoading={false} isProductsLoading={false} isEmployeesLoading={false} isDepartmentsLoading={false} isProjectTypesLoading={false} onClose={() => setModalType(null)} onSave={modalType === 'ADD_PROJECT' ? handleCreateProjectSave : handleEditProjectSave} onNotify={addToast} onImportProjectItemsBatch={async () => ({ success_projects: [], failed_projects: [] })} onImportProjectRaciBatch={async () => ({ success_projects: [], failed_projects: [] })} onViewProcedure={(project) => { setModalType(null); setProcedureProject(project); }} />}
+        {modalType === 'DELETE_PROJECT' && selectedProject && <DeleteProjectModal data={selectedProject} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteProject(selectedProject); }} />}
+        {modalType === 'ADD_CONTRACT' && <ContractModal type="ADD" data={null} prefill={contractAddPrefill} fixedSourceMode={activeTab === 'contracts' ? 'PROJECT' : activeTab === 'pass_contract' ? 'INITIAL' : null} projects={projects} businesses={businesses} products={products} productPackages={productPackages} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={false} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={handleCreateContractSave} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} onDeletePaymentSchedule={handleDeleteContractPayment} />}
+        {modalType === 'EDIT_CONTRACT' && <ContractModal type="EDIT" data={selectedContract} prefill={null} fixedSourceMode={activeTab === 'contracts' ? 'PROJECT' : activeTab === 'pass_contract' ? 'INITIAL' : null} projects={projects} businesses={businesses} products={products} productPackages={productPackages} projectItems={projectItems} customers={customers} paymentSchedules={paymentSchedules} isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isProjectItemsLoading={false} isDetailLoading={isContractDetailLoading} isPaymentLoading={isPaymentScheduleLoading} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (selectedContract) { await updateContract(selectedContract.id, d); await refreshContractsData(); setModalType(null); } }); }} onGenerateSchedules={handleGenerateContractSchedules} onRefreshSchedules={handleRefreshContractSchedules} onConfirmPayment={handleConfirmContractPayment} onDeletePaymentSchedule={handleDeleteContractPayment} />}
         {modalType === 'DELETE_CONTRACT' && selectedContract && <DeleteContractModal data={selectedContract} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteContract(selectedContract.id); await refreshContractsData(); setModalType(null); }); }} />}
         {procedureProject && <ProjectProcedureModal project={procedureProject} isOpen={true} onClose={() => setProcedureProject(null)} onNotify={addToast} projectTypes={projectTypes} authUser={authUser} />}
         {modalType === 'ADD_DOCUMENT' && <DocumentFormModal type="ADD" data={selectedDocument} customers={customers} projects={projects} products={products} preselectedProduct={null} mode="default" isCustomersLoading={false} isProjectsLoading={false} isProductsLoading={false} isSaving={isSaving} onClose={() => setModalType(null)} onSave={async (d) => { await handleSaveDocument(d, 'ADD_DOCUMENT'); }} />}
@@ -1768,7 +2710,7 @@ const App: React.FC = () => {
         {modalType === 'DELETE_REMINDER' && selectedReminder && <DeleteReminderModal data={selectedReminder} onClose={() => setModalType(null)} onConfirm={async () => { setIsSaving(true); try { await deleteReminder(selectedReminder.id); setReminders((prev) => prev.filter((r) => r.id !== selectedReminder.id)); setModalType(null); } finally { setIsSaving(false); } }} />}
         {modalType === 'ADD_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="ADD" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { await createUserDeptHistory(d); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
         {modalType === 'EDIT_USER_DEPT_HISTORY' && <UserDeptHistoryFormModal type="EDIT" data={selectedUserDeptHistory} employees={employees} departments={departments} onClose={() => setModalType(null)} onSave={async (d) => { await runSavingTask(async () => { if (!selectedUserDeptHistory?.id) return; await updateUserDeptHistory(selectedUserDeptHistory.id, d); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
-        {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { await runSavingTask(async () => { await deleteUserDeptHistory(selectedUserDeptHistory.id); await refreshUserDeptHistoryData(); setModalType(null); }); }} />}
+        {modalType === 'DELETE_USER_DEPT_HISTORY' && selectedUserDeptHistory && <DeleteUserDeptHistoryModal data={selectedUserDeptHistory} onClose={() => setModalType(null)} onConfirm={async () => { await handleDeleteUserDeptHistory(selectedUserDeptHistory); }} />}
       </Suspense>
     </div>
   );

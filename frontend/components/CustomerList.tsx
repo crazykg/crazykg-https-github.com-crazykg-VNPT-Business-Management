@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
+import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import { Customer, CustomerAggregateKpis, ModalType, PaginatedQuery, PaginationMeta } from '../types';
 import { PaginationControls } from './PaginationControls';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
@@ -31,6 +32,7 @@ interface CustomerListProps {
 type CustomerSortDirection = 'asc' | 'desc';
 type CustomerSortKey = keyof Customer;
 type CustomerSortConfig = { key: CustomerSortKey; direction: CustomerSortDirection };
+type CustomerCompactViewMode = 'grid' | 'list';
 type HealthcareBreakdownKey = keyof CustomerAggregateKpis['healthcareBreakdown'];
 type HealthcareFacilityFilterValue =
   | 'PUBLIC_HOSPITAL'
@@ -95,6 +97,38 @@ const HEALTHCARE_BREAKDOWN_FILTER_MAP: Record<HealthcareBreakdownKey, Healthcare
   other: 'OTHER',
 };
 
+const CUSTOMER_VIEW_MODE_OPTIONS: Array<{
+  value: CustomerCompactViewMode;
+  label: string;
+  icon: string;
+}> = [
+  { value: 'grid', label: 'Lưới', icon: 'grid_view' },
+  { value: 'list', label: 'Danh sách', icon: 'view_list' },
+];
+
+const CUSTOMER_VIEW_MODE_KEY = 'customers_view_mode';
+
+const readCustomerViewMode = (): CustomerCompactViewMode => {
+  if (typeof window === 'undefined' || typeof window.localStorage?.getItem !== 'function') {
+    return 'grid';
+  }
+
+  const storedValue = window.localStorage.getItem(CUSTOMER_VIEW_MODE_KEY);
+  return storedValue === 'list' ? 'list' : 'grid';
+};
+
+const persistCustomerViewMode = (value: CustomerCompactViewMode): void => {
+  if (typeof window === 'undefined' || typeof window.localStorage?.setItem !== 'function') {
+    return;
+  }
+
+  window.localStorage.setItem(CUSTOMER_VIEW_MODE_KEY, value);
+};
+
+const isCompactKpiViewport = (): boolean => (
+  typeof window !== 'undefined' ? window.innerWidth < 768 : false
+);
+
 export const CustomerList: React.FC<CustomerListProps> = ({
   customers = [],
   onOpenModal,
@@ -116,13 +150,35 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [compactViewMode, setCompactViewMode] = useState<CustomerCompactViewMode>(readCustomerViewMode);
   const [showHealthcareBreakdown, setShowHealthcareBreakdown] = useState(false);
+  const [kpiCollapsed, setKpiCollapsed] = useState(isCompactKpiViewport);
   const [selectedHealthcareFacilityType, setSelectedHealthcareFacilityType] = useState<HealthcareFacilityFilterValue | null>(null);
 
   useEscKey(() => {
     setShowImportMenu(false);
     setShowExportMenu(false);
   }, showImportMenu || showExportMenu);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+
+  useModuleShortcuts({
+    onNew: () => onOpenModal('ADD_CUSTOMER'),
+    onUpdate: () => {
+      if (selectedRowId) {
+        const item = (customers ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('EDIT_CUSTOMER', item);
+      }
+    },
+    onDelete: () => {
+      if (selectedRowId) {
+        const item = (customers ?? []).find((c) => String(c.id) === String(selectedRowId));
+        if (item) onOpenModal('DELETE_CUSTOMER', item);
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+  });
 
   const showActionColumn = canEdit || canDelete;
   const hasActiveFilters = searchTerm.trim() !== '' || selectedCustomerSectors.length > 0 || selectedHealthcareFacilityType !== null;
@@ -490,11 +546,11 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
 
     return (
-      <div className={`flex ${className} gap-1`}>
+      <div className={`flex ${className} gap-0.5`}>
         {canEdit ? (
           <button
             onClick={() => onOpenModal('EDIT_CUSTOMER', item)}
-            className="rounded p-1 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
             title="Chỉnh sửa"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
@@ -503,7 +559,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         {canDelete ? (
           <button
             onClick={() => onOpenModal('DELETE_CUSTOMER', item)}
-            className="rounded p-1 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
             title="Xóa"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
@@ -516,7 +572,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const renderDetailButton = (item: Customer, iconOnly = false) => (
     <button
       onClick={() => onOpenModal('CUSTOMER_INSIGHT', item)}
-      className={`rounded text-slate-400 transition-colors hover:bg-secondary/10 hover:text-secondary ${iconOnly ? 'p-1' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold'}`}
+      className={`rounded text-slate-400 transition-colors hover:bg-secondary/10 hover:text-secondary ${iconOnly ? 'p-0.5' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold'}`}
       title="Xem chi tiết khách hàng 360"
     >
       <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_search</span>
@@ -568,6 +624,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       )?.label || 'Khác'
     )
     : null;
+  const isGridView = compactViewMode === 'grid';
 
   return (
     <div className="p-3 pb-6 space-y-3">
@@ -649,6 +706,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           {canEdit ? (
             <button
               onClick={() => onOpenModal('ADD_CUSTOMER')}
+              title="Thêm khách hàng (Ctrl+N / ⌘N)"
               className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
@@ -659,117 +717,134 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {/* Tổng số */}
-        <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold opacity-80">Tổng số khách hàng</span>
-            <div className="w-7 h-7 rounded bg-white/15 flex items-center justify-center">
-              <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>groups</span>
-            </div>
-          </div>
-          <p className="text-xl font-black leading-tight">{effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] opacity-70 mt-0.5">Tổng quy mô được hệ thống theo dõi</p>
-        </div>
-
-        {/* Y tế — clickable */}
-        <button
-          type="button"
-          aria-expanded={showHealthcareBreakdown}
-          onClick={() => {
-            if (effectiveAggregateKpis.healthcareCustomers === 0) return;
-            setShowHealthcareBreakdown((prev) => !prev);
-          }}
-          className={`rounded-lg p-3 text-left shadow-sm transition ${
-            effectiveAggregateKpis.healthcareCustomers > 0
-              ? showHealthcareBreakdown
-                ? 'border border-secondary/30 bg-secondary/10'
-                : 'border border-slate-200 bg-white hover:border-secondary/30 hover:bg-secondary/5'
-              : 'border border-slate-200 bg-white'
-          }`}
+      <div className={kpiCollapsed ? 'hidden' : 'block'}>
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Khách hàng Y tế</span>
-            <div className="flex items-center gap-1">
-              <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>local_hospital</span>
+          {/* Tổng số */}
+          <div className="rounded-lg border border-primary/20 bg-primary p-3 text-white shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold opacity-80">Tổng số khách hàng</span>
+              <div className="w-7 h-7 rounded bg-white/15 flex items-center justify-center">
+                <span className="material-symbols-outlined text-white" style={{ fontSize: 15 }}>groups</span>
               </div>
-              {effectiveAggregateKpis.healthcareCustomers > 0 ? (
-                <span
-                  className="material-symbols-outlined text-slate-400 transition-transform duration-200"
-                  style={{ fontSize: 16, transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            </div>
+            <p className="text-xl font-black leading-tight">{effectiveAggregateKpis.totalCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] opacity-70 mt-0.5">Tổng quy mô được hệ thống theo dõi</p>
+          </div>
+
+          {/* Y tế — clickable */}
+          <button
+            type="button"
+            aria-expanded={showHealthcareBreakdown}
+            onClick={() => {
+              if (effectiveAggregateKpis.healthcareCustomers === 0) return;
+              setShowHealthcareBreakdown((prev) => !prev);
+            }}
+            className={`rounded-lg p-3 text-left shadow-sm transition ${
+              effectiveAggregateKpis.healthcareCustomers > 0
+                ? showHealthcareBreakdown
+                  ? 'border border-secondary/30 bg-secondary/10'
+                  : 'border border-slate-200 bg-white hover:border-secondary/30 hover:bg-secondary/5'
+                : 'border border-slate-200 bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Khách hàng Y tế</span>
+              <div className="flex items-center gap-1">
+                <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>local_hospital</span>
+                </div>
+                {effectiveAggregateKpis.healthcareCustomers > 0 ? (
+                  <span
+                    className="material-symbols-outlined text-slate-400 transition-transform duration-200"
+                    style={{ fontSize: 16, transform: showHealthcareBreakdown ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                  >
+                    expand_more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {effectiveAggregateKpis.healthcareCustomers > 0 ? 'Nhấn để xem cơ cấu cơ sở y tế' : 'Chưa có dữ liệu y tế'}
+            </p>
+          </button>
+
+          {/* Chính quyền */}
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Chính quyền</span>
+              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>account_balance</span>
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Cơ quan, đơn vị hành chính</p>
+          </div>
+
+          {/* Cá nhân */}
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-neutral">Cá nhân</span>
+              <div className="w-7 h-7 rounded bg-emerald-100 flex items-center justify-center">
+                <span className="material-symbols-outlined text-emerald-700" style={{ fontSize: 15 }}>person</span>
+              </div>
+            </div>
+            <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng cá nhân và mua lẻ</p>
+          </div>
+        </div>
+
+        {/* ── Healthcare breakdown ── */}
+        {showHealthcareBreakdown ? (
+          <section className="rounded-lg border border-secondary/20 bg-secondary/5 p-3 mt-3" data-testid="customer-healthcare-kpi-breakdown">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
+              <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
+            </div>
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+            >
+              {healthcareBreakdownItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]}
+                  onClick={() => handleHealthcareBreakdownFilterToggle(item.key)}
+                  className={`rounded border p-2.5 text-left transition ${
+                    selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]
+                      ? `${item.accentClassName} ring-2 ring-offset-1 ring-primary/30 shadow-sm`
+                      : `${item.accentClassName} hover:-translate-y-0.5 hover:shadow-sm`
+                  }`}
                 >
-                  expand_more
-                </span>
-              ) : null}
+                  <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
+                  <p className="mt-1.5 text-xl font-black text-deep-teal">
+                    {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
+                  </p>
+                </button>
+              ))}
             </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.healthcareCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            {effectiveAggregateKpis.healthcareCustomers > 0 ? 'Nhấn để xem cơ cấu cơ sở y tế' : 'Chưa có dữ liệu y tế'}
-          </p>
-        </button>
-
-        {/* Chính quyền */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Chính quyền</span>
-            <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>account_balance</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.governmentCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Cơ quan, đơn vị hành chính</p>
-        </div>
-
-        {/* Cá nhân */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-neutral">Cá nhân</span>
-            <div className="w-7 h-7 rounded bg-emerald-100 flex items-center justify-center">
-              <span className="material-symbols-outlined text-emerald-700" style={{ fontSize: 15 }}>person</span>
-            </div>
-          </div>
-          <p className="text-xl font-black text-deep-teal leading-tight">{effectiveAggregateKpis.individualCustomers.toLocaleString('vi-VN')}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng cá nhân và mua lẻ</p>
-        </div>
+          </section>
+        ) : null}
       </div>
-
-      {/* ── Healthcare breakdown ── */}
-      {showHealthcareBreakdown ? (
-        <section className="rounded-lg border border-secondary/20 bg-secondary/5 p-3" data-testid="customer-healthcare-kpi-breakdown">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-bold text-slate-700">Chi tiết loại hình Y tế</span>
-            <span className="text-[11px] text-slate-400">— phân rã theo loại cơ sở</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-            {healthcareBreakdownItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]}
-                onClick={() => handleHealthcareBreakdownFilterToggle(item.key)}
-                className={`rounded border p-2.5 text-left transition ${
-                  selectedHealthcareFacilityType === HEALTHCARE_BREAKDOWN_FILTER_MAP[item.key]
-                    ? `${item.accentClassName} ring-2 ring-offset-1 ring-primary/30 shadow-sm`
-                    : `${item.accentClassName} hover:-translate-y-0.5 hover:shadow-sm`
-                }`}
-              >
-                <p className="text-[10px] font-bold uppercase tracking-wider">{item.label}</p>
-                <p className="mt-1.5 text-xl font-black text-deep-teal">
-                  {effectiveAggregateKpis.healthcareBreakdown[item.key].toLocaleString('vi-VN')}
-                </p>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <button
+        onClick={() => setKpiCollapsed(prev => !prev)}
+        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors mt-1"
+      >
+        <span className="material-symbols-outlined text-sm">
+          {kpiCollapsed ? 'expand_more' : 'expand_less'}
+        </span>
+        {kpiCollapsed ? 'Hiện phân tích' : 'Ẩn phân tích'}
+      </button>
 
       {/* ── Table section ── */}
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         {/* Filter bar */}
         <div className="border-b border-slate-200 bg-white p-3">
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-[240px,minmax(280px,1fr),180px,auto] xl:items-center">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-[220px,minmax(260px,1fr),180px,auto] 2xl:items-center">
             <SearchableMultiSelect
               values={selectedCustomerSectors}
               options={customerSectorFilterOptions}
@@ -784,6 +859,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             <div className="relative w-full min-w-0">
               <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
@@ -792,7 +868,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               />
             </div>
 
-            <div className="relative lg:hidden w-full">
+            <div className="relative w-full">
               <label htmlFor="customer-list-sort" className="sr-only">Sắp xếp danh sách khách hàng</label>
               <select
                 id="customer-list-sort"
@@ -807,7 +883,38 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>swap_vert</span>
             </div>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div
+                className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5"
+                role="group"
+                aria-label="Chế độ hiển thị khách hàng"
+                data-testid="customer-view-mode-toggle"
+              >
+                {CUSTOMER_VIEW_MODE_OPTIONS.map((option) => {
+                  const isActive = compactViewMode === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setCompactViewMode(option.value);
+                        persistCustomerViewMode(option.value);
+                      }}
+                      aria-pressed={isActive}
+                      data-testid={`customer-view-mode-${option.value}`}
+                      className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? 'bg-white text-primary shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{option.icon}</span>
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
               {hasActiveFilters ? (
                 <button
                   onClick={resetFilters}
@@ -849,117 +956,137 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           <div className="px-3 py-8 text-center text-xs text-slate-500">Đang tải dữ liệu...</div>
         ) : currentData.length > 0 ? (
           <>
-            {/* Responsive cards (mobile) */}
-            <div data-testid="customer-responsive-list" className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:hidden">
-              {currentData.map((item) => (
-                <article key={`customer-card-${String(item.id)}`} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã khách hàng</p>
-                      <div className="mt-1">{renderCustomerCode(item, true)}</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {renderDetailButton(item, true)}
-                      {renderActionButtons(item)}
-                    </div>
-                  </div>
+            <div
+              data-testid="customer-grid-view"
+              className={isGridView ? 'block' : 'hidden'}
+            >
+              <div
+                data-testid="customer-responsive-list"
+                className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2"
+              >
+                {currentData.map((item) => (
+                  <article
+                    key={`customer-card-${String(item.id)}`}
+                    onClick={() => setSelectedRowId((prev) => (String(prev) === String(item.id) ? null : item.id))}
+                    className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition-colors ${
+                      String(selectedRowId) === String(item.id)
+                        ? 'border-primary/40 ring-1 ring-primary/30 bg-secondary/10'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1 space-y-2.5">
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã khách hàng</p>
+                          <div className="min-w-0 flex-1">{renderCustomerCode(item, true)}</div>
+                        </div>
 
-                  <div className="mt-2.5 space-y-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên khách hàng</p>
-                      <p className="mt-0.5 break-words text-xs font-bold leading-5 text-slate-900">{item.customer_name}</p>
-                    </div>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Tên khách hàng</p>
+                          <p className="min-w-0 flex-1 break-words text-sm font-bold leading-6 text-slate-900">{item.customer_name}</p>
+                        </div>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhóm</p>
-                        <div className="mt-0.5">{renderCustomerGroup(item, true)}</div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã số thuế</p>
-                        <p className="mt-0.5 font-mono text-xs font-medium text-slate-700">{item.tax_code || '--'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
-                        <p className="mt-0.5 text-xs font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
-                      </div>
-                    </div>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Nhóm</p>
+                          <div className="min-w-0 flex-1">{renderCustomerGroup(item, true)}</div>
+                        </div>
 
-                    <div className="rounded border border-slate-100 bg-slate-50 p-2">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Địa chỉ</p>
-                      <p className="mt-0.5 break-words text-xs leading-5 text-slate-600">{item.address || '--'}</p>
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mã số thuế</p>
+                          <p className="min-w-0 flex-1 font-mono text-xs font-medium text-slate-700">{item.tax_code || '--'}</p>
+                        </div>
+
+                        <div className="flex items-start gap-3 border-b border-slate-100 pb-2">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày tạo</p>
+                          <p className="min-w-0 flex-1 text-xs font-medium text-slate-700">{formatDateDdMmYyyy(item.created_at)}</p>
+                        </div>
+
+                        <div className="flex items-start gap-3">
+                          <p className="w-28 shrink-0 pt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Địa chỉ</p>
+                          <p className="min-w-0 flex-1 break-words text-xs leading-5 text-slate-600">{item.address || '--'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                        {renderDetailButton(item, true)}
+                        {renderActionButtons(item)}
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))}
+              </div>
             </div>
 
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto lg:block">
-              <table
-                data-testid="customer-desktop-table"
-                className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1200px]' : 'min-w-[1100px]'}`}
-              >
-                <thead className="border-y border-slate-200 bg-slate-50/90">
-                  <tr>
-                    {[
-                      { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[160px] min-w-[160px]' },
-                      { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[280px] min-w-[280px]' },
-                      { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[200px] min-w-[200px]' },
-                      { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[160px] min-w-[160px]' },
-                      { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[260px] min-w-[260px]' },
-                      { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[130px] min-w-[130px]' },
-                    ].map((col) => (
-                      <th
-                        key={col.key}
-                        className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
-                        onClick={() => handleSort(col.key as keyof Customer)}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className="text-deep-teal">{col.label}</span>
-                          {renderSortIcon(col.key as keyof Customer)}
-                        </div>
-                      </th>
-                    ))}
-                    {showActionColumn ? (
-                      <th className="sticky right-[60px] w-[90px] min-w-[90px] bg-slate-50/95 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                        Thao tác
-                      </th>
-                    ) : null}
-                    <th className="sticky right-0 w-[60px] min-w-[60px] bg-slate-50/95 px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                      360
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {currentData.map((item) => (
-                    <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
-                      <td className="px-3 py-2 align-middle text-xs font-mono font-bold text-slate-500">
-                        {renderCustomerCode(item)}
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
-                        <div className="max-w-[248px] whitespace-normal break-words leading-5">{item.customer_name}</div>
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600">
-                        {renderCustomerGroup(item)}
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
-                        <div className="max-w-[230px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
-                      </td>
-                      <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+            <div
+              data-testid="customer-list-view"
+              className={isGridView ? 'hidden' : 'block'}
+            >
+              <div className="overflow-x-auto" data-testid="customer-list-table-wrapper">
+                <table
+                  data-testid="customer-desktop-table"
+                  className={`w-full table-fixed border-collapse text-left ${showActionColumn ? 'min-w-[1160px]' : 'min-w-[1080px]'}`}
+                >
+                  <thead className="border-y border-slate-200 bg-slate-50/90">
+                    <tr>
+                      {[
+                        { label: 'Mã khách hàng', key: 'customer_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                        { label: 'Tên khách hàng', key: 'customer_name', widthClassName: 'w-[240px] min-w-[240px]' },
+                        { label: 'Nhóm khách hàng', key: 'customer_sector', widthClassName: 'w-[180px] min-w-[180px]' },
+                        { label: 'Mã số thuế', key: 'tax_code', widthClassName: 'w-[136px] min-w-[136px]' },
+                        { label: 'Địa chỉ', key: 'address', widthClassName: 'w-[220px] min-w-[220px]' },
+                        { label: 'Ngày tạo', key: 'created_at', widthClassName: 'w-[104px] min-w-[104px]' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${col.widthClassName}`}
+                          onClick={() => handleSort(col.key as keyof Customer)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="text-deep-teal">{col.label}</span>
+                            {renderSortIcon(col.key as keyof Customer)}
+                          </div>
+                        </th>
+                      ))}
                       {showActionColumn ? (
-                        <td className="sticky right-[60px] bg-white px-3 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                          {renderActionButtons(item)}
-                        </td>
+                        <th className="sticky right-[48px] w-[72px] min-w-[72px] bg-slate-50/95 px-2.5 py-2 text-right text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                          Thao tác
+                        </th>
                       ) : null}
-                      <td className="sticky right-0 bg-white px-3 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
-                        {renderDetailButton(item, true)}
-                      </td>
+                      <th className="sticky right-0 w-[48px] min-w-[48px] bg-slate-50/95 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                        360
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {currentData.map((item) => (
+                      <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/70">
+                        <td className="px-3 py-2 align-middle text-xs font-mono font-bold text-slate-500">
+                          {renderCustomerCode(item)}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-900">
+                          <div className="max-w-[212px] whitespace-normal break-words leading-5">{item.customer_name}</div>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600">
+                          {renderCustomerGroup(item)}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600">{item.tax_code || '--'}</td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600" title={item.address || ''}>
+                          <div className="max-w-[190px] whitespace-normal break-words leading-5">{item.address || '--'}</div>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatDateDdMmYyyy(item.created_at)}</td>
+                        {showActionColumn ? (
+                          <td className="sticky right-[48px] bg-white px-2.5 py-2 text-right align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                            {renderActionButtons(item)}
+                          </td>
+                        ) : null}
+                        <td className="sticky right-0 bg-white px-2.5 py-2 text-center align-middle shadow-[-8px_0_12px_-10px_rgba(15,23,42,0.2)]">
+                          {renderDetailButton(item, true)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         ) : (

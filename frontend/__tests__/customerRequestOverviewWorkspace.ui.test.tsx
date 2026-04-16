@@ -64,7 +64,7 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     expect(onOpenRequest).toHaveBeenCalledWith(7, 'new_intake');
-    expect(screen.getByText('Xem chi tiết')).toBeInTheDocument();
+    expect(screen.getAllByText('Xem chi tiết')).toHaveLength(2);
     expect(screen.getByText('Phụ trách')).toBeInTheDocument();
     expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
     expect(screen.getByText('Giờ')).toBeInTheDocument();

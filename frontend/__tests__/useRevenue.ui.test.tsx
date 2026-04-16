@@ -1,5 +1,5 @@
 import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -92,6 +92,50 @@ describe('useRevenue', () => {
       dept_id: 5,
     });
     expect(result.current.data?.meta.fee_collection_available).toBe(true);
+  });
+
+  it('does not refetch revenue overview when window focus returns', async () => {
+    vi.mocked(fetchRevenueOverview).mockResolvedValue({
+      meta: {
+        fee_collection_available: true,
+        data_sources: ['contracts'],
+      },
+      data: {
+        kpis: {
+          target_amount: 1_000_000,
+          actual_collected: 500_000,
+          outstanding: 500_000,
+          overdue_amount: 100_000,
+          overdue_count: 1,
+          collection_rate: 50,
+          achievement_pct: 50,
+          growth_pct: 10,
+        },
+        by_period: [],
+        by_source: [],
+        alerts: [],
+      },
+    } as never);
+
+    const { wrapper } = createWrapper();
+    renderHook(
+      () => useRevenueOverview({
+        period_from: '2026-03-01',
+        period_to: '2026-03-31',
+        grouping: 'month',
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(fetchRevenueOverview).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      await Promise.resolve();
+    });
+
+    expect(fetchRevenueOverview).toHaveBeenCalledTimes(1);
   });
 
   it('aggregates revenue targets across multiple years', async () => {

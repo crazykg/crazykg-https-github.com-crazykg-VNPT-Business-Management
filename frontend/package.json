@@ -23,6 +23,7 @@
     "@tanstack/react-query-devtools": "^5.95.2",
     "@tanstack/react-virtual": "^3.13.23",
     "dotenv": "^17.3.1",
+    "exceljs": "^4.4.0",
     "laravel-echo": "^2.3.1",
     "lucide-react": "^0.575.0",
     "motion": "^12.34.3",

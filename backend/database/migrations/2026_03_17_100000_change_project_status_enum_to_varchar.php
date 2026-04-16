@@ -18,6 +18,27 @@ return new class extends Migration
             return;
         }
 
+        if (DB::getDriverName() === 'sqlite') {
+            if (Schema::hasColumn('projects', 'investment_mode')) {
+                DB::statement("
+                    UPDATE `projects`
+                    SET `status` = CASE
+                        WHEN `investment_mode` = 'THUE_DICH_VU_DACTHU' THEN 'CHUAN_BI_KH_THUE'
+                        ELSE 'CHUAN_BI'
+                    END
+                    WHERE `status` IN ('TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED')
+                ");
+            } else {
+                DB::statement("
+                    UPDATE `projects`
+                    SET `status` = 'CHUAN_BI'
+                    WHERE `status` IN ('TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED')
+                ");
+            }
+
+            return;
+        }
+
         // B1: Đổi cột từ ENUM sang VARCHAR(100) để nhận phase codes tùy ý
         DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` VARCHAR(100) NOT NULL DEFAULT 'CHUAN_BI'");
 
@@ -44,6 +65,10 @@ return new class extends Migration
             SET `status` = 'TRIAL'
             WHERE `status` NOT IN ('TRIAL', 'ONGOING', 'WARRANTY', 'COMPLETED', 'CANCELLED')
         ");
+
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
 
         // Đổi lại ENUM
         DB::statement("ALTER TABLE `projects` MODIFY COLUMN `status` ENUM('TRIAL','ONGOING','WARRANTY','COMPLETED','CANCELLED') NOT NULL DEFAULT 'TRIAL'");

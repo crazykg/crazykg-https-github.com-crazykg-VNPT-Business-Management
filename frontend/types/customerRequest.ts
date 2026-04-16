@@ -318,6 +318,11 @@ export interface YeuCau {
   current_status_code?: string | null;
   current_status_name_vi?: string | null;
   current_status_instance_id?: string | number | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
+  current_owner_user_id?: string | number | null;
+  current_owner_name?: string | null;
+  current_owner_field?: string | null;
   dispatch_route?: string | null;
   dispatched_at?: string | null;
   performer_accepted_at?: string | null;
@@ -326,11 +331,6 @@ export interface YeuCau {
   receiver_username?: string | null;
   receiver_code?: string | null;
   performer_id?: string | number | null;
-  nguoi_xu_ly_id?: string | number | null;
-  nguoi_xu_ly_name?: string | null;
-  current_owner_user_id?: string | number | null;
-  current_owner_name?: string | null;
-  current_owner_field?: string | null;
   process_row?: YeuCauProcessRow | null;
   status_row?: YeuCauProcessRow | null;
 }
@@ -340,17 +340,27 @@ export type CRCStatusCode =
   | 'assigned_to_dispatcher'
   | 'dispatched'
   | 'assigned_to_performer'
+  | 'assigned_to_receiver'
   | 'in_progress'
   | 'completed'
+  | 'waiting_notification'
   | 'customer_notified'
+  | 'closed'
   | 'not_executed'
   | 'waiting_customer_feedback'
   | 'analysis'
+  | 'analysis_completed'
+  | 'analysis_suspended'
   | 'returned_to_dispatcher'
   | 'returned_to_manager'
   | 'pending_dispatch'
   | 'coding'
-  | 'dms_transfer';
+  | 'coding_in_progress'
+  | 'coding_suspended'
+  | 'dms_transfer'
+  | 'dms_task_created'
+  | 'dms_in_progress'
+  | 'dms_suspended';
 
 export type CodingPhase = 'coding' | 'coding_done' | 'upcode_pending' | 'upcode_deployed' | 'suspended';
 export type DmsPhase = 'exchange' | 'task_created' | 'in_progress' | 'completed' | 'suspended';
@@ -382,6 +392,10 @@ export interface YeuCauTimelineEntry {
   nguoi_thay_doi_id?: string | number | null;
   nguoi_thay_doi_name?: string | null;
   nguoi_thay_doi_code?: string | null;
+  nguoi_chuyen_id?: string | number | null;
+  nguoi_chuyen_name?: string | null;
+  nguoi_xu_ly_id?: string | number | null;
+  nguoi_xu_ly_name?: string | null;
   ly_do?: string | null;
   decision_context_code?: string | null;
   decision_outcome_code?: string | null;
@@ -401,12 +415,20 @@ export interface YeuCauProcessRow {
 export interface YeuCauRefTaskRow {
   id?: string | number | null;
   ref_task_id?: string | number | null;
+  request_code?: string | null;
   task_code?: string | null;
   task_link?: string | null;
   task_source?: string | null;
   task_status?: string | null;
   task_note?: string | null;
   sort_order?: number | null;
+}
+
+export interface YeuCauTag {
+  id: number;
+  name: string;
+  color: string;
+  usage_count?: number;
 }
 
 export interface YeuCauEstimate {
@@ -477,6 +499,7 @@ export interface YeuCauWorklog {
   request_case_id?: number | null;
   status_instance_id?: number | null;
   status_code?: string | null;
+  status_name_vi?: string | null;
   performed_by_user_id?: number | null;
   performed_by_name?: string | null;
   performed_by_code?: string | null;
@@ -488,6 +511,10 @@ export interface YeuCauWorklog {
   transition_id?: number | null;
   work_started_at?: string | null;
   work_ended_at?: string | null;
+  difficulty_note?: string | null;
+  proposal_note?: string | null;
+  difficulty_status?: 'none' | 'has_issue' | 'resolved' | string | null;
+  detail_status_action?: 'in_progress' | 'paused' | string | null;
   hours_spent?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -609,6 +636,9 @@ export interface YeuCauProcessDetail {
   process: YeuCauProcessMeta;
   process_row?: YeuCauProcessRow | null;
   status_row?: YeuCauProcessRow | null;
+  current_detail_status?: 'open' | 'in_progress' | 'paused' | 'completed' | string | null;
+  can_transition_main_status?: boolean;
+  can_transition_from_detail_status?: boolean;
   allowed_next_processes: YeuCauProcessMeta[];
   allowed_previous_processes?: YeuCauProcessMeta[];
   transition_allowed: boolean;
@@ -619,6 +649,7 @@ export interface YeuCauProcessDetail {
   hours_report?: YeuCauHoursReport | null;
   attachments?: Attachment[];
   ref_tasks?: YeuCauRefTaskRow[];
+  tags?: YeuCauTag[];
   worklogs?: YeuCauWorklog[];
 }
 

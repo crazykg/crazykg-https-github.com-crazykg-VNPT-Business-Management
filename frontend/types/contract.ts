@@ -45,6 +45,8 @@ export interface ContractItem {
   id: string | number;
   contract_id: string | number;
   product_id: string | number;
+  product_package_id?: string | number | null;
+  productPackageId?: string | number | null;
   product_code?: string | null;
   product_name?: string | null;
   unit?: string | null;
@@ -87,12 +89,17 @@ export interface Contract {
   expiry_date_manual_override?: boolean;
   term_unit?: ContractTermUnit | null;
   term_value?: number | null;
+  attachments?: Attachment[];
   items?: ContractItem[];
   parent_contract_id?: string | number | null;
   addendum_type?: AddendumType | null;
   gap_days?: number | null;
   continuity_status?: ContinuityStatus | null;
   penalty_rate?: number | null;
+  payment_schedule_count?: number;
+  has_generated_payment_schedules?: boolean;
+  can_edit_schedule_source_fields?: boolean;
+  can_delete_unpaid_schedules?: boolean;
   parent_contract?: {
     id: number;
     contract_code: string;

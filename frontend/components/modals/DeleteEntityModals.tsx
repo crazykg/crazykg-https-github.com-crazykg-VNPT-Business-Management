@@ -8,10 +8,12 @@ import type {
   Employee,
   FeedbackRequest,
   Product,
+  ProductPackage,
   Project,
   Reminder,
   UserDeptHistory,
 } from '../../types';
+import { getUserDeptHistoryTransferTypeLabel, normalizeUserDeptHistoryTransferType } from '../../utils/userDeptHistoryTransferType';
 import { DeleteConfirmModal } from './shared';
 
 const normalizeTransferCode = (value: unknown): string => {
@@ -44,6 +46,15 @@ export const DeleteEmployeeModal: React.FC<{ data: Employee; onClose: () => void
 
 export const DeleteProductModal: React.FC<{ data: Product; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal title="Xóa sản phẩm" message={<p>Xóa sản phẩm <span className="font-bold">"{data.product_name}"</span>?</p>} onClose={onClose} onConfirm={onConfirm} />
+);
+
+export const DeleteProductPackageModal: React.FC<{ data: ProductPackage; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
+  <DeleteConfirmModal
+    title="Xóa gói cước sản phẩm"
+    message={<p>Xóa gói cước <span className="font-bold">"{data.package_name}"</span>?</p>}
+    onClose={onClose}
+    onConfirm={onConfirm}
+  />
 );
 
 export const DeleteCustomerModal: React.FC<{ data: Customer; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
@@ -97,7 +108,7 @@ export const DeleteReminderModal: React.FC<{ data: Reminder; onClose: () => void
 
 export const DeleteUserDeptHistoryModal: React.FC<{ data: UserDeptHistory; onClose: () => void; onConfirm: () => void }> = ({ data, onClose, onConfirm }) => (
   <DeleteConfirmModal
-    title="Xóa lịch sử luân chuyển"
+    title={`Xóa ${getUserDeptHistoryTransferTypeLabel(normalizeUserDeptHistoryTransferType(data.transferType))}`}
     message={<p>Bạn có chắc chắn muốn xóa bản ghi <span className="font-bold text-slate-900">"{normalizeTransferCode(data.id)}"</span>?</p>}
     onClose={onClose}
     onConfirm={onConfirm}

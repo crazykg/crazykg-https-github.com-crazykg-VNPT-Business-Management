@@ -120,6 +120,77 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(0, DB::table('project_procedure_steps')->where('id', $templateStepId)->count());
     }
 
+    public function test_project_procedures_allows_cross_department_project_raci_members_without_legacy_table(): void
+    {
+        $member = $this->createUser([
+            'id' => 16,
+            'department_id' => 20,
+        ]);
+
+        Schema::create('raci_assignments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('entity_type', 50);
+            $table->unsignedBigInteger('entity_id');
+            $table->unsignedBigInteger('user_id');
+            $table->string('raci_role', 5);
+            $table->timestamps();
+        });
+
+        DB::table('raci_assignments')->insert([
+            'id' => 1,
+            'entity_type' => 'project',
+            'entity_id' => 100,
+            'user_id' => $member->id,
+            'raci_role' => 'R',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->projectProcedures(
+            100,
+            $this->makeRequest('GET', [], $member),
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->getData(true)['data'] ?? null);
+    }
+
+    public function test_project_procedures_allows_child_department_users_of_project_owner_department(): void
+    {
+        $member = $this->createUser([
+            'id' => 17,
+            'department_id' => 2,
+        ]);
+
+        Schema::create('departments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('parent_id')->nullable();
+        });
+
+        DB::table('departments')->insert([
+            ['id' => 1, 'parent_id' => null],
+            ['id' => 2, 'parent_id' => 1],
+        ]);
+
+        DB::table('projects')
+            ->where('id', 100)
+            ->update(['department_id' => 1]);
+
+        DB::table('user_dept_scopes')->insert([
+            'user_id' => $member->id,
+            'dept_id' => 2,
+            'scope_type' => 'DEPT_ONLY',
+        ]);
+
+        $response = $this->controller()->projectProcedures(
+            100,
+            $this->makeRequest('GET', [], $member),
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->getData(true)['data'] ?? null);
+    }
+
     public function test_admin_cannot_delete_step_that_still_has_children(): void
     {
         $admin = $this->createUser([
@@ -419,6 +490,149 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $newAccountable->id,
             DB::table('project_procedure_step_raci')->where('step_id', $stepId)->where('raci_role', 'A')->value('user_id')
         );
+    }
+
+    public function test_add_procedure_raci_replaces_existing_accountable_assignment_and_keeps_other_roles(): void
+    {
+        $actor = $this->createUser([
+            'id' => 14,
+            'department_id' => 10,
+        ]);
+        $oldAccountable = $this->createUser([
+            'id' => 15,
+            'department_id' => 10,
+            'full_name' => 'Old Procedure A',
+        ]);
+        $newAccountable = $this->createUser([
+            'id' => 18,
+            'department_id' => 10,
+            'full_name' => 'New Procedure A',
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 311);
+        $stepId = $this->createStep([
+            'id' => 1311,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước giữ step RACI',
+        ]);
+
+        DB::table('project_procedure_raci')->insert([
+            [
+                'procedure_id' => $procedureId,
+                'user_id' => $oldAccountable->id,
+                'raci_role' => 'A',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'procedure_id' => $procedureId,
+                'user_id' => $oldAccountable->id,
+                'raci_role' => 'R',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'procedure_id' => $procedureId,
+                'user_id' => $newAccountable->id,
+                'raci_role' => 'R',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('project_procedure_step_raci')->insert([
+            'step_id' => $stepId,
+            'user_id' => $oldAccountable->id,
+            'raci_role' => 'R',
+            'created_by' => $actor->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->addRaci(
+            $this->makeRequest('POST', [
+                'user_id' => $newAccountable->id,
+                'raci_role' => 'A',
+            ], $actor),
+            $procedureId,
+        );
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame(1, DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('raci_role', 'A')->count());
+        $this->assertSame(
+            $newAccountable->id,
+            DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('raci_role', 'A')->value('user_id')
+        );
+        $this->assertSame(1, DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('user_id', $oldAccountable->id)->where('raci_role', 'R')->count());
+        $this->assertSame(1, DB::table('project_procedure_step_raci')->where('step_id', $stepId)->where('user_id', $oldAccountable->id)->where('raci_role', 'R')->count());
+    }
+
+    public function test_add_procedure_raci_removes_orphaned_step_raci_for_displaced_accountable(): void
+    {
+        $actor = $this->createUser([
+            'id' => 19,
+            'department_id' => 10,
+        ]);
+        $oldAccountable = $this->createUser([
+            'id' => 20,
+            'department_id' => 10,
+            'full_name' => 'Orphan Procedure A',
+        ]);
+        $newAccountable = $this->createUser([
+            'id' => 25,
+            'department_id' => 10,
+            'full_name' => 'Replacement Procedure A',
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 312);
+        $stepId = $this->createStep([
+            'id' => 1312,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước xóa step RACI mồ côi',
+        ]);
+
+        DB::table('project_procedure_raci')->insert([
+            [
+                'procedure_id' => $procedureId,
+                'user_id' => $oldAccountable->id,
+                'raci_role' => 'A',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'procedure_id' => $procedureId,
+                'user_id' => $newAccountable->id,
+                'raci_role' => 'R',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('project_procedure_step_raci')->insert([
+            'step_id' => $stepId,
+            'user_id' => $oldAccountable->id,
+            'raci_role' => 'A',
+            'created_by' => $actor->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->addRaci(
+            $this->makeRequest('POST', [
+                'user_id' => $newAccountable->id,
+                'raci_role' => 'A',
+            ], $actor),
+            $procedureId,
+        );
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame(1, DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('raci_role', 'A')->count());
+        $this->assertSame(
+            $newAccountable->id,
+            DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('raci_role', 'A')->value('user_id')
+        );
+        $this->assertSame(0, DB::table('project_procedure_raci')->where('procedure_id', $procedureId)->where('user_id', $oldAccountable->id)->count());
+        $this->assertSame(0, DB::table('project_procedure_step_raci')->where('step_id', $stepId)->where('user_id', $oldAccountable->id)->count());
     }
 
     public function test_batch_set_step_raci_merge_replaces_accountable_and_keeps_other_roles(): void
@@ -841,9 +1055,12 @@ class ProjectProcedureStepPermissionTest extends TestCase
         Schema::dropIfExists('project_procedure_step_worklogs');
         Schema::dropIfExists('project_procedure_step_raci');
         Schema::dropIfExists('project_procedure_raci');
+        Schema::dropIfExists('raci_assignments');
         Schema::dropIfExists('project_procedure_steps');
         Schema::dropIfExists('project_procedures');
         Schema::dropIfExists('projects');
+        Schema::dropIfExists('user_dept_scopes');
+        Schema::dropIfExists('departments');
         Schema::dropIfExists('user_roles');
         Schema::dropIfExists('roles');
         Schema::dropIfExists('attachments');
@@ -871,6 +1088,14 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->unsignedBigInteger('role_id');
             $table->boolean('is_active')->default(true);
             $table->timestamp('expires_at')->nullable();
+        });
+
+        Schema::create('user_dept_scopes', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('dept_id');
+            $table->string('scope_type', 50)->default('DEPT_ONLY');
+            $table->timestamps();
         });
 
         Schema::create('attachments', function (Blueprint $table): void {
@@ -934,6 +1159,8 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->string('raci_role', 5);
             $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
             $table->timestamps();
         });
 

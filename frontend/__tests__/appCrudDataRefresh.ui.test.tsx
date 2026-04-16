@@ -19,13 +19,23 @@ const fetchEmployeePartyProfilesPageMock = vi.hoisted(() => vi.fn());
 const fetchBusinessesMock = vi.hoisted(() => vi.fn());
 const fetchVendorsMock = vi.hoisted(() => vi.fn());
 const fetchProductsMock = vi.hoisted(() => vi.fn());
+const fetchProductPackagesMock = vi.hoisted(() => vi.fn());
 const fetchProjectsPageMock = vi.hoisted(() => vi.fn());
 const fetchProjectItemsMock = vi.hoisted(() => vi.fn());
 const fetchContractsPageMock = vi.hoisted(() => vi.fn());
+const fetchContractDetailMock = vi.hoisted(() => vi.fn());
 const fetchDocumentsMock = vi.hoisted(() => vi.fn());
 const fetchDocumentsPageMock = vi.hoisted(() => vi.fn());
 const fetchUserDeptHistoryMock = vi.hoisted(() => vi.fn());
 const fetchFeedbacksPageMock = vi.hoisted(() => vi.fn());
+const fetchSupportServiceGroupsMock = vi.hoisted(() => vi.fn());
+const fetchSupportContactPositionsMock = vi.hoisted(() => vi.fn());
+const fetchProductUnitMastersMock = vi.hoisted(() => vi.fn());
+const fetchContractSignerMastersMock = vi.hoisted(() => vi.fn());
+const fetchSupportRequestStatusesMock = vi.hoisted(() => vi.fn());
+const fetchWorklogActivityTypesMock = vi.hoisted(() => vi.fn());
+const fetchSupportSlaConfigsMock = vi.hoisted(() => vi.fn());
+const fetchProjectTypesMock = vi.hoisted(() => vi.fn());
 const createDepartmentMock = vi.hoisted(() => vi.fn());
 const deleteDepartmentMock = vi.hoisted(() => vi.fn());
 const createEmployeeWithProvisioningMock = vi.hoisted(() => vi.fn());
@@ -41,6 +51,9 @@ const createProjectMock = vi.hoisted(() => vi.fn());
 const deleteProjectMock = vi.hoisted(() => vi.fn());
 const createContractMock = vi.hoisted(() => vi.fn());
 const deleteContractMock = vi.hoisted(() => vi.fn());
+const generateContractPaymentsMock = vi.hoisted(() => vi.fn());
+const updatePaymentScheduleMock = vi.hoisted(() => vi.fn());
+const deletePaymentScheduleMock = vi.hoisted(() => vi.fn());
 const createDocumentMock = vi.hoisted(() => vi.fn());
 const deleteDocumentMock = vi.hoisted(() => vi.fn());
 const createUserDeptHistoryMock = vi.hoisted(() => vi.fn());
@@ -63,7 +76,7 @@ const existingEmployee = vi.hoisted(() => ({
 const existingPartyProfile = vi.hoisted(() => ({ id: 'party-1', employee_id: 'emp-1', party_card_number: '093066006328', employee: existingEmployee }));
 const existingBusiness = vi.hoisted(() => ({ id: 'biz-1', domain_code: 'YT', domain_name: 'Y tế' }));
 const existingVendor = vi.hoisted(() => ({ id: 'vendor-1', vendor_code: 'VNPT', vendor_name: 'VNPT' }));
-const existingProduct = vi.hoisted(() => ({ id: 'product-1', product_code: 'SP001', product_name: 'HIS', service_group: 'CORE_SERVICE', unit: 'GOI' }));
+const existingProduct = vi.hoisted(() => ({ id: 'product-1', product_code: 'SP001', product_name: 'HIS', service_group: 'CORE_SERVICE' }));
 const existingProject = vi.hoisted(() => ({ id: 'project-1', project_code: 'DA001', project_name: 'Triển khai HIS' }));
 const existingContract = vi.hoisted(() => ({ id: 'contract-1', contract_code: 'HD001', contract_name: 'Hợp đồng HIS' }));
 const existingDocument = vi.hoisted(() => ({ id: 'doc-1', name: 'Biên bản', status: 'ACTIVE' }));
@@ -131,6 +144,7 @@ vi.mock('../AppPages', async () => {
           <button type="button" onClick={() => handleOpenModal('ADD_PROJECT')}>Mở thêm dự án</button>
           <button type="button" onClick={() => handleOpenModal('DELETE_PROJECT', existingProject)}>Mở xóa dự án</button>
           <button type="button" onClick={() => handleOpenModal('ADD_CONTRACT')}>Mở thêm hợp đồng</button>
+          <button type="button" onClick={() => handleOpenModal('EDIT_CONTRACT', existingContract)}>Mở sửa hợp đồng</button>
           <button type="button" onClick={() => handleOpenModal('DELETE_CONTRACT', existingContract)}>Mở xóa hợp đồng</button>
           <button type="button" onClick={() => handleOpenModal('ADD_DOCUMENT')}>Mở thêm tài liệu</button>
           <button type="button" onClick={() => handleOpenModal('UPLOAD_PRODUCT_DOCUMENT', existingProduct)}>Mở upload tài liệu sản phẩm</button>
@@ -148,11 +162,39 @@ vi.mock('../AppPages', async () => {
 });
 
 vi.mock('../components/ContractModal', () => ({
-  ContractModal: ({ onSave }: { onSave?: (payload: Record<string, unknown>) => void | Promise<void> }) => (
-    <div data-testid="contract-modal">
+  ContractModal: ({
+    type,
+    data,
+    paymentSchedules,
+    isPaymentLoading,
+    onSave,
+    onGenerateSchedules,
+    onDeletePaymentSchedule,
+  }: {
+    type: 'ADD' | 'EDIT';
+    data?: { id?: string | number } | null;
+    paymentSchedules?: Array<{ id: string | number }>;
+    isPaymentLoading?: boolean;
+    onSave?: (payload: Record<string, unknown>) => void | Promise<void>;
+    onGenerateSchedules?: (contractId: string | number) => void | Promise<void>;
+    onDeletePaymentSchedule?: (scheduleId: string | number) => void | Promise<void>;
+  }) => (
+    <div data-testid={`contract-modal-${String(type).toLowerCase()}`}>
+      <div data-testid="contract-payment-schedule-count">{String(paymentSchedules?.length || 0)}</div>
+      <div data-testid="contract-payment-loading-flag">{String(Boolean(isPaymentLoading))}</div>
       <button type="button" onClick={() => onSave?.({ contract_code: 'HD002', contract_name: 'Hợp đồng mới' })}>
         Lưu hợp đồng mock
       </button>
+      {type === 'EDIT' && data?.id ? (
+        <button type="button" onClick={() => onGenerateSchedules?.(data.id!)}>
+          Sinh kỳ thanh toán mock
+        </button>
+      ) : null}
+      {type === 'EDIT' && (paymentSchedules?.length || 0) > 0 ? (
+        <button type="button" onClick={() => onDeletePaymentSchedule?.(paymentSchedules?.[0]?.id || 'schedule-1')}>
+          Xóa kỳ thanh toán mock
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -193,7 +235,7 @@ vi.mock('../components/modals', () => ({
     <button type="button" onClick={() => onConfirm?.()}>Xóa nhà cung cấp mock</button>
   ),
   ProductFormModal: ({ onSave }: { onSave?: (payload: Record<string, unknown>) => void | Promise<void> }) => (
-    <button type="button" onClick={() => onSave?.({ product_code: 'SP002', product_name: 'Sản phẩm mới', service_group: 'CORE_SERVICE', unit: 'GOI' })}>Lưu sản phẩm mock</button>
+    <button type="button" onClick={() => onSave?.({ product_code: 'SP002', product_name: 'Sản phẩm mới', service_group: 'CORE_SERVICE' })}>Lưu sản phẩm mock</button>
   ),
   DeleteProductModal: ({ onConfirm }: { onConfirm?: () => void | Promise<void> }) => (
     <button type="button" onClick={() => onConfirm?.()}>Xóa sản phẩm mock</button>
@@ -299,6 +341,14 @@ vi.mock('../hooks/useImportCustomerPersonnel', () => ({
   useImportCustomerPersonnel: () => ({ handleImportCustomerPersonnel: vi.fn() }),
 }));
 
+vi.mock('../hooks/useImportProducts', () => ({
+  useImportProducts: () => ({ handleImportProducts: vi.fn() }),
+}));
+
+vi.mock('../hooks/useImportProductPackages', () => ({
+  useImportProductPackages: () => ({ handleImportProductPackages: vi.fn() }),
+}));
+
 vi.mock('../hooks/useCustomerPersonnel', () => ({
   useCustomerPersonnel: () => ({
     customerPersonnel: [],
@@ -317,6 +367,15 @@ vi.mock('../services/api/employeeApi', () => ({
   upsertEmployeePartyProfile: upsertEmployeePartyProfileMock,
 }));
 
+vi.mock('../services/api/productApi', async () => {
+  const actual = await vi.importActual<typeof import('../services/api/productApi')>('../services/api/productApi');
+
+  return {
+    ...actual,
+    fetchProductPackages: fetchProductPackagesMock,
+  };
+});
+
 vi.mock('../services/v5Api', async () => {
   const actual = await vi.importActual<typeof import('../services/v5Api')>('../services/v5Api');
 
@@ -333,9 +392,18 @@ vi.mock('../services/v5Api', async () => {
     fetchBusinesses: fetchBusinessesMock,
     fetchVendors: fetchVendorsMock,
     fetchProducts: fetchProductsMock,
+    fetchSupportServiceGroups: fetchSupportServiceGroupsMock,
+    fetchSupportContactPositions: fetchSupportContactPositionsMock,
+    fetchProductUnitMasters: fetchProductUnitMastersMock,
+    fetchContractSignerMasters: fetchContractSignerMastersMock,
+    fetchSupportRequestStatuses: fetchSupportRequestStatusesMock,
+    fetchWorklogActivityTypes: fetchWorklogActivityTypesMock,
+    fetchSupportSlaConfigs: fetchSupportSlaConfigsMock,
+    fetchProjectTypes: fetchProjectTypesMock,
     fetchProjectsPage: fetchProjectsPageMock,
     fetchProjectItems: fetchProjectItemsMock,
     fetchContractsPage: fetchContractsPageMock,
+    fetchContractDetail: fetchContractDetailMock,
     fetchDocuments: fetchDocumentsMock,
     fetchDocumentsPage: fetchDocumentsPageMock,
     fetchUserDeptHistory: fetchUserDeptHistoryMock,
@@ -353,6 +421,9 @@ vi.mock('../services/v5Api', async () => {
     createProject: createProjectMock,
     deleteProject: deleteProjectMock,
     createContract: createContractMock,
+    generateContractPayments: generateContractPaymentsMock,
+    updatePaymentSchedule: updatePaymentScheduleMock,
+    deletePaymentSchedule: deletePaymentScheduleMock,
     deleteContract: deleteContractMock,
     createDocument: createDocumentMock,
     deleteDocument: deleteDocumentMock,
@@ -408,7 +479,11 @@ describe('App CRUD data refresh audit', () => {
     });
 
     fetchContractsMock.mockResolvedValue([]);
+    fetchContractDetailMock.mockResolvedValue(existingContract);
     fetchPaymentSchedulesMock.mockResolvedValue([]);
+    generateContractPaymentsMock.mockResolvedValue({ data: [], generated_data: [], meta: { generated_count: 0, allocation_mode: 'EVEN' } });
+    updatePaymentScheduleMock.mockResolvedValue({});
+    deletePaymentScheduleMock.mockResolvedValue(undefined);
     fetchProjectsMock.mockResolvedValue([]);
     fetchCustomersMock.mockResolvedValue([]);
     fetchDepartmentsMock.mockResolvedValue([]);
@@ -418,6 +493,7 @@ describe('App CRUD data refresh audit', () => {
     fetchBusinessesMock.mockResolvedValue([]);
     fetchVendorsMock.mockResolvedValue([]);
     fetchProductsMock.mockResolvedValue([]);
+    fetchProductPackagesMock.mockResolvedValue([]);
     fetchProjectsPageMock.mockResolvedValue({ data: [], meta: paginationMeta });
     fetchProjectItemsMock.mockResolvedValue([]);
     fetchContractsPageMock.mockResolvedValue({ data: [], meta: paginationMeta });
@@ -425,6 +501,14 @@ describe('App CRUD data refresh audit', () => {
     fetchDocumentsPageMock.mockResolvedValue({ data: [], meta: paginationMeta });
     fetchUserDeptHistoryMock.mockResolvedValue([]);
     fetchFeedbacksPageMock.mockResolvedValue({ data: [], meta: paginationMeta });
+    fetchSupportServiceGroupsMock.mockResolvedValue([]);
+    fetchSupportContactPositionsMock.mockResolvedValue([]);
+    fetchProductUnitMastersMock.mockResolvedValue([]);
+    fetchContractSignerMastersMock.mockResolvedValue([]);
+    fetchSupportRequestStatusesMock.mockResolvedValue([]);
+    fetchWorklogActivityTypesMock.mockResolvedValue([]);
+    fetchSupportSlaConfigsMock.mockResolvedValue([]);
+    fetchProjectTypesMock.mockResolvedValue([]);
 
     createDepartmentMock.mockResolvedValue(existingDepartment);
     deleteDepartmentMock.mockResolvedValue(undefined);
@@ -579,6 +663,15 @@ describe('App CRUD data refresh audit', () => {
       expect(fetchProjectItemsMock.mock.calls.length).toBeGreaterThan(initialProjectItemCalls);
     });
 
+    const afterCreateProjectPageCalls = fetchProjectsPageMock.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Mở xóa dự án' }));
+    await user.click(await screen.findByRole('button', { name: 'Xóa dự án mock' }));
+    await waitFor(() => {
+      expect(deleteProjectMock).toHaveBeenCalledWith('project-1');
+      expect(fetchProjectsPageMock.mock.calls.length).toBeGreaterThan(afterCreateProjectPageCalls);
+    });
+
     await user.click(screen.getByRole('button', { name: 'Mở thêm tài liệu' }));
     await user.click(await screen.findByRole('button', { name: 'Lưu tài liệu mock' }));
     await waitFor(() => {
@@ -589,6 +682,24 @@ describe('App CRUD data refresh audit', () => {
     await user.click(await screen.findByRole('button', { name: 'Lưu góp ý mock' }));
     await waitFor(() => {
       expect(fetchFeedbacksPageMock.mock.calls.length).toBeGreaterThan(initialFeedbackPageCalls);
+    });
+  });
+
+  it('shows an error toast when project delete is rejected', async () => {
+    const user = userEvent.setup();
+    deleteProjectMock.mockRejectedValueOnce(new Error('Không thể xóa dự án vì đang có dữ liệu liên quan.'));
+
+    renderApp();
+
+    await screen.findByRole('button', { name: 'Mở xóa dự án' });
+
+    await user.click(screen.getByRole('button', { name: 'Mở xóa dự án' }));
+    await user.click(await screen.findByRole('button', { name: 'Xóa dự án mock' }));
+
+    await waitFor(() => {
+      expect(deleteProjectMock).toHaveBeenCalledWith('project-1');
+      expect(screen.getByText('Xóa thất bại')).toBeInTheDocument();
+      expect(screen.getByText('Không thể xóa dự án vì đang có dữ liệu liên quan.')).toBeInTheDocument();
     });
   });
 
@@ -686,6 +797,27 @@ describe('App CRUD data refresh audit', () => {
     });
   });
 
+  it('shows a toast and keeps the delete transfer modal open when deletion is rejected', async () => {
+    const user = userEvent.setup();
+    deleteUserDeptHistoryMock.mockRejectedValueOnce(
+      new Error('Chỉ người tạo dòng hoặc admin mới được xóa lịch sử luân chuyển này.')
+    );
+
+    renderApp(['/user-dept-history']);
+
+    await screen.findByRole('button', { name: 'Mở xóa luân chuyển' });
+
+    await user.click(screen.getByRole('button', { name: 'Mở xóa luân chuyển' }));
+    await user.click(await screen.findByRole('button', { name: 'Xóa luân chuyển mock' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Xóa thất bại')).toBeInTheDocument();
+      expect(screen.getByText('Chỉ người tạo dòng hoặc admin mới được xóa lịch sử luân chuyển này.')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: 'Xóa luân chuyển mock' })).toBeInTheDocument();
+  });
+
   it('opens a clean add-transfer modal and supports employee-prefill for user department history', async () => {
     const user = userEvent.setup();
     renderApp(['/user-dept-history']);
@@ -719,6 +851,7 @@ describe('App CRUD data refresh audit', () => {
     const initialContractPageCalls = fetchContractsPageMock.mock.calls.length;
 
     await user.click(screen.getByRole('button', { name: 'Mở thêm hợp đồng' }));
+    expect(await screen.findByTestId('contract-modal-add')).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: 'Lưu hợp đồng mock' }));
 
     await waitFor(() => {
@@ -726,6 +859,8 @@ describe('App CRUD data refresh audit', () => {
       expect(fetchContractsMock.mock.calls.length).toBeGreaterThan(initialContractCalls);
       expect(fetchPaymentSchedulesMock.mock.calls.length).toBeGreaterThan(initialPaymentCalls);
       expect(fetchContractsPageMock.mock.calls.length).toBeGreaterThan(initialContractPageCalls);
+      expect(screen.queryByTestId('contract-modal-add')).not.toBeInTheDocument();
+      expect(screen.getByTestId('contract-modal-edit')).toBeInTheDocument();
     });
 
     const afterCreateContractPageCalls = fetchContractsPageMock.mock.calls.length;
@@ -736,6 +871,69 @@ describe('App CRUD data refresh audit', () => {
     await waitFor(() => {
       expect(deleteContractMock).toHaveBeenCalledWith('contract-1');
       expect(fetchContractsPageMock.mock.calls.length).toBeGreaterThan(afterCreateContractPageCalls);
+    });
+  });
+
+  it('shows generated payment schedules in the contract modal immediately after generation', async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    generateContractPaymentsMock.mockResolvedValue({
+      data: [
+        {
+          id: 'schedule-1',
+          contract_id: 'contract-1',
+          milestone_name: 'Kỳ 1',
+          cycle_number: 1,
+          expected_date: '2026-05-01',
+          expected_amount: 18000000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+      generated_data: [],
+      meta: {
+        generated_count: 1,
+        allocation_mode: 'EVEN',
+      },
+    });
+
+    await screen.findByRole('button', { name: 'Mở sửa hợp đồng' });
+    await user.click(screen.getByRole('button', { name: 'Mở sửa hợp đồng' }));
+
+    expect(await screen.findByTestId('contract-modal-edit')).toBeInTheDocument();
+    expect(screen.getByTestId('contract-payment-schedule-count')).toHaveTextContent('0');
+
+    await user.click(screen.getByRole('button', { name: 'Sinh kỳ thanh toán mock' }));
+
+    await waitFor(() => {
+      expect(generateContractPaymentsMock).toHaveBeenCalledWith('contract-1', undefined);
+      expect(screen.getByTestId('contract-payment-schedule-count')).toHaveTextContent('1');
+    });
+  });
+
+  it('loads payment schedules for the selected contract when opening the edit modal', async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    fetchPaymentSchedulesMock.mockImplementation(async (contractId?: string | number) => (
+      contractId === 'contract-1'
+        ? [{
+            id: 'schedule-1',
+            contract_id: 'contract-1',
+          }]
+        : []
+    ));
+
+    await screen.findByRole('button', { name: 'Mở sửa hợp đồng' });
+    await user.click(screen.getByRole('button', { name: 'Mở sửa hợp đồng' }));
+
+    expect(await screen.findByTestId('contract-modal-edit')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchContractDetailMock).toHaveBeenCalledWith('contract-1');
+      expect(fetchPaymentSchedulesMock).toHaveBeenCalledWith('contract-1');
+      expect(screen.getByTestId('contract-payment-schedule-count')).toHaveTextContent('1');
     });
   });
 
@@ -772,7 +970,33 @@ describe('App CRUD data refresh audit', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('app-location-path')).toHaveTextContent('/products/quote');
-      expect(screen.getByTestId('app-active-tab')).toHaveTextContent('products');
+      expect(screen.getByTestId('app-active-tab')).toHaveTextContent('product_quotes');
+      expect(fetchProductPackagesMock).toHaveBeenCalled();
+    });
+  });
+
+  it('loads product sales config datasets when opening support master management directly', async () => {
+    renderApp(['/support-master-management']);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-active-tab')).toHaveTextContent('support_master_management');
+      expect(fetchSupportServiceGroupsMock).toHaveBeenCalled();
+      expect(fetchProductsMock).toHaveBeenCalled();
+      expect(fetchProductPackagesMock).toHaveBeenCalled();
+      expect(fetchContractSignerMastersMock).toHaveBeenCalled();
+      expect(fetchDepartmentsMock).toHaveBeenCalled();
+      expect(fetchEmployeesMock).toHaveBeenCalled();
+    });
+  });
+
+  it('loads product package datasets when opening the projects module directly', async () => {
+    renderApp(['/projects']);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-active-tab')).toHaveTextContent('projects');
+      expect(fetchProjectsPageMock).toHaveBeenCalled();
+      expect(fetchProductsMock).toHaveBeenCalled();
+      expect(fetchProductPackagesMock).toHaveBeenCalled();
     });
   });
 });

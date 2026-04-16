@@ -170,15 +170,7 @@ class WorkflowDefinitionController extends Controller
         
         try {
             $workflow = $this->service->createWorkflow($request->all(), $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'INSERT',
-                details: ['code' => $workflow->code, 'name' => $workflow->name],
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Workflow created successfully',
                 'data' => $workflow->getFullData(),
@@ -235,15 +227,7 @@ class WorkflowDefinitionController extends Controller
         
         try {
             $workflow = $this->service->activateWorkflow($id, $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'activate',
-                details: ['code' => $workflow->code, 'name' => $workflow->name],
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Workflow activated successfully',
                 'data' => $workflow->getFullData(),
@@ -270,15 +254,7 @@ class WorkflowDefinitionController extends Controller
         
         try {
             $workflow = $this->service->deactivateWorkflow($id, $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $workflow->id,
-                action: 'deactivate',
-                details: ['code' => $workflow->code, 'name' => $workflow->name],
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Workflow deactivated successfully',
                 'data' => $workflow->getFullData(),
@@ -305,14 +281,7 @@ class WorkflowDefinitionController extends Controller
         
         try {
             $this->service->deleteWorkflow($id, $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_definition',
-                entityId: $id,
-                action: 'DELETE',
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Workflow deleted successfully',
             ]);

@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\InternalUser;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -193,6 +196,112 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame(76, $newValues['change_summary']['import']['feature_count'] ?? null);
     }
 
+    public function test_it_sends_email_notification_after_saving_feature_catalog(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 14,
+            'uuid' => 'user-14',
+            'user_code' => 'U014',
+            'username' => 'tester-mail',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Le Thi G',
+            'email' => 'tester-mail@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        DB::table('integration_settings')->insert([
+            'provider' => 'EMAIL_SMTP',
+            'is_enabled' => 1,
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_encryption' => 'tls',
+            'smtp_username' => 'no-reply@example.com',
+            'smtp_password' => Crypt::encryptString('smtp-secret'),
+            'smtp_from_address' => 'no-reply@example.com',
+            'smtp_from_name' => 'VNPT Business',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Config::set('audit.product_feature_catalog_notification_recipients', [
+            'pvro86@gmail.com',
+            'vnpthishg@gmail.com',
+        ]);
+
+        Mail::shouldReceive('html')
+            ->once()
+            ->withArgs(function (string $html, \Closure $callback): bool {
+                $this->assertStringContainsString('Thông báo cập nhật danh mục chức năng', $html);
+                $this->assertStringContainsString('Người thực hiện', $html);
+                $this->assertStringContainsString('Le Thi G (tester-mail)', $html);
+                $this->assertStringContainsString('Mã sản phẩm', $html);
+                $this->assertStringContainsString('VNPT_HIS_L2', $html);
+                $this->assertStringContainsString('Nội dung cũ', $html);
+                $this->assertStringContainsString('Nội dung đã cập nhật', $html);
+                $this->assertStringContainsString('Người cập nhật, ngày giờ cập nhật', $html);
+                $this->assertStringContainsString('Tạo phân hệ &quot;Quan tri he thong&quot;.', $html);
+                $this->assertStringContainsString('Tạo chức năng &quot;Dang nhap&quot; trong phân hệ &quot;Quan tri he thong&quot;.', $html);
+
+                $message = new class {
+                    public array $to = [];
+                    public ?string $subject = null;
+                    public ?array $from = null;
+
+                    public function to($recipients): self
+                    {
+                        $this->to = is_array($recipients) ? array_values($recipients) : [$recipients];
+
+                        return $this;
+                    }
+
+                    public function subject($subject): self
+                    {
+                        $this->subject = $subject;
+
+                        return $this;
+                    }
+
+                    public function from($address, $name = null): self
+                    {
+                        $this->from = [$address, $name];
+
+                        return $this;
+                    }
+                };
+
+                $callback($message);
+
+                $this->assertSame(['pvro86@gmail.com', 'vnpthishg@gmail.com'], $message->to);
+                $this->assertSame('[VNPT Business] Cập nhật danh mục chức năng - VNPT_HIS_L2', $message->subject);
+                $this->assertSame(['no-reply@example.com', 'VNPT Business'], $message->from);
+
+                return true;
+            });
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan tri he thong',
+                    'features' => [
+                        [
+                            'feature_name' => 'Dang nhap',
+                            'detail_description' => 'Cho phep dang nhap vao he thong',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'FORM',
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.audit_logs.0.event', 'INSERT');
+    }
+
     public function test_it_shares_feature_catalog_across_packages_of_the_same_product(): void
     {
         $user = InternalUser::query()->create([
@@ -339,12 +448,117 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame(1, DB::table('product_features')->whereNull('deleted_at')->count());
     }
 
+    public function test_it_returns_only_the_latest_catalog_audit_logs_in_descending_order(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 13,
+            'uuid' => 'user-13',
+            'user_code' => 'U013',
+            'username' => 'auditor',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Vu Thi F',
+            'email' => 'auditor@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $baseTime = now()->subMinutes(10);
+
+        for ($i = 1; $i <= 130; $i++) {
+            DB::table('audit_logs')->insert([
+                'id' => $i,
+                'uuid' => sprintf('audit-%03d', $i),
+                'event' => 'UPDATE',
+                'auditable_type' => 'product_feature_catalogs',
+                'auditable_id' => $i % 2 === 0 ? 1 : 2,
+                'old_values' => json_encode([
+                    'groups' => [],
+                    'blob' => str_repeat('old', 256),
+                ], JSON_UNESCAPED_UNICODE),
+                'new_values' => json_encode([
+                    'change_summary' => [
+                        'entries' => [
+                            ['message' => sprintf('Audit event %d', $i)],
+                        ],
+                    ],
+                    'blob' => str_repeat('new', 256),
+                ], JSON_UNESCAPED_UNICODE),
+                'url' => '/api/v5/products/1/feature-catalog',
+                'ip_address' => '127.0.0.1',
+                'user_agent' => str_repeat('Mozilla/5.0 ', 32),
+                'created_at' => $baseTime->copy()->addSeconds($i),
+                'created_by' => 13,
+            ]);
+        }
+
+        $response = $this->getJson('/api/v5/products/1/feature-catalog');
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(100, 'data.audit_logs')
+            ->assertJsonPath('data.audit_logs.0.id', 130)
+            ->assertJsonPath('data.audit_logs.0.new_values.change_summary.entries.0.message', 'Audit event 130')
+            ->assertJsonPath('data.audit_logs.99.id', 31);
+    }
+
+    public function test_it_rejects_deleting_a_persisted_group_even_when_it_has_no_child_features(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 12,
+            'uuid' => 'user-12',
+            'user_code' => 'U012',
+            'username' => 'tester5',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Hoang Thi E',
+            'email' => 'tester5@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan ly danh muc',
+                    'features' => [],
+                ],
+                [
+                    'group_name' => 'Bao cao thong ke',
+                    'features' => [],
+                ],
+            ],
+        ])->assertOk();
+
+        $remainingGroupId = (int) DB::table('product_feature_groups')
+            ->where('group_name', 'Bao cao thong ke')
+            ->value('id');
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'id' => $remainingGroupId,
+                    'group_name' => 'Bao cao thong ke',
+                    'features' => [],
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['groups']);
+
+        $messages = $response->json('errors.groups') ?? [];
+        $this->assertNotEmpty($messages);
+        $this->assertStringContainsString('đã phát sinh dữ liệu danh mục chức năng', $messages[0]);
+        $this->assertSame(2, DB::table('product_feature_groups')->whereNull('deleted_at')->count());
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('audit_logs');
         Schema::dropIfExists('product_features');
         Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('products');
+        Schema::dropIfExists('integration_settings');
         Schema::dropIfExists('internal_users');
 
         Schema::create('internal_users', function (Blueprint $table): void {
@@ -417,6 +631,20 @@ class ProductFeatureCatalogTest extends TestCase
             $table->text('user_agent')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
+        });
+
+        Schema::create('integration_settings', function (Blueprint $table): void {
+            $table->string('provider', 50)->primary();
+            $table->boolean('is_enabled')->default(false);
+            $table->string('smtp_host', 255)->nullable();
+            $table->unsignedInteger('smtp_port')->nullable();
+            $table->string('smtp_encryption', 20)->nullable();
+            $table->string('smtp_username', 255)->nullable();
+            $table->text('smtp_password')->nullable();
+            $table->string('smtp_from_address', 255)->nullable();
+            $table->string('smtp_from_name', 255)->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
         });
     }
 

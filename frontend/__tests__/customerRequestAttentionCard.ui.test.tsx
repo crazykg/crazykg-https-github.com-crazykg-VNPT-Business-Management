@@ -38,7 +38,7 @@ describe('CustomerRequestAttentionCard UI', () => {
     expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
     expect(screen.getByText('Giờ')).toBeInTheDocument();
     expect(screen.getByText('SLA')).toBeInTheDocument();
-    expect(screen.getByText('Xem chi tiết')).toBeInTheDocument();
+    expect(screen.getAllByText('Xem chi tiết')).toHaveLength(2);
     expect(screen.queryByText('missing_estimate')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `product_unit_masters` (
   UNIQUE KEY `uq_product_unit_masters_code` (`unit_code`),
   UNIQUE KEY `uq_product_unit_masters_name` (`unit_name`),
   KEY `idx_product_unit_masters_active_name` (`is_active`,`unit_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 INSERT INTO `product_unit_masters` (
   `unit_code`,

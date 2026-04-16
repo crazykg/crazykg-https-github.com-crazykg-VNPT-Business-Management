@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
-import { DEFAULT_PAGINATION_META, fetchYeuCauPage, isRequestCanceledError } from '../../../services/api/customerRequestApi';
-import type { PaginationMeta } from '../../../types/common';
+import { useEffect } from 'react';
+import { DEFAULT_PAGINATION_META, isRequestCanceledError } from '../../../services/v5Api';
+import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
+import type { PaginationMeta } from '../../../types';
 import type { YeuCau } from '../../../types/customerRequest';
-
-const transformYeuCau = (yc: YeuCau): YeuCau => yc;
 
 type UseCustomerRequestListOptions = {
   canReadRequests: boolean;
@@ -38,76 +37,51 @@ export const useCustomerRequestList = ({
   onError,
   onPageOverflow,
 }: UseCustomerRequestListOptions) => {
-  const [listRows, setListRows] = useState<YeuCau[]>([]);
-  const [isListLoading, setIsListLoading] = useState(false);
-  const [listMeta, setListMeta] = useState<PaginationMeta>(DEFAULT_PAGINATION_META);
+  const enabled = canReadRequests && !isCreateMode;
 
-  useEffect(() => {
-    // Allow empty activeProcessCode — means load all statuses
-    if (!canReadRequests || isCreateMode) {
-      return;
-    }
-
-    let cancelled = false;
-    setIsListLoading(true);
-
-    void fetchYeuCauPage({
+  const listQuery = useCRCList(
+    {
       page: listPage,
       per_page: pageSize,
-      // Empty string → undefined so the API param is omitted (= no filter)
+      sort_by: 'updated_at',
+      sort_dir: 'desc',
       process_code: activeProcessCode || undefined,
       q: requestKeyword,
       filters,
-    })
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
+    },
+    { enabled }
+  );
 
-        setListMeta(result.meta);
-        if (result.meta.total_pages > 0 && listPage > result.meta.total_pages) {
-          onPageOverflow(result.meta.total_pages);
-          return;
-        }
+  useEffect(() => {
+    if (dataVersion > 0 && enabled) {
+      void listQuery.refetch();
+    }
+  }, [dataVersion, enabled, listQuery.refetch]);
 
-        // Transform data để thêm receiver_name từ process_row/status_row
-        const transformedRows = result.data.map(transformYeuCau);
-        setListRows(transformedRows);
-      })
-      .catch((error) => {
-        if (cancelled || isRequestCanceledError(error)) {
-          return;
-        }
+  useEffect(() => {
+    if (!listQuery.error || isRequestCanceledError(listQuery.error)) {
+      return;
+    }
 
-        setListRows([]);
-        setListMeta(DEFAULT_PAGINATION_META);
-        onError(error instanceof Error ? error.message : 'Đã xảy ra lỗi.');
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsListLoading(false);
-        }
-      });
+    onError(listQuery.error instanceof Error ? listQuery.error.message : 'Đã xảy ra lỗi.');
+  }, [listQuery.error, onError]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeProcessCode,
-    canReadRequests,
-    dataVersion,
-    filters,
-    isCreateMode,
-    listPage,
-    onError,
-    onPageOverflow,
-    pageSize,
-    requestKeyword,
-  ]);
+  const listRows: YeuCau[] = enabled ? (listQuery.data?.data ?? []) : [];
+  const listMeta: PaginationMeta = enabled ? (listQuery.data?.meta ?? DEFAULT_PAGINATION_META) : DEFAULT_PAGINATION_META;
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    if (listMeta.total_pages > 0 && listPage > listMeta.total_pages) {
+      onPageOverflow(listMeta.total_pages);
+    }
+  }, [enabled, listMeta.total_pages, listPage, onPageOverflow]);
 
   return {
     listRows,
-    isListLoading,
+    isListLoading: enabled ? (listQuery.isLoading || listQuery.isFetching) : false,
     listMeta,
   };
 };

@@ -22,6 +22,10 @@ import type { SearchableSelectOption } from '../../SearchableSelect';
 
 type ProcedureNotify = ((type: string, title: string, message: string) => void) | undefined;
 type StepRaciCopyMode = 'overwrite' | 'merge';
+type PendingRoleChange = {
+  nextRole: ProcedureRaciRole;
+  previousRole: ProcedureRaciRole;
+} | null;
 
 interface UseProcedureRaciParams {
   activeProcedure: ProjectProcedure | null;
@@ -66,6 +70,34 @@ function removeStepRaciEntry(
   return next;
 }
 
+function mergeProcedureRaciEntry(
+  prev: ProcedureRaciEntry[],
+  entry: ProcedureRaciEntry,
+): ProcedureRaciEntry[] {
+  const filtered = prev.filter((row) => {
+    if (String(row.user_id) === String(entry.user_id) && row.raci_role === entry.raci_role) return false;
+    if (entry.raci_role === 'A' && row.raci_role === 'A') return false;
+    return true;
+  });
+
+  return [...filtered, entry];
+}
+
+function filterStepRaciByProcedureMembers(
+  prev: Record<string, ProcedureStepRaciEntry[]>,
+  allowedUserIds: Set<string>,
+): Record<string, ProcedureStepRaciEntry[]> {
+  const next: Record<string, ProcedureStepRaciEntry[]> = {};
+
+  for (const stepKey of Object.keys(prev)) {
+    const rows = prev[stepKey] ?? [];
+    const filtered = rows.filter((row) => allowedUserIds.has(String(row.user_id)));
+    if (filtered.length > 0) next[stepKey] = filtered;
+  }
+
+  return next;
+}
+
 export const useProcedureRaci = ({
   activeProcedure,
   activeTab,
@@ -79,10 +111,19 @@ export const useProcedureRaci = ({
   const [raciRole, setRaciRole] = useState<ProcedureRaciRole>('R');
   const [raciNote, setRaciNote] = useState('');
   const [raciSaving, setRaciSaving] = useState(false);
+  const [showAccountableConfirm, setShowAccountableConfirm] = useState(false);
+  const [pendingRoleChange, setPendingRoleChange] = useState<PendingRoleChange>(null);
+  const [accountableReplacementConfirmed, setAccountableReplacementConfirmed] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userOptions, setUserOptions] = useState<SearchableSelectOption[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [employeeCache, setEmployeeCache] = useState<Map<string, Employee>>(new Map());
+
+  const resetAccountableConfirmState = useCallback(() => {
+    setShowAccountableConfirm(false);
+    setPendingRoleChange(null);
+    setAccountableReplacementConfirmed(false);
+  }, []);
 
   const resetProcedureRaci = useCallback(() => {
     setRaciList([]);
@@ -92,11 +133,23 @@ export const useProcedureRaci = ({
     setRaciRole('R');
     setRaciNote('');
     setRaciSaving(false);
+    resetAccountableConfirmState();
     setUserSearch('');
     setUserOptions([]);
     setUsersLoading(false);
     setEmployeeCache(new Map());
-  }, []);
+  }, [resetAccountableConfirmState]);
+
+  const existingAccountable = useMemo(
+    () => raciList.find((entry) => entry.raci_role === 'A') ?? null,
+    [raciList],
+  );
+
+  const hasAccountableConflict = useCallback((nextUserId: string, nextRole: ProcedureRaciRole) => {
+    if (nextRole !== 'A' || !existingAccountable) return false;
+    if (nextUserId && String(existingAccountable.user_id) === String(nextUserId)) return false;
+    return true;
+  }, [existingAccountable]);
 
   const reloadProcedureRaci = useCallback(async () => {
     if (!activeProcedure) {
@@ -110,12 +163,13 @@ export const useProcedureRaci = ({
         fetchProcedureRaci(activeProcedure.id).catch(() => [] as ProcedureRaciEntry[]),
         fetchStepRaciBulk(activeProcedure.id).catch(() => [] as ProcedureStepRaciEntry[]),
       ]);
+      resetAccountableConfirmState();
       setRaciList(nextRaciList);
       setStepRaciMap(groupStepRaciByStep(nextStepRaciRows));
     } finally {
       setRaciLoading(false);
     }
-  }, [activeProcedure, resetProcedureRaci]);
+  }, [activeProcedure, resetAccountableConfirmState, resetProcedureRaci]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +186,7 @@ export const useProcedureRaci = ({
     ])
       .then(([nextRaciList, nextStepRaciRows]) => {
         if (cancelled) return;
+        resetAccountableConfirmState();
         setRaciList(nextRaciList);
         setStepRaciMap(groupStepRaciByStep(nextStepRaciRows));
       })
@@ -144,7 +199,7 @@ export const useProcedureRaci = ({
     return () => {
       cancelled = true;
     };
-  }, [activeProcedure?.id, resetProcedureRaci]);
+  }, [activeProcedure?.id, resetAccountableConfirmState, resetProcedureRaci]);
 
   useEffect(() => {
     if (activeTab !== 'raci') {
@@ -194,10 +249,58 @@ export const useProcedureRaci = ({
     };
   }, [activeTab, userSearch]);
 
+  const handleProcedureRaciRoleChange = useCallback((nextRole: ProcedureRaciRole) => {
+    if (nextRole !== 'A') {
+      resetAccountableConfirmState();
+      setRaciRole(nextRole);
+      return;
+    }
+
+    setRaciRole(nextRole);
+
+    if (!hasAccountableConflict(raciUserId, nextRole) || accountableReplacementConfirmed) {
+      return;
+    }
+
+    setPendingRoleChange({
+      nextRole,
+      previousRole: raciRole,
+    });
+    setShowAccountableConfirm(true);
+  }, [
+    accountableReplacementConfirmed,
+    hasAccountableConflict,
+    raciRole,
+    raciUserId,
+    resetAccountableConfirmState,
+  ]);
+
+  const handleConfirmAccountableReplacement = useCallback(() => {
+    if (pendingRoleChange?.nextRole === 'A') {
+      setRaciRole('A');
+      setAccountableReplacementConfirmed(true);
+    }
+    setPendingRoleChange(null);
+    setShowAccountableConfirm(false);
+  }, [pendingRoleChange]);
+
+  const handleCancelAccountableReplacement = useCallback(() => {
+    setRaciRole(pendingRoleChange?.previousRole ?? 'R');
+    resetAccountableConfirmState();
+  }, [pendingRoleChange, resetAccountableConfirmState]);
+
   const handleAddRaci = useCallback(async () => {
     const key = 'raci-add';
     if (inflightRef.current.has(key)) return;
     if (!activeProcedure || !raciUserId) return;
+    if (hasAccountableConflict(raciUserId, raciRole) && !accountableReplacementConfirmed) {
+      setPendingRoleChange({
+        nextRole: raciRole,
+        previousRole: raciRole === 'A' ? 'R' : raciRole,
+      });
+      setShowAccountableConfirm(true);
+      return;
+    }
 
     inflightRef.current.add(key);
     setRaciSaving(true);
@@ -207,14 +310,17 @@ export const useProcedureRaci = ({
         raci_role: raciRole,
         note: raciNote || undefined,
       });
-      setRaciList((prev) => {
-        const filtered = prev.filter(
-          (row) => !(String(row.user_id) === String(entry.user_id) && row.raci_role === entry.raci_role),
-        );
-        return [...filtered, entry];
-      });
+      const nextRaciList = mergeProcedureRaciEntry(raciList, entry);
+      setRaciList(nextRaciList);
+      if (entry.raci_role === 'A') {
+        const allowedUserIds = new Set(nextRaciList.map((row) => String(row.user_id)));
+        setStepRaciMap((prev) => filterStepRaciByProcedureMembers(prev, allowedUserIds));
+      }
       setRaciUserId('');
       setRaciNote('');
+      setAccountableReplacementConfirmed(false);
+      setPendingRoleChange(null);
+      setShowAccountableConfirm(false);
       setUserSearch('');
       onNotify?.('success', 'RACI', 'Đã thêm phân công RACI');
     } catch (err: any) {
@@ -223,7 +329,17 @@ export const useProcedureRaci = ({
       inflightRef.current.delete(key);
       setRaciSaving(false);
     }
-  }, [activeProcedure, inflightRef, onNotify, raciNote, raciRole, raciUserId]);
+  }, [
+    accountableReplacementConfirmed,
+    activeProcedure,
+    hasAccountableConflict,
+    inflightRef,
+    onNotify,
+    raciList,
+    raciNote,
+    raciRole,
+    raciUserId,
+  ]);
 
   const handleRemoveRaci = useCallback(async (entry: ProcedureRaciEntry) => {
     try {
@@ -365,13 +481,17 @@ export const useProcedureRaci = ({
     userOptions,
     usersLoading,
     employeeCache,
+    existingAccountable,
+    showAccountableConfirm,
     raciSummaryBadge,
     setRaciUserId,
-    setRaciRole,
+    handleProcedureRaciRoleChange,
     setRaciNote,
     setUserSearch,
     resetProcedureRaci,
     reloadProcedureRaci,
+    handleConfirmAccountableReplacement,
+    handleCancelAccountableReplacement,
     handleAddRaci,
     handleRemoveRaci,
     handleAssignA,

@@ -1,7 +1,7 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   FeedbackFormModal,
   FeedbackViewModal,
@@ -52,7 +52,19 @@ const feedbackData: FeedbackRequest = {
 } as FeedbackRequest;
 
 describe('Workflow support modals', () => {
+  beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-07T12:00:00'));
+  });
+  afterEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-07T12:00:00'));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
   it('renders reminder modal through Modals re-export and shows employee options', async () => {
+    vi.useRealTimers();
     const user = userEvent.setup();
 
     render(
@@ -74,6 +86,7 @@ describe('Workflow support modals', () => {
   });
 
   it('renders transfer modal through Modals re-export and lists employees and departments', async () => {
+    vi.useRealTimers();
     const user = userEvent.setup();
 
     render(
@@ -87,6 +100,7 @@ describe('Workflow support modals', () => {
     );
 
     expect(screen.getByText('Thêm mới Luân chuyển')).toBeInTheDocument();
+    expect(screen.getByText('Loại hình', { selector: 'label' })).toBeInTheDocument();
 
     const employeeField = screen.getByText('Nhân sự', { selector: 'label' }).closest('div');
     const employeeTrigger = employeeField?.querySelector('[role="button"]');
@@ -103,6 +117,57 @@ describe('Workflow support modals', () => {
     await user.click(destinationTrigger as HTMLElement);
     expect(screen.getByRole('button', { name: /^Trung tam Kinh doanh$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /PKT - Phong Ke toan/i })).toBeInTheDocument();
+  });
+
+  it('keeps transfer modal inputs and selects visually consistent', () => {
+    render(
+      <UserDeptHistoryFormModal
+        type="ADD"
+        employees={employees}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    const employeeField = screen.getByText('Nhân sự', { selector: 'label' }).closest('div');
+    const destinationField = screen.getByText('Đến đơn vị', { selector: 'label' }).closest('div');
+    const transferTypeField = screen.getByText('Loại hình', { selector: 'label' }).closest('div');
+
+    expect(screen.getByText('Nhân sự', { selector: 'label' })).toHaveClass('text-xs');
+    expect(screen.getByText('Ngày hiệu lực', { selector: 'label' })).toHaveClass('text-xs');
+    expect(within(transferTypeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(employeeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(destinationField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(screen.getByDisplayValue('2026-04-07')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');
+    expect(screen.getByPlaceholderText('Nhập số quyết định...')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');
+    expect(screen.getByPlaceholderText('Tự động điền...')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');
+  });
+
+  it('updates transfer modal title when switching transfer type', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+
+    render(
+      <UserDeptHistoryFormModal
+        type="ADD"
+        employees={employees}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    const transferTypeField = screen.getByText('Loại hình', { selector: 'label' }).closest('div');
+    const transferTypeTrigger = transferTypeField?.querySelector('[role="button"]');
+
+    expect(screen.getByText('Thêm mới Luân chuyển')).toBeInTheDocument();
+    expect(transferTypeTrigger).not.toBeNull();
+
+    await user.click(transferTypeTrigger as HTMLElement);
+    await user.click(screen.getByRole('button', { name: 'Biệt phái' }));
+
+    expect(screen.getByText('Thêm mới Biệt phái')).toBeInTheDocument();
   });
 
   it('renders feedback form and view modals through Modals re-export', () => {

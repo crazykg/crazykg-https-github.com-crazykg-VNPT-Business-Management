@@ -55,9 +55,8 @@ describe('RevenueBulkTargetModal', () => {
             project_name: 'Dự án HIS',
             investment_mode: 'DAU_TU',
             project_status: 'CO_HOI',
-            accountable_user_id: 9,
-            accountable_user_code: 'VNPT000009',
-            accountable_full_name: 'Phan Văn Rở',
+            dept_id: 1,
+            department_name: 'Kinh doanh số',
             schedule_count: 1,
             total_amount: 500000000,
             periods: [
@@ -103,6 +102,9 @@ describe('RevenueBulkTargetModal', () => {
 
     expect(screen.getByText('Kiểm tra dữ liệu gợi ý kế hoạch doanh thu')).toBeInTheDocument();
     expect(screen.getByText('DA003')).toBeInTheDocument();
+    expect(screen.getByText('Đơn vị')).toBeInTheDocument();
+    expect(screen.getByText('Kinh doanh số')).toBeInTheDocument();
+    expect(screen.queryByText('Người phụ trách A')).not.toBeInTheDocument();
     expect(novemberInput.value).toBe('');
 
     await user.click(screen.getByRole('button', { name: /xác nhận đưa vào kế hoạch/i }));
@@ -154,5 +156,23 @@ describe('RevenueBulkTargetModal', () => {
       ],
     });
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the department selector in a compact layout', () => {
+    render(
+      <RevenueBulkTargetModal
+        year={2026}
+        departments={departments}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Có thể chọn nhiều đơn vị hoặc chọn Toàn công ty.')).toBeInTheDocument();
+
+    const departmentTrigger = screen.getByRole('button', { name: 'Đơn vị áp dụng' });
+    expect(departmentTrigger.className).toContain('!h-8');
+    expect(departmentTrigger.className).toContain('!min-h-0');
+    expect(departmentTrigger.className).toContain('!text-xs');
   });
 });

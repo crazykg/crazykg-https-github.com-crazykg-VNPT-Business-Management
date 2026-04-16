@@ -106,17 +106,18 @@ describe('CustomerRequestListPane UI', () => {
       />
     );
 
+    await user.click(screen.getByRole('button', { name: /Mở rộng/i }));
     expect(screen.getByText(/Thiếu ước lượng \(3\)/)).toBeInTheDocument();
     expect(screen.getByText(/Vượt ước lượng \(2\)/)).toBeInTheDocument();
     expect(screen.getByText('Yêu cầu')).toBeInTheDocument();
-    expect(screen.getByText('Sức khỏe xử lý')).toBeInTheDocument();
+    expect(screen.getByText('Trạng thái xử lý')).toBeInTheDocument();
     expect(screen.getByText('CTA')).toBeInTheDocument();
     expect(screen.queryByText('Độ ưu tiên')).not.toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
     expect(screen.getByText(/Điều phối: Trần PM/)).toBeInTheDocument();
     expect(screen.getAllByText(/Vượt ước lượng/)).toHaveLength(2);
     expect(screen.getAllByText('Nguy cơ SLA').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('⚡ Cao')).toBeInTheDocument();
+    expect(screen.getAllByText(/^Cao$/)).toHaveLength(1);
     expect(screen.getByRole('button', { name: /Ra soat estimate/i })).toBeInTheDocument();
 
     await user.click(screen.getByText('CRC-202603-0022'));
@@ -210,9 +211,9 @@ describe('CustomerRequestListPane UI', () => {
     );
 
     expect(screen.queryByText('Yêu cầu')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /tune/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
+    await user.click(screen.getByRole('button', { name: /tune/i }));
     expect(screen.getByRole('button', { name: 'Ưu tiên' })).toBeInTheDocument();
 
     const actionButtons = screen.getAllByRole('button', { name: /Ra soat estimate/i });

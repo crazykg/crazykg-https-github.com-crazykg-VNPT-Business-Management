@@ -10,9 +10,18 @@ import {
   formatCurrencyVnd,
   formatRevenuePeriodLabel,
 } from '../../utils/revenueDisplay';
+import { RevenueWorkspaceHeader } from './RevenueWorkspaceHeader';
 
 interface Props {
   departments: Department[];
+}
+
+function findDepartmentLabel(departments: Department[], deptId: number | null): string {
+  if (deptId == null) {
+    return 'Toàn công ty';
+  }
+
+  return departments.find((department) => department.id === deptId)?.dept_name ?? `Đơn vị #${deptId}`;
 }
 
 function pctColor(pct: number): string {
@@ -101,40 +110,83 @@ export function RevenueForecastView({ departments }: Props) {
           .filter((item) => item.targetAmount > 0)
       )
     : null;
+  const deptScopeLabel = findDepartmentLabel(departments, selectedDeptId);
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Tầm nhìn:</span>
-          <div className="flex rounded-md border border-gray-300 overflow-hidden">
-            {HORIZON_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setForecastHorizon(opt.value as 3 | 6 | 12)}
-                className={`px-3 py-1 text-sm ${
-                  forecastHorizon === opt.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+    <div className="space-y-4 p-3 pb-6">
+      <RevenueWorkspaceHeader
+        icon="trending_up"
+        title="Dự báo"
+        description="Ước lượng phần confirmed, pending và gap forecast trong horizon đang theo dõi để chủ động bù kế hoạch."
+        badges={[
+          {
+            label: `Tầm nhìn ${forecastHorizon} tháng`,
+            icon: 'timeline',
+            tone: 'primary',
+          },
+          {
+            label: deptScopeLabel,
+            icon: 'corporate_fare',
+            tone: selectedDeptId == null ? 'success' : 'neutral',
+          },
+          {
+            label: 'Bám kế hoạch theo target tháng',
+            icon: 'flag',
+            tone: 'neutral',
+          },
+        ]}
+        metrics={data ? [
+          {
+            label: 'Forecast kỳ vọng',
+            value: formatCompactCurrencyVnd(data.kpis.total_expected),
+            detail: `Trong horizon ${data.kpis.horizon_months} tháng.`,
+            tone: 'primary',
+          },
+          {
+            label: 'Đã xác nhận',
+            value: formatCompactCurrencyVnd(data.kpis.total_confirmed),
+            detail: `Tỷ lệ xác nhận ${data.kpis.confirmation_rate}%`,
+            tone: 'success',
+          },
+          {
+            label: 'Gap forecast',
+            value: formatCompactCurrencyVnd(adjustmentPlan?.summary.totalGapAmount ?? 0),
+            detail: `${adjustmentPlan?.summary.periodsNeedingAdjustment ?? 0} tháng cần bám lại kế hoạch.`,
+            tone: adjustmentPlan && adjustmentPlan.summary.totalGapAmount > 0 ? 'warning' : 'success',
+          },
+        ] : []}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-600">Tầm nhìn:</span>
+            <div className="flex overflow-hidden rounded-md border border-slate-200 bg-white">
+              {HORIZON_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setForecastHorizon(opt.value as 3 | 6 | 12)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    forecastHorizon === opt.value
+                      ? 'bg-primary text-white'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <select
+            value={selectedDeptId ?? ''}
+            onChange={(e) => setDeptId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+            className="h-9 min-w-[180px] rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+          >
+            <option value="">Toàn công ty</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.dept_name}</option>
+            ))}
+          </select>
         </div>
-        <select
-          value={selectedDeptId ?? ''}
-          onChange={(e) => setDeptId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm min-w-[150px]"
-        >
-          <option value="">Tất cả phòng ban</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>{d.dept_name}</option>
-          ))}
-        </select>
-      </div>
+      </RevenueWorkspaceHeader>
 
       {isLoading ? (
         <div className="flex items-center justify-center h-64">

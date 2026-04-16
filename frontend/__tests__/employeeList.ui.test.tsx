@@ -107,7 +107,7 @@ describe('EmployeeList remote filters', () => {
     await waitFor(() => expect(onQueryChange).toHaveBeenCalled());
 
     expect(screen.getByRole('heading', { name: /Quản lý danh sách nhân sự/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Nhập/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nhập/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Xuất/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Thêm nhân sự/i })).toBeInTheDocument();
     expect(screen.queryByText(/People Directory/i)).not.toBeInTheDocument();

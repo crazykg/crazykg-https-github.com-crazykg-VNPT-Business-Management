@@ -31,6 +31,8 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('customer_request_status_transitions')) {
+            $this->dropIndexIfExists('customer_request_status_transitions', 'uq_crc_status_transitions_workflow');
+
             Schema::table('customer_request_status_transitions', function (Blueprint $table): void {
                 if (Schema::hasColumn('customer_request_status_transitions', 'transition_meta_json')) {
                     $table->dropColumn('transition_meta_json');
@@ -39,6 +41,9 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('customer_request_status_catalogs')) {
+            $this->dropIndexIfExists('customer_request_status_catalogs', 'uq_customer_request_status_catalogs_workflow_status');
+            $this->dropIndexIfExists('customer_request_status_catalogs', 'idx_crc_status_catalogs_workflow_group');
+
             Schema::table('customer_request_status_catalogs', function (Blueprint $table): void {
                 foreach ([
                     'workflow_definition_id',
@@ -57,6 +62,8 @@ return new class extends Migration
         }
 
         if (Schema::hasTable('customer_request_cases')) {
+            $this->dropIndexIfExists('customer_request_cases', 'idx_crc_workflow_definition_id');
+
             Schema::table('customer_request_cases', function (Blueprint $table): void {
                 if (Schema::hasColumn('customer_request_cases', 'workflow_definition_id')) {
                     $table->dropColumn('workflow_definition_id');
@@ -600,12 +607,13 @@ return new class extends Migration
 
     private function dropIndexIfExists(string $table, string $index): void
     {
-        $exists = DB::selectOne(
-            'SELECT COUNT(*) AS aggregate FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?',
-            [$table, $index]
-        );
+        if (! $this->indexExists($table, $index)) {
+            return;
+        }
 
-        if ((int) ($exists->aggregate ?? 0) > 0) {
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement(sprintf('DROP INDEX `%s`', $index));
+        } else {
             DB::statement(sprintf('DROP INDEX `%s` ON `%s`', $index, $table));
         }
     }
@@ -620,13 +628,42 @@ return new class extends Migration
             return;
         }
 
+        if (! $this->indexExists($table, $index)) {
+            DB::statement($sql);
+        }
+    }
+
+    private function indexExists(string $table, string $index): bool
+    {
+        return match (DB::getDriverName()) {
+            'sqlite' => $this->sqliteIndexExists($table, $index),
+            'mysql' => $this->mysqlIndexExists($table, $index),
+            'pgsql' => ! empty(DB::select(
+                'SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ? AND indexname = ?',
+                [$table, $index]
+            )),
+            default => false,
+        };
+    }
+
+    private function mysqlIndexExists(string $table, string $index): bool
+    {
         $exists = DB::selectOne(
             'SELECT COUNT(*) AS aggregate FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?',
             [$table, $index]
         );
 
-        if ((int) ($exists->aggregate ?? 0) === 0) {
-            DB::statement($sql);
+        return (int) ($exists->aggregate ?? 0) > 0;
+    }
+
+    private function sqliteIndexExists(string $table, string $index): bool
+    {
+        foreach (DB::select("PRAGMA index_list('{$table}')") as $row) {
+            if (($row->name ?? null) === $index) {
+                return true;
+            }
         }
+
+        return false;
     }
 };

@@ -473,7 +473,7 @@ class CustomerRequestCaseReadQueryService
      */
     private function requiredTables(): array
     {
-        return [
+        $tables = [
             'customer_request_cases',
             'customer_request_status_catalogs',
             'customer_request_status_transitions',
@@ -481,7 +481,18 @@ class CustomerRequestCaseReadQueryService
             'customer_request_worklogs',
             'customer_request_status_ref_tasks',
             'customer_request_status_attachments',
-            ...$this->metadataService->getStatusTables(),
         ];
+
+        foreach ($this->metadataService->getStatusTables() as $table) {
+            if ($table === '' || $table === 'customer_request_cases') {
+                continue;
+            }
+
+            if ($this->support->hasTable($table)) {
+                $tables[] = $table;
+            }
+        }
+
+        return array_values(array_unique($tables));
     }
 }

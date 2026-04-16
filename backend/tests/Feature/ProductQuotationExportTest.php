@@ -156,11 +156,10 @@ class ProductQuotationExportTest extends TestCase
         $this->assertStringContainsString('PHỤ LỤC 2', $documentXml);
         $this->assertStringContainsString('VNPT HIS CLOUD', $documentXml);
         $this->assertStringContainsString('VNPT EMR', $documentXml);
-        $this->assertStringContainsString('Quản trị hệ thống (Quản lý người dùng, quản lý cấu hình)', $documentXml);
-        $this->assertStringContainsString('Đăng nhập', $documentXml);
-        $this->assertStringContainsString('Trang chủ', $documentXml);
-        $this->assertStringContainsString('Bệnh án điện tử', $documentXml);
+        $this->assertStringContainsString('Tinh nang package HIS', $documentXml);
+        $this->assertStringContainsString('Dang nhap package', $documentXml);
         $this->assertStringContainsString('Quản lý hồ sơ bệnh án', $documentXml);
+        $this->assertStringContainsString('Bệnh án điện tử', $documentXml);
         $this->assertStringContainsString('Đính kèm báo giá ngày 25/03/2026', $documentXml);
         $this->assertStringContainsString('Trung tâm Kinh doanh Giải pháp – VNPT Cần Thơ', $documentXml);
         $this->assertStringContainsString('phát hành đến BỆNH VIỆN ĐA KHOA CẦN THƠ', $documentXml);
@@ -280,6 +279,9 @@ class ProductQuotationExportTest extends TestCase
 
     private function setUpSchema(): void
     {
+        Schema::dropIfExists('product_package_features');
+        Schema::dropIfExists('product_package_feature_groups');
+        Schema::dropIfExists('product_packages');
         Schema::dropIfExists('product_features');
         Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('products');
@@ -312,6 +314,36 @@ class ProductQuotationExportTest extends TestCase
             $table->text('detail_description')->nullable();
             $table->integer('display_order')->default(0);
             $table->string('status', 20)->default('ACTIVE');
+            $table->timestamps();
+        });
+
+        Schema::create('product_packages', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('product_id');
+            $table->string('package_code', 100)->nullable();
+            $table->string('package_name', 255)->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('product_package_feature_groups', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('package_id');
+            $table->string('group_name', 255);
+            $table->integer('display_order')->default(0);
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('product_package_features', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('package_id');
+            $table->unsignedBigInteger('group_id');
+            $table->string('feature_name', 255);
+            $table->text('detail_description')->nullable();
+            $table->integer('display_order')->default(0);
+            $table->string('status', 20)->default('ACTIVE');
+            $table->timestamp('deleted_at')->nullable();
             $table->timestamps();
         });
 
@@ -360,6 +392,49 @@ class ProductQuotationExportTest extends TestCase
                 'group_id' => 2,
                 'feature_name' => 'Quản lý hồ sơ bệnh án',
                 'detail_description' => 'Tạo lập và theo dõi hồ sơ bệnh án điện tử.',
+                'display_order' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('product_packages')->insert([
+            [
+                'id' => 10,
+                'product_id' => 1,
+                'package_code' => 'PKG-HIS-01',
+                'package_name' => 'Goi HIS nang cao',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 11,
+                'product_id' => 2,
+                'package_code' => 'PKG-EMR-01',
+                'package_name' => 'Goi EMR co ban',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('product_package_feature_groups')->insert([
+            [
+                'id' => 101,
+                'package_id' => 10,
+                'group_name' => 'Tinh nang package HIS',
+                'display_order' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        DB::table('product_package_features')->insert([
+            [
+                'package_id' => 10,
+                'group_id' => 101,
+                'feature_name' => 'Dang nhap package',
+                'detail_description' => 'Su dung catalog rieng cua goi cuoc.',
                 'display_order' => 1,
                 'status' => 'ACTIVE',
                 'created_at' => now(),

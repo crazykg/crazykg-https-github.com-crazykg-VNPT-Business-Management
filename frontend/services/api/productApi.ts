@@ -4,6 +4,7 @@ import type {
   Product,
   ProductFeatureCatalog,
   ProductFeatureCatalogListPage,
+  ProductPackage,
   ProductTargetSegment,
 } from '../../types/product';
 import type { DownloadFileResult } from './_infra';
@@ -36,6 +37,7 @@ export const fetchProductsOptionsPage = async (
 
 export interface ProductQuotationExportPayloadItem {
   product_id?: number | null;
+  product_package_id?: number | null;
   product_name: string;
   unit?: string | null;
   quantity: number;
@@ -86,6 +88,7 @@ export interface ProductQuotationDraftItem {
   id: number;
   sort_order: number;
   product_id?: number | null;
+  product_package_id?: number | null;
   product_name: string;
   unit?: string | null;
   quantity: number;
@@ -243,9 +246,19 @@ const buildProductRequestPayload = (payload: Partial<Product>) => ({
   service_group: normalizeNullableText(payload.service_group),
   product_code: normalizeNullableText(payload.product_code),
   product_name: normalizeNullableText(payload.product_name),
-  package_name: normalizeNullableText(payload.package_name),
+  product_short_name: normalizeNullableText(payload.product_short_name),
   domain_id: normalizeNullableNumber(payload.domain_id),
   vendor_id: normalizeNullableNumber(payload.vendor_id),
+  standard_price: normalizeNumber(payload.standard_price, 0),
+  description: normalizeNullableText(payload.description),
+  attachments: serializeProductAttachments(payload.attachments),
+  is_active: typeof payload.is_active === 'boolean' ? payload.is_active : undefined,
+});
+
+const buildProductPackageRequestPayload = (payload: Partial<ProductPackage>) => ({
+  product_id: normalizeNullableNumber(payload.product_id),
+  package_code: normalizeNullableText(payload.package_code),
+  package_name: normalizeNullableText(payload.package_name),
   standard_price: normalizeNumber(payload.standard_price, 0),
   unit: normalizeNullableText(payload.unit),
   description: normalizeNullableText(payload.description),
@@ -336,6 +349,77 @@ export const deleteProduct = async (id: string | number): Promise<void> => {
   }
 };
 
+export const fetchProductPackages = async (): Promise<ProductPackage[]> =>
+  fetchList<ProductPackage>('/api/v5/product-packages');
+
+export const createProductPackage = async (payload: Partial<ProductPackage>): Promise<ProductPackage> => {
+  const res = await apiFetch('/api/v5/product-packages', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildProductPackageRequestPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCT_PACKAGE_FAILED'));
+  }
+
+  return parseItemJson<ProductPackage>(res);
+};
+
+export const createProductPackagesBulk = async (
+  items: Array<Partial<ProductPackage>>
+): Promise<BulkMutationResult<ProductPackage>> => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { results: [], created: [], created_count: 0, failed_count: 0 };
+  }
+
+  const res = await apiFetch('/api/v5/product-packages/bulk', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      items: items.map((item) => buildProductPackageRequestPayload(item)),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PRODUCT_PACKAGES_BULK_FAILED'));
+  }
+
+  return parseBulkMutationJson<ProductPackage>(res);
+};
+
+export const updateProductPackage = async (
+  id: string | number,
+  payload: Partial<ProductPackage>
+): Promise<ProductPackage> => {
+  const res = await apiFetch(`/api/v5/product-packages/${id}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildProductPackageRequestPayload(payload)),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_PACKAGE_FAILED'));
+  }
+
+  return parseItemJson<ProductPackage>(res);
+};
+
+export const deleteProductPackage = async (id: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/product-packages/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_PRODUCT_PACKAGE_FAILED'));
+  }
+};
+
 export const fetchProductFeatureCatalog = async (productId: string | number): Promise<ProductFeatureCatalog> => {
   const res = await apiFetch(`/api/v5/products/${productId}/feature-catalog`, {
     method: 'GET',
@@ -345,6 +429,22 @@ export const fetchProductFeatureCatalog = async (productId: string | number): Pr
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_FEATURE_CATALOG_FAILED'));
+  }
+
+  return parseItemJson<ProductFeatureCatalog>(res);
+};
+
+export const fetchProductPackageFeatureCatalog = async (
+  productPackageId: string | number
+): Promise<ProductFeatureCatalog> => {
+  const res = await apiFetch(`/api/v5/product-packages/${productPackageId}/feature-catalog`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_PACKAGE_FEATURE_CATALOG_FAILED'));
   }
 
   return parseItemJson<ProductFeatureCatalog>(res);
@@ -382,6 +482,43 @@ export const fetchProductFeatureCatalogList = async (
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_FEATURE_CATALOG_LIST_FAILED'));
+  }
+
+  return parseItemJson<ProductFeatureCatalogListPage>(res);
+};
+
+export const fetchProductPackageFeatureCatalogList = async (
+  productPackageId: string | number,
+  params?: {
+    page?: number;
+    per_page?: number;
+    group_id?: string | number | null;
+    search?: string | null;
+  }
+): Promise<ProductFeatureCatalogListPage> => {
+  const searchParams = new URLSearchParams();
+  if (typeof params?.page === 'number' && Number.isFinite(params.page)) {
+    searchParams.set('page', String(params.page));
+  }
+  if (typeof params?.per_page === 'number' && Number.isFinite(params.per_page)) {
+    searchParams.set('per_page', String(params.per_page));
+  }
+  if (params?.group_id !== null && params?.group_id !== undefined && String(params.group_id).trim() !== '') {
+    searchParams.set('group_id', String(params.group_id));
+  }
+  if (typeof params?.search === 'string' && params.search.trim() !== '') {
+    searchParams.set('search', params.search.trim());
+  }
+
+  const queryString = searchParams.toString();
+  const res = await apiFetch(`/api/v5/product-packages/${productPackageId}/feature-catalog/list${queryString ? `?${queryString}` : ''}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PRODUCT_PACKAGE_FEATURE_CATALOG_LIST_FAILED'));
   }
 
   return parseItemJson<ProductFeatureCatalogListPage>(res);
@@ -450,6 +587,74 @@ export const updateProductFeatureCatalog = async (
 
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_FEATURE_CATALOG_FAILED'));
+  }
+
+  return parseItemJson<ProductFeatureCatalog>(res);
+};
+
+export const updateProductPackageFeatureCatalog = async (
+  productPackageId: string | number,
+  payload: {
+    groups: Array<{
+      id?: string | number | null;
+      uuid?: string | null;
+      group_name: string;
+      notes?: string | null;
+      display_order?: number | null;
+      features: Array<{
+        id?: string | number | null;
+        uuid?: string | null;
+        feature_name: string;
+        detail_description?: string | null;
+        status?: 'ACTIVE' | 'INACTIVE' | null;
+        display_order?: number | null;
+      }>;
+    }>;
+    audit_context?: {
+      source?: 'FORM' | 'IMPORT' | null;
+      import_file_name?: string | null;
+      import_sheet_name?: string | null;
+      import_row_count?: number | null;
+      import_group_count?: number | null;
+      import_feature_count?: number | null;
+    } | null;
+  }
+): Promise<ProductFeatureCatalog> => {
+  const res = await apiFetch(`/api/v5/product-packages/${productPackageId}/feature-catalog`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      groups: (payload.groups || []).map((group, groupIndex) => ({
+        id: normalizeNullableNumber(group.id),
+        uuid: normalizeNullableText(group.uuid),
+        group_name: normalizeNullableText(group.group_name) || '',
+        notes: normalizeNullableText(group.notes),
+        display_order: normalizeNumber(group.display_order, groupIndex + 1),
+        features: (group.features || []).map((feature, featureIndex) => ({
+          id: normalizeNullableNumber(feature.id),
+          uuid: normalizeNullableText(feature.uuid),
+          feature_name: normalizeNullableText(feature.feature_name) || '',
+          detail_description: normalizeNullableText(feature.detail_description),
+          status: normalizeNullableText(feature.status) || 'ACTIVE',
+          display_order: normalizeNumber(feature.display_order, featureIndex + 1),
+        })),
+      })),
+      audit_context: payload.audit_context
+        ? {
+            source: normalizeNullableText(payload.audit_context.source) || 'FORM',
+            import_file_name: normalizeNullableText(payload.audit_context.import_file_name),
+            import_sheet_name: normalizeNullableText(payload.audit_context.import_sheet_name),
+            import_row_count: normalizeNullableNumber(payload.audit_context.import_row_count),
+            import_group_count: normalizeNullableNumber(payload.audit_context.import_group_count),
+            import_feature_count: normalizeNullableNumber(payload.audit_context.import_feature_count),
+          }
+        : undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_PRODUCT_PACKAGE_FEATURE_CATALOG_FAILED'));
   }
 
   return parseItemJson<ProductFeatureCatalog>(res);
@@ -667,9 +872,22 @@ export const printStoredProductQuotationWord = async (
   }
 
   const blob = await res.blob();
+  const rawEmailMessage = res.headers.get('X-Quotation-Email-Message');
+  let emailMessage: string | null = null;
+
+  if (rawEmailMessage) {
+    try {
+      emailMessage = decodeURIComponent(rawEmailMessage);
+    } catch {
+      emailMessage = rawEmailMessage;
+    }
+  }
+
   return {
     blob,
     filename: resolveDownloadFilename(res, `bao_gia_${String(id)}.docx`),
+    emailStatus: res.headers.get('X-Quotation-Email-Status'),
+    emailMessage,
   };
 };
 

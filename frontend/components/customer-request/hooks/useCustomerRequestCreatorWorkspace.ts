@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
+import { isRequestCanceledError } from '../../../services/v5Api';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
-import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import { splitCreatorWorkspaceRows } from '../creatorWorkspace';
 
 type UseCustomerRequestCreatorWorkspaceOptions = {
@@ -34,7 +34,7 @@ export const useCustomerRequestCreatorWorkspace = ({
   }, [creatorQuery.refetch, dataVersion, enabled]);
 
   useEffect(() => {
-    if (!creatorQuery.error) {
+    if (!creatorQuery.error || isRequestCanceledError(creatorQuery.error)) {
       return;
     }
 

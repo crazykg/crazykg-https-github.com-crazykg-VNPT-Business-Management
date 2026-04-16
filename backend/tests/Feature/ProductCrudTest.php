@@ -23,11 +23,10 @@ class ProductCrudTest extends TestCase
             'service_group' => 'GROUP_C',
             'product_code' => 'SP001',
             'product_name' => 'San pham 01',
-            'package_name' => 'Goi VNPT HIS 1',
+            'product_short_name' => 'SP 01',
             'domain_id' => 1,
             'vendor_id' => 1,
             'standard_price' => 150000000,
-            'unit' => 'Goi',
             'description' => 'Mo ta san pham',
             'attachments' => [
                 [
@@ -50,13 +49,13 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('data.service_group', 'GROUP_C')
             ->assertJsonPath('data.product_code', 'SP001')
             ->assertJsonPath('data.product_name', 'San pham 01')
-            ->assertJsonPath('data.package_name', 'Goi VNPT HIS 1')
+            ->assertJsonPath('data.product_short_name', 'SP 01')
             ->assertJsonPath('data.attachments.0.fileName', 'bang-gia.pdf');
 
         $defaultGroupResponse = $this->postJson('/api/v5/products', [
             'product_code' => 'SP002',
             'product_name' => 'San pham 02',
-            'package_name' => 'Goi VNPT HIS 2',
+            'product_short_name' => 'SP 02',
             'domain_id' => 1,
             'vendor_id' => 1,
         ]);
@@ -71,14 +70,14 @@ class ProductCrudTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.service_group', 'GROUP_C')
-            ->assertJsonPath('data.0.package_name', 'Goi VNPT HIS 1')
+            ->assertJsonPath('data.0.product_short_name', 'SP 01')
             ->assertJsonPath('data.0.attachments.0.fileName', 'bang-gia.pdf')
             ->assertJsonPath('data.1.service_group', 'GROUP_B');
 
         $updateResponse = $this->putJson('/api/v5/products/2', [
             'service_group' => 'GROUP_A',
             'product_name' => 'San pham 02 moi',
-            'package_name' => 'Goi VNPT HIS 2 Plus',
+            'product_short_name' => 'SP 02 moi',
             'attachments' => [
                 [
                     'id' => 'temp-2',
@@ -99,11 +98,11 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('data.id', 2)
             ->assertJsonPath('data.service_group', 'GROUP_A')
             ->assertJsonPath('data.product_name', 'San pham 02 moi')
-            ->assertJsonPath('data.package_name', 'Goi VNPT HIS 2 Plus')
+            ->assertJsonPath('data.product_short_name', 'SP 02 moi')
             ->assertJsonPath('data.attachments.0.fileName', 'mo-ta.docx');
 
         $this->assertSame('GROUP_A', DB::table('products')->where('id', 2)->value('service_group'));
-        $this->assertSame('Goi VNPT HIS 2 Plus', DB::table('products')->where('id', 2)->value('package_name'));
+        $this->assertSame('SP 02 moi', DB::table('products')->where('id', 2)->value('product_short_name'));
         $this->assertSame(
             'bang-gia.pdf',
             DB::table('attachments')
@@ -143,11 +142,10 @@ class ProductCrudTest extends TestCase
                     'service_group' => 'GROUP_B',
                     'product_code' => 'SPBULK01',
                     'product_name' => 'San pham import 01',
-                    'package_name' => 'Goi import 01',
+                    'product_short_name' => 'SP import 01',
                     'domain_id' => 1,
                     'vendor_id' => 1,
                     'standard_price' => 250000,
-                    'unit' => 'Goi',
                 ],
                 [
                     'service_group' => 'GROUP_C',
@@ -165,12 +163,14 @@ class ProductCrudTest extends TestCase
             ->assertJsonPath('data.failed_count', 1)
             ->assertJsonPath('data.results.0.success', true)
             ->assertJsonPath('data.results.0.data.product_code', 'SPBULK01')
+            ->assertJsonPath('data.results.0.data.product_short_name', 'SP import 01')
             ->assertJsonPath('data.results.1.success', false)
             ->assertJsonPath('data.results.1.message', 'domain_id is invalid.');
 
         $this->assertDatabaseHas('products', [
             'product_code' => 'SPBULK01',
             'product_name' => 'San pham import 01',
+            'product_short_name' => 'SP import 01',
         ]);
         $this->assertDatabaseMissing('products', [
             'product_code' => 'SPBULK02',
@@ -222,7 +222,6 @@ class ProductCrudTest extends TestCase
             'service_group' => 'GROUP_B',
             'product_code' => 'SPLOCK',
             'product_name' => 'San pham khoa don gia',
-            'package_name' => 'Goi khoa don gia',
             'domain_id' => 1,
             'vendor_id' => 1,
             'standard_price' => 1500000,
@@ -265,7 +264,7 @@ class ProductCrudTest extends TestCase
         $allowedResponse
             ->assertOk()
             ->assertJsonPath('data.product_name', 'San pham khoa don gia da doi ten')
-            ->assertJsonPath('data.standard_price', 1500000.0)
+            ->assertJsonPath('data.standard_price', 1500000)
             ->assertJsonPath('data.standard_price_locked', true);
     }
 
@@ -301,11 +300,10 @@ class ProductCrudTest extends TestCase
             $table->string('service_group', 50)->default('GROUP_B');
             $table->string('product_code', 100)->unique();
             $table->string('product_name', 255);
-            $table->string('package_name', 255)->nullable();
+            $table->string('product_short_name', 255)->nullable();
             $table->unsignedBigInteger('domain_id');
             $table->unsignedBigInteger('vendor_id');
             $table->decimal('standard_price', 15, 2)->default(0);
-            $table->string('unit', 50)->nullable();
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('deleted_at')->nullable();

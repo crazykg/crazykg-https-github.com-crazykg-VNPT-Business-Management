@@ -7,41 +7,35 @@
  *   Right (flex-[2]): Hướng xử lý + Estimate + Workflow selection
  */
 import React, { useEffect, useState } from 'react';
-import { ModalWrapper } from '../Modals';
+import { ModalWrapper } from '../modals';
 import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
+import { TagInput } from './TagInput';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
-import type { Attachment, YeuCauProcessField } from '../../types/customerRequest';
-import type { Customer, CustomerPersonnel } from '../../types/customer';
-import type { Employee } from '../../types/employee';
-import type { ProjectItemMaster } from '../../types/project';
-import type { SupportServiceGroup } from '../../types/support';
-import type { CustomerRequestCreateFlowDraft } from './createFlow';
-import {
-  fetchWorkflowDefinitions,
-  type WorkflowDefinition,
-} from '../../services/api/customerRequestApi';
+import type {
+  Attachment,
+  Customer,
+  CustomerPersonnel,
+  Employee,
+  ProjectItemMaster,
+  SupportServiceGroup,
+  YeuCauProcessField,
+  Tag,
+} from '../../types';
 
 type CustomerRequestCreateModalProps = {
   /* master form fields */
   masterFields: YeuCauProcessField[];
   masterDraft: Record<string, unknown>;
   onMasterFieldChange: (field: string, value: unknown) => void;
-  /* create flow (est. + direction) */
-  createFlowDraft: CustomerRequestCreateFlowDraft;
-  onCreateFlowDraftChange: (patch: Partial<CustomerRequestCreateFlowDraft>) => void;
-  /* workflow selection */
-  workflowDefinitionId?: number | null;
-  onWorkflowDefinitionIdChange?: (id: number | null) => void;
   /* lookup data */
   customers: Customer[];
   employees: Employee[];
   customerPersonnel: CustomerPersonnel[];
   supportServiceGroups: SupportServiceGroup[];
   projectItems: ProjectItemMaster[];
-  currentUserName: string;
   /* attachments */
   formAttachments: Attachment[];
   onUploadAttachment: (file: File) => Promise<void>;
@@ -52,7 +46,11 @@ type CustomerRequestCreateModalProps = {
   /* IT360 tasks */
   formIt360Tasks: It360TaskFormRow[];
   onAddIt360Task: () => void;
-  onUpdateIt360TaskRow: (localId: string, field: string, value: unknown) => void;
+  onUpdateIt360TaskRow: (
+    localId: string,
+    field: keyof Omit<It360TaskFormRow, 'local_id'>,
+    value: unknown
+  ) => void;
   onRemoveIt360TaskRow: (localId: string) => void;
   /* reference tasks */
   formReferenceTasks: ReferenceTaskFormRow[];
@@ -64,6 +62,9 @@ type CustomerRequestCreateModalProps = {
   onTaskReferenceSearchTermChange: (v: string) => void;
   taskReferenceSearchError: string;
   isTaskReferenceSearchLoading: boolean;
+  /* tags */
+  formTags: Tag[];
+  onTagsChange: (tags: Tag[]) => void;
   /* state + callbacks */
   isSaving: boolean;
   onSave: () => Promise<void> | void;
@@ -76,14 +77,11 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   masterFields,
   masterDraft,
   onMasterFieldChange,
-  createFlowDraft,
-  onCreateFlowDraftChange,
   customers,
   employees,
   customerPersonnel,
   supportServiceGroups,
   projectItems,
-  currentUserName,
   formAttachments,
   onUploadAttachment,
   onDeleteAttachment,
@@ -103,43 +101,13 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   onTaskReferenceSearchTermChange,
   taskReferenceSearchError,
   isTaskReferenceSearchLoading,
+  formTags,
+  onTagsChange,
   isSaving,
   onSave,
   onClose,
-  workflowDefinitionId,
-  onWorkflowDefinitionIdChange,
 }) => {
   const [activeTaskTab, setActiveTaskTab] = useState<TaskTab>('IT360');
-  const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
-  const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(false);
-
-  /* Load workflows on mount */
-  useEffect(() => {
-    const loadWorkflows = async () => {
-      try {
-        setIsLoadingWorkflows(true);
-        const workflowRows = await fetchWorkflowDefinitions('customer_request', false);
-        setWorkflows(workflowRows || []);
-
-        // Set default workflow if not selected
-        if (workflowDefinitionId === undefined || workflowDefinitionId === null) {
-          // Prefer default workflow, fallback to first active workflow
-          const defaultWorkflow = workflowRows?.find((w) => w.is_default);
-          const activeWorkflow = workflowRows?.find((w) => w.is_active);
-          const workflowToSelect = defaultWorkflow ?? activeWorkflow;
-          if (workflowToSelect && onWorkflowDefinitionIdChange) {
-            onWorkflowDefinitionIdChange(workflowToSelect.id);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load workflows:', error);
-      } finally {
-        setIsLoadingWorkflows(false);
-      }
-    };
-    
-    loadWorkflows();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Khóa scroll trang nền khi modal mở */
   useEffect(() => {
@@ -150,10 +118,6 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   const selectedCustomerId = String(masterDraft.customer_id ?? '');
   const selectedProjectItem =
     projectItems.find((p) => String(p.id) === String(masterDraft.project_item_id ?? '')) ?? null;
-  const selectedCustomerName =
-    customers.find((c) => String(c.id) === selectedCustomerId)?.customer_name
-    ?? selectedProjectItem?.customer_name
-    ?? '';
 
   /* ── Tên field động cho auto-select cascade ────────────────────── */
   const personnelFieldName = masterFields.find((f) => f.type === 'customer_personnel_select')?.name ?? null;
@@ -334,7 +298,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                     Task tham chiếu #{idx + 1}
                   </p>
                   <SearchableSelect
-                    value={task.task_code || (task.id != null ? String(task.id) : '')}
+                    value={task.task_code}
                     options={taskReferenceOptions}
                     onChange={(v) => onUpdateReferenceTaskRow(task.local_id, v)}
                     searchTerm={taskReferenceSearchTerm}
@@ -407,15 +371,15 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
     <ModalWrapper
       title="Tạo yêu cầu mới"
       icon="add_circle"
-      width="max-w-5xl"
-      maxHeightClass="max-h-[92vh]"
+      width="max-w-[1560px]"
+      heightClass="h-[calc(100dvh-16px)] sm:h-[calc(100dvh-48px)]"
+      maxHeightClass=""
       disableClose={isSaving}
       onClose={onClose}
     >
       {/* 2-column body */}
-      <div className="flex min-h-0 gap-0 overflow-y-auto">
-        {/* ── LEFT: Thông tin yêu cầu + Task ───────────────────── */}
-        <div className="min-w-0 flex-[3] space-y-4 border-r border-slate-100 px-6 py-4">
+      <div className="flex min-h-0 overflow-y-auto">
+        <div className="min-w-0 w-full space-y-4 px-6 py-4">
           {masterFields.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
               <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
@@ -460,40 +424,39 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           {/* Task liên quan */}
           {renderTaskSection()}
 
-          {/* Đính kèm — đặt ngay dưới Task liên quan để luồng nhập liệu liền mạch */}
+          {/* Tags */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                Thẻ (Tags)
+              </h4>
+            </div>
+            <TagInput
+              value={formTags}
+              onChange={onTagsChange}
+              placeholder="Nhập tag và nhấn Enter..."
+              disabled={isSaving}
+            />
+            <p className="mt-1.5 text-xs text-slate-400">
+              Gắn thẻ để dễ tìm kiếm và phân loại yêu cầu. Nhấn Enter để tạo tag mới.
+            </p>
+          </div>
+
+          {/* Đính kèm — đặt ngay dưới Tags để luồng nhập liệu liền mạch */}
           {renderAttachmentSection()}
         </div>
 
-        {/* ── RIGHT: Workflow selection ────────────────────── */}
-        <div className="w-[340px] flex-none space-y-4 px-5 py-4">
-          {/* Workflow selection */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-            <h4 className="mb-2 text-sm font-semibold text-slate-700">Luồng xử lý</h4>
-            <select
-              value={workflowDefinitionId || ''}
-              onChange={(e) => onWorkflowDefinitionIdChange?.(Number(e.target.value) || null)}
-              disabled={isSaving || isLoadingWorkflows}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
-            >
-              <option value="">-- Chọn luồng --</option>
-              {workflows.map((workflow) => (
-                <option
-                  key={workflow.id}
-                  value={workflow.id}
-                  disabled={!workflow.is_active}
-                >
-                  {workflow.name} {workflow.is_default ? '(Default)' : ''}
-                  {!workflow.is_active ? ' (Inactive)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3.5">
         <p className="text-xs text-slate-400">
+          {formTags.length > 0 && (
+            <span className="mr-3 inline-flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">label</span>
+              {formTags.length} tag
+            </span>
+          )}
           {formAttachments.length > 0 && (
             <span className="mr-3 inline-flex items-center gap-1">
               <span className="material-symbols-outlined text-[14px]">attach_file</span>

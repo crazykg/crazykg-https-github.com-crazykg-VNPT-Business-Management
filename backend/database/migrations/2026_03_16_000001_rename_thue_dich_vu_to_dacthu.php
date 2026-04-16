@@ -17,13 +17,15 @@ return new class extends Migration
 
     public function up(): void
     {
+        $timestamp = now();
+
         // 1. project_types
         if (Schema::hasTable('project_types') && Schema::hasColumn('project_types', 'type_code')) {
             DB::table('project_types')
                 ->where('type_code', self::OLD_CODE)
                 ->update([
                     'type_code'  => self::NEW_CODE,
-                    'updated_at' => DB::raw('NOW()'),
+                    'updated_at' => $timestamp,
                 ]);
         }
 
@@ -36,7 +38,7 @@ return new class extends Migration
                 ->where('investment_mode', self::OLD_CODE)
                 ->update([
                     'investment_mode' => self::NEW_CODE,
-                    'updated_at'      => DB::raw('NOW()'),
+                    'updated_at'      => $timestamp,
                 ]);
         }
 
@@ -46,30 +48,32 @@ return new class extends Migration
                 ->where('template_code', self::OLD_CODE)
                 ->update([
                     'template_code' => self::NEW_CODE,
-                    'updated_at'    => DB::raw('NOW()'),
+                    'updated_at'    => $timestamp,
                 ]);
         }
     }
 
     public function down(): void
     {
+        $timestamp = now();
+
         // Rollback: THUE_DICH_VU_DACTHU → THUE_DICH_VU
         if (Schema::hasTable('project_types') && Schema::hasColumn('project_types', 'type_code')) {
             DB::table('project_types')
                 ->where('type_code', self::NEW_CODE)
-                ->update(['type_code' => self::OLD_CODE, 'updated_at' => DB::raw('NOW()')]);
+                ->update(['type_code' => self::OLD_CODE, 'updated_at' => $timestamp]);
         }
 
         if (Schema::hasTable('projects') && Schema::hasColumn('projects', 'investment_mode')) {
             DB::table('projects')
                 ->where('investment_mode', self::NEW_CODE)
-                ->update(['investment_mode' => self::OLD_CODE, 'updated_at' => DB::raw('NOW()')]);
+                ->update(['investment_mode' => self::OLD_CODE, 'updated_at' => $timestamp]);
         }
 
         if (Schema::hasTable('procedure_templates') && Schema::hasColumn('procedure_templates', 'template_code')) {
             DB::table('procedure_templates')
                 ->where('template_code', self::NEW_CODE)
-                ->update(['template_code' => self::OLD_CODE, 'updated_at' => DB::raw('NOW()')]);
+                ->update(['template_code' => self::OLD_CODE, 'updated_at' => $timestamp]);
         }
     }
 
@@ -78,6 +82,10 @@ return new class extends Migration
      */
     private function expandEnumIfNeeded(string $table, string $column): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         $columnType = DB::selectOne(
             "SELECT COLUMN_TYPE FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE()

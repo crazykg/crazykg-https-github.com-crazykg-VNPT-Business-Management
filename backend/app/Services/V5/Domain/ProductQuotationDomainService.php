@@ -8,6 +8,7 @@ use App\Models\ProductQuotationEvent;
 use App\Models\ProductQuotationItem;
 use App\Models\ProductQuotationVersion;
 use App\Models\ProductQuotationVersionItem;
+use App\Services\V5\IntegrationSettings\EmailSmtpIntegrationService;
 use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
@@ -15,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Throwable;
@@ -47,7 +49,8 @@ class ProductQuotationDomainService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
-        private readonly ProductQuotationExportService $quotationExportService
+        private readonly ProductQuotationExportService $quotationExportService,
+        private readonly EmailSmtpIntegrationService $emailSmtp
     ) {}
 
     public function defaultSettings(Request $request): JsonResponse
@@ -260,6 +263,9 @@ class ProductQuotationDomainService
         }
 
         $normalized = $this->normalizeDraftPayload($request);
+        if ($draftValidation = $this->validatePersistableDraftPayload($normalized)) {
+            return $draftValidation;
+        }
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $customerId = $this->resolveCustomerId($request);
         if ($customerId instanceof JsonResponse) {
@@ -323,6 +329,9 @@ class ProductQuotationDomainService
 
         $beforeSnapshot = $this->serializeQuotationAuditSnapshot($quotation);
         $normalized = $this->normalizeDraftPayload($request);
+        if ($draftValidation = $this->validatePersistableDraftPayload($normalized)) {
+            return $draftValidation;
+        }
         $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
         $customerId = $this->resolveCustomerId($request);
         if ($customerId instanceof JsonResponse) {
@@ -540,6 +549,10 @@ class ProductQuotationDomainService
         $normalized = null;
         $version = null;
         $filename = null;
+        $emailNotification = [
+            'status' => 'SKIPPED',
+            'message' => null,
+        ];
 
         DB::transaction(function () use (
             $request,
@@ -673,13 +686,21 @@ class ProductQuotationDomainService
             if ($version instanceof ProductQuotationVersion) {
                 $version->status = self::VERSION_STATUS_SUCCESS;
                 $version->save();
+
+                $emailNotification = $this->sendQuotationPrintNotification(
+                    $request,
+                    $version,
+                    $normalized,
+                    (string) $filename,
+                    $binary
+                );
             }
 
             return response($binary, 200, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'Content-Disposition' => $this->quotationExportService->buildContentDispositionHeader(
-                    (string) $filename
-                ),
+                'Content-Disposition' => $this->quotationExportService->buildContentDispositionHeader((string) $filename),
+                'X-Quotation-Email-Status' => (string) ($emailNotification['status'] ?? 'SKIPPED'),
+                'X-Quotation-Email-Message' => rawurlencode((string) ($emailNotification['message'] ?? '')),
             ]);
         } catch (Throwable $exception) {
             if ($version instanceof ProductQuotationVersion) {
@@ -701,6 +722,283 @@ class ProductQuotationDomainService
 
             throw $exception;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $normalized
+     * @return array{status: 'SUCCESS'|'FAILED'|'SKIPPED', message: string|null}
+     */
+    private function sendQuotationPrintNotification(
+        Request $request,
+        ProductQuotationVersion $version,
+        array $normalized,
+        string $filename,
+        string $binary
+    ): array {
+        $recipients = collect(
+            config(
+                'audit.product_quotation_print_notification_recipients',
+                config('audit.product_feature_catalog_notification_recipients', [])
+            )
+        )
+            ->map(fn (mixed $email): string => strtolower(trim((string) $email)))
+            ->filter(fn (string $email): bool => $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($recipients === []) {
+            return [
+                'status' => 'SKIPPED',
+                'message' => null,
+            ];
+        }
+
+        $actor = $request->user();
+        $actorName = trim((string) ($actor?->full_name ?? $actor?->username ?? 'Không rõ'));
+        $actorUsername = trim((string) ($actor?->username ?? ''));
+        $actorDisplay = $actorUsername !== ''
+            ? sprintf('%s (%s)', $actorName, $actorUsername)
+            : $actorName;
+        $printedAt = $version->printed_at?->format('d/m/Y H:i:s') ?? now()->format('d/m/Y H:i:s');
+        $resolvedFilename = trim($filename) !== '' ? trim($filename) : sprintf('bao-gia-v%d.docx', (int) $version->version_no);
+
+        $result = $this->emailSmtp->sendHtmlEmail(
+            $recipients,
+            $this->buildQuotationPrintEmailSubject($version, $normalized),
+            $this->buildQuotationPrintEmailLines($request, $version, $normalized, $resolvedFilename, $actorDisplay, $printedAt),
+            $this->buildQuotationPrintEmailHtml($request, $version, $normalized, $resolvedFilename, $actorDisplay, $printedAt),
+            [[
+                'data' => $binary,
+                'name' => $resolvedFilename,
+                'options' => [
+                    'mime' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                ],
+            ]]
+        );
+
+        if (($result['success'] ?? false) === true) {
+            return [
+                'status' => 'SUCCESS',
+                'message' => 'Đã gửi email lưu trữ bản in báo giá.',
+            ];
+        }
+
+        $message = (string) ($result['message'] ?? 'Không thể gửi email lưu trữ bản in báo giá.');
+
+        Log::warning('product_quotation.print_email_failed', [
+            'quotation_id' => $version->quotation_id,
+            'version_id' => $version->id,
+            'version_no' => $version->version_no,
+            'recipients' => $recipients,
+            'message' => $message,
+        ]);
+
+        return [
+            'status' => 'FAILED',
+            'message' => $message,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $normalized
+     */
+    private function buildQuotationPrintEmailSubject(ProductQuotationVersion $version, array $normalized): string
+    {
+        $recipientName = trim((string) ($normalized['recipient_name'] ?? $version->recipient_name ?? ''));
+        $recipientLabel = $recipientName !== ''
+            ? $recipientName
+            : sprintf('Báo giá #%d', (int) $version->quotation_id);
+
+        return sprintf(
+            '[VNPT Business] Lưu trữ bản in báo giá v%d - %s',
+            (int) $version->version_no,
+            $recipientLabel
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $normalized
+     * @return array<int, string>
+     */
+    private function buildQuotationPrintEmailLines(
+        Request $request,
+        ProductQuotationVersion $version,
+        array $normalized,
+        string $filename,
+        string $actorDisplay,
+        string $printedAt
+    ): array {
+        $quoteDate = $version->quote_date?->format('d/m/Y') ?? '';
+        $lines = [
+            'Hệ thống vừa ghi nhận một lần xác nhận in báo giá.',
+            '',
+            'Phiên bản in: v' . (int) $version->version_no,
+            'Tên file: ' . $filename,
+            'Đơn vị nhận báo giá: ' . trim((string) ($normalized['recipient_name'] ?? $version->recipient_name ?? '')),
+            'Ngày báo giá: ' . ($quoteDate !== '' ? $quoteDate : '—'),
+            'Tổng tiền: ' . $this->formatQuotationEmailCurrency((float) ($normalized['total'] ?? $version->total_amount ?? 0)),
+            'Người xác nhận in: ' . $actorDisplay,
+            'Thời gian xác nhận: ' . $printedAt,
+            'URL: ' . $request->fullUrl(),
+            'IP: ' . (string) ($request->ip() ?? 'Không rõ'),
+            'Hash nội dung: ' . trim((string) ($version->content_hash ?? '—')),
+            '',
+            'Mail này kèm theo file Word vừa in để lưu trữ.',
+        ];
+
+        $items = is_array($normalized['items'] ?? null) ? $normalized['items'] : [];
+        if ($items !== []) {
+            $lines[] = '';
+            $lines[] = 'Danh sách hạng mục:';
+            foreach ($items as $index => $item) {
+                $lines[] = sprintf(
+                    '%d. %s | SL %s | Đơn giá %s | Thành tiền %s',
+                    $index + 1,
+                    trim((string) ($item['product_name'] ?? 'Hạng mục')),
+                    $this->formatQuotationEmailNumber((float) ($item['quantity'] ?? 0)),
+                    $this->formatQuotationEmailCurrency((float) ($item['unit_price'] ?? 0)),
+                    $this->formatQuotationEmailCurrency((float) ($item['line_total'] ?? 0))
+                );
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string, mixed> $normalized
+     */
+    private function buildQuotationPrintEmailHtml(
+        Request $request,
+        ProductQuotationVersion $version,
+        array $normalized,
+        string $filename,
+        string $actorDisplay,
+        string $printedAt
+    ): string {
+        $quoteDate = $version->quote_date?->format('d/m/Y') ?? '—';
+        $url = trim((string) $request->fullUrl());
+        $summaryRows = [
+            ['label' => 'Phiên bản in', 'value' => 'v' . (int) $version->version_no],
+            ['label' => 'Tên file', 'value' => $filename],
+            ['label' => 'Đơn vị nhận báo giá', 'value' => trim((string) ($normalized['recipient_name'] ?? $version->recipient_name ?? '')) ?: '—'],
+            ['label' => 'Ngày báo giá', 'value' => $quoteDate],
+            ['label' => 'Tổng tiền', 'value' => $this->formatQuotationEmailCurrency((float) ($normalized['total'] ?? $version->total_amount ?? 0))],
+            ['label' => 'Người xác nhận in', 'value' => $actorDisplay],
+            ['label' => 'Thời gian xác nhận', 'value' => $printedAt],
+            [
+                'label' => 'URL',
+                'value' => $url !== ''
+                    ? '<a href="' . $this->escapeQuotationEmailHtml($url) . '" style="color:#0b4f93;text-decoration:none;">'
+                        . $this->escapeQuotationEmailHtml($url)
+                        . '</a>'
+                    : '—',
+                'is_html' => $url !== '',
+            ],
+            ['label' => 'IP', 'value' => (string) ($request->ip() ?? 'Không rõ')],
+            ['label' => 'Hash nội dung', 'value' => trim((string) ($version->content_hash ?? '')) ?: '—'],
+        ];
+
+        $items = is_array($normalized['items'] ?? null) ? $normalized['items'] : [];
+        $html = [
+            '<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>',
+            '<body style="margin:0;padding:24px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">',
+            '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:1100px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:16px;">',
+            '<tr><td style="padding:28px 32px 16px 32px;">',
+            '<div style="font-size:24px;font-weight:700;color:#0b4f93;">Lưu trữ bản in báo giá</div>',
+            '<div style="margin-top:8px;font-size:14px;line-height:1.6;color:#4b5563;">Hệ thống vừa xác nhận một lần in báo giá thành công. File Word của phiên bản đã được đính kèm trong email này để lưu trữ.</div>',
+            '</td></tr>',
+            '<tr><td style="padding:0 32px 24px 32px;">',
+            '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Thông tin bản in</div>',
+            $this->renderQuotationEmailKeyValueTableHtml($summaryRows),
+            '</td></tr>',
+            '<tr><td style="padding:0 32px 16px 32px;">',
+            '<div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:12px;">Nội dung hạng mục báo giá</div>',
+            '</td></tr>',
+            '<tr><td style="padding:0 32px 32px 32px;">',
+            '<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;border:1px solid #dbe4f0;">',
+            '<thead><tr>',
+            '<th align="left" style="width:52px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">TT</th>',
+            '<th align="left" style="padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Hạng mục</th>',
+            '<th align="left" style="width:120px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Đơn vị</th>',
+            '<th align="right" style="width:90px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Số lượng</th>',
+            '<th align="right" style="width:150px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Đơn giá</th>',
+            '<th align="right" style="width:72px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">VAT</th>',
+            '<th align="right" style="width:170px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Thành tiền</th>',
+            '<th align="left" style="width:240px;padding:12px 14px;background:#f8fbff;border:1px solid #dbe4f0;font-size:12px;font-weight:700;color:#0f172a;">Ghi chú</th>',
+            '</tr></thead><tbody>',
+        ];
+
+        if ($items === []) {
+            $html[] = '<tr><td colspan="8" style="padding:14px 16px;border:1px solid #dbe4f0;font-size:13px;color:#4b5563;">Không có hạng mục nào trong báo giá.</td></tr>';
+        } else {
+            foreach ($items as $index => $item) {
+                $vatLabel = $item['vat_rate'] === null || $item['vat_rate'] === ''
+                    ? '—'
+                    : $this->formatQuotationEmailNumber((float) $item['vat_rate']) . '%';
+
+                $html[] = '<tr>';
+                $html[] = '<td valign="top" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->escapeQuotationEmailHtml((string) ($index + 1)) . '</td>';
+                $html[] = '<td valign="top" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->formatQuotationEmailHtmlValue((string) ($item['product_name'] ?? '')) . '</td>';
+                $html[] = '<td valign="top" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->formatQuotationEmailHtmlValue((string) ($item['unit'] ?? '')) . '</td>';
+                $html[] = '<td valign="top" align="right" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->escapeQuotationEmailHtml($this->formatQuotationEmailNumber((float) ($item['quantity'] ?? 0))) . '</td>';
+                $html[] = '<td valign="top" align="right" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->escapeQuotationEmailHtml($this->formatQuotationEmailCurrency((float) ($item['unit_price'] ?? 0))) . '</td>';
+                $html[] = '<td valign="top" align="right" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->escapeQuotationEmailHtml($vatLabel) . '</td>';
+                $html[] = '<td valign="top" align="right" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->escapeQuotationEmailHtml($this->formatQuotationEmailCurrency((float) ($item['line_total'] ?? 0))) . '</td>';
+                $html[] = '<td valign="top" style="padding:12px 14px;border:1px solid #dbe4f0;font-size:13px;color:#111827;">' . $this->formatQuotationEmailHtmlValue((string) ($item['note'] ?? '')) . '</td>';
+                $html[] = '</tr>';
+            }
+        }
+
+        $html[] = '</tbody></table>';
+        $html[] = '</td></tr>';
+        $html[] = '</table></body></html>';
+
+        return implode('', $html);
+    }
+
+    private function renderQuotationEmailKeyValueTableHtml(array $rows): string
+    {
+        $html = ['<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;border:1px solid #dbe4f0;">'];
+
+        foreach ($rows as $row) {
+            $value = (string) ($row['value'] ?? '—');
+            $html[] = '<tr>';
+            $html[] = '<td style="width:32%;padding:12px 16px;border:1px solid #dbe4f0;background:#f8fbff;font-size:13px;font-weight:600;color:#374151;">'
+                . $this->escapeQuotationEmailHtml((string) ($row['label'] ?? 'Thông tin'))
+                . '</td>';
+            $html[] = '<td style="padding:12px 16px;border:1px solid #dbe4f0;font-size:13px;line-height:1.6;color:#111827;">'
+                . (($row['is_html'] ?? false) ? $value : $this->formatQuotationEmailHtmlValue($value))
+                . '</td>';
+            $html[] = '</tr>';
+        }
+
+        $html[] = '</table>';
+
+        return implode('', $html);
+    }
+
+    private function formatQuotationEmailCurrency(float $amount): string
+    {
+        return number_format($amount, 0, ',', '.') . ' đ';
+    }
+
+    private function formatQuotationEmailNumber(float $value): string
+    {
+        $formatted = number_format($value, 2, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    private function formatQuotationEmailHtmlValue(string $value): string
+    {
+        return nl2br($this->escapeQuotationEmailHtml($value !== '' ? $value : '—'), false);
+    }
+
+    private function escapeQuotationEmailHtml(mixed $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     private function missingTableResponse(): ?JsonResponse
@@ -797,6 +1095,7 @@ class ProductQuotationDomainService
             'signatory_name' => ['nullable', 'string', 'max:255'],
             'items' => ['nullable', 'array', 'max:200'],
             'items.*.product_id' => ['nullable', 'integer'],
+            'items.*.product_package_id' => ['nullable', 'integer'],
             'items.*.product_name' => ['nullable', 'string', 'max:500'],
             'items.*.unit' => ['nullable', 'string', 'max:100'],
             'items.*.quantity' => ['nullable', 'numeric', 'min:0'],
@@ -813,6 +1112,9 @@ class ProductQuotationDomainService
         foreach ($validated['items'] ?? [] as $item) {
             $productId = isset($item['product_id']) && $item['product_id'] !== ''
                 ? (int) $item['product_id']
+                : null;
+            $productPackageId = isset($item['product_package_id']) && $item['product_package_id'] !== ''
+                ? (int) $item['product_package_id']
                 : null;
             $productName = trim((string) ($item['product_name'] ?? ''));
             $unit = trim((string) ($item['unit'] ?? ''));
@@ -836,6 +1138,7 @@ class ProductQuotationDomainService
             $vatAmount += $itemVatAmount;
             $items[] = [
                 'product_id' => $productId,
+                'product_package_id' => $productPackageId,
                 'product_name' => $productName,
                 'unit' => $unit,
                 'quantity' => $quantity,
@@ -878,6 +1181,20 @@ class ProductQuotationDomainService
             'uses_multi_vat_template' => $usesMultiVatTemplate,
             'items' => $items,
         ];
+    }
+
+    private function validatePersistableDraftPayload(array $normalized): ?JsonResponse
+    {
+        $items = $normalized['items'] ?? [];
+        $total = (float) ($normalized['total'] ?? 0);
+
+        if ($items !== [] && $total > 0) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'Không lưu nháp báo giá 0 đồng. Vui lòng nhập ít nhất một hạng mục có thành tiền lớn hơn 0.',
+        ], 422);
     }
 
     /**
@@ -967,10 +1284,12 @@ class ProductQuotationDomainService
      */
     private function buildDraftItemPayloads(array $items): array
     {
+        $supportsProductPackageId = $this->support->hasColumn('product_quotation_items', 'product_package_id');
+
         return collect($items)
             ->values()
-            ->map(function (array $item, int $index): array {
-                return [
+            ->map(function (array $item, int $index) use ($supportsProductPackageId): array {
+                $payload = [
                     'sort_order' => $index + 1,
                     'product_id' => $item['product_id'],
                     'product_name' => $item['product_name'],
@@ -983,6 +1302,12 @@ class ProductQuotationDomainService
                     'total_with_vat' => $item['total_with_vat'],
                     'note' => $item['note'],
                 ];
+
+                if ($supportsProductPackageId) {
+                    $payload['product_package_id'] = $item['product_package_id'] ?? null;
+                }
+
+                return $payload;
             })
             ->all();
     }
@@ -1320,6 +1645,7 @@ class ProductQuotationDomainService
             'id' => $item->id,
             'sort_order' => (int) $item->sort_order,
             'product_id' => $item->product_id,
+            'product_package_id' => $item->product_package_id !== null ? (int) $item->product_package_id : null,
             'product_name' => $item->product_name,
             'unit' => $item->unit,
             'quantity' => (float) $item->quantity,

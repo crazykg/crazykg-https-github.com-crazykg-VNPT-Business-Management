@@ -152,18 +152,7 @@ class WorkflowTransitionController extends Controller
         
         try {
             $transition = $this->service->createTransition($workflowId, $request->all(), $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $transition->id,
-                action: 'INSERT',
-                details: [
-                    'from_status' => $transition->from_status_code,
-                    'to_status' => $transition->to_status_code,
-                ],
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Transition created successfully',
                 'data' => $transition->getFullData(),
@@ -190,15 +179,7 @@ class WorkflowTransitionController extends Controller
         
         try {
             $transition = $this->service->updateTransition($id, $request->all(), $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $transition->id,
-                action: 'UPDATE',
-                details: $request->all(),
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Transition updated successfully',
                 'data' => $transition->getFullData(),
@@ -225,14 +206,7 @@ class WorkflowTransitionController extends Controller
         
         try {
             $this->service->deleteTransition($id, $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $id,
-                action: 'DELETE',
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Transition deleted successfully',
             ]);
@@ -265,15 +239,7 @@ class WorkflowTransitionController extends Controller
         
         try {
             $transitions = $this->service->bulkCreateTransitions($workflowId, $transitionsData, $userId);
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $workflowId,
-                action: 'BULK_INSERT',
-                details: ['count' => $transitions->count()],
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Transitions created successfully',
                 'data' => $transitions->map(fn ($t) => $t->getFullData()),
@@ -318,15 +284,7 @@ class WorkflowTransitionController extends Controller
                 $updateExisting,
                 $userId
             );
-            
-            $this->accessAudit->recordAuditEvent(
-                entityType: 'workflow_transition',
-                entityId: $workflowId,
-                action: 'BULK_IMPORT',
-                details: $stats,
-                actorId: $userId
-            );
-            
+
             return response()->json([
                 'message' => 'Import completed',
                 'data' => $stats,

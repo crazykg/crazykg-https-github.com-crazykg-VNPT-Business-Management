@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useMemo } from 'react';
 import {
   Attachment,
   ProjectProcedureStep,
@@ -24,13 +24,13 @@ function formatDateValue(dateStr: string | null | undefined): string {
 
 const STEP_STATUS_OPTIONS: { value: ProcedureStepStatus; label: string; color: string }[] = [
   { value: 'CHUA_THUC_HIEN', label: 'Chưa TH',    color: 'text-slate-400' },
-  { value: 'DANG_THUC_HIEN', label: 'Đang TH',    color: 'text-amber-600' },
-  { value: 'HOAN_THANH',     label: 'Hoàn thành', color: 'text-emerald-600' },
+  { value: 'DANG_THUC_HIEN', label: 'Đang TH',    color: 'text-tertiary' },
+  { value: 'HOAN_THANH',     label: 'Hoàn thành', color: 'text-success' },
 ];
 
 const ROW_BG: Record<ProcedureStepStatus, string> = {
-  HOAN_THANH:     'bg-emerald-50/60',
-  DANG_THUC_HIEN: 'bg-amber-50/60',
+  HOAN_THANH:     'bg-success/5',
+  DANG_THUC_HIEN: 'bg-warning/5',
   CHUA_THUC_HIEN: '',
 };
 
@@ -44,29 +44,45 @@ const STEP_RACI_META: Record<ProcedureRaciRole, {
 }> = {
   R: {
     full: 'Responsible',
-    badge: 'border-red-200 bg-red-50 text-red-700',
-    buttonFilled: 'border-red-200 bg-red-100 text-red-700',
-    buttonOutline: 'border-red-200 bg-white text-red-500 hover:bg-red-50',
+    badge: 'border-primary/25 bg-primary/8 text-primary',
+    buttonFilled: 'border-primary/30 bg-primary/10 text-primary',
+    buttonOutline: 'border-primary/20 bg-white text-primary/70 hover:bg-primary/5',
   },
   A: {
     full: 'Accountable',
-    badge: 'border-amber-200 bg-amber-50 text-amber-700',
-    buttonFilled: 'border-amber-200 bg-amber-100 text-amber-700',
-    buttonOutline: 'border-amber-200 bg-white text-amber-600 hover:bg-amber-50',
+    badge: 'border-deep-teal/25 bg-deep-teal/8 text-deep-teal',
+    buttonFilled: 'border-deep-teal/30 bg-deep-teal/10 text-deep-teal',
+    buttonOutline: 'border-deep-teal/20 bg-white text-deep-teal/70 hover:bg-deep-teal/5',
   },
   C: {
     full: 'Consulted',
-    badge: 'border-blue-200 bg-blue-50 text-blue-700',
-    buttonFilled: 'border-blue-200 bg-blue-100 text-blue-700',
-    buttonOutline: 'border-blue-200 bg-white text-blue-600 hover:bg-blue-50',
+    badge: 'border-tertiary/25 bg-tertiary/8 text-tertiary',
+    buttonFilled: 'border-tertiary/30 bg-tertiary/10 text-tertiary',
+    buttonOutline: 'border-tertiary/20 bg-white text-tertiary/70 hover:bg-tertiary/5',
   },
   I: {
     full: 'Informed',
-    badge: 'border-slate-200 bg-slate-50 text-slate-600',
-    buttonFilled: 'border-slate-200 bg-slate-200 text-slate-700',
-    buttonOutline: 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
+    badge: 'border-neutral/20 bg-neutral/8 text-neutral',
+    buttonFilled: 'border-neutral/25 bg-neutral/10 text-neutral',
+    buttonOutline: 'border-neutral/15 bg-white text-neutral/70 hover:bg-neutral/5',
   },
 };
+
+const PROCEDURE_DATE_INPUT_BASE_CLASS =
+  'h-9 w-[124px] min-w-[124px] max-w-[124px] rounded border text-xs outline-none [color-scheme:light] ' +
+  '[&::-webkit-calendar-picker-indicator]:ml-1 [&::-webkit-calendar-picker-indicator]:mr-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:p-0 ' +
+  '[&::-webkit-datetime-edit]:p-0 [&::-webkit-datetime-edit-fields-wrapper]:p-0 [&::-webkit-date-and-time-value]:min-h-[1rem]';
+
+const PROCEDURE_DATE_INPUT_EDITABLE_CLASS =
+  `${PROCEDURE_DATE_INPUT_BASE_CLASS} border-slate-200 bg-white px-2 pr-1.5 focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20`;
+
+const PROCEDURE_DATE_INPUT_DISABLED_CLASS =
+  `${PROCEDURE_DATE_INPUT_BASE_CLASS} border-slate-200 bg-slate-50 px-2 pr-1.5 text-slate-400 cursor-not-allowed`;
+
+const PROCEDURE_CHILD_DATE_INPUT_BASE_CLASS =
+  'h-9 w-[124px] min-w-[124px] max-w-[124px] rounded text-xs border outline-none [color-scheme:light] ' +
+  '[&::-webkit-calendar-picker-indicator]:ml-1 [&::-webkit-calendar-picker-indicator]:mr-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:p-0 ' +
+  '[&::-webkit-datetime-edit]:p-0 [&::-webkit-datetime-edit-fields-wrapper]:p-0 [&::-webkit-date-and-time-value]:min-h-[1rem]';
 
 function getUserDisplayName(user: {
   full_name?: string | null;
@@ -92,21 +108,6 @@ function getUserShortLabel(user: {
   if (user.user_code) return String(user.user_code).trim();
   if (user.username) return String(user.username).trim();
   return String(user.user_id || 'TV');
-}
-
-function getUserInitials(user: {
-  full_name?: string | null;
-  user_code?: string | null;
-  username?: string | null;
-  user_id?: string | number | null;
-}): string {
-  const fullName = String(user.full_name || '').trim();
-  if (fullName) {
-    const parts = fullName.split(/\s+/).filter(Boolean);
-    return parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
-  }
-  const fallback = String(user.user_code || user.username || user.user_id || 'T');
-  return fallback.slice(0, 2).toUpperCase();
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -216,7 +217,7 @@ export const StepRow = memo(function StepRow({
   step, draft, stepsInPhase,
   isEditing, isExpanded, isWlogOpen, isAttachOpen, isAddingChild, isAddingChildSubmitting, hasChildren,
   isAdmin, isRaciA, myId,
-  stepRaciEntries, raciMembers,
+  stepRaciEntries,
   wlogs, wlogInput, wlogHours, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
   editingRowDraft,
   attachList, attachLoading, attachUploading,
@@ -226,7 +227,7 @@ export const StepRow = memo(function StepRow({
   onDraftChange, onStartDateChange, onReorder, onToggleDetail,
   onStartEditRow, onCancelEditRow, onSaveEditRow, onSetEditingRowDraft,
   onDeleteStep, onOpenAttachments, onUploadFile, onDeleteAttachment,
-  onToggleWorklog, onAddWorklog, onAssignA, onUpdateIssueStatus,
+  onToggleWorklog, onAddWorklog, onUpdateIssueStatus,
   onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog,
   onSetWlogInput, onSetWlogHours, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
   onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
@@ -273,23 +274,6 @@ export const StepRow = memo(function StepRow({
     ? `Số VB: ${normalizedDocumentNumber}${documentDate ? ` · Ngày: ${formatDateValue(String(documentDate))}` : ''}`
     : 'Chưa có văn bản. Mở File để nhập thông tin văn bản.';
   const attachmentTitle = `${documentTitle} · ${attachCount} file đính kèm`;
-  const [isAssignAOpen, setIsAssignAOpen] = useState(false);
-  const assignARef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isEditing || isChild) setIsAssignAOpen(false);
-  }, [isEditing, isChild]);
-
-  useEffect(() => {
-    if (!isAssignAOpen) return undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (assignARef.current && !assignARef.current.contains(event.target as Node)) {
-        setIsAssignAOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isAssignAOpen]);
 
   const sortedStepRaciEntries = useMemo(() =>
     [...stepRaciEntries].sort((a, b) => {
@@ -299,19 +283,6 @@ export const StepRow = memo(function StepRow({
     }),
   [stepRaciEntries]);
 
-  const availableRaciMembers = useMemo(() => {
-    const seen = new Set<string>();
-    return raciMembers.filter((member) => {
-      const key = String(member.user_id);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [raciMembers]);
-  const currentAEntry = useMemo(
-    () => stepRaciEntries.find((entry) => entry.raci_role === 'A') ?? null,
-    [stepRaciEntries],
-  );
   const parentStart = startVal;
   const parentEnd = endDisplay || null;
   const parsedChildDays = Number.parseInt(newChildDays, 10);
@@ -378,7 +349,7 @@ export const StepRow = memo(function StepRow({
                 className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
                 title="Di chuyển lên"
               >
-                <span className="material-symbols-outlined text-base leading-none">arrow_drop_up</span>
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: 18 }}>arrow_drop_up</span>
               </button>
               <button
                 type="button"
@@ -387,7 +358,7 @@ export const StepRow = memo(function StepRow({
                 className="p-0.5 text-slate-200 hover:text-deep-teal disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
                 title="Di chuyển xuống"
               >
-                <span className="material-symbols-outlined text-base leading-none">arrow_drop_down</span>
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: 18 }}>arrow_drop_down</span>
               </button>
             </div>
           )}
@@ -396,81 +367,6 @@ export const StepRow = memo(function StepRow({
         {/* TT */}
         <td className="px-3 py-2 text-xs font-mono text-slate-400 text-center">
           {isChild ? <span className="text-slate-300">└</span> : step.step_number}
-        </td>
-
-        {/* A */}
-        <td className="px-1 py-2 text-center">
-          {!isChild && !isEditing ? (
-            <div ref={assignARef} className="relative flex justify-center">
-              <button
-                type="button"
-                disabled={availableRaciMembers.length === 0}
-                onClick={() => setIsAssignAOpen((prev) => !prev)}
-                data-testid={`step-a-trigger-${step.id}`}
-                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
-                  currentAEntry
-                    ? 'border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200'
-                    : availableRaciMembers.length > 0
-                      ? 'border-dashed border-slate-300 bg-white text-slate-300 hover:border-amber-400 hover:text-amber-500'
-                      : 'border-dashed border-slate-200 bg-slate-50 text-slate-200 cursor-not-allowed'
-                }`}
-                title={currentAEntry ? getUserDisplayName(currentAEntry) : 'Chọn người chịu trách nhiệm'}
-              >
-                {currentAEntry ? (
-                  <span className="text-[10px] font-bold">{getUserInitials(currentAEntry)}</span>
-                ) : (
-                  <span className="material-symbols-outlined text-[16px] leading-none">person</span>
-                )}
-              </button>
-
-              {isAssignAOpen && (
-                <div className="absolute left-1/2 top-full z-20 mt-2 w-56 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <div className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Người chịu trách nhiệm</div>
-                  <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
-                    {availableRaciMembers.map((member) => {
-                      const isSelected = currentAEntry && String(currentAEntry.user_id) === String(member.user_id);
-                      return (
-                        <button
-                          key={String(member.user_id)}
-                          type="button"
-                          data-testid={`step-a-option-${step.id}-${member.user_id}`}
-                          onClick={() => {
-                            onAssignA(step.id, member.user_id);
-                            setIsAssignAOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                            isSelected ? 'bg-amber-50 text-amber-700' : 'text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                            isSelected ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {getUserInitials(member)}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">{getUserDisplayName(member)}</span>
-                          {isSelected ? <span className="material-symbols-outlined text-sm">check</span> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {currentAEntry && (
-                    <button
-                      type="button"
-                      data-testid={`step-a-clear-${step.id}`}
-                      onClick={() => {
-                        onAssignA(step.id, currentAEntry.user_id);
-                        setIsAssignAOpen(false);
-                      }}
-                      className="mt-2 flex w-full items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50"
-                    >
-                      <span className="material-symbols-outlined text-sm">close</span>
-                      Bỏ chọn
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : null}
         </td>
 
         {/* Tên bước */}
@@ -499,7 +395,7 @@ export const StepRow = memo(function StepRow({
                   {step.step_name}
                 </span>
                 {isCustom && (
-                  <span className="px-1 py-0.5 rounded text-[9px] bg-violet-100 text-violet-600 font-semibold shrink-0">TỰ THÊM</span>
+                  <span className="px-1 py-0.5 rounded text-[9px] bg-primary/8 text-primary font-semibold shrink-0">TỰ THÊM</span>
                 )}
                 {canMutate ? (
                   <button
@@ -584,30 +480,32 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Từ ngày */}
-        <td className="px-3 py-2">
-          <input
-            type="date"
-            value={draft.actual_start_date ?? step.actual_start_date ?? ''}
-            onChange={(e) => onStartDateChange(step, e.target.value || null)}
-            data-testid={`step-start-date-${step.id}`}
-            className="w-full px-2 py-1 rounded text-xs border border-slate-200 bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20 outline-none"
-          />
+        <td className="px-2 py-2">
+          <div className="flex items-center justify-center">
+            <input
+              type="date"
+              value={draft.actual_start_date ?? step.actual_start_date ?? ''}
+              onChange={(e) => onStartDateChange(step, e.target.value || null)}
+              data-testid={`step-start-date-${step.id}`}
+              className={PROCEDURE_DATE_INPUT_EDITABLE_CLASS}
+            />
+          </div>
         </td>
 
         {/* Đến ngày */}
-        <td className="px-3 py-2">
-          <input
-            type="date"
-            value={endDisplay}
-            readOnly={hasAutoCalc}
-            tabIndex={hasAutoCalc ? -1 : 0}
-            data-testid={`step-end-date-${step.id}`}
-            onChange={hasAutoCalc ? undefined : (e) => onDraftChange(step.id, 'actual_end_date', e.target.value || null)}
-            title={hasAutoCalc ? `Tự tính: Từ ngày + ${days} - 1 ngày` : undefined}
-            className={`w-full px-2 py-1 rounded text-xs border border-slate-200 outline-none ${
-              hasAutoCalc ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : 'bg-white focus:border-deep-teal focus:ring-1 focus:ring-deep-teal/20'
-            }`}
-          />
+        <td className="px-2 py-2">
+          <div className="flex items-center justify-center">
+            <input
+              type="date"
+              value={endDisplay}
+              readOnly={hasAutoCalc}
+              tabIndex={hasAutoCalc ? -1 : 0}
+              data-testid={`step-end-date-${step.id}`}
+              onChange={hasAutoCalc ? undefined : (e) => onDraftChange(step.id, 'actual_end_date', e.target.value || null)}
+              title={hasAutoCalc ? `Tự tính: Từ ngày + ${days} - 1 ngày` : undefined}
+              className={hasAutoCalc ? PROCEDURE_DATE_INPUT_DISABLED_CLASS : PROCEDURE_DATE_INPUT_EDITABLE_CLASS}
+            />
+          </div>
         </td>
 
         {/* Tiến độ */}
@@ -630,12 +528,12 @@ export const StepRow = memo(function StepRow({
             onClick={() => onToggleWorklog(step.id)}
             data-testid={`step-worklog-trigger-${step.id}`}
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
-              isWlogOpen ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500 hover:bg-violet-50 hover:text-violet-600'
+              isWlogOpen ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-500 hover:bg-primary/8 hover:text-primary'
             }`}
           >
-            <span className="material-symbols-outlined text-sm">history</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
             <span>{`Worklog(${worklogCount})`}</span>
-            <span className="material-symbols-outlined text-xs ml-auto">{isWlogOpen ? 'expand_less' : 'expand_more'}</span>
+            <span className="material-symbols-outlined ml-auto" style={{ fontSize: 12 }}>{isWlogOpen ? 'expand_less' : 'expand_more'}</span>
           </button>
         </td>
 
@@ -645,13 +543,13 @@ export const StepRow = memo(function StepRow({
             onClick={() => onOpenAttachments(step)}
             data-testid={`step-file-trigger-${step.id}`}
             className={`flex items-center gap-2 px-2 py-1 rounded text-xs font-medium transition-colors w-full ${
-              isAttachOpen ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-600'
+              isAttachOpen ? 'bg-tertiary/10 text-tertiary' : 'bg-slate-100 text-slate-500 hover:bg-tertiary/8 hover:text-tertiary'
             }`}
             title={attachmentTitle}
           >
             {attachLoading
-              ? <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
-              : <span className="material-symbols-outlined text-sm">attach_file</span>
+              ? <span className="material-symbols-outlined animate-spin" style={{ fontSize: 14 }}>progress_activity</span>
+              : <span className="material-symbols-outlined" style={{ fontSize: 14 }}>attach_file</span>
             }
             <div className="min-w-0 flex-1 text-left leading-tight">
               <div className={`truncate ${hasDocument ? 'font-semibold' : 'text-slate-400'}`}>
@@ -661,7 +559,7 @@ export const StepRow = memo(function StepRow({
                 {attachCount} file
               </div>
             </div>
-            <span className="material-symbols-outlined text-xs ml-auto">{isAttachOpen ? 'expand_less' : 'expand_more'}</span>
+            <span className="material-symbols-outlined ml-auto" style={{ fontSize: 12 }}>{isAttachOpen ? 'expand_less' : 'expand_more'}</span>
           </button>
         </td>
 
@@ -669,11 +567,11 @@ export const StepRow = memo(function StepRow({
         <td className="px-2 py-2">
           {isEditing ? (
             <div className="flex items-center gap-1">
-              <button onClick={() => onSaveEditRow(step)} className="p-1 text-emerald-500 hover:text-emerald-700 transition-colors" title="Lưu">
-                <span className="material-symbols-outlined text-base">check</span>
+              <button onClick={() => onSaveEditRow(step)} className="p-1 text-success hover:text-success/80 transition-colors" title="Lưu">
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
               </button>
               <button onClick={onCancelEditRow} className="p-1 text-slate-400 hover:text-slate-600 transition-colors" title="Hủy">
-                <span className="material-symbols-outlined text-base">close</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
               </button>
             </div>
           ) : canMutate ? (
@@ -681,19 +579,19 @@ export const StepRow = memo(function StepRow({
               {!isChild && (
                 <button
                   onClick={() => onToggleAddChild(step.id)}
-                  className={`p-1 transition-colors ${isAddingChild ? 'text-teal-500' : 'text-slate-300 hover:text-teal-500'}`}
+                  className={`p-1 transition-colors ${isAddingChild ? 'text-primary' : 'text-slate-300 hover:text-primary'}`}
                   title="Thêm bước con"
                 >
-                  <span className="material-symbols-outlined text-base">subdirectory_arrow_right</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>subdirectory_arrow_right</span>
                 </button>
               )}
               <button
                 onClick={() => canDelete && onDeleteStep(step)}
                 disabled={!canDelete}
-                className="p-1 text-slate-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="p-1 text-slate-300 hover:text-error disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 title={deleteBlockedReason}
               >
-                <span className="material-symbols-outlined text-base">delete</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
               </button>
             </div>
           ) : null}
@@ -754,9 +652,9 @@ export const StepRow = memo(function StepRow({
 
       {/* ── Add child form ── */}
       {!isChild && isAddingChild && (
-        <tr className="bg-teal-50/60 border-t border-teal-100">
+        <tr className="bg-primary/3 border-t border-primary/15">
           <td />
-          <td className="px-3 py-2 text-center text-teal-400 font-mono text-xs select-none">└+</td>
+          <td className="px-3 py-2 text-center text-primary/60 font-mono text-xs select-none">└+</td>
           <td />
           <td className="px-2 py-2" style={{ paddingLeft: '28px' }}>
             <input
@@ -769,7 +667,7 @@ export const StepRow = memo(function StepRow({
                 if (e.key === 'Escape' && !isAddingChildSubmitting) onCancelChild();
               }}
               placeholder="Tên bước con..."
-              className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-teal-300 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none font-medium placeholder:text-slate-300"
+              className="w-full px-2.5 py-1.5 rounded text-xs border border-primary/30 bg-white focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none font-medium placeholder:text-slate-300"
             />
           </td>
           <td className="px-2 py-2">
@@ -779,7 +677,7 @@ export const StepRow = memo(function StepRow({
               disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildUnit(e.target.value)}
               placeholder="ĐV chủ trì..."
-              className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none placeholder:text-slate-300"
+              className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none placeholder:text-slate-300"
             />
           </td>
           <td />
@@ -791,45 +689,49 @@ export const StepRow = memo(function StepRow({
               onChange={(e) => handleChildDaysChange(e.target.value)}
               placeholder="Số ngày"
               min="0"
-              className="w-full min-w-[88px] px-2.5 py-1.5 rounded-lg text-xs font-medium border border-teal-200 bg-white focus:border-teal-400 outline-none text-center placeholder:text-slate-300"
+              className="w-full min-w-[88px] px-2.5 py-1.5 rounded text-xs font-medium border border-primary/20 bg-white focus:border-primary/50 outline-none text-center placeholder:text-slate-300"
             />
           </td>
           <td className="px-2 py-2">
-            <input
-              type="date"
-              value={newChildStartDate}
-              disabled={isAddingChildSubmitting}
-              min={parentStart || undefined}
-              max={parentEnd || undefined}
-              onChange={(e) => handleChildStartDateChange(e.target.value)}
-              data-testid={`step-child-start-date-${step.id}`}
-              className={`w-full px-2 py-1.5 rounded-lg text-xs border outline-none ${
-                childDateError && newChildStartDate
-                  ? 'border-red-200 bg-red-50/40 focus:border-red-300'
-                  : 'border-teal-200 bg-white focus:border-teal-400'
-              }`}
-            />
+            <div className="flex items-center justify-center">
+              <input
+                type="date"
+                value={newChildStartDate}
+                disabled={isAddingChildSubmitting}
+                min={parentStart || undefined}
+                max={parentEnd || undefined}
+                onChange={(e) => handleChildStartDateChange(e.target.value)}
+                data-testid={`step-child-start-date-${step.id}`}
+                className={`${PROCEDURE_CHILD_DATE_INPUT_BASE_CLASS} px-2 pr-1.5 ${
+                  childDateError && newChildStartDate
+                    ? 'border-error/40 bg-error/5 focus:border-error/50'
+                    : 'border-primary/20 bg-white focus:border-primary/50'
+                }`}
+              />
+            </div>
           </td>
           <td className="px-2 py-2">
-            <input
-              type="date"
-              value={effectiveNewChildEndDate}
-              disabled={isAddingChildSubmitting || isChildEndAutoCalc}
-              readOnly={isChildEndAutoCalc}
-              tabIndex={isChildEndAutoCalc ? -1 : 0}
-              min={newChildStartDate || parentStart || undefined}
-              max={parentEnd || undefined}
-              onChange={isChildEndAutoCalc ? undefined : (e) => onSetChildEndDate(e.target.value)}
-              data-testid={`step-child-end-date-${step.id}`}
-              title={isChildEndAutoCalc ? `Tự tính: Từ ngày + ${childDurationDays} - 1 ngày` : undefined}
-              className={`w-full px-2 py-1.5 rounded-lg text-xs border outline-none ${
-                isChildEndAutoCalc
-                  ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
-                  : childDateError && effectiveNewChildEndDate
-                    ? 'border-red-200 bg-red-50/40 focus:border-red-300'
-                    : 'border-teal-200 bg-white focus:border-teal-400'
-              }`}
-            />
+            <div className="flex items-center justify-center">
+              <input
+                type="date"
+                value={effectiveNewChildEndDate}
+                disabled={isAddingChildSubmitting || isChildEndAutoCalc}
+                readOnly={isChildEndAutoCalc}
+                tabIndex={isChildEndAutoCalc ? -1 : 0}
+                min={newChildStartDate || parentStart || undefined}
+                max={parentEnd || undefined}
+                onChange={isChildEndAutoCalc ? undefined : (e) => onSetChildEndDate(e.target.value)}
+                data-testid={`step-child-end-date-${step.id}`}
+                title={isChildEndAutoCalc ? `Tự tính: Từ ngày + ${childDurationDays} - 1 ngày` : undefined}
+                className={`${PROCEDURE_CHILD_DATE_INPUT_BASE_CLASS} px-2 pr-1.5 ${
+                  isChildEndAutoCalc
+                    ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                    : childDateError && effectiveNewChildEndDate
+                      ? 'border-error/40 bg-error/5 focus:border-error/50'
+                      : 'border-primary/20 bg-white focus:border-primary/50'
+                }`}
+              />
+            </div>
           </td>
           <td className="px-2 py-2">
             <select
@@ -837,7 +739,7 @@ export const StepRow = memo(function StepRow({
               disabled={isAddingChildSubmitting}
               onChange={(e) => onSetChildStatus(e.target.value as ProcedureStepStatus)}
               data-testid={`step-child-progress-${step.id}`}
-              className="w-full px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-white focus:border-teal-400 outline-none"
+              className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none"
             >
               {STEP_STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -847,20 +749,20 @@ export const StepRow = memo(function StepRow({
           <td colSpan={3} className="px-3 py-2">
             <div className="flex flex-col gap-1.5">
               {childRangeHint ? (
-                <div className="flex items-center gap-1 text-[10px] text-teal-600">
-                  <span className="material-symbols-outlined text-[12px] leading-none">info</span>
+                <div className="flex items-center gap-1 text-[10px] text-deep-teal">
+                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>info</span>
                   <span>{childRangeHint}</span>
                 </div>
               ) : null}
               {childDateError ? (
-                <div className="text-[10px] font-medium text-red-600">{childDateError}</div>
+                <div className="text-[10px] font-medium text-error">{childDateError}</div>
               ) : null}
               <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleSubmitChild}
                 disabled={!newChildName.trim() || isAddingChildSubmitting || !!childDateError}
-                className="px-3 py-1.5 text-xs font-semibold bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isAddingChildSubmitting ? 'Đang thêm...' : 'Thêm'}
               </button>
@@ -868,7 +770,7 @@ export const StepRow = memo(function StepRow({
                 type="button"
                 onClick={onCancelChild}
                 disabled={isAddingChildSubmitting}
-                className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+                className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded hover:bg-slate-50 transition-colors"
               >
                 Hủy
               </button>

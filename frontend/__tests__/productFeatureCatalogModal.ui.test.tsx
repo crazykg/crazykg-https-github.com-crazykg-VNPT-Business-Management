@@ -270,11 +270,10 @@ describe('ProductFeatureCatalogModal', () => {
 
     expect(screen.getByText(/^I$/)).toBeInTheDocument();
     expect(screen.queryByText('1.1')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Danh mục chức năng: Phần mềm VNPT-HIS' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Danh mục chức năng: VNPT_HIS_L2 - Phần mềm VNPT-HIS' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Nhập$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Xuất Excel/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Xuất PDF/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('Mã sản phẩm VNPT_HIS_L2 - Phần mềm VNPT-HIS')).not.toBeInTheDocument();
     expect(screen.queryByText('Dịch vụ nhóm B')).not.toBeInTheDocument();
     expect(screen.queryByText('Sản phẩm hoạt động')).not.toBeInTheDocument();
     expect(screen.queryByText(/Danh mục dùng chung cho 2 gói/i)).not.toBeInTheDocument();
@@ -331,15 +330,60 @@ describe('ProductFeatureCatalogModal', () => {
       expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     });
 
+    expect(screen.getByTestId('catalog-tab-switcher')).toHaveClass('grid', 'grid-cols-2', 'sm:flex');
+    expect(screen.getByRole('button', { name: /Cập nhật danh mục/i })).toHaveClass('min-w-0', 'justify-center');
     await user.click(screen.getByRole('button', { name: /Danh sách chức năng/i }));
 
     expect(screen.getByRole('columnheader', { name: 'STT' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Tên phân hệ/chức năng' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Mô tả chi tiết tính năng' })).toBeInTheDocument();
+    expect(screen.getByTestId('feature-list-table')).toHaveClass('table-fixed', 'lg:min-w-[1080px]');
+    expect(screen.getByTestId('feature-list-table')).not.toHaveClass('min-w-[1080px]');
+    expect(screen.getByText('Đăng nhập').closest('td')).toHaveClass('break-words');
+    expect(screen.getByText('Cho phép đăng nhập').closest('td')).toHaveClass('break-words');
     expect(screen.getByText('Quản trị hệ thống')).toBeInTheDocument();
     expect(screen.getByText('Đăng nhập')).toBeInTheDocument();
     expect(screen.getByText('Cho phép đăng nhập')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Trạng thái' })).not.toBeInTheDocument();
+  });
+
+  it('hides the editor tab on tablet/mobile and defaults to the list tab', async () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalOuterWidth = window.outerWidth;
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 768 });
+    Object.defineProperty(window, 'outerWidth', { configurable: true, value: 768 });
+    window.dispatchEvent(new Event('resize'));
+
+    try {
+      render(
+        <ProductFeatureCatalogModal
+          product={product}
+          canManage={true}
+          onClose={vi.fn()}
+          onNotify={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('columnheader', { name: 'STT' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: /Cập nhật danh mục/i })).not.toBeInTheDocument();
+      expect(screen.getByTestId('catalog-tab-switcher')).toHaveClass('justify-center');
+      expect(screen.getByRole('button', { name: /Danh sách chức năng/i })).toHaveClass('w-full');
+      expect(apiSpies.fetchProductFeatureCatalog).not.toHaveBeenCalled();
+      expect(apiSpies.fetchProductFeatureCatalogList).toHaveBeenCalledWith(1, {
+        page: 1,
+        per_page: 40,
+        group_id: null,
+        search: null,
+      });
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+      Object.defineProperty(window, 'outerWidth', { configurable: true, value: originalOuterWidth });
+      window.dispatchEvent(new Event('resize'));
+    }
   });
 
   it('loads additional list rows when scrolling near the bottom of the list tab', async () => {
@@ -633,6 +677,35 @@ describe('ProductFeatureCatalogModal', () => {
     );
     expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Đăng nhập')).toBeInTheDocument();
+  });
+
+  it('does not allow deleting a persisted empty group because data has already been generated', async () => {
+    apiSpies.fetchProductFeatureCatalog.mockResolvedValue({
+      ...buildCatalog(),
+      groups: [
+        {
+          ...buildCatalog().groups[0],
+          features: [],
+        },
+      ],
+    });
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
+    });
+
+    const deleteGroupButton = screen.getByRole('button', { name: /Xóa nhóm/i });
+    expect(deleteGroupButton).toBeDisabled();
+    expect(deleteGroupButton).toHaveAttribute('title', 'Dữ liệu đã phát sinh. Không thể xóa nhóm đã lưu.');
   });
 
   it('opens review form after clicking import and only applies data after confirmation', async () => {

@@ -74,6 +74,10 @@ class SupportServiceGroupService
             $query->where('ssg.is_active', 1);
         }
 
+        if ($this->support->hasColumn('support_service_groups', 'deleted_at')) {
+            $query->whereNull('ssg.deleted_at');
+        }
+
         if (
             $this->support->hasColumn('support_service_groups', 'customer_id')
             && $this->support->hasColumn('customers', 'customer_name')
@@ -164,8 +168,13 @@ class SupportServiceGroupService
                 if ($includeGroupId !== null) {
                     $builder->orWhere('ssg.id', $includeGroupId);
                 }
-            })
-            ->orderBy('ssg.group_name')
+            });
+
+        if ($this->support->hasColumn('support_service_groups', 'deleted_at')) {
+            $query->whereNull('ssg.deleted_at');
+        }
+
+        $query->orderBy('ssg.group_name')
             ->orderBy('ssg.id');
 
         $rows = $query

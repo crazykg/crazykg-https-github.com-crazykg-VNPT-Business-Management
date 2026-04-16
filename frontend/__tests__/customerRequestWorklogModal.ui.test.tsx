@@ -6,7 +6,7 @@ import { CustomerRequestWorklogModal } from '../components/customer-request/Cust
 
 const mockFetchWorklogActivityTypes = vi.fn();
 
-vi.mock('../services/v5Api', () => ({
+vi.mock('../services/api/supportConfigApi', () => ({
   fetchWorklogActivityTypes: (...args: unknown[]) => mockFetchWorklogActivityTypes(...args),
 }));
 
@@ -58,6 +58,10 @@ describe('CustomerRequestWorklogModal UI', () => {
       activity_type_code: 'ANALYSIS',
       hours_spent: '1.5',
       is_billable: true,
+      difficulty_note: null,
+      proposal_note: null,
+      difficulty_status: 'none',
+      detail_status_action: null,
     });
   });
 });

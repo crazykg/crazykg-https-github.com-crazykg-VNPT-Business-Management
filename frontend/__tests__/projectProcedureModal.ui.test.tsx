@@ -348,4 +348,294 @@ describe('ProjectProcedureModal UI', () => {
       });
     });
   });
+
+  it('shows confirm and restores the previous role when canceling accountable replacement', async () => {
+    const user = userEvent.setup();
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({
+      data: [
+        {
+          id: 22,
+          user_code: 'NV22',
+          username: 'nva',
+          full_name: 'Nguyen Van A',
+        },
+        {
+          id: 23,
+          user_code: 'NV23',
+          username: 'ttb',
+          full_name: 'Tran Thi B',
+        },
+      ],
+    });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({
+      id: 9002,
+      procedure_id: 501,
+      user_id: 23,
+      full_name: 'Tran Thi B',
+      user_code: 'NV23',
+      username: 'ttb',
+      raci_role: 'A',
+      note: null,
+    } as ProcedureRaciEntry);
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await user.click(await screen.findByTestId('procedure-tab-raci'));
+
+    await waitFor(() => {
+      expect(fetchEmployeesOptionsPageMock).toHaveBeenCalledWith('', 1, 40);
+    });
+    expect(screen.getByText('Nguyen Van A')).toBeInTheDocument();
+    expect(screen.getByTestId('procedure-tab-raci')).toHaveTextContent('(1A)');
+
+    const [, roleSelect] = screen.getAllByRole('combobox');
+    await user.selectOptions(roleSelect, 'A');
+
+    expect(await screen.findByText('Đã tồn tại người chịu trách nhiệm (A)')).toBeInTheDocument();
+    expect(screen.getByText('Hiện tại Nguyen Van A - NV22 đang giữ vai trò A.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Tạm ngưng' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Đã tồn tại người chịu trách nhiệm (A)')).not.toBeInTheDocument();
+    });
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('R');
+    expect(addProcedureRaciMock).not.toHaveBeenCalled();
+  });
+
+  it('asks for confirmation on role selection and only saves after the user clicks add', async () => {
+    const user = userEvent.setup();
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({
+      data: [
+        {
+          id: 22,
+          user_code: 'NV22',
+          username: 'nva',
+          full_name: 'Nguyen Van A',
+        },
+        {
+          id: 23,
+          user_code: 'NV23',
+          username: 'ttb',
+          full_name: 'Tran Thi B',
+        },
+      ],
+    });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({
+      id: 9002,
+      procedure_id: 501,
+      user_id: 23,
+      full_name: 'Tran Thi B',
+      user_code: 'NV23',
+      username: 'ttb',
+      raci_role: 'A',
+      note: null,
+    } as ProcedureRaciEntry);
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await user.click(await screen.findByTestId('procedure-tab-raci'));
+
+    const [memberSelect, roleSelect] = screen.getAllByRole('combobox');
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Tran Thi B/i })).toBeInTheDocument();
+    });
+    await user.selectOptions(memberSelect, '23');
+    await user.selectOptions(roleSelect, 'A');
+
+    expect(await screen.findByText('Đã tồn tại người chịu trách nhiệm (A)')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Đã tồn tại người chịu trách nhiệm (A)')).not.toBeInTheDocument();
+    });
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('A');
+    expect(addProcedureRaciMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Thêm' }));
+
+    await waitFor(() => {
+      expect(addProcedureRaciMock).toHaveBeenCalledWith(501, {
+        user_id: '23',
+        raci_role: 'A',
+        note: undefined,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Tran Thi B')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Nguyen Van A')).not.toBeInTheDocument();
+    expect(screen.getByTestId('procedure-tab-raci')).toHaveTextContent('(1A)');
+    expect(screen.getByTestId('procedure-tab-raci')).not.toHaveTextContent('2A');
+  });
+
+  it('shows no confirm for the current accountable user and uses the add guard if conflict appears later', async () => {
+    const user = userEvent.setup();
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({
+      data: [
+        {
+          id: 22,
+          user_code: 'NV22',
+          username: 'nva',
+          full_name: 'Nguyen Van A',
+        },
+        {
+          id: 23,
+          user_code: 'NV23',
+          username: 'ttb',
+          full_name: 'Tran Thi B',
+        },
+      ],
+    });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({
+      id: 9002,
+      procedure_id: 501,
+      user_id: 23,
+      full_name: 'Tran Thi B',
+      user_code: 'NV23',
+      username: 'ttb',
+      raci_role: 'A',
+      note: null,
+    } as ProcedureRaciEntry);
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await user.click(await screen.findByTestId('procedure-tab-raci'));
+
+    const [memberSelect, roleSelect] = screen.getAllByRole('combobox');
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Nguyen Van A/i })).toBeInTheDocument();
+    });
+    await user.selectOptions(memberSelect, '22');
+    await user.selectOptions(roleSelect, 'A');
+
+    expect(screen.queryByText('Đã tồn tại người chịu trách nhiệm (A)')).not.toBeInTheDocument();
+
+    await user.selectOptions(memberSelect, '23');
+    addProcedureRaciMock.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Thêm' }));
+
+    expect(await screen.findByText('Đã tồn tại người chịu trách nhiệm (A)')).toBeInTheDocument();
+    expect(addProcedureRaciMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Đã tồn tại người chịu trách nhiệm (A)')).not.toBeInTheDocument();
+    });
+    expect(addProcedureRaciMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Thêm' }));
+
+    await waitFor(() => {
+      expect(addProcedureRaciMock).toHaveBeenCalledWith(501, {
+        user_id: '23',
+        raci_role: 'A',
+        note: undefined,
+      });
+    });
+  });
 });

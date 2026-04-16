@@ -103,6 +103,17 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (\Throwable $exception, $request) {
             if (($request->is('api/*') || $request->expectsJson()) && ! config('app.debug')) {
+                if ($request->is('api/v5/customer-request-cases/*/detail-status-worklog')) {
+                    return \App\Support\ApiErrorResponse::make(
+                        code: 'DETAIL_STATUS_WORKLOG_DEBUG',
+                        message: $exception->getMessage(),
+                        httpStatus: 500,
+                        extra: [
+                            'exception' => class_basename($exception),
+                        ],
+                    );
+                }
+
                 return \App\Support\ApiErrorResponse::make(
                     code: 'INTERNAL_ERROR',
                     message: 'An unexpected error occurred.',

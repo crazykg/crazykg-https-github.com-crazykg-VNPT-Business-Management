@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Contract, Customer, Invoice, InvoiceItem } from '../../types';
 import { createInvoice, updateInvoice } from '../../services/v5Api';
-import { ModalWrapper } from '../Modals';
+import { ModalWrapper } from '../modals';
 
 interface InvoiceModalProps {
   invoice: Invoice | null;

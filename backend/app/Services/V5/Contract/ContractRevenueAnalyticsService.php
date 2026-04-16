@@ -31,6 +31,7 @@ class ContractRevenueAnalyticsService
             'period_to' => ['required', 'date'],
             'grouping' => ['sometimes', Rule::in(['month', 'quarter'])],
             'contract_id' => ['sometimes', 'integer'],
+            'source_mode' => ['sometimes', Rule::in(['PROJECT', 'INITIAL'])],
         ]);
 
         $periodFrom = Carbon::parse((string) $validated['period_from'])->startOfDay();
@@ -47,6 +48,9 @@ class ContractRevenueAnalyticsService
         $grouping = (string) ($validated['grouping'] ?? 'month');
         $contractId = array_key_exists('contract_id', $validated)
             ? $this->support->parseNullableInt($validated['contract_id'])
+            : null;
+        $sourceMode = array_key_exists('source_mode', $validated)
+            ? strtoupper(trim((string) $validated['source_mode']))
             : null;
 
         $buckets = $this->buildPeriodBuckets($periodFrom, $periodTo, $grouping);
@@ -72,15 +76,15 @@ class ContractRevenueAnalyticsService
 
         if (! $this->hasPaymentScheduleAnalyticsSchema()) {
             if ($contractId !== null) {
-                $empty['by_item'] = $this->buildByItem($request, $contractId, 0.0, 0.0, 0.0);
+                $empty['by_item'] = $this->buildByItem($request, $contractId, 0.0, 0.0, 0.0, $sourceMode);
             }
 
             return response()->json(['data' => $empty]);
         }
 
-        $periodSchedules = $this->fetchSchedulesInRange($request, $periodFrom, $periodTo, $contractId);
-        $carryOverBeforePeriod = $this->calculateCarryOverBeforePeriod($request, $periodFrom, $contractId);
-        $cumulativeCollected = $this->calculateCumulativeCollectedToDate($request, $periodTo, $contractId);
+        $periodSchedules = $this->fetchSchedulesInRange($request, $periodFrom, $periodTo, $contractId, $sourceMode);
+        $carryOverBeforePeriod = $this->calculateCarryOverBeforePeriod($request, $periodFrom, $contractId, $sourceMode);
+        $cumulativeCollected = $this->calculateCumulativeCollectedToDate($request, $periodTo, $contractId, $sourceMode);
 
         $contracts = [];
         $cycles = [];
@@ -261,7 +265,8 @@ class ContractRevenueAnalyticsService
                         $contractId,
                         (float) ($contractSummary['expected_in_period'] ?? 0.0),
                         (float) ($contractSummary['actual_in_period'] ?? 0.0),
-                        (float) ($contractSummary['outstanding'] ?? 0.0)
+                        (float) ($contractSummary['outstanding'] ?? 0.0),
+                        $sourceMode
                     )
                     : null,
                 'overdue_details' => $overdueDetails,
@@ -408,11 +413,16 @@ class ContractRevenueAnalyticsService
         return '0';
     }
 
-    private function scopedContractIdQuery(Request $request, ?int $contractId = null): QueryBuilder
+    private function scopedContractIdQuery(Request $request, ?int $contractId = null, ?string $sourceMode = null): QueryBuilder
     {
         $query = Contract::query()->select('contracts.id');
         if ($contractId !== null) {
             $query->whereKey($contractId);
+        }
+        if ($sourceMode === 'PROJECT' && $this->support->hasColumn('contracts', 'project_id')) {
+            $query->whereNotNull('contracts.project_id');
+        } elseif ($sourceMode === 'INITIAL' && $this->support->hasColumn('contracts', 'project_id')) {
+            $query->whereNull('contracts.project_id');
         }
         $this->applyReadScope($request, $query);
         $query->getQuery()->orders = null;
@@ -420,11 +430,11 @@ class ContractRevenueAnalyticsService
         return $query->toBase();
     }
 
-    private function fetchSchedulesInRange(Request $request, Carbon $periodFrom, Carbon $periodTo, ?int $contractId): array
+    private function fetchSchedulesInRange(Request $request, Carbon $periodFrom, Carbon $periodTo, ?int $contractId, ?string $sourceMode): array
     {
         $query = DB::table('payment_schedules as ps')
             ->join('contracts as c', 'c.id', '=', 'ps.contract_id')
-            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId))
+            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId, $sourceMode))
             ->whereDate('ps.expected_date', '>=', $periodFrom->toDateString())
             ->whereDate('ps.expected_date', '<=', $periodTo->toDateString())
             ->orderBy('ps.expected_date')
@@ -458,10 +468,10 @@ class ContractRevenueAnalyticsService
         return $query->get()->map(fn (object $row): array => (array) $row)->all();
     }
 
-    private function calculateCarryOverBeforePeriod(Request $request, Carbon $periodFrom, ?int $contractId): float
+    private function calculateCarryOverBeforePeriod(Request $request, Carbon $periodFrom, ?int $contractId, ?string $sourceMode): float
     {
         $query = DB::table('payment_schedules as ps')
-            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId))
+            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId, $sourceMode))
             ->whereDate('ps.expected_date', '<', $periodFrom->toDateString())
             ->select(['ps.expected_amount', 'ps.actual_paid_amount', 'ps.status']);
 
@@ -479,14 +489,14 @@ class ContractRevenueAnalyticsService
         return $this->normalizeMoney($carryOver);
     }
 
-    private function calculateCumulativeCollectedToDate(Request $request, Carbon $periodTo, ?int $contractId): float
+    private function calculateCumulativeCollectedToDate(Request $request, Carbon $periodTo, ?int $contractId, ?string $sourceMode): float
     {
         if (! $this->support->hasColumn('payment_schedules', 'actual_paid_date')) {
             return 0.0;
         }
 
         $query = DB::table('payment_schedules as ps')
-            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId))
+            ->whereIn('ps.contract_id', $this->scopedContractIdQuery($request, $contractId, $sourceMode))
             ->whereNotNull('ps.actual_paid_date')
             ->whereDate('ps.actual_paid_date', '<=', $periodTo->toDateString())
             ->select(['ps.actual_paid_amount', 'ps.status']);
@@ -512,9 +522,10 @@ class ContractRevenueAnalyticsService
         int $contractId,
         float $expectedInPeriod,
         float $actualInPeriod,
-        float $outstandingInPeriod
+        float $outstandingInPeriod,
+        ?string $sourceMode = null
     ): array {
-        $items = $this->fetchAllocationItems($request, $contractId);
+        $items = $this->fetchAllocationItems($request, $contractId, $sourceMode);
 
         if ($items === []) {
             return [];
@@ -552,20 +563,20 @@ class ContractRevenueAnalyticsService
      *
      * @return array<int, array<string, float|int|string|null>>
      */
-    private function fetchAllocationItems(Request $request, int $contractId): array
+    private function fetchAllocationItems(Request $request, int $contractId, ?string $sourceMode = null): array
     {
-        $items = $this->fetchContractAllocationItems($request, $contractId);
+        $items = $this->fetchContractAllocationItems($request, $contractId, $sourceMode);
         if ($items !== []) {
             return $items;
         }
 
-        return $this->fetchProjectAllocationItems($request, $contractId);
+        return $this->fetchProjectAllocationItems($request, $contractId, $sourceMode);
     }
 
     /**
      * @return array<int, array<string, float|int|string|null>>
      */
-    private function fetchContractAllocationItems(Request $request, int $contractId): array
+    private function fetchContractAllocationItems(Request $request, int $contractId, ?string $sourceMode = null): array
     {
         if (! $this->support->hasTable('contract_items')) {
             return [];
@@ -579,7 +590,7 @@ class ContractRevenueAnalyticsService
 
         $query = DB::table('contract_items as ci')
             ->where('ci.contract_id', $contractId)
-            ->whereIn('ci.contract_id', $this->scopedContractIdQuery($request, $contractId))
+            ->whereIn('ci.contract_id', $this->scopedContractIdQuery($request, $contractId, $sourceMode))
             ->select([
                 'ci.product_id',
                 DB::raw($this->support->hasColumn('contract_items', 'quantity') ? 'COALESCE(ci.quantity, 0) as quantity' : '0 as quantity'),
@@ -592,7 +603,7 @@ class ContractRevenueAnalyticsService
     /**
      * @return array<int, array<string, float|int|string|null>>
      */
-    private function fetchProjectAllocationItems(Request $request, int $contractId): array
+    private function fetchProjectAllocationItems(Request $request, int $contractId, ?string $sourceMode = null): array
     {
         if (! $this->support->hasTable('project_items') || ! $this->support->hasColumn('contracts', 'project_id')) {
             return [];
@@ -605,7 +616,7 @@ class ContractRevenueAnalyticsService
         }
 
         $projectId = Contract::query()
-            ->whereIn('contracts.id', $this->scopedContractIdQuery($request, $contractId))
+            ->whereIn('contracts.id', $this->scopedContractIdQuery($request, $contractId, $sourceMode))
             ->whereKey($contractId)
             ->value('project_id');
 

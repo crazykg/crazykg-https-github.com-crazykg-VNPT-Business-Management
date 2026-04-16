@@ -99,6 +99,29 @@ class ReadReplicaRevenueServicesTest extends TestCase
         $this->assertSame('Khach hang Replica', data_get($payload, 'data.rows.0.customer_name'));
     }
 
+    public function test_revenue_department_report_uses_department_display_column_when_available(): void
+    {
+        $this->setUpRevenueSchema('sqlite');
+        $this->setUpRevenueSchema('analytics_replica');
+
+        $this->seedRevenueFixture('sqlite', 1000, 250, 2000);
+        $this->seedRevenueFixture('analytics_replica', 3000, 1500, 5000);
+
+        $response = app(RevenueReportService::class)->report(Request::create('/api/v5/revenue/report', 'GET', [
+            'period_from' => '2026-03-01',
+            'period_to' => '2026-03-31',
+            'dimension' => 'department',
+        ]));
+
+        $payload = $response->getData(true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('department', data_get($payload, 'data.dimension'));
+        $this->assertSame('Phong Replica', data_get($payload, 'data.rows.0.department_name'));
+        $this->assertEquals(3000.0, data_get($payload, 'data.rows.0.expected'));
+        $this->assertEquals(1500.0, data_get($payload, 'data.rows.0.collected'));
+    }
+
     public function test_revenue_overview_reads_from_replica_when_enabled(): void
     {
         $this->setUpRevenueSchema('sqlite');
@@ -175,6 +198,12 @@ class ReadReplicaRevenueServicesTest extends TestCase
 
     private function setUpRevenueSchema(string $connection): void
     {
+        Schema::connection($connection)->create('departments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('dept_name')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
         Schema::connection($connection)->create('customers', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->string('customer_name');
@@ -224,6 +253,12 @@ class ReadReplicaRevenueServicesTest extends TestCase
     private function seedRevenueFixture(string $connection, float $expectedAmount, float $actualAmount, float $targetAmount): void
     {
         $isReplica = $connection === 'analytics_replica';
+
+        DB::connection($connection)->table('departments')->insert([
+            'id' => 9,
+            'dept_name' => $isReplica ? 'Phong Replica' : 'Phong Primary',
+            'deleted_at' => null,
+        ]);
 
         DB::connection($connection)->table('customers')->insert([
             'id' => 1,
@@ -293,6 +328,7 @@ class ReadReplicaRevenueServicesTest extends TestCase
             Schema::connection($connection)->dropIfExists('payment_schedules');
             Schema::connection($connection)->dropIfExists('contracts');
             Schema::connection($connection)->dropIfExists('customers');
+            Schema::connection($connection)->dropIfExists('departments');
         } catch (\Throwable) {
             // The connection may be intentionally invalid in fallback assertions.
         }

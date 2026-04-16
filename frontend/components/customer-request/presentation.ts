@@ -83,6 +83,7 @@ export type CustomerRequestPrimaryActionMeta = {
 
 const STATUS_UI_ALIAS_MAP: Record<string, string> = {
   dispatched: 'new_intake',
+  pm_missing_customer_info_review: 'waiting_customer_feedback',
 };
 
 const readUiMetaString = (
@@ -167,6 +168,7 @@ const COLOR_TOKEN_CLASS_MAP: Record<string, string> = {
   rose: 'bg-rose-100 text-rose-700',
   indigo: 'bg-indigo-100 text-indigo-700',
   slate: 'bg-slate-100 text-slate-500',
+  gray: 'bg-gray-100 text-gray-600',
 };
 
 const DEFAULT_STATUS_META = {
@@ -234,14 +236,22 @@ const LEGACY_STATUS_META_BY_CODE: Record<string, { label: string; cls: string }>
   receiver_in_progress: { label: 'R Đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.amber },
   not_executed: { label: 'Không thực hiện', cls: COLOR_TOKEN_CLASS_MAP.slate },
   completed: { label: 'Hoàn thành', cls: COLOR_TOKEN_CLASS_MAP.emerald },
+  waiting_notification: { label: 'Chờ thông báo khách hàng', cls: COLOR_TOKEN_CLASS_MAP.yellow },
   customer_notified: { label: 'Báo khách hàng', cls: COLOR_TOKEN_CLASS_MAP.teal },
+  closed: { label: 'Đóng yêu cầu', cls: COLOR_TOKEN_CLASS_MAP.gray },
   returned_to_manager: { label: 'Chuyển trả QL', cls: COLOR_TOKEN_CLASS_MAP.orange },
   analysis: { label: 'Phân tích', cls: COLOR_TOKEN_CLASS_MAP.purple },
+  analysis_completed: { label: 'Chuyển BA Phân tích hoàn thành', cls: COLOR_TOKEN_CLASS_MAP.purple },
+  analysis_suspended: { label: 'Chuyển BA Phân tích tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.purple },
   pending_dispatch: { label: 'Giao PM/Trả YC cho PM', cls: COLOR_TOKEN_CLASS_MAP.sky },
   dispatched: { label: 'Mới tiếp nhận', cls: COLOR_TOKEN_CLASS_MAP.sky },
   coding: { label: 'Lập trình', cls: COLOR_TOKEN_CLASS_MAP.violet },
+  coding_in_progress: { label: 'Dev đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.violet },
+  coding_suspended: { label: 'Dev tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.violet },
   dms_transfer: { label: 'Chuyển DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
   dms_task_created: { label: 'Tạo task DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
+  dms_in_progress: { label: 'DMS Đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.lime },
+  dms_suspended: { label: 'DMS tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.lime },
 };
 
 const resolveStatusToneClass = (
@@ -266,7 +276,7 @@ export const PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE = 'pm_missing_custom
 
 const PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_META: YeuCauProcessMeta = {
   process_code: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
-  process_label: 'PM đánh giá thiếu TT KH',
+  process_label: 'Chờ khách hàng cung cấp thông tin',
   group_code: 'intake',
   group_label: 'Tiếp nhận',
   table_name: 'customer_request_pm_missing_customer_info_review',
@@ -754,6 +764,17 @@ export const resolveDispatcherBucketCode = (
   request: Partial<YeuCau> | Record<string, unknown>
 ): string => resolveWorkspaceBucketFromMeta(request);
 
+export const classifyDispatcherWorkspaceRow = (
+  request: Partial<YeuCau> | Record<string, unknown>
+): 'queue' | 'returned' | 'feedback' | 'approval' | 'active' => {
+  const bucketCode = resolveDispatcherBucketCode(request);
+  if (bucketCode === 'queue' || bucketCode === 'returned' || bucketCode === 'feedback' || bucketCode === 'approval') {
+    return bucketCode;
+  }
+
+  return 'active';
+};
+
 export const isDispatcherActiveBucket = (bucketCode: string): boolean => bucketCode === 'active';
 
 export const isDispatcherQueueBucket = (bucketCode: string): boolean => bucketCode === 'queue';
@@ -792,10 +813,20 @@ export const resolveCurrentProcessMeta = (
   request: Partial<YeuCau> | Record<string, unknown>
 ): YeuCauProcessMeta | null => resolveRequestCurrentProcessMeta(request);
 
-export const resolveVisibleTransitionOptions = (
+export const resolveTransitionOptionsForRequest = (
   processes: YeuCauProcessMeta[],
   request: Partial<YeuCau> | Record<string, unknown> | null | undefined
 ): YeuCauProcessMeta[] => resolveTransitionOptionsFromBackend(processes, request);
+
+export const resolveVisibleTransitionOptions = (
+  processes: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => resolveTransitionOptionsForRequest(processes, request);
+
+export const buildXmlAlignedTransitionOptionsForRequest = (
+  processes: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => buildLegacyXmlAlignedTransitionOptions(processes, request);
 
 export const resolveQuickActionFromWorkflowMeta = (
   request: YeuCau,
@@ -941,23 +972,43 @@ export const resolveRequestIntakeLane = (
   return 'dispatcher';
 };
 
-const PERFORMER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'pending_dispatch', 'in_progress', 'returned_to_manager']);
-const DISPATCHER_INTAKE_STATUS_CODES = new Set([
-  'not_executed',
-  'waiting_customer_feedback',
-  'in_progress',
-  'analysis',
-  'pending_dispatch',
-]);
+const PERFORMER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
+const DISPATCHER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
 const DISPATCHER_INTAKE_PM_MISSING_INFO_TARGETS = new Set([
   'not_executed',
   'waiting_customer_feedback',
 ]);
-const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed', 'receiver_in_progress']);
+const IN_PROGRESS_XML_TARGET_STATUS_CODES = new Set(['completed', 'returned_to_manager']);
 
 const PM_MISSING_INFO_DECISION_SOURCE_STATUSES = new Set([
   'returned_to_manager',
 ]);
+
+const CREATOR_REVIEW_STATUS_CODES = new Set([
+  'waiting_customer_feedback',
+]);
+
+const CREATOR_NOTIFY_STATUS_CODES = new Set([
+  'completed',
+]);
+
+const CREATOR_FOLLOW_UP_STATUS_CODES = new Set([
+  'new_intake',
+  'pending_dispatch',
+  'dispatched',
+  'analysis',
+  'in_progress',
+  'coding',
+  'dms_transfer',
+  'returned_to_manager',
+]);
+
+const PERFORMER_PENDING_STATUS_PRIORITY: Record<string, number> = {
+  returned_to_manager: 0,
+  new_intake: 1,
+  pending_dispatch: 2,
+  dispatched: 3,
+};
 
 export const filterTransitionOptionsForRequest = <T extends { process_code: string }>(
   processes: T[],
@@ -1017,6 +1068,30 @@ const buildLegacyXmlAlignedTransitionOptions = (
   );
 
   if (decisionTargets.length > 0) {
+    const waitingCustomerFeedbackProcess =
+      decisionTargets.find((process) => process.process_code === 'waiting_customer_feedback')
+      ?? visibleProcesses.find((process) => process.process_code === 'waiting_customer_feedback')
+      ?? null;
+
+    if (waitingCustomerFeedbackProcess) {
+      const nextProcesses: YeuCauProcessMeta[] = [];
+      let insertedWaitingCustomerFeedback = false;
+
+      for (const process of visibleProcesses) {
+        if (process.decision_context_code === PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE) {
+          if (!insertedWaitingCustomerFeedback) {
+            nextProcesses.push(waitingCustomerFeedbackProcess);
+            insertedWaitingCustomerFeedback = true;
+          }
+          continue;
+        }
+
+        nextProcesses.push(process);
+      }
+
+      return nextProcesses;
+    }
+
     const nextProcesses: YeuCauProcessMeta[] = [];
     let insertedDecision = false;
 
@@ -1069,35 +1144,6 @@ const buildLegacyXmlAlignedTransitionOptions = (
   return nextProcesses;
 };
 
-export const resolveTransitionOptionsForRequest = (
-  processes: YeuCauProcessMeta[],
-  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
-): YeuCauProcessMeta[] => resolveTransitionOptionsFromBackend(processes, request);
-
-export const buildXmlAlignedTransitionOptionsForRequest = (
-  processes: YeuCauProcessMeta[],
-  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
-): YeuCauProcessMeta[] => resolveTransitionOptionsForRequest(processes, request);
-
-const CREATOR_REVIEW_STATUS_CODES = new Set(['waiting_customer_feedback']);
-const CREATOR_NOTIFY_STATUS_CODES = new Set(['completed']);
-const CREATOR_FOLLOW_UP_STATUS_CODES = new Set([
-  'new_intake',
-  'dispatched',
-  'analysis',
-  'in_progress',
-  'returned_to_manager',
-  'coding',
-  'dms_transfer',
-  'dms_task_created',
-]);
-const PERFORMER_PENDING_STATUS_PRIORITY: Record<string, number> = {
-  returned_to_manager: 0,
-  waiting_customer_feedback: 1,
-  new_intake: 2,
-  dispatched: 2,
-};
-
 export const classifyCreatorWorkspaceStatus = (statusCode: string): 'review' | 'notify' | 'follow_up' | 'closed' => {
   if (CREATOR_REVIEW_STATUS_CODES.has(statusCode)) {
     return 'review';
@@ -1145,17 +1191,6 @@ export const getPerformerWorkspaceStatusPriority = (statusCode: string): number 
   }
 
   return 20;
-};
-
-export const classifyDispatcherWorkspaceRow = (
-  request: Partial<YeuCau> | Record<string, unknown>
-): 'queue' | 'returned' | 'feedback' | 'approval' | 'active' | null => {
-  const bucketCode = resolveDispatcherBucketCode(request);
-  if (bucketCode === 'queue' || bucketCode === 'returned' || bucketCode === 'feedback' || bucketCode === 'approval' || bucketCode === 'active') {
-    return bucketCode;
-  }
-
-  return null;
 };
 
 export const formatHoursValue = (value: unknown): string => {
@@ -1345,15 +1380,92 @@ export const resolveRequestProcessCode = (
   return '';
 };
 
+const readOwnerNameFromStatusRows = (request: YeuCau, ...fieldNames: string[]): string => {
+  const statusData = request.status_row?.data;
+  const processData = request.process_row?.data;
+
+  for (const fieldName of fieldNames) {
+    const statusValue = String((statusData as Record<string, unknown> | undefined)?.[fieldName] ?? '').trim();
+    if (statusValue) {
+      return statusValue;
+    }
+
+    const processValue = String((processData as Record<string, unknown> | undefined)?.[fieldName] ?? '').trim();
+    if (processValue) {
+      return processValue;
+    }
+  }
+
+  return '';
+};
+
+const resolveCurrentReceiverName = (request: YeuCau): string => {
+  const requestRecord = request as unknown as Record<string, unknown>;
+  const receiverCandidates = [
+    requestRecord.to_user_id_name,
+    request.receiver_name,
+    requestRecord.receiver_user_id_name,
+    requestRecord.to_user_name,
+    requestRecord.to_user_full_name,
+  ];
+
+  for (const candidate of receiverCandidates) {
+    const value = String(candidate ?? '').trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return readOwnerNameFromStatusRows(
+    request,
+    'to_user_id_name',
+    'receiver_name',
+    'receiver_user_id_name',
+    'to_user_name',
+    'to_user_full_name'
+  );
+};
+
+const resolveOwnerNameByCurrentOwnerField = (request: YeuCau): string => {
+  const ownerField = String(request.current_owner_field ?? '').trim();
+  if (!ownerField) {
+    return '';
+  }
+
+  const ownerNameField = ownerField.endsWith('_id')
+    ? `${ownerField.slice(0, -3)}_name`
+    : `${ownerField}_name`;
+
+  const requestRecord = request as unknown as Record<string, unknown>;
+  const fromRequest = String(requestRecord[ownerNameField] ?? '').trim();
+  if (fromRequest) {
+    return fromRequest;
+  }
+
+  return readOwnerNameFromStatusRows(request, ownerNameField);
+};
+
 export const resolveDecisionOwner = (
   request: YeuCau
 ): CustomerRequestOwnerSummaryMeta => {
-  if (request.nguoi_xu_ly_name) {
-    return { label: request.nguoi_xu_ly_name, hint: resolveRequestOwnerHint(request) };
+  const currentReceiverName = resolveCurrentReceiverName(request);
+  if (currentReceiverName) {
+    return { label: currentReceiverName, hint: 'Người nhận trạng thái hiện tại' };
   }
 
-  if (request.current_owner_name) {
-    return { label: request.current_owner_name, hint: resolveRequestOwnerHint(request) };
+  const ownerByCurrentField = resolveOwnerNameByCurrentOwnerField(request);
+  if (ownerByCurrentField) {
+    const ownerHint = request.current_owner_field
+      ? resolveOwnerHintByHandlerField(request.current_owner_field)
+      : 'Người xử lý hiện tại';
+    return { label: ownerByCurrentField, hint: ownerHint };
+  }
+
+  if (request.current_owner_name || request.nguoi_xu_ly_name) {
+    return {
+      label: request.current_owner_name || request.nguoi_xu_ly_name || '--',
+      hint: 'Người xử lý hiện tại',
+    };
   }
 
   if (request.performer_name) {
@@ -1362,10 +1474,6 @@ export const resolveDecisionOwner = (
 
   if (request.dispatcher_name) {
     return { label: request.dispatcher_name, hint: 'Điều phối / PM phụ trách' };
-  }
-
-  if (request.receiver_name) {
-    return { label: request.receiver_name, hint: 'Người xử lý đang phụ trách' };
   }
 
   if (request.received_by_name) {

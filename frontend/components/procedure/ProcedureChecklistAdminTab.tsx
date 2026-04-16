@@ -9,9 +9,9 @@ import type {
 type IssueFilterTab = IssueStatus | 'all';
 
 const ISSUE_STATUS_META: Record<IssueStatus, { label: string; color: string; dot: string }> = {
-  JUST_ENCOUNTERED: { label: 'Vừa gặp', color: 'text-rose-700 bg-rose-50 border-rose-200', dot: 'bg-rose-500' },
-  IN_PROGRESS: { label: 'Đang xử lý', color: 'text-amber-700 bg-amber-50 border-amber-200', dot: 'bg-amber-400' },
-  RESOLVED: { label: 'Đã giải quyết', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500' },
+  JUST_ENCOUNTERED: { label: 'Vừa gặp', color: 'text-error bg-error/8 border-error/20', dot: 'bg-error' },
+  IN_PROGRESS: { label: 'Đang xử lý', color: 'text-tertiary bg-tertiary/8 border-tertiary/20', dot: 'bg-tertiary' },
+  RESOLVED: { label: 'Đã giải quyết', color: 'text-success bg-success/10 border-success/20', dot: 'bg-success' },
 };
 
 interface ProcedureChecklistAdminTabProps {
@@ -69,74 +69,74 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
   }, [onChangeIssueStatus]);
 
   return (
-    <div className="flex flex-col gap-5 p-6 overflow-y-auto flex-1">
+    <div className="flex flex-col gap-3 overflow-y-auto flex-1">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-bold text-slate-700 flex items-center gap-2">
-          <span className="material-symbols-outlined text-deep-teal">dashboard</span>
+        <h3 className="text-xs font-bold text-slate-700 flex items-center gap-2">
+          <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 16 }}>dashboard</span>
           Quản trị checklist
         </h3>
         <button
           onClick={() => void onRefresh()}
           disabled={worklogsLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40"
         >
-          <span className={`material-symbols-outlined text-sm ${worklogsLoading ? 'animate-spin' : ''}`}>refresh</span>
+          <span className={`material-symbols-outlined ${worklogsLoading ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>refresh</span>
           Làm mới
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm text-deep-teal">trending_up</span>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>trending_up</span>
             Tiến độ tổng thể
           </h4>
           <div className="grid grid-cols-2 gap-2">
             {[
               { label: 'Tổng bước', value: stepStats.total, color: 'text-slate-700', bg: 'bg-slate-50', icon: 'format_list_numbered' },
-              { label: 'Hoàn thành', value: stepStats.done, color: 'text-emerald-700', bg: 'bg-emerald-50', icon: 'check_circle' },
-              { label: 'Đang TH', value: stepStats.inProgress, color: 'text-amber-700', bg: 'bg-amber-50', icon: 'sync' },
+              { label: 'Hoàn thành', value: stepStats.done, color: 'text-success', bg: 'bg-success/10', icon: 'check_circle' },
+              { label: 'Đang TH', value: stepStats.inProgress, color: 'text-tertiary', bg: 'bg-tertiary/8', icon: 'sync' },
               { label: 'Chưa TH', value: stepStats.todo, color: 'text-slate-400', bg: 'bg-slate-50', icon: 'radio_button_unchecked' },
             ].map((stat) => (
-              <div key={stat.label} className={`rounded-xl ${stat.bg} px-3 py-2 flex items-center gap-2`}>
-                <span className={`material-symbols-outlined text-lg ${stat.color}`}>{stat.icon}</span>
+              <div key={stat.label} className={`rounded-lg ${stat.bg} px-3 py-2 flex items-center gap-2`}>
+                <span className={`material-symbols-outlined ${stat.color}`} style={{ fontSize: 16 }}>{stat.icon}</span>
                 <div>
-                  <div className={`text-xl font-black leading-none ${stat.color}`}>{stat.value}</div>
+                  <div className={`text-lg font-black leading-none ${stat.color}`}>{stat.value}</div>
                   <div className="text-[10px] text-slate-400 font-medium mt-0.5">{stat.label}</div>
                 </div>
               </div>
             ))}
           </div>
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
               <span>Tỷ lệ hoàn thành</span>
               <span className="font-bold text-deep-teal">{overallPercent}%</span>
             </div>
-            <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden flex">
+            <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden flex">
               {stepStats.total > 0 && (
                 <>
                   <div
-                    className="h-full bg-emerald-400 transition-all duration-500"
+                    className="h-full bg-success transition-all duration-500"
                     style={{ width: `${Math.round((stepStats.done / stepStats.total) * 100)}%` }}
                   />
                   <div
-                    className="h-full bg-amber-400 transition-all duration-500"
+                    className="h-full bg-warning transition-all duration-500"
                     style={{ width: `${Math.round((stepStats.inProgress / stepStats.total) * 100)}%` }}
                   />
                 </>
               )}
             </div>
             <div className="flex gap-3 text-[10px] text-slate-400">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />Hoàn thành</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />Đang TH</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-200 inline-block" />Chưa TH</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />Hoàn thành</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning inline-block" />Đang TH</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-200 inline-block" />Chưa TH</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col items-center gap-3">
-          <h4 className="w-full text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm text-deep-teal">donut_large</span>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col items-center gap-3">
+          <h4 className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>donut_large</span>
             Phân bố trạng thái
           </h4>
           {(() => {
@@ -185,7 +185,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                 <div className="space-y-1.5">
                   {segments.map((segment) => (
                     <div key={segment.label} className="flex items-center gap-2 text-xs">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
                       <span className="text-slate-500">{segment.label}</span>
                       <span className="font-bold text-slate-700 ml-auto pl-2">{segment.val}</span>
                     </div>
@@ -215,11 +215,11 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
         if (!hasPhases && !hasIssues) return null;
 
         return (
-          <div className={`grid grid-cols-1 gap-4 ${hasPhases && hasIssues ? 'lg:grid-cols-2' : ''}`}>
+          <div className={`grid grid-cols-1 gap-3 ${hasPhases && hasIssues ? 'lg:grid-cols-2' : ''}`}>
             {hasPhases && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-sm text-deep-teal">bar_chart</span>
+              <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>bar_chart</span>
                   Tiến độ theo giai đoạn
                 </h4>
                 <div className="space-y-2">
@@ -232,15 +232,15 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                           <span className="font-medium text-slate-600 truncate max-w-[180px]" title={data.label}>{data.label}</span>
                           <span className="text-slate-400 shrink-0 ml-2">{data.done}/{data.total}</span>
                         </div>
-                        <div className="h-4 w-full rounded-md bg-slate-100 overflow-hidden flex">
+                        <div className="h-3 w-full rounded bg-slate-100 overflow-hidden flex">
                           <div
-                            className="h-full bg-emerald-400 transition-all duration-500 flex items-center justify-center"
+                            className="h-full bg-success transition-all duration-500 flex items-center justify-center"
                             style={{ width: `${donePct}%` }}
                           >
                             {donePct >= 15 && <span className="text-[9px] font-bold text-white">{donePct}%</span>}
                           </div>
                           <div
-                            className="h-full bg-amber-400 transition-all duration-500"
+                            className="h-full bg-warning transition-all duration-500"
                             style={{ width: `${inProgPct}%` }}
                           />
                         </div>
@@ -252,9 +252,9 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
             )}
 
             {hasIssues && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3">
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-sm text-rose-500">troubleshoot</span>
+              <div className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col gap-2.5">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>troubleshoot</span>
                   Tình trạng xử lý vấn đề
                   <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
                     {issueWorklogs.length} vấn đề
@@ -312,13 +312,13 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                               setIssueFilterTab(segment.statusKey);
                               issuesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }}
-                            className="w-full flex items-center gap-1.5 text-[11px] rounded-lg px-1.5 py-1 hover:bg-slate-100 transition-colors cursor-pointer text-left"
+                            className="w-full flex items-center gap-1.5 text-[11px] rounded px-1.5 py-1 hover:bg-slate-50 transition-colors cursor-pointer text-left"
                           >
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
                             <span className="text-slate-500 flex-1">{segment.label}</span>
                             <span className="font-bold text-slate-700">{segment.val}</span>
                             <span className="text-slate-300 text-[10px]">({Math.round((segment.val / (issueWorklogs.length || 1)) * 100)}%)</span>
-                            <span className="material-symbols-outlined text-[12px] text-slate-300">chevron_right</span>
+                            <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 12 }}>chevron_right</span>
                           </button>
                         ))}
                       </div>
@@ -331,13 +331,13 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
         );
       })()}
 
-      <div ref={issuesSectionRef} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+      <div ref={issuesSectionRef} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
         <div className="flex items-center gap-2">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm text-rose-500">warning</span>
+          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>warning</span>
             Khó khăn &amp; Đề xuất
             {issueWorklogs.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-bold">
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-error/8 text-error text-[10px] font-bold">
                 {issueWorklogs.length}
               </span>
             )}
@@ -347,19 +347,20 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
         <div className="flex gap-1 flex-wrap">
           {([
             { key: 'all', label: 'Tất cả', count: issueWorklogs.length, color: 'text-slate-600 bg-slate-100' },
-            { key: 'JUST_ENCOUNTERED', label: '🔴 Vừa gặp', count: issuesByStatus.JUST_ENCOUNTERED.length, color: 'text-rose-700 bg-rose-50' },
-            { key: 'IN_PROGRESS', label: '🟡 Đang xử lý', count: issuesByStatus.IN_PROGRESS.length, color: 'text-amber-700 bg-amber-50' },
-            { key: 'RESOLVED', label: '🟢 Đã giải quyết', count: issuesByStatus.RESOLVED.length, color: 'text-emerald-700 bg-emerald-50' },
-          ] as { key: IssueFilterTab; label: string; count: number; color: string }[]).map((filter) => (
+            { key: 'JUST_ENCOUNTERED', label: 'Vừa gặp', count: issuesByStatus.JUST_ENCOUNTERED.length, color: 'text-error bg-error/8', dot: 'bg-error' },
+            { key: 'IN_PROGRESS', label: 'Đang xử lý', count: issuesByStatus.IN_PROGRESS.length, color: 'text-tertiary bg-tertiary/8', dot: 'bg-tertiary' },
+            { key: 'RESOLVED', label: 'Đã giải quyết', count: issuesByStatus.RESOLVED.length, color: 'text-success bg-success/10', dot: 'bg-success' },
+          ] as { key: IssueFilterTab; label: string; count: number; color: string; dot?: string }[]).map((filter) => (
             <button
               key={filter.key}
               onClick={() => setIssueFilterTab(filter.key)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
                 issueFilterTab === filter.key
                   ? `${filter.color} ring-1 ring-inset ring-current`
                   : 'text-slate-400 hover:text-slate-600 bg-slate-50'
               }`}
             >
+              {filter.dot && <span className={`w-1.5 h-1.5 rounded-full ${filter.dot}`} />}
               {filter.label}
               {filter.count > 0 && <span className="ml-1 opacity-70">({filter.count})</span>}
             </button>
@@ -368,7 +369,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
 
         {worklogsLoading ? (
           <div className="flex items-center gap-2 text-xs text-slate-400 py-4 justify-center">
-            <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+            <span className="material-symbols-outlined animate-spin" style={{ fontSize: 14 }}>progress_activity</span>
             Đang tải dữ liệu...
           </div>
         ) : (() => {
@@ -387,15 +388,15 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
           }
 
           return (
-            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
               {displayed.map((worklog) => {
                 const issue = worklog.issue!;
                 const statusMeta = ISSUE_STATUS_META[issue.issue_status];
                 const isUpdating = issueUpdating[worklog.id] ?? false;
 
                 return (
-                  <div key={worklog.id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 space-y-2 hover:border-slate-300 transition-colors">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <div key={worklog.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5 space-y-1.5 hover:border-slate-300 transition-colors">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                       {worklog.step && (
                         <span className="font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
                           #{worklog.step.step_number} {worklog.step.step_name}
@@ -412,12 +413,12 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                       </span>
                     </div>
                     <div className="flex items-start gap-2 text-xs">
-                      <span className="material-symbols-outlined text-sm text-rose-400 shrink-0 mt-0.5">error_outline</span>
+                      <span className="material-symbols-outlined text-error shrink-0 mt-0.5" style={{ fontSize: 14 }}>error_outline</span>
                       <p className="text-slate-700 leading-snug">{issue.issue_content}</p>
                     </div>
                     {issue.proposal_content && (
                       <div className="flex items-start gap-2 text-xs">
-                        <span className="material-symbols-outlined text-sm text-amber-400 shrink-0 mt-0.5">lightbulb</span>
+                        <span className="material-symbols-outlined text-tertiary shrink-0 mt-0.5" style={{ fontSize: 14 }}>lightbulb</span>
                         <p className="text-slate-600 leading-snug italic">{issue.proposal_content}</p>
                       </div>
                     )}
