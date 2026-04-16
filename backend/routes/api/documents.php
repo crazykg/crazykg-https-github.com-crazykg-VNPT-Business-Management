@@ -12,6 +12,8 @@ Route::post('/documents/upload-attachment', [DocumentController::class, 'uploadA
     ->middleware(['permission:documents.write', 'throttle:api.write.heavy']);
 Route::delete('/documents/upload-attachment', [DocumentController::class, 'deleteUploadedAttachment'])
     ->middleware('permission:documents.write');
+Route::post('/documents/attachments/{id}/link', [DocumentController::class, 'linkAttachment'])
+    ->middleware('permission:documents.write');
 Route::put('/documents/{id}', [DocumentController::class, 'update'])
     ->middleware('permission:documents.write');
 Route::delete('/documents/{id}', [DocumentController::class, 'destroy'])

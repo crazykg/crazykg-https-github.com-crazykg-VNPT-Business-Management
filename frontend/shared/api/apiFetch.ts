@@ -208,9 +208,16 @@ const refreshSession = async (): Promise<boolean> => {
  */
 export const apiFetch = async (input: RequestInfo | URL, init: ApiFetchInit = {}): Promise<Response> => {
   const { cancelKey, signal: externalSignal, skipAuthRefresh = false, ...requestInit } = init;
+
+  // When body is FormData, let browser set Content-Type with boundary
+  const isFormData = requestInit.body instanceof FormData;
   const headers = new Headers(requestInit.headers || {});
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
+  }
+  // Remove Content-Type if FormData so browser can set it with boundary
+  if (isFormData && headers.has('Content-Type')) {
+    headers.delete('Content-Type');
   }
 
   const requestMethod = resolveRequestMethod(input, requestInit);

@@ -474,6 +474,47 @@ class CustomerRequestCaseDomainService
     }
 
     /**
+     * Lưu attachments vào customer request status instance
+     */
+    public function bulkAttachments(Request $request, int $id): JsonResponse
+    {
+        if (($missing = $this->missingTablesResponse()) !== null) {
+            return $missing;
+        }
+
+        $case = $this->findAccessibleCaseModel($id, $this->resolveActorId($request));
+        if ($case === null) {
+            return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
+        }
+
+        $validated = $request->validate([
+            'attachments' => ['required', 'array'],
+            'attachments.*.id' => ['required', 'integer'],
+        ]);
+
+        $attachments = $validated['attachments'] ?? [];
+        $actorId = $this->resolveActorId($request);
+
+        // Get current status instance
+        $currentInstance = $this->currentStatusInstance($case);
+        if ($currentInstance === null) {
+            return response()->json(['message' => 'Không tìm thấy trạng thái hiện tại.'], 404);
+        }
+
+        // Sync attachments
+        $this->writeService->syncAttachments(
+            (int) $case->id,
+            (int) $currentInstance->id,
+            $attachments,
+            $actorId
+        );
+
+        return response()->json([
+            'data' => $this->loadAttachmentAggregateForCase((int) $case->id),
+        ]);
+    }
+
+    /**
      * Full detail endpoint — tổng hợp case + 3 roles + timeline + worklogs + estimates + ref_tasks + attachments.
      * Dùng cho trang tra cứu chi tiết (§7).
      */

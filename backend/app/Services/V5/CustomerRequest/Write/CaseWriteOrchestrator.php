@@ -80,4 +80,13 @@ class CaseWriteOrchestrator
     {
         return $this->originalWriteService->resolveRequesterSnapshot($customerPersonnelId, $fallback);
     }
+
+    /**
+     * Sync attachments for a customer request status instance.
+     * Delegated for backward compatibility.
+     */
+    public function syncAttachments(int $caseId, int $statusInstanceId, array $items, ?int $actorId): void
+    {
+        $this->originalWriteService->syncAttachments($caseId, $statusInstanceId, $items, $actorId);
+    }
 }

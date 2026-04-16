@@ -220,6 +220,14 @@ export const uploadDocumentAttachment = async (file: File): Promise<Attachment> 
   const formData = new FormData();
   formData.append('file', file);
 
+  // Debug: log file info to verify file has content
+  console.log('[uploadDocumentAttachment] File info:', {
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    hasContent: file.size > 0,
+  });
+
   const res = await apiFetch('/api/v5/documents/upload-attachment', {
     method: 'POST',
     credentials: 'include',

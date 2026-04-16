@@ -51,6 +51,11 @@ class DocumentController extends V5BaseController
         return $this->service->deleteUploadedAttachment($request);
     }
 
+    public function linkAttachment(Request $request, int $id): JsonResponse
+    {
+        return $this->service->updateAttachmentReference($request, $id);
+    }
+
     public function downloadDocumentAttachment(Request $request, int $id): Response
     {
         return $this->service->downloadDocumentAttachment($request, $id);

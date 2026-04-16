@@ -939,6 +939,38 @@ class CustomerRequestCaseWriteService
                     'updated_by' => $actorId,
                     'updated_at' => now(),
                 ]));
+
+            // Copy attachments from previous instance to new instance
+            if ($this->support->hasTable('customer_request_status_attachments')) {
+                $previousAttachments = DB::table('customer_request_status_attachments')
+                    ->where('status_instance_id', $previousInstance->id)
+                    ->get();
+
+                Log::debug('crc.transition.copy_attachments', [
+                    'previous_instance_id' => $previousInstance->id,
+                    'new_instance_id' => $instanceId,
+                    'case_id' => (int) $case->id,
+                    'previous_attachments_count' => $previousAttachments->count(),
+                ]);
+
+                if ($previousAttachments->isNotEmpty()) {
+                    $nowForCopy = now();
+                    foreach ($previousAttachments as $attachment) {
+                        DB::table('customer_request_status_attachments')->insert([
+                            'request_case_id' => (int) $case->id,
+                            'status_instance_id' => $instanceId,
+                            'attachment_id' => $attachment->attachment_id,
+                            'created_by' => $actorId,
+                            'updated_by' => $actorId,
+                            'created_at' => $nowForCopy,
+                            'updated_at' => $nowForCopy,
+                        ]);
+                    }
+                    Log::debug('crc.transition.copy_attachments.done', [
+                        'copied_count' => $previousAttachments->count(),
+                    ]);
+                }
+            }
         }
 
         $instance = CustomerRequestStatusInstance::query()->find($instanceId);
@@ -1198,9 +1230,10 @@ class CustomerRequestCaseWriteService
             ? $request->input('attachments')
             : ($statusPayload['attachments'] ?? null);
 
-        if ($attachments !== null) {
-            $items = is_array($attachments) ? $attachments : [];
-            $this->syncAttachments($caseId, $statusInstanceId, $items, $actorId);
+        // Only sync attachments if explicitly provided and non-empty
+        // Empty array means "keep existing attachments" not "delete all"
+        if ($attachments !== null && is_array($attachments) && count($attachments) > 0) {
+            $this->syncAttachments($caseId, $statusInstanceId, $attachments, $actorId);
         }
     }
 
@@ -1428,7 +1461,7 @@ class CustomerRequestCaseWriteService
     /**
      * @param array<int, mixed> $items
      */
-    private function syncAttachments(int $caseId, int $statusInstanceId, array $items, ?int $actorId): void
+    public function syncAttachments(int $caseId, int $statusInstanceId, array $items, ?int $actorId): void
     {
         if (! $this->support->hasTable('customer_request_status_attachments')) {
             return;

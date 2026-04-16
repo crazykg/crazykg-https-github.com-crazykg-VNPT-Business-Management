@@ -1365,6 +1365,33 @@ export const saveYeuCauCaseTags = async (
   return Array.isArray(detail.tags) ? detail.tags : [];
 };
 
+/**
+ * Lưu attachments vào customer request status instance
+ * @param id - Customer request case ID
+ * @param attachments - Mảng attachments [{ id: number }]
+ * @returns Danh sách attachments đã lưu
+ */
+export const saveYeuCauCaseAttachments = async (
+  id: string | number,
+  attachments: Array<{ id: string | number }>
+): Promise<Array<{ id: string | number }>> => {
+  const res = await apiFetch(`/api/v5/customer-request-cases/${id}/attachments/bulk`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      attachments,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SAVE_YEU_CAU_CASE_ATTACHMENTS_FAILED'));
+  }
+
+  const detail = (await res.json()) as { attachments?: Array<{ id: string | number }> };
+  return Array.isArray(detail.attachments) ? detail.attachments : [];
+};
+
 export const deleteYeuCau = async (id: string | number): Promise<void> => {
   const res = await apiFetch(`/api/v5/customer-request-cases/${id}`, {
     method: 'DELETE',

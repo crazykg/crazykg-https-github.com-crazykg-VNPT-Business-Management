@@ -3,6 +3,7 @@ import {
   createYeuCau,
   createYeuCauEstimate,
   deleteYeuCau,
+  saveYeuCauCaseAttachments,
   saveYeuCauCaseTags,
   saveYeuCauProcess,
   fetchCustomerRequestIntakeTemplate,
@@ -2122,6 +2123,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setAttachmentError('');
       setAttachmentNotice('');
       setIsUploadingAttachment(true);
+
+      // Debug: log file info before upload
+      console.log('[CustomerRequestManagementHub] Uploading file:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        hasContent: file.size > 0,
+      });
+
       try {
         const uploaded = await uploadDocumentAttachment(file);
         setFormAttachments((prev) => [...prev, uploaded]);
@@ -2494,6 +2504,37 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     notify,
     setFormTags,
   ]);
+
+  /**
+   * Handler chỉ để lưu attachments riêng biệt (dùng cho tab Files)
+   */
+  const handleSaveAttachmentsOnly = useCallback(async () => {
+    if (!selectedRequestId) return;
+    try {
+      setIsSaving(true);
+
+      const attachmentsPayload = formAttachments
+        .filter((a) => a.id)
+        .map((a) => ({ id: a.id }));
+
+      if (attachmentsPayload.length === 0) {
+        notify('info', 'Cập nhật tệp đính kèm', 'Không có tệp mới để lưu.');
+        return;
+      }
+
+      await saveYeuCauCaseAttachments(selectedRequestId, attachmentsPayload);
+      bumpDataVersion();
+      notify('success', 'Cập nhật tệp đính kèm', 'Đã lưu tệp đính kèm.');
+    } catch (e: unknown) {
+      notify(
+        'error',
+        'Cập nhật tệp đính kèm thất bại',
+        e instanceof Error ? e.message : 'Không thể lưu tệp đính kèm.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedRequestId, formAttachments, bumpDataVersion, notify]);
 
   const handleOpenTransitionModal = useCallback(() => {
     if (!transitionStatusCode) return;
@@ -3368,6 +3409,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       isSaving={isSaving}
       canEditActiveForm={canEditActiveForm}
       onSaveRequest={handleUpdateCase}
+      onSaveAttachmentsOnly={handleSaveAttachmentsOnly}
       masterFields={masterFields}
       masterDraft={masterDraft}
       onMasterFieldChange={handleMasterFieldChange}

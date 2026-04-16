@@ -4,6 +4,7 @@ namespace App\Services\V5\Document;
 
 use App\Services\V5\IntegrationSettings\BackblazeB2IntegrationService;
 use App\Services\V5\IntegrationSettings\GoogleDriveIntegrationService;
+use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,19 +23,36 @@ class DocumentAttachmentService
 
     public function __construct(
         private readonly V5DomainSupportService $support,
+        private readonly V5AccessAuditService $accessAudit,
         private readonly BackblazeB2IntegrationService $backblaze,
         private readonly GoogleDriveIntegrationService $googleDrive,
     ) {}
 
     public function uploadAttachment(Request $request): JsonResponse
     {
+        // Debug logging
+        $uploadedFile = $request->file('file');
+        \Log::channel('daily')->info('[DocumentAttachment] Upload request received', [
+            'method' => $request->method(),
+            'content_type' => $request->header('Content-Type'),
+            'content_length' => $request->header('Content-Length'),
+            'has_file' => $request->hasFile('file'),
+            'file_exists' => $uploadedFile !== null,
+            'file_error' => $uploadedFile?->getError(),
+            'file_name' => $uploadedFile?->getClientOriginalName(),
+            'file_size' => $uploadedFile?->getSize(),
+            'file_mime' => $uploadedFile?->getMimeType(),
+            'file_extension' => $uploadedFile?->getClientOriginalExtension(),
+            'all_input' => $request->all(),
+            'all_files' => array_keys($request->allFiles()),
+        ]);
+
         $validated = $request->validate([
             'file' => [
                 'required',
                 'file',
                 'max:20480',
                 'mimes:pdf,doc,docx,xlsx,xls,txt,png,jpg,jpeg',
-                'mimetypes:application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,image/png,image/jpeg',
             ],
         ]);
 
@@ -61,9 +79,41 @@ class DocumentAttachmentService
             ], 500);
         }
 
+        // Resolve actor ID from request (for created_by/updated_by)
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+
+        // Get optional reference parameters from request
+        $referenceType = $this->support->normalizeNullableString($request->input('reference_type')) ?? 'DOCUMENT';
+        $referenceId = $this->support->parseNullableInt($request->input('reference_id')) ?? 0;
+
+        // Insert into attachments table to persist file metadata
+        if (! $this->support->hasTable('attachments')) {
+            Log::error('[DocumentAttachment] attachments table not found');
+            return response()->json([
+                'message' => 'Không thể lưu thông tin file. Vui lòng liên hệ quản trị viên.',
+            ], 500);
+        }
+
+        $attachmentId = DB::table('attachments')->insertGetId([
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'file_name' => (string) $uploadResult['fileName'],
+            'file_url' => (string) $uploadResult['fileUrl'],
+            'drive_file_id' => $uploadResult['driveFileId'] ?? null,
+            'file_size' => (int) $uploadResult['fileSize'],
+            'mime_type' => (string) $uploadResult['mimeType'],
+            'storage_disk' => $uploadResult['storageDisk'] ?? null,
+            'storage_path' => $uploadResult['storagePath'] ?? null,
+            'storage_visibility' => $uploadResult['storageVisibility'] ?? 'private',
+            'created_by' => $actorId,
+            'updated_by' => $actorId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         return response()->json([
             'data' => [
-                'id' => (string) Str::uuid(),
+                'id' => $attachmentId,
                 'fileName' => (string) $uploadResult['fileName'],
                 'mimeType' => (string) $uploadResult['mimeType'],
                 'fileSize' => (int) $uploadResult['fileSize'],
@@ -591,5 +641,39 @@ class DocumentAttachmentService
         }
 
         return $text;
+    }
+
+    /**
+     * Cập nhật reference_type và reference_id cho attachment
+     * Dùng để link attachment vào customer request/procedure/etc sau khi upload
+     */
+    public function updateAttachmentReference(Request $request, int $id): JsonResponse
+    {
+        if (! $this->support->hasTable('attachments')) {
+            return response()->json(['message' => 'Table attachments không tồn tại.'], 500);
+        }
+
+        $validated = $request->validate([
+            'reference_type' => ['required', 'string', 'max:50'],
+            'reference_id' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $attachment = DB::table('attachments')->where('id', $id)->first();
+        if ($attachment === null) {
+            return response()->json(['message' => 'Attachment không tồn tại.'], 404);
+        }
+
+        $actorId = $this->accessAudit->resolveAuthenticatedUserId($request);
+
+        DB::table('attachments')
+            ->where('id', $id)
+            ->update($this->support->filterPayloadByTableColumns('attachments', [
+                'reference_type' => $validated['reference_type'],
+                'reference_id' => $validated['reference_id'],
+                'updated_by' => $actorId,
+                'updated_at' => now(),
+            ]));
+
+        return response()->json(['message' => 'Đã cập nhật liên kết file đính kèm.']);
     }
 }

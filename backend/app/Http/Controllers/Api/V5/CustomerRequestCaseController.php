@@ -100,6 +100,11 @@ class CustomerRequestCaseController extends V5BaseController
         return $this->service->attachments($request, $id);
     }
 
+    public function bulkAttachments(Request $request, int $id): JsonResponse
+    {
+        return $this->service->bulkAttachments($request, $id);
+    }
+
     public function fullDetail(Request $request, int $id): JsonResponse
     {
         return $this->service->fullDetail($request, $id);

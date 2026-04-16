@@ -196,6 +196,17 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
       return;
     }
 
+    // Debug: log file info to verify file has content
+    files.forEach((file, index) => {
+      console.log(`[AttachmentManager] File ${index + 1}:`, {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        hasContent: file.size > 0,
+        constructor: file.constructor.name,
+      });
+    });
+
     try {
       for (const file of files) {
         await onUpload(file);

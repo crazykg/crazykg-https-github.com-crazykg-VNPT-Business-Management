@@ -45,6 +45,11 @@ class DocumentDomainService
         return $this->attachments->deleteUploadedAttachment($request);
     }
 
+    public function linkAttachment(Request $request, int $id): JsonResponse
+    {
+        return $this->attachments->updateAttachmentReference($request, $id);
+    }
+
     public function downloadDocumentAttachment(Request $request, int $id): Response
     {
         return $this->attachments->downloadDocumentAttachment($request, $id);

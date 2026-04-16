@@ -61,6 +61,7 @@ type CustomerRequestDetailPaneProps = {
   isSaving: boolean;
   canEditActiveForm: boolean;
   onSaveRequest?: () => Promise<void> | void;
+  onSaveAttachmentsOnly?: () => Promise<void> | void;
   masterFields: YeuCauProcessField[];
   masterDraft: Record<string, unknown>;
   onMasterFieldChange: (fieldName: string, value: unknown) => void;
@@ -122,7 +123,6 @@ type CustomerRequestDetailPaneProps = {
 };
 
 const DETAIL_TABS: Array<{ key: DetailTabKey; label: string; icon: string }> = [
-  { key: 'chi_tiet', label: 'Chi tiết', icon: 'article' },
   { key: 'hours', label: 'Giờ công', icon: 'schedule' },
   { key: 'estimate', label: 'Ước lượng', icon: 'rule' },
   { key: 'files', label: 'Tệp', icon: 'attach_file' },
@@ -177,6 +177,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   isSaving,
   canEditActiveForm,
   onSaveRequest,
+  onSaveAttachmentsOnly,
   masterFields,
   masterDraft,
   onMasterFieldChange,
@@ -236,7 +237,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   performerQuickActions,
   onRunPerformerAction,
 }) => {
-  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('chi_tiet');
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('hours');
   const [showDispatcherActionModal, setShowDispatcherActionModal] = useState(false);
   const [showPerformerActionModal, setShowPerformerActionModal] = useState(false);
   const visibleDetailTabs = useMemo(
@@ -245,7 +246,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   );
 
   useEffect(() => {
-    setActiveDetailTab('chi_tiet');
+    setActiveDetailTab('hours');
     setShowDispatcherActionModal(false);
     setShowPerformerActionModal(false);
   }, [isCreateMode, processDetail?.yeu_cau?.id]);
@@ -254,7 +255,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     if (visibleDetailTabs.some((tab) => tab.key === activeDetailTab)) {
       return;
     }
-    setActiveDetailTab(visibleDetailTabs[0]?.key ?? 'chi_tiet');
+    setActiveDetailTab(visibleDetailTabs[0]?.key ?? 'hours');
   }, [activeDetailTab, visibleDetailTabs]);
 
   if (isDetailLoading) {
@@ -523,6 +524,25 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const renderFileManager = () => (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Tệp đính kèm</h4>
+          <p className="mt-1 text-xs text-slate-500">
+            Tải file lên và nhấn "Cập nhật" để lưu liên kết file vào yêu cầu.
+          </p>
+        </div>
+        {canEditActiveForm && onSaveAttachmentsOnly ? (
+          <button
+            type="button"
+            onClick={() => void onSaveAttachmentsOnly()}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-[16px]">save</span>
+            {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+          </button>
+        ) : null}
+      </div>
       <AttachmentManager
         attachments={formAttachments}
         onUpload={onUploadAttachment}
@@ -808,8 +828,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const renderActiveTab = () => {
     switch (activeDetailTab) {
-      case 'chi_tiet':
-        return renderDetailOverviewTab();
       case 'hours':
         return renderHoursTab();
       case 'estimate':
@@ -1142,9 +1160,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             <span className="material-symbols-outlined text-[20px] text-slate-400">tune</span>
             <div>
               <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Vận hành yêu cầu</h4>
-              <p className="mt-1 text-sm text-slate-500">
-                Dùng chung dữ liệu tổng hợp để xem nhanh nhật ký công việc, ước lượng, tệp, tác vụ và dòng thời gian của yêu cầu.
-              </p>
             </div>
           </div>
 

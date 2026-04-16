@@ -44,6 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     message: $exception->getMessage(),
                     httpStatus: 422,
                     extra: ['errors' => $exception->errors()],
+                    exception: $exception,
                 );
             }
 
@@ -56,6 +57,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     code: 'UNAUTHENTICATED',
                     message: 'Unauthenticated.',
                     httpStatus: 401,
+                    exception: $exception,
                 );
             }
 
@@ -70,6 +72,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     code: 'NOT_FOUND',
                     message: "{$model} not found.",
                     httpStatus: 404,
+                    exception: $exception,
                 );
             }
 
@@ -82,6 +85,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     code: 'UNAUTHORIZED',
                     message: $exception->getMessage() ?: 'This action is unauthorized.',
                     httpStatus: 403,
+                    exception: $exception,
                 );
             }
 
@@ -95,6 +99,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     message: 'Too many requests. Please try again later.',
                     httpStatus: 429,
                     extra: ['retry_after' => $exception->getHeaders()['Retry-After'] ?? null],
+                    exception: $exception,
                 );
             }
 
@@ -111,6 +116,7 @@ return Application::configure(basePath: dirname(__DIR__))
                         extra: [
                             'exception' => class_basename($exception),
                         ],
+                        exception: $exception,
                     );
                 }
 
@@ -118,6 +124,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     code: 'INTERNAL_ERROR',
                     message: 'An unexpected error occurred.',
                     httpStatus: 500,
+                    exception: $exception,
                 );
             }
 

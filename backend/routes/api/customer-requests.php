@@ -49,6 +49,8 @@ Route::get('/customer-request-cases/{id}/hours-report', [CustomerRequestCaseCont
     ->middleware('permission:support_requests.read');
 Route::get('/customer-request-cases/{id}/attachments', [CustomerRequestCaseController::class, 'attachments'])
     ->middleware('permission:support_requests.read');
+Route::post('/customer-request-cases/{id}/attachments/bulk', [CustomerRequestCaseController::class, 'bulkAttachments'])
+    ->middleware('permission:support_requests.write');
 Route::get('/customer-request-cases/{id}/full-detail', [CustomerRequestCaseController::class, 'fullDetail'])
     ->middleware('permission:support_requests.read');
 Route::get('/customer-request-cases/{id}/summary-card', [CustomerRequestCaseController::class, 'summaryCard'])

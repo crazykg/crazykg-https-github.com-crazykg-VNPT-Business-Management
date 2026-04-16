@@ -43,6 +43,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Error Debug Mode
+    |--------------------------------------------------------------------------
+    |
+    | This value determines whether detailed error information (exception type,
+    | file, line, stack trace) is included in API error responses. Unlike APP_DEBUG,
+    | this can be enabled independently for debugging in staging/production without
+    | exposing full Laravel debug pages.
+    |
+    | WARNING: Only enable in trusted environments as it exposes internal details.
+    |
+    */
+
+    'error_debug' => (bool) env('APP_ERROR_DEBUG', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application URL
     |--------------------------------------------------------------------------
     |
