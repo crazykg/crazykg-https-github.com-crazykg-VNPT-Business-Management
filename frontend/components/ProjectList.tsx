@@ -139,6 +139,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [sortConfig, setSortConfig] = useState<{ key: keyof Project; direction: 'asc' | 'desc' } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
+  // Pending filters for manual search mode
+  const [pendingSearchTerm, setPendingSearchTerm] = useState('');
+  const [pendingStatusFilter, setPendingStatusFilter] = useState('');
+  const [pendingDepartmentFilter, setPendingDepartmentFilter] = useState(() => initialDepartmentFilter);
+  const [pendingStartDateFrom, setPendingStartDateFrom] = useState(() => resolveInitialProjectDateFilter('start_date_from'));
+  const [pendingStartDateTo, setPendingStartDateTo] = useState(() => resolveInitialProjectDateFilter('start_date_to'));
+  const [searchTrigger, setSearchTrigger] = useState(0);
+
   const [showImportMenu, setShowImportMenu] = useState(false);
   useEscKey(() => { setShowImportMenu(false); setShowExportMenu(false); }, showImportMenu || showExportMenu);
   const [isExporting, setIsExporting] = useState(false);
@@ -342,16 +350,20 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   // Apply initial department filter - sync whenever initialDepartmentFilter changes (if user hasn't adjusted)
   useEffect(() => {
     if (hasUserAdjustedDepartmentFilterRef.current) {
-      return;
-    }
-    if (!initialDepartmentFilter) {
+      hasInitializedFiltersRef.current = true;
       return;
     }
 
     const normalizedInitial = String(initialDepartmentFilter || '').trim();
 
+    if (!normalizedInitial) {
+      hasInitializedFiltersRef.current = true;
+      return;
+    }
+
     // Skip if already synced to this value
     if (lastSyncedInitialFilterRef.current === normalizedInitial) {
+      hasInitializedFiltersRef.current = true;
       return;
     }
 
@@ -373,6 +385,17 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return initialDepartmentFilter;
     });
 
+    setPendingDepartmentFilter((currentValue) => {
+      const normalizedCurrent = String(currentValue || '').trim();
+      if (normalizedCurrent === normalizedInitial) {
+        return currentValue;
+      }
+      if (normalizedCurrent !== '' && normalizedCurrent !== normalizedInitial) {
+        return currentValue;
+      }
+      return initialDepartmentFilter;
+    });
+
     // Mark as initialized after applying initial filter
     hasInitializedFiltersRef.current = true;
   }, [initialDepartmentFilter]);
@@ -388,52 +411,35 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }
   }, [currentPage, totalPages]);
 
+  // Manual search mode: call API only after user triggers search
   useEffect(() => {
     if (!serverMode || !onQueryChange) {
       return;
     }
 
-    // Skip during initial filter setup - wait until initialDepartmentFilter has been applied
     if (!hasInitializedFiltersRef.current) {
       return;
     }
 
-    // Skip if department filter hasn't been synced with initial value yet
-    // This prevents API call during initial sync, only trigger after user interaction
-    if (!hasUserAdjustedDepartmentFilterRef.current && initialDepartmentFilter) {
-      const normalizedCurrent = String(departmentFilter || '').trim();
-      const normalizedInitial = String(initialDepartmentFilter || '').trim();
-      const normalizedLastSynced = String(lastSyncedInitialFilterRef.current || '').trim();
-
-      // Skip if filter is still in sync state (not yet synced to initial value)
-      if (normalizedCurrent !== normalizedLastSynced) {
-        return;
-      }
-
-      // Skip if filter matches initial value (no user interaction yet)
-      if (normalizedCurrent === normalizedInitial) {
-        return;
-      }
+    // Do not auto-load while user is still preparing filters
+    if (searchTrigger === 0) {
+      return;
     }
 
-    const timeoutId = setTimeout(() => {
-      onQueryChange({
-        page: currentPage,
-        per_page: rowsPerPage,
-        q: searchTerm.trim(),
-        sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
-        sort_dir: sortConfig?.direction || 'desc',
-        filters: {
-          status: statusFilter,
-          department_id: departmentFilter,
-          start_date_from: startDateFrom,
-          start_date_to: startDateTo,
-        },
-      });
-    }, 300); // 300ms debounce
-
-    return () => clearTimeout(timeoutId);
-  }, [serverMode, onQueryChange, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig, initialDepartmentFilter]);
+    onQueryChange({
+      page: currentPage,
+      per_page: rowsPerPage,
+      q: searchTerm.trim(),
+      sort_by: sortConfig?.key ? String(sortConfig.key) : 'id',
+      sort_dir: sortConfig?.direction || 'desc',
+      filters: {
+        status: statusFilter,
+        department_id: departmentFilter,
+        start_date_from: startDateFrom,
+        start_date_to: startDateTo,
+      },
+    });
+  }, [serverMode, onQueryChange, searchTrigger, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig]);
 
   const currentData = serverMode
     ? (projects || [])
@@ -546,10 +552,29 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return <span className="material-symbols-outlined text-sm text-slate-300 ml-1">unfold_more</span>;
   };
 
-  const resetProjectDateFilters = () => {
-    setStartDateFrom(getDefaultProjectDateFilter('start_date_from'));
-    setStartDateTo(getDefaultProjectDateFilter('start_date_to'));
+  const handleManualSearch = () => {
+    setSearchTerm(pendingSearchTerm);
+    setStatusFilter(pendingStatusFilter);
+    setDepartmentFilter(pendingDepartmentFilter);
+    setStartDateFrom(pendingStartDateFrom);
+    setStartDateTo(pendingStartDateTo);
     setCurrentPage(1);
+    setSearchTrigger((prev) => prev + 1);
+  };
+
+  const handleResetFilters = () => {
+    setPendingSearchTerm('');
+    setPendingStatusFilter('');
+    setPendingDepartmentFilter(initialDepartmentFilter);
+    setPendingStartDateFrom('');
+    setPendingStartDateTo('');
+    setSearchTerm('');
+    setStatusFilter('');
+    setDepartmentFilter(initialDepartmentFilter);
+    setStartDateFrom('');
+    setStartDateTo('');
+    setCurrentPage(1);
+    setSearchTrigger((prev) => prev + 1);
   };
 
   const getProjectStatusLabel = (status: unknown): string =>
@@ -858,32 +883,67 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       <div>
         <div className="bg-white px-3 py-2 rounded-t-lg border border-slate-200 border-b-0 flex flex-col gap-2">
           <div className="flex flex-col md:flex-row gap-2 items-center">
-            <div className="w-full md:flex-1 relative">
-              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Tìm theo tên dự án, mã DA..."
-                className="w-full h-8 pl-8 pr-3 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
-              />
+            <div className="w-full md:flex-1 flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={pendingSearchTerm}
+                  onChange={(e) => setPendingSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleManualSearch();
+                    }
+                  }}
+                  placeholder="Tìm theo tên dự án, mã DA..."
+                  className="w-full h-8 pl-8 pr-8 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
+                />
+                {pendingSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setPendingSearchTerm('')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
+                    title="Xóa tìm kiếm"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleManualSearch}
+                className="inline-flex items-center gap-1 rounded border border-primary bg-primary text-white px-3 py-1.5 text-xs font-semibold hover:bg-deep-teal transition-colors shrink-0"
+                title="Tìm kiếm (Enter)"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>search</span>
+                Tìm kiếm
+              </button>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors shrink-0"
+                title="Làm mới / Xóa tất cả bộ lọc"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+                Làm mới
+              </button>
             </div>
             <SearchableSelect
               className="w-full md:w-44"
-              value={statusFilter}
-              onChange={(val) => { setStatusFilter(val); setCurrentPage(1); }}
+              value={pendingStatusFilter}
+              onChange={(val) => setPendingStatusFilter(val)}
               options={statusFilterOptions}
               placeholder="Tất cả trạng thái"
               triggerClassName="w-full h-8 text-xs text-slate-600"
             />
             <SearchableSelect
               className="w-full md:w-52"
-              value={departmentFilter}
+              value={pendingDepartmentFilter}
               onChange={(val) => {
                 hasUserAdjustedDepartmentFilterRef.current = true;
-                setDepartmentFilter(val);
-                setCurrentPage(1);
+                setPendingDepartmentFilter(val);
               }}
               options={departmentFilterOptions}
               placeholder="Tất cả phòng ban"
@@ -900,8 +960,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 <input
                   type="date"
                   lang="vi-VN"
-                  value={startDateFrom}
-                  onChange={(e) => { setStartDateFrom(e.target.value); setCurrentPage(1); }}
+                  value={pendingStartDateFrom}
+                  onChange={(e) => setPendingStartDateFrom(e.target.value)}
                   className="h-8 w-full sm:w-36 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none"
                   title="Từ ngày"
                 />
@@ -909,15 +969,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 <input
                   type="date"
                   lang="vi-VN"
-                  value={startDateTo}
-                  onChange={(e) => { setStartDateTo(e.target.value); setCurrentPage(1); }}
+                  value={pendingStartDateTo}
+                  onChange={(e) => setPendingStartDateTo(e.target.value)}
                   className="h-8 w-full sm:w-36 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none"
                   title="Đến ngày"
                 />
-                {(startDateFrom || startDateTo) && (
+                {(pendingStartDateFrom || pendingStartDateTo) && (
                   <button
                     type="button"
-                    onClick={resetProjectDateFilters}
+                    onClick={() => { setPendingStartDateFrom(''); setPendingStartDateTo(''); }}
                     className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50 transition-colors shrink-0"
                     title="Xóa lọc ngày"
                   >

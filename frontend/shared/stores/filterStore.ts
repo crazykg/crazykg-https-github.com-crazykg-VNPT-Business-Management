@@ -25,19 +25,10 @@ const formatDateForFilter = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
-export const getProjectsPageDefaultDateFilters = (
-  referenceDate: Date = new Date()
-): { start_date_from: string; start_date_to: string } => {
-  const currentYear = referenceDate.getFullYear();
-  const currentMonth = referenceDate.getMonth();
-
-  return {
-    start_date_from: formatDateForFilter(new Date(currentYear, 0, 1)),
-    start_date_to: formatDateForFilter(new Date(currentYear, currentMonth + 1, 0)),
-  };
-};
-
-export const PROJECTS_PAGE_DEFAULT_DATE_FILTERS = getProjectsPageDefaultDateFilters();
+export const getProjectsPageDefaultDateFilters = (): { start_date_from: string; start_date_to: string } => ({
+  start_date_from: '',
+  start_date_to: '',
+});
 
 export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
   employeesPage: { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} },
@@ -49,7 +40,7 @@ export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
     sort_by: 'id',
     sort_dir: 'desc',
     q: '',
-    filters: { ...PROJECTS_PAGE_DEFAULT_DATE_FILTERS },
+    filters: {},
   },
   productsPage: { page: 1, per_page: 10, sort_by: 'product_code', sort_dir: 'asc', q: '', filters: {} },
   contractsPage: { page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
