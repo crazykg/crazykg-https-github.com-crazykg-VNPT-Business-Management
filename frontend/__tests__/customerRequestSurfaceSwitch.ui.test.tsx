@@ -17,7 +17,7 @@ const setViewportWidth = (width: number) => {
 };
 
 describe('CustomerRequestSurfaceSwitch UI', () => {
-  it('hides subtitles on mobile while keeping actions clickable', async () => {
+  it('keeps the surface switch compact on mobile while keeping actions clickable', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
     const onSurfaceChange = vi.fn();
@@ -36,17 +36,22 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
     expect(onSurfaceChange).toHaveBeenCalledWith('list');
   });
 
-  it('shows subtitles on desktop', () => {
+  it('keeps the desktop switch free of helper subtitles', async () => {
     setViewportWidth(1600);
+    const user = userEvent.setup();
+    const onSurfaceChange = vi.fn();
 
     render(
       <CustomerRequestSurfaceSwitch
         activeSurface={'list' satisfies CustomerRequestSurfaceKey}
-        onSurfaceChange={vi.fn()}
+        onSurfaceChange={onSurfaceChange}
       />
     );
 
-    expect(screen.getByText('Tra cứu chi tiết')).toBeInTheDocument();
-    expect(screen.getByText('Số liệu & điểm nóng')).toBeInTheDocument();
+    expect(screen.queryByText('Tra cứu chi tiết')).not.toBeInTheDocument();
+    expect(screen.queryByText('Số liệu & điểm nóng')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+    expect(onSurfaceChange).toHaveBeenCalledWith('analytics');
   });
 });

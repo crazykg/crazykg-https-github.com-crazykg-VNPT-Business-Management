@@ -3,7 +3,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CustomerRequestQuickAccessBar } from '../components/customer-request/CustomerRequestQuickAccessBar';
-import type { CustomerRequestSavedView } from '../components/customer-request/customerRequestQuickAccess';
+import type {
+  CustomerRequestQuickRequestItem,
+  CustomerRequestSavedView,
+} from '../components/customer-request/customerRequestQuickAccess';
 
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', {
@@ -31,35 +34,35 @@ const savedViews: CustomerRequestSavedView[] = [
   },
 ];
 
-const extendedSavedViews: CustomerRequestSavedView[] = [
-  ...savedViews,
+const pinnedItems: CustomerRequestQuickRequestItem[] = [
   {
-    id: 'creator',
-    label: 'Người tạo cần xử lý',
-    subtitle: 'Đánh giá và thông báo KH',
-    workspaceTab: 'creator',
-    surface: 'list',
+    requestId: '1',
+    statusCode: 'in_progress',
+    code: 'CRC-001',
+    title: 'Yêu cầu đang ghim',
+    subtitle: 'Khách hàng A',
   },
+];
+
+const recentItems: CustomerRequestQuickRequestItem[] = [
   {
-    id: 'performer',
-    label: 'Người xử lý đang làm',
-    subtitle: 'Danh sách việc đang xử lý',
-    workspaceTab: 'performer',
-    surface: 'list',
+    requestId: '2',
+    statusCode: 'pending_dispatch',
+    code: 'CRC-002',
+    title: 'Yêu cầu vừa mở',
+    subtitle: 'Khách hàng B',
   },
 ];
 
 describe('CustomerRequestQuickAccessBar UI', () => {
-  it('uses compact mobile empty states and still applies saved views', async () => {
+  it('keeps the inbox quick access compact and hides saved-view helpers on mobile', () => {
     setViewportWidth(390);
-    const user = userEvent.setup();
-    const onApplySavedView = vi.fn();
 
     render(
       <CustomerRequestQuickAccessBar
         savedViews={savedViews}
         activeSavedViewId={null}
-        onApplySavedView={onApplySavedView}
+        onApplySavedView={vi.fn()}
         onClearSavedView={vi.fn()}
         pinnedItems={[]}
         recentItems={[]}
@@ -68,104 +71,14 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    expect(screen.getByText('Truy cập nhanh')).toBeInTheDocument();
+    expect(screen.queryByText('View đã lưu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Toàn cảnh/i })).not.toBeInTheDocument();
     expect(screen.getByText('Chưa có ghim.')).toBeInTheDocument();
     expect(screen.getByText('Chưa có lịch sử.')).toBeInTheDocument();
-    expect(screen.queryByText('Chưa có yêu cầu nào được ghim.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Chưa có lịch sử mở yêu cầu gần đây.')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Toàn cảnh/i }));
-    expect(onApplySavedView).toHaveBeenCalledWith(savedViews[0]);
   });
 
-  it('shows 2 saved views first on mobile and expands on demand', async () => {
-    setViewportWidth(390);
-    const user = userEvent.setup();
-
-    render(
-      <CustomerRequestQuickAccessBar
-        savedViews={extendedSavedViews}
-        activeSavedViewId={null}
-        onApplySavedView={vi.fn()}
-        onClearSavedView={vi.fn()}
-        pinnedItems={[]}
-        recentItems={[]}
-        onOpenRequest={vi.fn()}
-        onRemovePinned={vi.fn()}
-      />
-    );
-
-    expect(screen.getByRole('button', { name: /Toàn cảnh/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Nguy cơ SLA/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Người tạo cần xử lý/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Xem thêm 2' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Xem thêm 2' }));
-    expect(screen.getByRole('button', { name: /Người tạo cần xử lý/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Người xử lý đang làm/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Thu gọn' })).toBeInTheDocument();
-  });
-
-  it('keeps the active saved view visible on mobile even when it is outside the top two', () => {
-    setViewportWidth(390);
-
-    render(
-      <CustomerRequestQuickAccessBar
-        savedViews={extendedSavedViews}
-        activeSavedViewId="performer"
-        onApplySavedView={vi.fn()}
-        onClearSavedView={vi.fn()}
-        pinnedItems={[]}
-        recentItems={[]}
-        onOpenRequest={vi.fn()}
-        onRemovePinned={vi.fn()}
-      />
-    );
-
-    expect(screen.getByRole('button', { name: /Toàn cảnh/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Người xử lý đang làm/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Nguy cơ SLA/i })).not.toBeInTheDocument();
-  });
-
-  it('auto-collapses saved views on mobile when switching to list surface', async () => {
-    setViewportWidth(390);
-    const user = userEvent.setup();
-
-    const { rerender } = render(
-      <CustomerRequestQuickAccessBar
-        activeSurface="inbox"
-        savedViews={extendedSavedViews}
-        activeSavedViewId={null}
-        onApplySavedView={vi.fn()}
-        onClearSavedView={vi.fn()}
-        pinnedItems={[]}
-        recentItems={[]}
-        onOpenRequest={vi.fn()}
-        onRemovePinned={vi.fn()}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Xem thêm 2' }));
-    expect(screen.getByRole('button', { name: /Người tạo cần xử lý/i })).toBeInTheDocument();
-
-    rerender(
-      <CustomerRequestQuickAccessBar
-        activeSurface="list"
-        savedViews={extendedSavedViews}
-        activeSavedViewId={null}
-        onApplySavedView={vi.fn()}
-        onClearSavedView={vi.fn()}
-        pinnedItems={[]}
-        recentItems={[]}
-        onOpenRequest={vi.fn()}
-        onRemovePinned={vi.fn()}
-      />
-    );
-
-    expect(screen.queryByRole('button', { name: /Người tạo cần xử lý/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Xem thêm 2' })).toBeInTheDocument();
-  });
-
-  it('keeps full empty states on desktop', () => {
+  it('keeps full empty states on desktop without the legacy saved-view section', () => {
     setViewportWidth(1600);
 
     render(
@@ -181,7 +94,38 @@ describe('CustomerRequestQuickAccessBar UI', () => {
       />
     );
 
+    expect(screen.getByText('Truy cập nhanh')).toBeInTheDocument();
+    expect(screen.queryByText('Lối tắt đã lưu')).not.toBeInTheDocument();
     expect(screen.getByText('Chưa có yêu cầu nào được ghim.')).toBeInTheDocument();
     expect(screen.getByText('Chưa có lịch sử mở yêu cầu gần đây.')).toBeInTheDocument();
+  });
+
+  it('still lets users reopen recent requests and remove pinned ones', async () => {
+    setViewportWidth(1600);
+    const user = userEvent.setup();
+    const onOpenRequest = vi.fn();
+    const onRemovePinned = vi.fn();
+
+    render(
+      <CustomerRequestQuickAccessBar
+        savedViews={savedViews}
+        activeSavedViewId={null}
+        onApplySavedView={vi.fn()}
+        onClearSavedView={vi.fn()}
+        pinnedItems={pinnedItems}
+        recentItems={recentItems}
+        onOpenRequest={onOpenRequest}
+        onRemovePinned={onRemovePinned}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Yêu cầu đang ghim/i }));
+    expect(onOpenRequest).toHaveBeenCalledWith(pinnedItems[0]);
+
+    await user.click(screen.getByRole('button', { name: 'Bỏ ghim CRC-001' }));
+    expect(onRemovePinned).toHaveBeenCalledWith('1');
+
+    await user.click(screen.getByRole('button', { name: /Yêu cầu vừa mở/i }));
+    expect(onOpenRequest).toHaveBeenCalledWith(recentItems[0]);
   });
 });

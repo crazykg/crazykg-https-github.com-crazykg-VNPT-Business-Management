@@ -17,8 +17,10 @@ const mockFetchYeuCau = vi.fn();
 const mockFetchCustomerRequestProjectItems = vi.fn();
 const mockCreateYeuCau = vi.fn();
 const mockCreateYeuCauEstimate = vi.fn();
+const mockStoreYeuCauDetailStatusWorklog = vi.fn();
 const mockStoreYeuCauWorklog = vi.fn();
 const mockTransitionCustomerRequestCase = vi.fn();
+const mockUpdateYeuCauWorklog = vi.fn();
 const mockCustomerRequestCreateModal = vi.fn();
 const mockOpenTransitionModal = vi.fn();
 const mockFetchYeuCauProcessCatalog = vi.fn();
@@ -73,8 +75,11 @@ vi.mock('../services/v5Api', () => ({
   fetchYeuCau: (...args: unknown[]) => mockFetchYeuCau(...args),
   fetchYeuCauProcessCatalog: (...args: unknown[]) => mockFetchYeuCauProcessCatalog(...args),
   isRequestCanceledError: vi.fn(() => false),
+  storeYeuCauDetailStatusWorklog: (...args: unknown[]) =>
+    mockStoreYeuCauDetailStatusWorklog(...args),
   storeYeuCauWorklog: (...args: unknown[]) => mockStoreYeuCauWorklog(...args),
   transitionCustomerRequestCase: (...args: unknown[]) => mockTransitionCustomerRequestCase(...args),
+  updateYeuCauWorklog: (...args: unknown[]) => mockUpdateYeuCauWorklog(...args),
   uploadDocumentAttachment: vi.fn(),
 }));
 
@@ -355,6 +360,53 @@ beforeEach(() => {
 });
 
 describe('CustomerRequestManagementHub UI', () => {
+  it('loads the request list with the default created-date range from current year to current month end', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T12:00:00+07:00'));
+
+    try {
+      render(
+        <CustomerRequestManagementHub
+          customers={[]}
+          customerPersonnel={[]}
+          projectItems={[]}
+          employees={[]}
+          supportServiceGroups={[]}
+          canReadRequests
+        />
+      );
+
+      expect(mockUseCustomerRequestList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({
+            created_from: '2026-01-01 00:00:00',
+            created_to: '2026-04-30 23:59:59',
+          }),
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hides role workspace cards from the tracking toolbar', () => {
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /Bảng theo dõi/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Người tạo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Điều phối/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Người xử lý/i })).not.toBeInTheDocument();
+  });
+
   it('shows backend-filtered performer-lane targets for a new_intake case already assigned to performer', async () => {
     const user = userEvent.setup();
 
@@ -791,12 +843,11 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    expect(screen.getByText('Ca cần chú ý ngay')).toBeInTheDocument();
+    expect(screen.getByText('Bảng theo dõi', { selector: 'p' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
-    expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.queryByText('Bảng theo dõi', { selector: 'p' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
   });
 
@@ -855,9 +906,8 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0099/i }));
 
     await waitFor(() => {
-      expect(screen.queryByText('Ca cần chú ý ngay')).not.toBeInTheDocument();
+      expect(screen.queryByText('Bảng theo dõi', { selector: 'p' })).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
     expect(mockFetchYeuCau).not.toHaveBeenCalled();
   });
@@ -916,7 +966,6 @@ describe('CustomerRequestManagementHub UI', () => {
     await waitFor(() => {
       expect(mockFetchYeuCau).toHaveBeenCalledWith(99);
     });
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Đóng/i })).toBeInTheDocument();
   });
 
@@ -971,14 +1020,57 @@ describe('CustomerRequestManagementHub UI', () => {
     });
   });
 
-  it('hides quick access on mobile list scroll and restores it via the shortcut button', async () => {
-    setViewportWidth(390);
+  it('filters the tracking board to only missing-estimate cases when selecting Thiếu estimate', async () => {
     const user = userEvent.setup();
 
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
+    mockUseCustomerRequestList.mockReturnValue({
+      listRows: [
+        makeRequest({
+          id: 11,
+          ma_yc: 'CRC-202603-0011',
+          request_code: 'CRC-202603-0011',
+          tieu_de: 'Case thiếu estimate',
+          summary: 'Case thiếu estimate',
+          missing_estimate: true,
+          warning_level: 'medium',
+        }),
+        makeRequest({
+          id: 12,
+          ma_yc: 'CRC-202603-0012',
+          request_code: 'CRC-202603-0012',
+          tieu_de: 'Case đủ estimate',
+          summary: 'Case đủ estimate',
+          missing_estimate: false,
+          warning_level: 'low',
+        }),
+      ],
+      isListLoading: false,
+      listMeta: {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      },
+    });
+
+    mockUseCustomerRequestDashboard.mockReturnValue({
+      isDashboardLoading: false,
+      overviewDashboard: {
+        ...overviewDashboard,
+        summary: {
+          ...overviewDashboard.summary,
+          alert_counts: {
+            ...overviewDashboard.summary.alert_counts,
+            missing_estimate: 1,
+          },
+        },
+        attention_cases: [],
+      },
+      roleDashboards: {
+        creator: null,
+        dispatcher: null,
+        performer: null,
+      },
     });
 
     render(
@@ -992,21 +1084,67 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    setScrollTop(360);
-    await user.click(screen.getByRole('button', { name: /Danh sách/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/Hiển thị/i)).toBeInTheDocument();
-    });
+    await user.click(screen.getByRole('button', { name: /Thiếu estimate/i }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Lối tắt' })).toBeInTheDocument();
-    });
-    expect(screen.queryByText('Lối tắt đã lưu')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Lối tắt' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Lối tắt đã lưu')).toBeInTheDocument();
-    });
+    expect(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0011/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Mở chi tiết CRC-202603-0012/i })).not.toBeInTheDocument();
   });
-});
+
+  it('keeps quick chips compact in inbox and removes them when switching to list on mobile', async () => {
+    setViewportWidth(390);
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /Ghim 0/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gần đây 0/i })).toBeInTheDocument();
+
+    const listSurfaceButton = screen
+      .getAllByRole('button', { name: /Danh sách/i })
+      .find((button) => button.getAttribute('aria-pressed') === 'false');
+
+    expect(listSurfaceButton).toBeTruthy();
+    await user.click(listSurfaceButton!);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: /Ghim 0/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Gần đây 0/i })).not.toBeInTheDocument();
+  });
+
+  it('groups intake template, import, and export actions under the Nhập menu', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+        canImportRequests
+        canExportRequests
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /Tải mẫu/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Import$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Export$/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Nhập/i }));
+
+    expect(screen.getByRole('menuitem', { name: /Tải mẫu nhập/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Nhập từ Excel/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Xuất dữ liệu/i })).toBeInTheDocument();
+  });

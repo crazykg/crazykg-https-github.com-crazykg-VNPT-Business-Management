@@ -36,6 +36,7 @@ const makeRequest = (partial?: Partial<YeuCau>): YeuCau => ({
   performer_name: partial?.performer_name ?? 'Ngô Dev',
   project_name: partial?.project_name ?? 'SOC Dashboard',
   received_at: partial?.received_at ?? '2026-03-20 08:00:00',
+  created_at: partial?.created_at ?? '2026-03-20 08:00:00',
   sla_due_at: partial?.sla_due_at ?? '2026-03-22 17:00:00',
   requester_name: partial?.requester_name ?? 'Nguyễn A',
   ...partial,
@@ -49,14 +50,13 @@ const defaultMeta: PaginationMeta = {
 };
 
 describe('CustomerRequestListPane UI', () => {
-  it('renders alerts, request row and pagination callbacks', async () => {
+  it('renders compact filters, request row and pagination callbacks', async () => {
     setViewportWidth(1440);
     const user = userEvent.setup();
     const onSelectRow = vi.fn();
     const onPrimaryAction = vi.fn();
     const onListPageChange = vi.fn();
     const onRowsPerPageChange = vi.fn();
-    const onToggleMissingEstimate = vi.fn();
     const onRequestPriorityFilterChange = vi.fn();
     const onRequestCustomerFilterChange = vi.fn();
 
@@ -73,6 +73,10 @@ describe('CustomerRequestListPane UI', () => {
         onRequestSupportGroupFilterChange={vi.fn()}
         requestPriorityFilter=""
         onRequestPriorityFilterChange={onRequestPriorityFilterChange}
+        requestCreatedFrom="2026-01-01"
+        onRequestCreatedFromChange={vi.fn()}
+        requestCreatedTo="2026-03-31"
+        onRequestCreatedToChange={vi.fn()}
         customerOptions={[
           {
             value: '21',
@@ -82,7 +86,7 @@ describe('CustomerRequestListPane UI', () => {
         ]}
         supportServiceGroups={[]}
         requestMissingEstimateFilter={false}
-        onToggleMissingEstimate={onToggleMissingEstimate}
+        onToggleMissingEstimate={vi.fn()}
         requestOverEstimateFilter={false}
         onToggleOverEstimate={vi.fn()}
         requestSlaRiskFilter={false}
@@ -106,29 +110,23 @@ describe('CustomerRequestListPane UI', () => {
       />
     );
 
-    expect(screen.getByText(/Thiếu ước lượng \(3\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Vượt ước lượng \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText('Yêu cầu')).toBeInTheDocument();
-    expect(screen.getByText('Sức khỏe xử lý')).toBeInTheDocument();
-    expect(screen.getByText('CTA')).toBeInTheDocument();
+    expect(screen.queryByText(/Thiếu ước lượng \(3\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Vượt ước lượng \(2\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nguy cơ SLA \(1\)/)).not.toBeInTheDocument();
+    expect(screen.getByText('Mã yêu cầu')).toBeInTheDocument();
+    expect(screen.getByText('Tên yêu cầu')).toBeInTheDocument();
+    expect(screen.getByText('Người xử lý')).toBeInTheDocument();
+    expect(screen.getByText('Trạng thái XL')).toBeInTheDocument();
+    expect(screen.getByText('Ngày tạo')).toBeInTheDocument();
+    expect(screen.queryByText('CTA')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ưu tiên mở trước')).not.toBeInTheDocument();
     expect(screen.queryByText('Độ ưu tiên')).not.toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
-    expect(screen.getByText(/Điều phối: Trần PM/)).toBeInTheDocument();
-    expect(screen.getAllByText(/Vượt ước lượng/)).toHaveLength(2);
-    expect(screen.getAllByText('Nguy cơ SLA').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('⚡ Cao')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Ra soat estimate/i })).toBeInTheDocument();
 
     await user.click(screen.getByText('CRC-202603-0022'));
     expect(onSelectRow).toHaveBeenCalledTimes(1);
 
-    const actionButtons = screen.getAllByRole('button', { name: /Ra soat estimate/i });
-    await user.click(actionButtons[actionButtons.length - 1] as HTMLElement);
-    expect(onPrimaryAction).toHaveBeenCalledTimes(1);
-    expect(onPrimaryAction.mock.calls[0]?.[1]).toMatchObject({
-      kind: 'detail',
-      label: 'Ra soat estimate',
-    });
+    expect(onPrimaryAction).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
     expect(container.querySelector('input[placeholder="Tìm ưu tiên..."]')).toBeNull();
@@ -155,8 +153,6 @@ describe('CustomerRequestListPane UI', () => {
     });
     expect(onRowsPerPageChange).toHaveBeenCalledWith(50);
 
-    await user.click(screen.getByText(/Thiếu ước lượng \(3\)/));
-    expect(onToggleMissingEstimate).toHaveBeenCalledTimes(1);
     expect(
       screen.getByText(
         (_, element) => element?.textContent === '21 – 40 / 41 bản ghi'
@@ -182,6 +178,10 @@ describe('CustomerRequestListPane UI', () => {
         onRequestSupportGroupFilterChange={vi.fn()}
         requestPriorityFilter=""
         onRequestPriorityFilterChange={vi.fn()}
+        requestCreatedFrom="2026-01-01"
+        onRequestCreatedFromChange={vi.fn()}
+        requestCreatedTo="2026-03-31"
+        onRequestCreatedToChange={vi.fn()}
         customerOptions={[]}
         supportServiceGroups={[]}
         requestMissingEstimateFilter={false}
@@ -215,11 +215,7 @@ describe('CustomerRequestListPane UI', () => {
     await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
     expect(screen.getByRole('button', { name: 'Ưu tiên' })).toBeInTheDocument();
 
-    const actionButtons = screen.getAllByRole('button', { name: /Ra soat estimate/i });
-    await user.click(actionButtons[actionButtons.length - 1] as HTMLElement);
-    expect(onPrimaryAction).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 22 }),
-      expect.objectContaining({ kind: 'detail', label: 'Ra soat estimate' })
-    );
+    expect(screen.queryByRole('button', { name: /Ra soat estimate/i })).not.toBeInTheDocument();
+    expect(onPrimaryAction).not.toHaveBeenCalled();
   });
 });

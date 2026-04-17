@@ -20,12 +20,14 @@ type CustomerRequestOverviewWorkspaceProps = {
   roleDashboards: Record<'creator' | 'dispatcher' | 'performer', YeuCauDashboardPayload | null>;
   onOpenRequest: (requestId: string | number, statusCode?: string | null) => void;
   onOpenWorkspace: (workspace: Extract<WorkspaceTabKey, 'creator' | 'dispatcher' | 'performer'>) => void;
+  onOpenListSurface: () => void;
 };
 
 const ROLE_CARD_META: Array<{
   key: Extract<WorkspaceTabKey, 'creator' | 'dispatcher' | 'performer'>;
   label: string;
   helper: string;
+  icon: string;
   accentSurfaceCls: string;
   accentTextCls: string;
   accentBorderCls: string;
@@ -33,7 +35,8 @@ const ROLE_CARD_META: Array<{
   {
     key: 'creator',
     label: 'Người tạo',
-    helper: 'Rà soát, thông báo KH, theo dõi',
+    helper: 'Đánh giá phản hồi, báo khách hàng, bám follow-up.',
+    icon: 'person_add',
     accentSurfaceCls: 'bg-sky-50',
     accentTextCls: 'text-sky-700',
     accentBorderCls: 'border-sky-100',
@@ -41,7 +44,8 @@ const ROLE_CARD_META: Array<{
   {
     key: 'dispatcher',
     label: 'Điều phối',
-    helper: 'Hàng chờ điều phối, chờ duyệt, PM theo dõi',
+    helper: 'Phân công, duyệt kết quả, nhìn tải PM và performer.',
+    icon: 'manage_accounts',
     accentSurfaceCls: 'bg-amber-50',
     accentTextCls: 'text-amber-700',
     accentBorderCls: 'border-amber-100',
@@ -49,7 +53,8 @@ const ROLE_CARD_META: Array<{
   {
     key: 'performer',
     label: 'Người xử lý',
-    helper: 'Việc mới, đang làm, bảng giờ công',
+    helper: 'Việc mới, tiến độ đang chạy, nhịp worklog trong tuần.',
+    icon: 'engineering',
     accentSurfaceCls: 'bg-emerald-50',
     accentTextCls: 'text-emerald-700',
     accentBorderCls: 'border-emerald-100',
@@ -59,67 +64,82 @@ const ROLE_CARD_META: Array<{
 export const CustomerRequestOverviewWorkspace: React.FC<
   CustomerRequestOverviewWorkspaceProps
 > = ({
+  loading,
   overviewDashboard,
   roleDashboards,
   onOpenRequest,
   onOpenWorkspace,
+  onOpenListSurface,
 }) => (
   <ResponsiveOverviewWorkspace
+    loading={loading}
     overviewDashboard={overviewDashboard}
     roleDashboards={roleDashboards}
     onOpenRequest={onOpenRequest}
     onOpenWorkspace={onOpenWorkspace}
+    onOpenListSurface={onOpenListSurface}
   />
 );
 
 const ResponsiveOverviewWorkspace: React.FC<{
+  loading: boolean;
   overviewDashboard: YeuCauDashboardPayload | null;
   roleDashboards: Record<'creator' | 'dispatcher' | 'performer', YeuCauDashboardPayload | null>;
   onOpenRequest: (requestId: string | number, statusCode?: string | null) => void;
   onOpenWorkspace: (workspace: Extract<WorkspaceTabKey, 'creator' | 'dispatcher' | 'performer'>) => void;
-}> = ({ overviewDashboard, roleDashboards, onOpenRequest, onOpenWorkspace }) => {
+  onOpenListSurface: () => void;
+}> = ({
+  loading,
+  overviewDashboard,
+  roleDashboards,
+  onOpenRequest,
+  onOpenWorkspace,
+  onOpenListSurface,
+}) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const isDesktopWide = layoutMode === 'desktopWide';
-  const isDesktopCompact = layoutMode === 'desktopCompact';
+  const alertCounts = overviewDashboard?.summary.alert_counts;
+  const attentionCount = overviewDashboard?.attention_cases.length ?? 0;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
-      <div
-        className={`grid gap-3 ${
-          layoutMode === 'mobile' || layoutMode === 'tablet' || isDesktopCompact
-            ? 'grid-cols-2'
-            : 'md:grid-cols-4'
-        }`}
-      >
-        <MetricCard
-          label="Tổng yêu cầu"
-          value={overviewDashboard?.summary.total_cases ?? 0}
-        />
-        <MetricCard
-          label="Thiếu ước lượng"
-          value={overviewDashboard?.summary.alert_counts.missing_estimate ?? 0}
-        />
-        <MetricCard
-          label="Vượt ước lượng"
-          value={overviewDashboard?.summary.alert_counts.over_estimate ?? 0}
-        />
-        <MetricCard
-          label="Nguy cơ SLA"
-          value={overviewDashboard?.summary.alert_counts.sla_risk ?? 0}
-        />
+    <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.94),rgba(255,255,255,1))] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-semibold text-slate-700">
+          <InlineKpiChip
+            label="Ca nóng"
+            value={attentionCount}
+            tone="border-amber-300 bg-amber-50 text-amber-900"
+          />
+          <InlineKpiChip
+            label="Thiếu ước lượng"
+            value={alertCounts?.missing_estimate ?? 0}
+            tone="border-rose-300 bg-rose-50 text-rose-900"
+          />
+          <InlineKpiChip
+            label="Vượt ước lượng"
+            value={alertCounts?.over_estimate ?? 0}
+            tone="border-slate-300 bg-slate-100 text-slate-800"
+          />
+          <InlineKpiChip
+            label="Nguy cơ SLA"
+            value={alertCounts?.sla_risk ?? 0}
+            tone="border-sky-300 bg-sky-50 text-sky-900"
+          />
+          {loading ? (
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+              Đang cập nhật...
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      <div
-        className={`mt-4 grid gap-4 ${
-          isDesktopWide ? 'xl:grid-cols-[minmax(0,1.15fr)_360px]' : ''
-        }`}
-      >
-        <div className="space-y-4">
+      <div className={`mt-3 grid gap-3 ${isDesktopWide ? 'xl:grid-cols-[minmax(0,1.18fr)_320px]' : ''}`}>
+        <div className="space-y-3">
           <div
             className={`grid gap-3 ${
               layoutMode === 'mobile'
                 ? 'grid-cols-1'
-                : layoutMode === 'tablet' || isDesktopCompact
+                : layoutMode === 'tablet'
                 ? 'md:grid-cols-2'
                 : 'lg:grid-cols-3'
             }`}
@@ -137,56 +157,70 @@ const ResponsiveOverviewWorkspace: React.FC<{
                   }
                   className="cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
-                  <div className={`border-b px-4 py-4 ${role.accentSurfaceCls} ${role.accentBorderCls}`}>
-                    <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${role.accentTextCls}`}>
-                      {role.label}
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-                      {dashboard?.summary.total_cases ?? 0}
-                    </p>
-                  </div>
-                  <div className="space-y-3 px-4 py-4">
-                    <p className="text-sm leading-6 text-slate-700">{role.helper}</p>
-                    <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
-                      <div>
-                        <p className="font-medium text-slate-400">Thiếu ước lượng</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {dashboard?.summary.alert_counts.missing_estimate ?? 0}
-                        </p>
+                  <div className={`border-b px-3 py-3 ${role.accentSurfaceCls} ${role.accentBorderCls}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        <span
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white ${role.accentTextCls}`}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                            {role.icon}
+                          </span>
+                        </span>
+                        <div className="min-w-0">
+                          <p className={`text-[12px] font-semibold leading-4 ${role.accentTextCls}`}>
+                            {role.label}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-4 text-slate-600">{role.helper}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-400">Vượt ước lượng</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {dashboard?.summary.alert_counts.over_estimate ?? 0}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-400">Nguy cơ SLA</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">
-                          {dashboard?.summary.alert_counts.sla_risk ?? 0}
-                        </p>
-                      </div>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                        {dashboard?.summary.total_cases ?? 0}
+                      </span>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 px-3 py-3">
+                    <MetricTile
+                      label="Thiếu ước lượng"
+                      value={dashboard?.summary.alert_counts.missing_estimate ?? 0}
+                    />
+                    <MetricTile
+                      label="Vượt estimate"
+                      value={dashboard?.summary.alert_counts.over_estimate ?? 0}
+                    />
+                    <MetricTile
+                      label="Nguy cơ SLA"
+                      value={dashboard?.summary.alert_counts.sla_risk ?? 0}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                    <span>Mở workspace</span>
+                    <span className="inline-flex items-center gap-1 text-primary">
+                      Xem nhanh
+                      <span className="material-symbols-outlined text-[14px]">arrow_outward</span>
+                    </span>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-base font-semibold text-slate-900">Ca cần chú ý ngay</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Nhóm ca cần PM hoặc lead mở vào xử lý trước.
+                <p className="text-[12px] font-semibold leading-4 text-slate-900">Ca cần chú ý ngay</p>
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                  Nhóm ca cần PM hoặc lead mở trước để xử lý estimate, SLA hoặc nút thắt điều phối.
                 </p>
               </div>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-                {overviewDashboard?.attention_cases.length ?? 0} ca
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                {attentionCount} ca
               </span>
             </div>
 
-            <div className="mt-4 space-y-2.5">
+            <div className="mt-3 space-y-2">
               {(overviewDashboard?.attention_cases ?? []).slice(0, 6).map((item) => {
                 const requestCase = item.request_case;
 
@@ -208,15 +242,18 @@ const ResponsiveOverviewWorkspace: React.FC<{
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <SimpleRankPanel
             title="Top khách hàng"
             items={(overviewDashboard?.top_customers ?? []).slice(0, 5).map((customer) => ({
               key: `${customer.customer_id}-${customer.customer_name ?? ''}`,
               label: customer.customer_name || 'Chưa xác định',
               value: customer.count,
+              onActivate: onOpenListSurface,
             }))}
             emptyText="Chưa có khách hàng nổi bật."
+            actionLabel="Vào danh sách"
+            onAction={onOpenListSurface}
           />
           <SimpleRankPanel
             title="Top dự án"
@@ -224,8 +261,11 @@ const ResponsiveOverviewWorkspace: React.FC<{
               key: `${project.project_id}-${project.project_name ?? ''}`,
               label: project.project_name || 'Chưa gắn dự án',
               value: project.count,
+              onActivate: onOpenListSurface,
             }))}
             emptyText="Chưa có dự án nổi bật."
+            actionLabel="Vào danh sách"
+            onAction={onOpenListSurface}
           />
           <SimpleRankPanel
             title="Top người xử lý"
@@ -242,33 +282,64 @@ const ResponsiveOverviewWorkspace: React.FC<{
   );
 };
 
-const MetricCard: React.FC<{ label: string; value: string | number }> = ({
-  label,
-  value,
-}) => (
-  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
-      {label}
-    </p>
-    <p className="mt-2 text-[2rem] font-semibold leading-none tracking-tight text-slate-900">{value}</p>
+const InlineKpiChip: React.FC<{
+  label: string;
+  value: number;
+  tone: string;
+}> = ({ label, value, tone }) => (
+  <div
+    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${tone}`}
+  >
+    <span>{label}:</span>
+    <span className="text-[12px] font-bold leading-none">{value}</span>
+  </div>
+);
+
+const MetricTile: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-2.5 py-2">
+    <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
+    <p className="mt-1 text-[15px] font-semibold leading-none text-slate-900">{value}</p>
   </div>
 );
 
 const SimpleRankPanel: React.FC<{
   title: string;
-  items: Array<{ key: string; label: string; value: number }>;
+  items: Array<{ key: string; label: string; value: number; onActivate?: () => void }>;
   emptyText: string;
-}> = ({ title, items, emptyText }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:p-5">
-    <p className="text-base font-semibold text-slate-900">{title}</p>
-    <div className="mt-4 space-y-2">
+  actionLabel?: string;
+  onAction?: () => void;
+}> = ({ title, items, emptyText, actionLabel, onAction }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-[12px] font-semibold leading-4 text-slate-900">{title}</p>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="text-[11px] font-semibold text-primary underline decoration-primary/40 underline-offset-4 transition hover:decoration-primary"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+    <div className="mt-3 space-y-2">
       {items.map((item) => (
         <div
           key={item.key}
-          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5"
+          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2"
         >
-          <span className="text-sm font-medium text-slate-800">{item.label}</span>
-          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+          {item.onActivate ? (
+            <button
+              type="button"
+              onClick={item.onActivate}
+              className="text-left text-[12px] font-medium leading-4 text-slate-800 underline decoration-slate-300 underline-offset-4 transition hover:text-primary hover:decoration-primary"
+            >
+              {item.label}
+            </button>
+          ) : (
+            <span className="text-[12px] font-medium leading-4 text-slate-800">{item.label}</span>
+          )}
+          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-700">
             {item.value}
           </span>
         </div>
@@ -279,7 +350,7 @@ const SimpleRankPanel: React.FC<{
 );
 
 const EmptySmallState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-6 text-center text-sm text-slate-400">
+  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-5 text-center text-[12px] leading-5 text-slate-400">
     {message}
   </div>
 );

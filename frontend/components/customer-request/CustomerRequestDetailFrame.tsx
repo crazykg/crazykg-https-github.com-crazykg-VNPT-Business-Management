@@ -52,15 +52,15 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
           ? undefined
           : request?.tieu_de || request?.summary || request?.ma_yc || 'Chi tiết yêu cầu'
       }
-      className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-white ${
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${
         mode === 'inline'
-          ? 'rounded-3xl border border-slate-200 shadow-sm'
+          ? 'rounded-3xl border border-slate-200/80 bg-white shadow-sm'
           : mode === 'modal'
-          ? 'h-[calc(100dvh-16px)] w-full max-w-[1560px] rounded-[28px] border border-slate-200 shadow-2xl sm:h-[calc(100dvh-48px)]'
-          : 'h-full w-full max-w-[920px] shadow-2xl'
+          ? 'h-[calc(100dvh-16px)] w-full max-w-[1560px] rounded-[32px] border border-slate-200/90 bg-slate-50/40 shadow-[0_28px_72px_rgba(15,23,42,0.18)] sm:h-[calc(100dvh-48px)]'
+          : 'h-full w-full max-w-[920px] border border-slate-200/90 bg-slate-50/40 shadow-[0_28px_72px_rgba(15,23,42,0.18)]'
       }`}
     >
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-5">
+      <div className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/92 px-4 py-3.5 backdrop-blur-sm sm:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -68,12 +68,12 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
                 {request?.ma_yc || request?.request_code || 'Chi tiết YC'}
               </span>
               {request?.current_status_name_vi ? (
-                <span className="text-[11px] font-medium text-slate-400">
+                <span className="rounded-full bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary">
                   {request.current_status_name_vi}
                 </span>
               ) : null}
             </div>
-            <h3 className="mt-2 line-clamp-2 text-lg font-black text-slate-900 sm:text-xl">
+            <h3 className="mt-2 line-clamp-2 text-xl font-black text-slate-900 sm:text-[26px]">
               {request?.tieu_de || request?.summary || 'Chi tiết yêu cầu'}
             </h3>
             <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-500">
@@ -116,7 +116,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5">{children}</div>
     </div>
   );
 
@@ -132,8 +132,8 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
     }
 
     return createPortal(
-      <div className="fixed inset-0 z-[70] overflow-y-auto p-2 sm:p-6">
-        <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]" />
+      <div className="fixed inset-0 z-[120] overflow-y-auto p-2 sm:p-6">
+        <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
         <div className="relative flex min-h-full items-start justify-center sm:items-center">
           {shell}
         </div>
@@ -147,7 +147,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
   }
 
   return createPortal(
-    <div className={`fixed inset-0 z-[70] ${showOnWide ? '' : '2xl:hidden'}`}>
+    <div className={`fixed inset-0 z-[120] ${showOnWide ? '' : '2xl:hidden'}`}>
       <div
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-[1px]"
         onClick={onClose}

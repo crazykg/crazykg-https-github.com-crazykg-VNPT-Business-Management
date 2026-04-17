@@ -31,6 +31,122 @@ const selectedProjectItem: ProjectItemMaster = {
 };
 
 describe('CustomerRequestDetailPane UI', () => {
+  it('hides the customer field from the request form while keeping other fields visible', () => {
+    render(
+      <CustomerRequestDetailPane
+        isDetailLoading={false}
+        isListLoading={false}
+        isCreateMode={false}
+        processDetail={{
+          yeu_cau: {
+            id: 20,
+            ma_yc: 'CRC-202603-0020',
+            request_code: 'CRC-202603-0020',
+            tieu_de: 'YC ẩn khách hàng',
+            summary: 'YC ẩn khách hàng',
+            trang_thai: 'new_intake',
+            current_status_code: 'new_intake',
+            current_status_name_vi: 'Tiếp nhận',
+            customer_name: 'VNPT Hà Nội',
+            khach_hang_name: 'VNPT Hà Nội',
+            project_name: 'Dashboard SOC',
+          },
+          process: {
+            process_code: 'new_intake',
+            process_label: 'Mới tiếp nhận',
+            group_code: 'intake',
+            group_label: 'Tiếp nhận',
+            table_name: 'customer_request_cases',
+            default_status: 'new_intake',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          allowed_next_processes: [],
+          transition_allowed: false,
+          can_write: true,
+          available_actions: {
+            can_write: true,
+          },
+          estimates: [],
+          hours_report: null,
+        } as never}
+        canTransitionActiveRequest={false}
+        transitionOptions={[]}
+        transitionStatusCode=""
+        onTransitionStatusCodeChange={vi.fn()}
+        onOpenTransitionModal={vi.fn()}
+        isSaving={false}
+        canEditActiveForm={true}
+        masterFields={[
+          { name: 'customer_id', label: 'Khách hàng', type: 'customer_select', required: false },
+          { name: 'summary', label: 'Nội dung yêu cầu', type: 'text', required: true },
+        ]}
+        masterDraft={{ customer_id: '20', summary: 'YC ẩn khách hàng' }}
+        onMasterFieldChange={vi.fn()}
+        editorProcessMeta={null}
+        processDraft={{}}
+        onProcessDraftChange={vi.fn()}
+        customers={[{ id: 20, uuid: 'customer-20', customer_code: 'C020', customer_name: 'VNPT Hà Nội', tax_code: '0123456789', address: 'Hà Nội' }]}
+        employees={employees}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        availableProjectItems={[selectedProjectItem]}
+        selectedProjectItem={selectedProjectItem}
+        selectedCustomerId="20"
+        activeTaskTab="IT360"
+        onActiveTaskTabChange={vi.fn()}
+        onAddTaskRow={vi.fn()}
+        formIt360Tasks={[]}
+        onUpdateIt360TaskRow={vi.fn()}
+        onRemoveIt360TaskRow={vi.fn()}
+        formReferenceTasks={[]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
+        taskReferenceOptions={[]}
+        onUpdateReferenceTaskRow={vi.fn()}
+        onTaskReferenceSearchTermChange={vi.fn()}
+        taskReferenceSearchTerm=""
+        taskReferenceSearchError=""
+        isTaskReferenceSearchLoading={false}
+        onRemoveReferenceTaskRow={vi.fn()}
+        formAttachments={[]}
+        onUploadAttachment={async () => undefined}
+        onDeleteAttachment={async () => undefined}
+        isUploadingAttachment={false}
+        attachmentError=""
+        attachmentNotice=""
+        relatedSummaryItems={[]}
+        currentHoursReport={null}
+        estimateHistory={[]}
+        timeline={[]}
+        caseWorklogs={[]}
+        canOpenCreatorFeedbackModal={false}
+        onOpenCreatorFeedbackModal={vi.fn()}
+        canOpenNotifyCustomerModal={false}
+        onOpenNotifyCustomerModal={vi.fn()}
+        canOpenWorklogModal={false}
+        onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
+        isSubmittingWorklog={false}
+        canOpenEstimateModal={false}
+        onOpenEstimateModal={vi.fn()}
+        isSubmittingEstimate={false}
+        dispatcherQuickActions={[]}
+        onRunDispatcherAction={vi.fn()}
+        performerQuickActions={[]}
+        onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Khách hàng')).not.toBeInTheDocument();
+    expect(screen.getByText('Nội dung yêu cầu')).toBeInTheDocument();
+  });
+
   it('shows create flow panel and create-only layout in create mode', () => {
     render(
       <CustomerRequestDetailPane
@@ -101,6 +217,7 @@ describe('CustomerRequestDetailPane UI', () => {
         onRunDispatcherAction={vi.fn()}
         performerQuickActions={[]}
         onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
       />
     );
 
@@ -233,6 +350,7 @@ describe('CustomerRequestDetailPane UI', () => {
         onRunDispatcherAction={vi.fn()}
         performerQuickActions={[]}
         onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
       />
     );
 

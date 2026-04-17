@@ -17,6 +17,8 @@ type UseCustomerRequestListOptions = {
     support_service_group_id?: string;
     priority?: string;
     my_role?: string;
+    created_from?: string;
+    created_to?: string;
     missing_estimate?: 1 | undefined;
     over_estimate?: 1 | undefined;
     sla_risk?: 1 | undefined;

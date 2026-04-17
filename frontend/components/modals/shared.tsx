@@ -9,6 +9,8 @@ export interface ModalWrapperProps {
   onClose: () => void;
   title: React.ReactNode;
   icon: string;
+  zIndexClassName?: string;
+  contentClassName?: string;
   width?: string;
   heightClass?: string;
   minHeightClass?: string;
@@ -25,6 +27,8 @@ export function ModalWrapper({
   onClose,
   title,
   icon,
+  zIndexClassName = 'z-[60]',
+  contentClassName = 'overflow-y-auto flex-1 custom-scrollbar',
   width = 'max-w-[560px]',
   heightClass = '',
   minHeightClass = '',
@@ -38,7 +42,7 @@ export function ModalWrapper({
   useEscKey(() => { if (!disableClose) onClose(); });
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center p-4`}>
       <div
         data-testid="modal-backdrop"
         className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
@@ -69,7 +73,7 @@ export function ModalWrapper({
             </button>
           </div>
         </div>
-        <div className="overflow-y-auto flex-1 custom-scrollbar">
+        <div className={contentClassName}>
           {children}
         </div>
       </div>

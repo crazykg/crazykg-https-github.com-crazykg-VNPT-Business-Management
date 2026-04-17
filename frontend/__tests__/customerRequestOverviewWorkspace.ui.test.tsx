@@ -16,8 +16,12 @@ const overviewDashboard: YeuCauDashboardPayload = {
       sla_risk: 2,
     },
   },
-  top_customers: [],
-  top_projects: [],
+  top_customers: [
+    { customer_id: 101, customer_name: 'Tổng công ty ABC', count: 11 },
+  ],
+  top_projects: [
+    { project_id: 201, project_name: 'Dự án CRM doanh nghiệp', count: 7 },
+  ],
   top_performers: [],
   attention_cases: [
     {
@@ -46,6 +50,7 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
   it('opens detail from attention card using native button shell', async () => {
     const user = userEvent.setup();
     const onOpenRequest = vi.fn();
+    const onOpenListSurface = vi.fn();
 
     render(
       <CustomerRequestOverviewWorkspace
@@ -58,6 +63,7 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
         }}
         onOpenRequest={onOpenRequest}
         onOpenWorkspace={vi.fn()}
+        onOpenListSurface={onOpenListSurface}
       />
     );
 
@@ -69,8 +75,35 @@ describe('CustomerRequestOverviewWorkspace UI', () => {
     expect(screen.getByText('Tiếp theo')).toBeInTheDocument();
     expect(screen.getByText('Giờ')).toBeInTheDocument();
     expect(screen.getByText('SLA')).toBeInTheDocument();
+    expect(screen.getByText('Ca nóng:')).toBeInTheDocument();
     expect(screen.queryByText('missing_estimate')).not.toBeInTheDocument();
-    expect(screen.queryByText('Tổng quan điều hành')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bức tranh chung')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Mở Phân tích/i })).not.toBeInTheDocument();
+    expect(onOpenListSurface).not.toHaveBeenCalled();
+  });
+
+  it('opens list surface from ranking links', async () => {
+    const user = userEvent.setup();
+    const onOpenListSurface = vi.fn();
+
+    render(
+      <CustomerRequestOverviewWorkspace
+        loading={false}
+        overviewDashboard={overviewDashboard}
+        roleDashboards={{
+          creator: null,
+          dispatcher: null,
+          performer: null,
+        }}
+        onOpenRequest={vi.fn()}
+        onOpenWorkspace={vi.fn()}
+        onOpenListSurface={onOpenListSurface}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Tổng công ty ABC' }));
+    await user.click(screen.getAllByRole('button', { name: 'Vào danh sách' })[0]);
+
+    expect(onOpenListSurface).toHaveBeenCalledTimes(2);
   });
 });
