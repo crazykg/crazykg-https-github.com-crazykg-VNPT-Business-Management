@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import type { ProcedureTemplate, Project } from '../types';
 
@@ -80,6 +80,21 @@ vi.mock('../AppPages', () => ({
       >
         Mở thêm dự án
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          handleOpenModal('ADD_PROJECT', {
+            id: 7,
+            project_code: 'DA007',
+            project_name: 'Dự án summary copy',
+            customer_id: 1,
+            status: 'CHUAN_BI',
+            investment_mode: 'DAU_TU',
+          })
+        }
+      >
+        Mở copy dự án
+      </button>
     </>
   ),
 }));
@@ -148,6 +163,21 @@ vi.mock('../services/v5Api', async () => {
 });
 
 describe('Project edit detail loading', () => {
+  beforeEach(() => {
+    fetchAuthBootstrapMock.mockReset();
+    fetchContractsMock.mockReset();
+    fetchPaymentSchedulesMock.mockReset();
+    fetchProjectsMock.mockReset();
+    fetchProjectItemsMock.mockReset();
+    fetchCustomersMock.mockReset();
+    fetchProjectDetailMock.mockReset();
+    createProjectMock.mockReset();
+    updateProjectMock.mockReset();
+    fetchProcedureTemplatesMock.mockClear();
+    registerTabEvictedHandlerMock.mockClear();
+    unregisterTabEvictedHandlerMock.mockClear();
+  });
+
   const renderApp = () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -266,6 +296,99 @@ describe('Project edit detail loading', () => {
     expect(screen.queryByText('TAB_EVICTED')).not.toBeInTheDocument();
   });
 
+  it('opens add-project as copy flow with project code reset and detail-prefilled items/raci', async () => {
+    const user = userEvent.setup();
+
+    fetchAuthBootstrapMock.mockResolvedValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        full_name: 'Admin',
+        roles: ['ADMIN'],
+        permissions: ['*'],
+        password_change_required: false,
+      },
+      permissions: ['*'],
+      counters: {},
+    });
+    fetchContractsMock.mockResolvedValue([]);
+    fetchPaymentSchedulesMock.mockResolvedValue([]);
+    fetchProjectsMock.mockResolvedValue([]);
+    fetchProjectItemsMock.mockResolvedValue([]);
+    fetchCustomersMock.mockResolvedValue([]);
+    fetchProjectDetailMock.mockResolvedValue({
+      id: 7,
+      project_code: 'DA007',
+      project_name: 'Dự án copy theo detail',
+      customer_id: 1,
+      status: 'CHUAN_BI',
+      investment_mode: 'DAU_TU',
+      items: [
+        {
+          id: 'ITEM_1',
+          productId: '11',
+          product_id: 11,
+          quantity: 1,
+          unitPrice: 10000000,
+          unit_price: 10000000,
+          discountPercent: 0,
+          discountAmount: 0,
+          lineTotal: 10000000,
+          line_total: 10000000,
+        },
+      ],
+      raci: [
+        {
+          id: 'RACI_1',
+          userId: '22',
+          user_id: 22,
+          roleType: 'R',
+          raci_role: 'R',
+          assignedDate: '28/03/2026',
+        },
+      ],
+    } satisfies Partial<Project>);
+    createProjectMock.mockResolvedValue({
+      id: 8,
+      project_code: 'DA008',
+      project_name: 'Dự án đã cập nhật và vẫn mở modal',
+      customer_id: 1,
+      status: 'CHUAN_BI',
+      investment_mode: 'DAU_TU',
+      items: [],
+      raci: [],
+    } satisfies Partial<Project>);
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Mở copy dự án' }));
+
+    await waitFor(() => {
+      expect(fetchProjectDetailMock).toHaveBeenCalledWith(7);
+    });
+
+    expect(await screen.findByTestId('project-form-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('project-name')).toHaveTextContent('Dự án copy theo detail');
+    expect(screen.getByTestId('project-items-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('project-raci-count')).toHaveTextContent('1');
+
+    await user.click(screen.getByRole('button', { name: 'Lưu project mock' }));
+
+    await waitFor(() => {
+      expect(createProjectMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_code: '',
+          project_name: 'Dự án đã cập nhật và vẫn mở modal',
+          sync_items: true,
+          sync_raci: true,
+        })
+      );
+    });
+
+    expect(screen.getByText('Thành công')).toBeInTheDocument();
+    expect(screen.getByText('Tạo dự án thành công.')).toBeInTheDocument();
+  });
+
   it('keeps the add modal open after a successful project create by switching into edit mode', async () => {
     const user = userEvent.setup();
 
@@ -320,7 +443,6 @@ describe('Project edit detail loading', () => {
     expect(screen.getByText('Thành công')).toBeInTheDocument();
     expect(screen.getByText('Tạo dự án thành công.')).toBeInTheDocument();
   });
-
   it('keeps the edit modal open after a successful project update so tab work can continue', async () => {
     const user = userEvent.setup();
 

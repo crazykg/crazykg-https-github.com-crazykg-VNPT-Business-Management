@@ -1028,7 +1028,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="sticky right-0 w-[96px] min-w-[96px] whitespace-nowrap bg-slate-50 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="sticky right-0 w-[120px] min-w-[120px] whitespace-nowrap bg-slate-50 px-2.5 py-2 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     Thao tác
                   </th>
                 </tr>
@@ -1079,8 +1079,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             </span>
                           </div>
                         </td>
-                        <td className="sticky right-0 z-[1] w-[96px] min-w-[96px] bg-white px-2.5 py-2.5 align-middle text-center shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
+                        <td className="sticky right-0 z-[1] w-[120px] min-w-[120px] bg-white px-2.5 py-2.5 align-middle text-center shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
                           <div className="flex items-center justify-center gap-0.5">
+                            <button
+                              onClick={() => onOpenModal('ADD_PROJECT', item)}
+                              data-testid={`project-copy-${item.id}`}
+                              className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
+                              title="Sao chép dự án"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>content_copy</span>
+                            </button>
                             {onCreateContract && (
                               <button
                                 onClick={() => onCreateContract(item)}

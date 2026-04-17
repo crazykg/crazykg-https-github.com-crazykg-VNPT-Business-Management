@@ -227,7 +227,7 @@ const buildListPage = (catalog: ProductFeatureCatalog = buildCatalog(), override
   ])),
   meta: {
     page: 1,
-    per_page: 40,
+    per_page: 100,
     total: (catalog.groups || []).reduce((total, group) => total + 1 + (group.features || []).length, 0),
     total_pages: 1,
   },
@@ -375,7 +375,7 @@ describe('ProductFeatureCatalogModal', () => {
       expect(apiSpies.fetchProductFeatureCatalog).not.toHaveBeenCalled();
       expect(apiSpies.fetchProductFeatureCatalogList).toHaveBeenCalledWith(1, {
         page: 1,
-        per_page: 40,
+        per_page: 100,
         group_id: null,
         search: null,
       });
@@ -441,7 +441,7 @@ describe('ProductFeatureCatalogModal', () => {
     await waitFor(() => {
       expect(apiSpies.fetchProductFeatureCatalogList).toHaveBeenCalledWith(1, {
         page: 1,
-        per_page: 40,
+        per_page: 100,
         group_id: null,
         search: null,
       });
@@ -457,12 +457,13 @@ describe('ProductFeatureCatalogModal', () => {
     await waitFor(() => {
       expect(apiSpies.fetchProductFeatureCatalogList).toHaveBeenCalledWith(1, {
         page: 2,
-        per_page: 40,
+        per_page: 100,
         group_id: null,
         search: null,
       });
     });
 
+    expect(screen.getByText(/Đang hiển thị 2 \/ 4 chức năng — bấm "Tải thêm" để tiếp tục/i)).toBeInTheDocument();
     expect(await screen.findByText('Khám bệnh')).toBeInTheDocument();
     expect(screen.getByText('Thiết lập khoa/phòng')).toBeInTheDocument();
   });

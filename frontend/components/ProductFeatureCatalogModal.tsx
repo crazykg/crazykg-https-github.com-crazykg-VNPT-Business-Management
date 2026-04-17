@@ -1024,8 +1024,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const [pendingAuditContext, setPendingAuditContext] = useState<CatalogAuditContext | null>(null);
   const [isListLoading, setIsListLoading] = useState(false);
   const [isListLoadingMore, setIsListLoadingMore] = useState(false);
+  const [isLoadingAllListPages, setIsLoadingAllListPages] = useState(false);
   const [listRows, setListRows] = useState<FeatureListDisplayRow[]>([]);
   const [listMeta, setListMeta] = useState<ProductFeatureCatalogListPage['meta'] | null>(null);
+  const [hasAttemptedListLoadMore, setHasAttemptedListLoadMore] = useState(false);
   const [listGroupFilters, setListGroupFilters] = useState<ProductFeatureCatalogListPage['group_filters']>([]);
   const listRequestIdRef = useRef(0);
   const featureEditorNameInputRef = useRef<HTMLInputElement>(null);
@@ -1233,8 +1235,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     listRequestIdRef.current = requestId;
 
     if (append) {
+      setHasAttemptedListLoadMore(true);
       setIsListLoadingMore(true);
     } else {
+      setHasAttemptedListLoadMore(false);
       setIsListLoading(true);
       setErrorMessage('');
       setListRows([]);
@@ -1244,7 +1248,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     try {
       const result = await config.loadCatalogList(product.id, {
         page,
-        per_page: 40,
+        per_page: 100,
         group_id: selectedGroupFilter === 'ALL' ? null : selectedGroupFilter,
         search: featureSearchKeyword || null,
       });
@@ -1297,8 +1301,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     setIsLoading(true);
     setIsListLoading(false);
     setIsListLoadingMore(false);
+    setIsLoadingAllListPages(false);
     setListRows([]);
     setListMeta(null);
+    setHasAttemptedListLoadMore(false);
     setListGroupFilters([]);
     listRequestIdRef.current = 0;
   }, [product.id]);
@@ -1343,8 +1349,30 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
   const hasMoreListPages = (listMeta?.page ?? 0) < (listMeta?.total_pages ?? 0);
 
+  const loadAllRemainingListPages = async () => {
+    if (!shouldUseServerList || isListLoading || isListLoadingMore || isLoadingAllListPages || !hasMoreListPages) {
+      return;
+    }
+
+    setHasAttemptedListLoadMore(true);
+    setIsLoadingAllListPages(true);
+
+    try {
+      let nextPage = (listMeta?.page ?? 0) + 1;
+      const totalPages = listMeta?.total_pages ?? 0;
+
+      while (nextPage > 0 && nextPage <= totalPages) {
+        // eslint-disable-next-line no-await-in-loop
+        await loadFeatureListPage(nextPage, true);
+        nextPage += 1;
+      }
+    } finally {
+      setIsLoadingAllListPages(false);
+    }
+  };
+
   const handleListScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (!shouldUseServerList || isListLoading || isListLoadingMore || !hasMoreListPages) {
+    if (!shouldUseServerList || isListLoading || isListLoadingMore || isLoadingAllListPages || !hasMoreListPages) {
       return;
     }
 
@@ -2078,9 +2106,33 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         })}
                       </tbody>
                     </table>
-                    {shouldUseServerList && isListLoadingMore ? (
+                    {shouldUseServerList && (isListLoadingMore || isLoadingAllListPages) ? (
                       <div className="border-x border-b border-slate-300 px-4 py-3 text-center text-xs text-slate-500">
-                        {`Đang tải thêm ${featureNounPlural}...`}
+                        {isLoadingAllListPages ? `Đang tải toàn bộ ${featureNounPlural}...` : `Đang tải thêm ${featureNounPlural}...`}
+                      </div>
+                    ) : shouldUseServerList && hasMoreListPages ? (
+                      <div className="border-x border-b border-slate-300 px-4 py-2.5 text-center text-[11px] text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-1.5 sm:flex-row sm:gap-3">
+                          <span>{`Đang hiển thị ${featureListRows.length} / ${listMeta?.total ?? 0} ${featureNounPlural} — ${hasAttemptedListLoadMore ? 'bấm "Tải thêm" để tiếp tục' : 'kéo xuống để xem thêm'}`}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void loadFeatureListPage((listMeta?.page ?? 0) + 1, true)}
+                              disabled={isListLoading || isListLoadingMore}
+                              className="inline-flex items-center rounded border border-primary/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Tải thêm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void loadAllRemainingListPages()}
+                              disabled={!hasMoreListPages || isListLoading || isListLoadingMore || isLoadingAllListPages}
+                              className="inline-flex items-center rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Tải hết
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ) : null}
                   </div>

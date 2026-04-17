@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
 import { ProjectList } from '../components/ProjectList';
 import { useFilterStore } from '../shared/stores';
@@ -296,6 +297,40 @@ describe('ProjectList date filters', () => {
         }),
       }));
     });
+  });
+
+  it('renders copy action before create-contract and opens add-project copy modal with row payload', async () => {
+    const user = userEvent.setup();
+    const onOpenModal = vi.fn();
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={onOpenModal}
+        onCreateContract={vi.fn()}
+        onOpenProcedure={vi.fn()}
+        paginationMeta={projectListPaginationMeta}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    const row = screen.getByText('Dự án mặc định ngày').closest('tr') as HTMLElement;
+    const actionButtons = within(row).getAllByRole('button');
+    const copyIndex = actionButtons.findIndex((button) => button.getAttribute('title') === 'Sao chép dự án');
+    const createContractIndex = actionButtons.findIndex((button) => button.getAttribute('title') === 'Tạo hợp đồng');
+
+    expect(copyIndex).toBeGreaterThanOrEqual(0);
+    expect(createContractIndex).toBeGreaterThanOrEqual(0);
+    expect(copyIndex).toBeLessThan(createContractIndex);
+
+    await user.click(screen.getByTestId('project-copy-1'));
+
+    expect(onOpenModal).toHaveBeenCalledWith('ADD_PROJECT', expect.objectContaining({
+      id: 1,
+      project_code: 'DA001',
+    }));
   });
 
   it('vertically centers every project row cell', () => {
