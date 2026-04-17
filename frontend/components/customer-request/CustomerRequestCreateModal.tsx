@@ -8,12 +8,12 @@
  */
 import React, { useEffect, useState } from 'react';
 import { ModalWrapper } from '../modals';
-import { CustomerRequestCreateFlowPanel } from './CustomerRequestCreateFlowPanel';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { TagInput } from './TagInput';
 import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
+import { fetchWorkflowDefinitions, type WorkflowDefinition } from '../../services/api/customerRequestApi';
 import type {
   Attachment,
   Customer,
@@ -69,6 +69,8 @@ type CustomerRequestCreateModalProps = {
   isSaving: boolean;
   onSave: () => Promise<void> | void;
   onClose: () => void;
+  workflowDefinitionId?: string | number | null;
+  onWorkflowDefinitionIdChange?: (workflowId: string | number | null) => void;
 };
 
 type TaskTab = 'IT360' | 'REFERENCE';
@@ -150,6 +152,26 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   const selectedCustomerId = String(masterDraft.customer_id ?? '');
   const selectedProjectItem =
     projectItems.find((p) => String(p.id) === String(masterDraft.project_item_id ?? '')) ?? null;
+  const selectedWorkflowName =
+    workflows.find((workflow) => String(workflow.id) === String(workflowDefinitionId ?? ''))?.name ?? '';
+  const selectedContextTitle =
+    selectedProjectItem?.project_name
+    || selectedProjectItem?.customer_name
+    || customers.find((customer) => String(customer.id) === selectedCustomerId)?.customer_name
+    || 'Chưa chọn khách hàng | dự án | sản phẩm';
+  const selectedContextMeta = [
+    selectedProjectItem?.product_name,
+    selectedProjectItem?.display_name,
+    selectedWorkflowName ? `Workflow: ${selectedWorkflowName}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const createOverviewStats = [
+    { label: 'Task', value: formIt360Tasks.length + formReferenceTasks.length, icon: 'task' },
+    { label: 'File', value: formAttachments.length, icon: 'attach_file' },
+    { label: 'Tag', value: formTags.length, icon: 'label' },
+    { label: 'Field', value: masterFields.filter((field) => field.type !== 'hidden' && field.type !== 'customer_select' && field.name !== 'customer_id').length, icon: 'inventory_2' },
+  ];
 
   /* ── Tên field động cho auto-select cascade ────────────────────── */
   const personnelFieldName = masterFields.find((f) => f.type === 'customer_personnel_select')?.name ?? null;
@@ -216,11 +238,21 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Task section ─────────────────────────────────────────────── */
   const renderTaskSection = () => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-      <div className="mb-2.5 flex items-center justify-between gap-3">
-        <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
-          Task liên quan
-        </h4>
+    <div className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>deployed_code</span>
+          </div>
+          <div>
+            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+              Task liên quan
+            </h4>
+            <p className="mt-1 text-xs text-slate-500">
+              Gắn task IT360 hoặc task tham chiếu ngay trong lúc tạo để người nhận việc có đủ ngữ cảnh.
+            </p>
+          </div>
+        </div>
         <div className="flex gap-1.5">
           {(['IT360', 'REFERENCE'] as TaskTab[]).map((tab) => (
             <button
@@ -251,7 +283,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           type="button"
           disabled={isSaving}
           onClick={activeTaskTab === 'IT360' ? onAddIt360Task : onAddReferenceTask}
-          className="inline-flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-xl border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
         >
           <span className="material-symbols-outlined text-[14px]">add</span>
           Thêm
@@ -371,10 +403,20 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Attachment section ───────────────────────────────────────── */
   const renderAttachmentSection = () => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-      <h4 className="mb-2.5 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
-        Đính kèm
-      </h4>
+    <div className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-start gap-3 border-b border-slate-100 pb-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>attach_file</span>
+        </div>
+        <div>
+          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+            Đính kèm
+          </h4>
+          <p className="mt-1 text-xs text-slate-500">
+            Tải tài liệu, hình chụp hoặc bằng chứng để PM và người xử lý nhận đủ thông tin ngay từ đầu.
+          </p>
+        </div>
+      </div>
       <AttachmentManager
         attachments={formAttachments}
         onUpload={onUploadAttachment}
@@ -403,94 +445,182 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
     <ModalWrapper
       title="Tạo yêu cầu mới"
       icon="add_circle"
+      zIndexClassName="z-[120]"
+      contentClassName="min-h-0 flex flex-1 flex-col bg-slate-50/40"
       width="max-w-[1560px]"
       heightClass="h-[calc(100dvh-16px)] sm:h-[calc(100dvh-48px)]"
       maxHeightClass=""
       disableClose={isSaving}
+      headerClassName="bg-white/90 px-4 py-3.5 backdrop-blur-sm sm:px-6"
       onClose={onClose}
     >
-      {/* 2-column body */}
-      <div className="flex min-h-0 overflow-y-auto">
-        <div className="min-w-0 w-full space-y-4 px-6 py-4">
-          {masterFields.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-              <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
-                hourglass_empty
-              </span>
-              Đang tải biểu mẫu…
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {masterFields.map((field) => {
-                if (field.type === 'hidden') return null;
-                return (
-                  <div
-                    key={field.name}
-                    className={
-                      field.name === 'project_item_id' ||
-                      field.name === 'summary' ||
-                      field.name === 'description'
-                        ? 'md:col-span-2'
-                        : undefined
-                    }
-                  >
-                    <ProcessFieldInput
-                      field={field}
-                      value={masterDraft[field.name]}
-                      customers={customers}
-                      employees={employees}
-                      customerPersonnel={customerPersonnel}
-                      supportServiceGroups={supportServiceGroups}
-                      projectItems={projectItems}
-                      selectedCustomerId={selectedCustomerId}
-                      disabled={isSaving}
-                      density="compact"
-                      onChange={onMasterFieldChange}
-                    />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="h-full overflow-y-auto custom-scrollbar">
+          <div className="min-w-0 w-full p-3 sm:p-4 sm:px-6">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0 space-y-4">
+                {masterFields.length === 0 ? (
+                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
+                    <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
+                      hourglass_empty
+                    </span>
+                    Đang tải biểu mẫu…
                   </div>
-                );
-              })}
-            </div>
-          )}
+                ) : (
+                  <section className="rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>description</span>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                            Thông tin yêu cầu
+                          </h4>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Điền thông tin intake, người liên hệ và mức ưu tiên. Modal giữ action cố định ở đáy để không phải kéo xuống cuối form.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedWorkflowName ? (
+                          <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                            {selectedWorkflowName}
+                          </span>
+                        ) : null}
+                        {selectedProjectItem?.project_name ? (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                            {selectedProjectItem.project_name}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
 
-          {/* Task liên quan */}
-          {renderTaskSection()}
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      {masterFields.map((field) => {
+                        if (
+                          field.type === 'hidden'
+                          || field.type === 'customer_select'
+                          || field.name === 'customer_id'
+                        ) {
+                          return null;
+                        }
+                        return (
+                          <div
+                            key={field.name}
+                            className={
+                              field.name === 'project_item_id' ||
+                              field.name === 'summary' ||
+                              field.name === 'description'
+                                ? 'lg:col-span-2'
+                                : undefined
+                            }
+                          >
+                            <ProcessFieldInput
+                              field={field}
+                              value={masterDraft[field.name]}
+                              customers={customers}
+                              employees={employees}
+                              customerPersonnel={customerPersonnel}
+                              supportServiceGroups={supportServiceGroups}
+                              projectItems={projectItems}
+                              selectedCustomerId={selectedCustomerId}
+                              disabled={isSaving}
+                              density="compact"
+                              onChange={onMasterFieldChange}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
 
-          {/* Tags */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5">
-            <div className="mb-2.5 flex items-center justify-between gap-3">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
-                Thẻ (Tags)
-              </h4>
+                {renderTaskSection()}
+                {renderAttachmentSection()}
+              </div>
+
+              <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
+                <section className="rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>monitoring</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                        Tóm tắt tạo mới
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Theo dõi nhanh ngữ cảnh đã chọn trước khi bấm tạo yêu cầu.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 px-3.5 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngữ cảnh hiện tại</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedContextTitle}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedContextMeta || 'Chưa khóa đúng phạm vi. Chọn Khách hàng | Dự án | Sản phẩm để case đi đúng luồng.'}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {createOverviewStats.map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-slate-100 bg-white px-3 py-3">
+                        <div className="flex items-center gap-1.5 text-slate-400">
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{item.icon}</span>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.14em]">{item.label}</span>
+                        </div>
+                        <p className="mt-2 text-lg font-black text-slate-900">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>sell</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                        Thẻ (Tags)
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Gắn thẻ để tìm kiếm, nhóm yêu cầu hoặc lọc nhanh theo bối cảnh làm việc.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <TagInput
+                      value={formTags}
+                      onChange={onTagsChange}
+                      placeholder="Nhập tag và nhấn Enter..."
+                      disabled={isSaving}
+                    />
+                    <p className="mt-2 text-xs text-slate-400">
+                      Ví dụ: `zalo`, `khẩn`, `đang triển khai`, `báo cáo`.
+                    </p>
+                  </div>
+                </section>
+              </aside>
             </div>
-            <TagInput
-              value={formTags}
-              onChange={onTagsChange}
-              placeholder="Nhập tag và nhấn Enter..."
-              disabled={isSaving}
-            />
-            <p className="mt-1.5 text-xs text-slate-400">
-              Gắn thẻ để dễ tìm kiếm và phân loại yêu cầu. Nhấn Enter để tạo tag mới.
-            </p>
           </div>
-
-          {/* Đính kèm — đặt ngay dưới Tags để luồng nhập liệu liền mạch */}
-          {renderAttachmentSection()}
         </div>
-
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3.5">
-        <p className="text-xs text-slate-400">
+      <div className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
           {formTags.length > 0 && (
-            <span className="mr-3 inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1">
               <span className="material-symbols-outlined text-[14px]">label</span>
               {formTags.length} tag
             </span>
           )}
           {formAttachments.length > 0 && (
-            <span className="mr-3 inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1">
               <span className="material-symbols-outlined text-[14px]">attach_file</span>
               {formAttachments.length} file
             </span>
@@ -503,12 +633,12 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
           )}
         </p>
 
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           <button
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="rounded-xl border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
           >
             Hủy
           </button>
@@ -516,7 +646,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
             type="button"
             onClick={() => void onSave()}
             disabled={isSaving || masterFields.length === 0}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white shadow-sm shadow-primary/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-bold text-white shadow-sm shadow-primary/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {isSaving ? (
               <>

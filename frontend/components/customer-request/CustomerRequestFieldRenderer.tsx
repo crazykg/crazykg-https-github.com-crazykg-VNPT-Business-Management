@@ -29,6 +29,23 @@ const BOOLEAN_NULLABLE_OPTIONS: SearchableSelectOption[] = [
 
 const normalizeText = (value: unknown): string => String(value ?? '').trim();
 
+const isSourceChannelField = (field: YeuCauProcessField): boolean =>
+  normalizeText(field.name) === 'source_channel';
+
+const isSupportGroupField = (field: YeuCauProcessField): boolean =>
+  field.type === 'support_group_select' || normalizeText(field.name) === 'support_service_group_id';
+
+const resolveFieldLabel = (field: YeuCauProcessField): string =>
+  isSupportGroupField(field) ? 'Zalo/Tele' : field.label;
+
+const resolveFieldPlaceholder = (field: YeuCauProcessField): string =>
+  `Chọn ${resolveFieldLabel(field).toLowerCase()}`;
+
+const resolveFieldSearchPlaceholder = (field: YeuCauProcessField): string =>
+  isSupportGroupField(field)
+    ? 'Tìm zalo/tele...'
+    : `Tìm ${resolveFieldLabel(field).toLowerCase()}...`;
+
 const resolveProjectItemSelectValue = (
   value: unknown,
   projectItems: ProjectItemMaster[]
@@ -260,6 +277,8 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
     return null;
   }
 
+  const fieldLabel = resolveFieldLabel(field);
+
   const options = useMemo(() => fieldOptions(
     field,
     customers,
@@ -272,10 +291,30 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
 
   const commonLabel = (
     <label className={`${density === 'compact' ? 'mb-1' : 'mb-1.5'} block text-sm font-semibold text-slate-700`}>
-      {field.label}
+      {fieldLabel}
       {field.required ? <span className="text-red-500"> *</span> : null}
     </label>
   );
+
+  if (isSourceChannelField(field)) {
+    const sourceChannelInputClassName =
+      density === 'compact'
+        ? 'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400'
+        : 'w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50';
+
+    return (
+      <div>
+        {commonLabel}
+        <input
+          type="text"
+          value={String(value ?? '')}
+          disabled={disabled}
+          onChange={(event) => onChange(field.name, event.target.value)}
+          className={sourceChannelInputClassName}
+        />
+      </div>
+    );
+  }
 
   if (field.type === 'textarea' || field.type === 'json_textarea') {
     return (
@@ -361,10 +400,10 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
         value={String(value ?? '')}
         options={options}
         onChange={(nextValue) => onChange(field.name, nextValue)}
-        label={field.label}
+        label={fieldLabel}
         required={field.required}
-        placeholder={`Chọn ${field.label.toLowerCase()}`}
-        searchPlaceholder={`Tìm ${field.label.toLowerCase()}...`}
+        placeholder={resolveFieldPlaceholder(field)}
+        searchPlaceholder={resolveFieldSearchPlaceholder(field)}
         disabled={disabled}
         compact
         denseLabel={density === 'compact'}
@@ -376,7 +415,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
     const searchPlaceholder =
       field.type === 'project_item_select'
         ? 'Tìm theo khách hàng, dự án, sản phẩm...'
-        : `Tìm ${field.label.toLowerCase()}...`;
+        : resolveFieldSearchPlaceholder(field);
 
     const customerLabel =
       selectedCustomerId !== ''
@@ -402,9 +441,9 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           value={resolveSelectValue(field, value, projectItems, customerPersonnel)}
           options={options}
           onChange={(nextValue) => onChange(field.name, nextValue)}
-          label={field.label}
+          label={fieldLabel}
           required={field.required}
-          placeholder={`Chọn ${field.label.toLowerCase()}`}
+          placeholder={resolveFieldPlaceholder(field)}
           searchPlaceholder={searchPlaceholder}
           noOptionsText={
             field.type === 'project_item_select'

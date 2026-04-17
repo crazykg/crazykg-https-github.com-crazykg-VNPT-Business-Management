@@ -243,13 +243,13 @@ const LEGACY_STATUS_META_BY_CODE: Record<string, { label: string; cls: string }>
   analysis: { label: 'Phân tích', cls: COLOR_TOKEN_CLASS_MAP.purple },
   analysis_completed: { label: 'Chuyển BA Phân tích hoàn thành', cls: COLOR_TOKEN_CLASS_MAP.purple },
   analysis_suspended: { label: 'Chuyển BA Phân tích tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.purple },
-  pending_dispatch: { label: 'Giao PM/Trả YC cho PM', cls: COLOR_TOKEN_CLASS_MAP.sky },
-  dispatched: { label: 'Mới tiếp nhận', cls: COLOR_TOKEN_CLASS_MAP.sky },
+  pending_dispatch: { label: 'Tiếp nhận', cls: COLOR_TOKEN_CLASS_MAP.sky },
+  dispatched: { label: 'Tiếp nhận', cls: COLOR_TOKEN_CLASS_MAP.sky },
   coding: { label: 'Lập trình', cls: COLOR_TOKEN_CLASS_MAP.violet },
   coding_in_progress: { label: 'Dev đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.violet },
   coding_suspended: { label: 'Dev tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.violet },
   dms_transfer: { label: 'Chuyển DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
-  dms_task_created: { label: 'Tạo task DMS', cls: COLOR_TOKEN_CLASS_MAP.lime },
+  dms_task_created: { label: 'Tạo task', cls: COLOR_TOKEN_CLASS_MAP.lime },
   dms_in_progress: { label: 'DMS Đang thực hiện', cls: COLOR_TOKEN_CLASS_MAP.lime },
   dms_suspended: { label: 'DMS tạm ngưng', cls: COLOR_TOKEN_CLASS_MAP.lime },
 };
@@ -572,8 +572,23 @@ export const resolveRequestStatusMeta = (
   );
 
 export const resolveTransitionStatusMeta = (
-  process: Pick<YeuCauProcessMeta, 'process_code' | 'process_label' | 'ui_meta'> | null | undefined
-): { label: string; cls: string } => resolveStatusMetaFromProcess(process);
+  process: Pick<
+    YeuCauProcessMeta,
+    'process_code' | 'process_label' | 'ui_meta' | 'decision_source_status_code'
+  > | null | undefined
+): { label: string; cls: string } => {
+  const meta = resolveStatusMetaFromProcess(process);
+  const sourceStatusCode = normalizeStatusCodeForXmlUi(process?.decision_source_status_code);
+
+  if (String(process?.process_code ?? '').trim() === 'not_executed' && sourceStatusCode === 'new_intake') {
+    return {
+      ...meta,
+      label: 'Không tiếp nhận',
+    };
+  }
+
+  return meta;
+};
 
 export const resolveStatusChipMeta = (
   statusCode: unknown,
@@ -708,15 +723,43 @@ export const buildSyntheticDecisionProcessMeta = (
   ui_meta: targets[0]?.ui_meta ?? PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_META.ui_meta,
 });
 
-const resolveDecisionTargets = (visibleProcesses: YeuCauProcessMeta[]): YeuCauProcessMeta[] => {
+const shouldFallbackPmDecisionGrouping = (
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): boolean => {
+  if (!request) {
+    return false;
+  }
+
+  const currentStatusCode = resolveRequestCurrentStatusCode(request);
+  return (
+    (currentStatusCode === 'new_intake' && resolveRequestIntakeLane(request) === 'dispatcher')
+    || PM_MISSING_INFO_DECISION_SOURCE_STATUSES.has(currentStatusCode)
+  );
+};
+
+const resolveDecisionTargets = (
+  visibleProcesses: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => {
   const syntheticTargets = visibleProcesses.filter((process) => isPmMissingCustomerInfoDecisionProcess(process));
   if (syntheticTargets.length > 0) {
     return syntheticTargets;
   }
 
-  return visibleProcesses.filter((process) =>
+  const explicitTargets = visibleProcesses.filter((process) =>
     ['waiting_customer_feedback', 'not_executed'].includes(process.process_code)
     && resolveTransitionSyntheticGroupKey(process) === PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE
+  );
+  if (explicitTargets.length > 0) {
+    return explicitTargets;
+  }
+
+  if (!shouldFallbackPmDecisionGrouping(request)) {
+    return [];
+  }
+
+  return visibleProcesses.filter((process) =>
+    ['waiting_customer_feedback', 'not_executed'].includes(process.process_code)
   );
 };
 
@@ -724,7 +767,7 @@ const insertSyntheticDecisionProcess = (
   visibleProcesses: YeuCauProcessMeta[],
   request: Partial<YeuCau> | Record<string, unknown> | null | undefined
 ): YeuCauProcessMeta[] => {
-  const decisionTargets = resolveDecisionTargets(visibleProcesses);
+  const decisionTargets = resolveDecisionTargets(visibleProcesses, request);
   if (decisionTargets.length === 0) {
     return visibleProcesses;
   }
@@ -1138,6 +1181,11 @@ const buildLegacyXmlAlignedTransitionOptions = (
 
   return nextProcesses;
 };
+
+export const buildXmlAlignedTransitionOptionsForRequest = (
+  processes: YeuCauProcessMeta[],
+  request: Partial<YeuCau> | Record<string, unknown> | null | undefined
+): YeuCauProcessMeta[] => buildLegacyXmlAlignedTransitionOptions(processes, request);
 
 export const classifyCreatorWorkspaceStatus = (statusCode: string): 'review' | 'notify' | 'follow_up' | 'closed' => {
   if (CREATOR_REVIEW_STATUS_CODES.has(statusCode)) {

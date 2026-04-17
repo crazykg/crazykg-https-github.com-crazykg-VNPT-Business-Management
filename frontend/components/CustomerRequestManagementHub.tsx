@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createYeuCau,
   createYeuCauEstimate,
@@ -58,7 +58,6 @@ import { CustomerRequestWorkspaceTabs } from './customer-request/CustomerRequest
 import type { WorkspaceTabKey } from './customer-request/CustomerRequestWorkspaceTabs';
 import { CustomerRequestSurfaceSwitch, type CustomerRequestSurfaceKey } from './customer-request/CustomerRequestSurfaceSwitch';
 import { CustomerRequestDashboardCards } from './customer-request/CustomerRequestDashboardCards';
-import { CustomerRequestQuickAccessBar } from './customer-request/CustomerRequestQuickAccessBar';
 import { CustomerRequestDetailFrame } from './customer-request/CustomerRequestDetailFrame';
 import { CustomerRequestTransitionModal } from './customer-request/CustomerRequestTransitionModal';
 import { CustomerRequestCreateModal } from './customer-request/CustomerRequestCreateModal';
@@ -142,22 +141,179 @@ interface CustomerRequestManagementHubProps {
   onNotify?: (type: ToastType, title: string, message: string) => void;
 }
 
+const formatCustomerRequestDateInput = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
+const buildDefaultCustomerRequestCreatedRange = (): { from: string; to: string } => {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), 0, 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+  return {
+    from: formatCustomerRequestDateInput(from),
+    to: formatCustomerRequestDateInput(to),
+  };
+};
+
+const buildCreatedFromFilterValue = (value: string): string | undefined =>
+  value ? `${value} 00:00:00` : undefined;
+
+const buildCreatedToFilterValue = (value: string): string | undefined =>
+  value ? `${value} 23:59:59` : undefined;
+
+type InboxBucketKey =
+  | 'hot'
+  | 'missing_estimate'
+  | 'waiting_pm'
+  | 'sla_risk'
+  | 'over_estimate'
+  | 'mine'
+  | 'following';
+
+type InboxPriorityItem = {
+  key: string;
+  row: YeuCau;
+  reasons: string[];
+};
+
+type InboxBucketMeta = {
+  key: InboxBucketKey;
+  label: string;
+  count: number;
+};
+
+const uniqInboxItems = (items: InboxPriorityItem[]): InboxPriorityItem[] => {
+  const seen = new Set<string>();
+  const result: InboxPriorityItem[] = [];
+
+  items.forEach((item) => {
+    const id = String(item.row.id ?? item.key);
+    if (!id || seen.has(id)) {
+      return;
+    }
+
+    seen.add(id);
+    result.push(item);
+  });
+
+  return result;
+};
+
+const resolveInboxRequestCode = (row: YeuCau): string =>
+  row.ma_yc || row.request_code || String(row.id ?? '');
+
+const resolveInboxTitle = (row: YeuCau): string =>
+  row.tieu_de || row.summary || 'Yêu cầu không có tiêu đề';
+
+const resolveInboxCustomer = (row: YeuCau): string =>
+  row.khach_hang_name || row.customer_name || 'Chưa rõ khách hàng';
+
+const resolveInboxOwner = (row: YeuCau): string =>
+  row.nguoi_xu_ly_name
+  || row.current_owner_name
+  || row.performer_name
+  || row.receiver_name
+  || row.dispatcher_name
+  || row.received_by_name
+  || 'Chưa giao';
+
+const resolveInboxStep = (row: YeuCau): string =>
+  row.current_status_name_vi
+  || row.current_process_label
+  || row.tien_trinh_hien_tai
+  || row.trang_thai
+  || 'Chưa xác định';
+
+const formatInboxTimestamp = (value?: string | null): string => {
+  if (!value) {
+    return 'Chưa cập nhật';
+  }
+
+  const normalized = String(value).replace(' ', 'T');
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const today = new Date();
+  const isSameDay =
+    date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+
+  return isSameDay
+    ? date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+};
+
+const resolveInboxSlaLabel = (row: YeuCau): string => {
+  if (row.sla_status) {
+    return row.sla_status;
+  }
+
+  if (row.warning_level) {
+    return row.warning_level;
+  }
+
+  return row.sla_due_at ? 'Theo SLA' : 'Không SLA';
+};
+
+const matchesInboxBucket = (
+  item: InboxPriorityItem,
+  bucket: InboxBucketKey,
+  currentUserId?: string | number | null
+): boolean => {
+  const row = item.row;
+  const statusCode = resolveRequestProcessCode(row);
+  const reasons = item.reasons.map((reason) => reason.toLowerCase());
+
+  if (bucket === 'hot') {
+    return item.reasons.length > 0 || row.warning_level === 'critical' || row.warning_level === 'high';
+  }
+
+  if (bucket === 'missing_estimate') {
+    return Boolean(row.missing_estimate) || reasons.some((reason) => reason.includes('missing_estimate'));
+  }
+
+  if (bucket === 'waiting_pm') {
+    return ['new_intake', 'pending_dispatch', 'returned_to_manager', 'returned_to_dispatcher'].includes(statusCode);
+  }
+
+  if (bucket === 'sla_risk') {
+    return Boolean(row.sla_status) || reasons.some((reason) => reason.includes('sla'));
+  }
+
+  if (bucket === 'over_estimate') {
+    return Boolean(row.over_estimate) || reasons.some((reason) => reason.includes('over_estimate'));
+  }
+
+  if (bucket === 'mine') {
+    if (!currentUserId) {
+      return false;
+    }
+
+    return [
+      row.nguoi_xu_ly_id,
+      row.current_owner_user_id,
+      row.performer_user_id,
+      row.receiver_user_id,
+      row.dispatcher_user_id,
+      row.nguoi_tao_id,
+      row.created_by,
+    ].some((id) => String(id ?? '') === String(currentUserId));
+  }
+
+  return ['waiting_customer_feedback', 'customer_notified', 'in_progress'].includes(statusCode);
+};
+
 const workspaceTabToRoleFilter = (
   tab: WorkspaceTabKey
 ): CustomerRequestRoleFilter => (tab === 'overview' ? '' : tab);
-
-const readCustomerRequestWindowScrollY = (): number => {
-  if (typeof window === 'undefined') {
-    return 0;
-  }
-
-  return Math.max(
-    window.scrollY ?? 0,
-    window.pageYOffset ?? 0,
-    document.documentElement?.scrollTop ?? 0,
-    document.body?.scrollTop ?? 0
-  );
-};
 
 const CRC_INTAKE_HEADER_ALIASES: Record<string, string[]> = {
   import_row_code: ['import_row_code', 'importrowcode', 'ma_dong_import', 'madongimport'],
@@ -819,16 +975,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [requestSupportGroupFilter, setRequestSupportGroupFilter] = useState('');
   const [requestPriorityFilter, setRequestPriorityFilter] = useState('');
   const [requestRoleFilter, setRequestRoleFilter] = useState<CustomerRequestRoleFilter>('');
+  const [defaultCreatedRange] = useState(() => buildDefaultCustomerRequestCreatedRange());
+  const [requestCreatedFrom, setRequestCreatedFrom] = useState(() => defaultCreatedRange.from);
+  const [requestCreatedTo, setRequestCreatedTo] = useState(() => defaultCreatedRange.to);
   /** Kiểm soát workspace nào hiển thị — độc lập với requestRoleFilter (lọc list) */
   const [activeWorkspaceTab, setActiveWorkspaceTab] =
     useState<WorkspaceTabKey>('overview');
   const [activeSurface, setActiveSurface] = useState<CustomerRequestSurfaceKey>('inbox');
+  const [activeInboxBucket, setActiveInboxBucket] = useState<InboxBucketKey>('hot');
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
+  const [isIntakeMenuOpen, setIsIntakeMenuOpen] = useState(false);
   const [requestMissingEstimateFilter, setRequestMissingEstimateFilter] = useState(false);
   const [requestOverEstimateFilter, setRequestOverEstimateFilter] = useState(false);
   const [requestSlaRiskFilter, setRequestSlaRiskFilter] = useState(false);
-  const [isQuickAccessCollapsedOnMobile, setIsQuickAccessCollapsedOnMobile] = useState(false);
-  const [isQuickAccessAutoHideArmed, setIsQuickAccessAutoHideArmed] = useState(true);
 
   // Transition state
   const [transitionStatusCode, setTransitionStatusCode] = useState('');
@@ -851,14 +1010,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
   }, [isCreateMode, defaultWorkflowId, selectedWorkflowId]);
   
-  const quickAccessAnchorRef = useRef<HTMLDivElement | null>(null);
-  const quickAccessRestoreTimeoutRef = useRef<number | null>(null);
   const layoutMode = useCustomerRequestResponsiveLayout();
-  const isMobileListSurface = layoutMode === 'mobile' && activeSurface === 'list' && !isCreateMode;
-  const shouldCollapseQuickAccessOnMobile =
-    isMobileListSurface &&
-    (isQuickAccessCollapsedOnMobile ||
-      (isQuickAccessAutoHideArmed && readCustomerRequestWindowScrollY() >= 280));
 
   const {
     pinnedItems,
@@ -868,67 +1020,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     removePinnedRequest,
     isPinnedRequest,
   } = useCustomerRequestQuickAccess(currentUserId);
-
-  useEffect(() => {
-    if (quickAccessRestoreTimeoutRef.current !== null) {
-      window.clearTimeout(quickAccessRestoreTimeoutRef.current);
-      quickAccessRestoreTimeoutRef.current = null;
-    }
-
-    if (!isMobileListSurface) {
-      setIsQuickAccessCollapsedOnMobile(false);
-      setIsQuickAccessAutoHideArmed(true);
-      return;
-    }
-
-    const handleScroll = () => {
-      if (!isQuickAccessAutoHideArmed) {
-        return;
-      }
-
-      if (readCustomerRequestWindowScrollY() >= 280) {
-        setIsQuickAccessCollapsedOnMobile(true);
-      }
-    };
-
-    handleScroll();
-    window.addEventListener('scroll', handleScroll);
-    document.addEventListener('scroll', handleScroll);
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      document.removeEventListener('scroll', handleScroll);
-    };
-  }, [isMobileListSurface, isQuickAccessAutoHideArmed]);
-
-  useEffect(() => {
-    return () => {
-      if (quickAccessRestoreTimeoutRef.current !== null) {
-        window.clearTimeout(quickAccessRestoreTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleRevealQuickAccess = useCallback(() => {
-    setIsQuickAccessCollapsedOnMobile(false);
-    setIsQuickAccessAutoHideArmed(false);
-
-    if (quickAccessRestoreTimeoutRef.current !== null) {
-      window.clearTimeout(quickAccessRestoreTimeoutRef.current);
-    }
-
-    quickAccessRestoreTimeoutRef.current = window.setTimeout(() => {
-      setIsQuickAccessAutoHideArmed(true);
-      quickAccessRestoreTimeoutRef.current = null;
-    }, 1200);
-
-    window.requestAnimationFrame(() => {
-      quickAccessAnchorRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    });
-  }, []);
 
   // -------------------------------------------------------------------------
   // 3. Process catalog
@@ -1085,6 +1176,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       support_service_group_id: requestSupportGroupFilter || undefined,
       priority: requestPriorityFilter || undefined,
       my_role: requestRoleFilter || undefined,
+      created_from: buildCreatedFromFilterValue(requestCreatedFrom),
+      created_to: buildCreatedToFilterValue(requestCreatedTo),
       missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
       over_estimate: requestOverEstimateFilter ? (1 as const) : undefined,
       sla_risk: requestSlaRiskFilter ? (1 as const) : undefined,
@@ -1094,6 +1187,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       requestSupportGroupFilter,
       requestPriorityFilter,
       requestRoleFilter,
+      requestCreatedFrom,
+      requestCreatedTo,
       requestMissingEstimateFilter,
       requestOverEstimateFilter,
       requestSlaRiskFilter,
@@ -1411,22 +1506,27 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [processDetail]
   );
 
+  const detailTransitionOptions = useMemo<YeuCauProcessMeta[]>(
+    () => filterXmlVisibleProcesses(processDetail?.allowed_next_processes ?? []),
+    [processDetail]
+  );
+
   useEffect(() => {
-    if (isCreateMode || !selectedRequestId || transitionOptions.length === 0) {
+    if (isCreateMode || !selectedRequestId || detailTransitionOptions.length === 0) {
       if (transitionStatusCode !== '') {
         setTransitionStatusCode('');
       }
       return;
     }
 
-    const hasCurrentSelection = transitionOptions.some(
+    const hasCurrentSelection = detailTransitionOptions.some(
       (option) => option.process_code === transitionStatusCode
     );
 
     if (!hasCurrentSelection) {
-      setTransitionStatusCode(transitionOptions[0]?.process_code ?? '');
+      setTransitionStatusCode(detailTransitionOptions[0]?.process_code ?? '');
     }
-  }, [isCreateMode, selectedRequestId, transitionOptions, transitionStatusCode]);
+  }, [detailTransitionOptions, isCreateMode, selectedRequestId, transitionStatusCode]);
 
   const canTransitionActiveRequest =
     !isCreateMode && !!selectedRequestId;
@@ -1983,6 +2083,28 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [handleOpenRequest]
   );
 
+  const handleApplyInlineQuickFilter = useCallback((filter: 'mine' | 'following' | 'sla') => {
+    setActiveSurface('inbox');
+    setSelectedRequestId(null);
+    setSelectedRequestPreview(null);
+    setPendingPrimaryAction(null);
+    setTransitionStatusCode('');
+
+    if (filter === 'mine') {
+      setActiveInboxBucket('mine');
+      setRequestRoleFilter(workspaceTabToRoleFilter(activeWorkspaceTab));
+    } else if (filter === 'following') {
+      setActiveInboxBucket('following');
+    } else {
+      setActiveInboxBucket('sla_risk');
+      setRequestSlaRiskFilter(true);
+    }
+
+    setListPage(1);
+    setActiveSavedViewId(null);
+    setProcessDetail(null);
+  }, [activeWorkspaceTab, setProcessDetail]);
+
   const handleApplySavedView = useCallback((view: CustomerRequestSavedView) => {
     const filters = view.filters ?? {};
 
@@ -1997,6 +2119,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestCustomerFilter(filters.customerId ?? '');
     setRequestSupportGroupFilter(filters.supportGroupId ?? '');
     setRequestPriorityFilter(filters.priority ?? '');
+    setRequestCreatedFrom(defaultCreatedRange.from);
+    setRequestCreatedTo(defaultCreatedRange.to);
     setRequestRoleFilter(
       filters.roleFilter ?? workspaceTabToRoleFilter(view.workspaceTab)
     );
@@ -2004,7 +2128,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestOverEstimateFilter(Boolean(filters.overEstimate));
     setRequestSlaRiskFilter(Boolean(filters.slaRisk));
     setListPage(1);
-  }, []);
+  }, [defaultCreatedRange.from, defaultCreatedRange.to]);
 
   const handleClearSavedView = useCallback(() => {
     setActiveSavedViewId(null);
@@ -2024,6 +2148,19 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     },
     []
   );
+
+  const handleOpenOverviewListSurface = useCallback(() => {
+    setActiveWorkspaceTab('overview');
+    setRequestRoleFilter('');
+    setActiveSurface('list');
+    setListPage(1);
+    setActiveSavedViewId(null);
+    setSelectedRequestId(null);
+    setSelectedRequestPreview(null);
+    setPendingPrimaryAction(null);
+    setTransitionStatusCode('');
+    setProcessDetail(null);
+  }, [setProcessDetail]);
 
   const handleMasterFieldChange = useCallback(
     (field: string, value: unknown) => {
@@ -2701,6 +2838,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       requestCustomerFilter ||
       requestSupportGroupFilter ||
       requestPriorityFilter ||
+      requestCreatedFrom !== defaultCreatedRange.from ||
+      requestCreatedTo !== defaultCreatedRange.to ||
       (requestRoleFilter &&
         requestRoleFilter !==
           (activeSurface === 'analytics'
@@ -2718,12 +2857,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestCustomerFilter('');
     setRequestSupportGroupFilter('');
     setRequestPriorityFilter('');
+    setRequestCreatedFrom(defaultCreatedRange.from);
+    setRequestCreatedTo(defaultCreatedRange.to);
     setRequestRoleFilter(defaultRoleFilter);
     setRequestMissingEstimateFilter(false);
     setRequestOverEstimateFilter(false);
     setRequestSlaRiskFilter(false);
     setListPage(1);
-  }, [activeWorkspaceTab]);
+  }, [activeWorkspaceTab, defaultCreatedRange.from, defaultCreatedRange.to]);
 
   useEffect(() => {
     if (activeSurface === 'analytics') {
@@ -3363,6 +3504,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onRequestSupportGroupFilterChange: (v: string) => { setRequestSupportGroupFilter(v); setListPage(1); },
     requestPriorityFilter,
     onRequestPriorityFilterChange: (v: string) => { setRequestPriorityFilter(v); setListPage(1); },
+    requestCreatedFrom,
+    onRequestCreatedFromChange: (v: string) => { setRequestCreatedFrom(v); setListPage(1); },
+    requestCreatedTo,
+    onRequestCreatedToChange: (v: string) => { setRequestCreatedTo(v); setListPage(1); },
     customerOptions,
     supportServiceGroups,
     requestMissingEstimateFilter,
@@ -3399,10 +3544,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       isDetailLoading={isDetailLoading}
       isListLoading={isListLoading}
       isCreateMode={false}
+      presentation="full_modal"
       isRequestSelected={selectedRequestId !== null}
       processDetail={processDetail}
       canTransitionActiveRequest={canTransitionActiveRequest}
-      transitionOptions={transitionOptions}
+      transitionOptions={detailTransitionOptions}
       transitionStatusCode={transitionStatusCode}
       onTransitionStatusCodeChange={(v) => setTransitionStatusCode(v)}
       onOpenTransitionModal={handleOpenTransitionModal}
@@ -3472,75 +3618,184 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   );
 
   const showDetailModal = selectedRequestId !== null;
+  const attentionCaseCount = patchedOverviewDashboard?.attention_cases.length ?? 0;
+  const inboxPriorityItems = useMemo<InboxPriorityItem[]>(() => {
+    const attentionItems = (patchedOverviewDashboard?.attention_cases ?? []).map((item) => ({
+      key: `attention-${item.request_case.id}`,
+      row: item.request_case,
+      reasons: item.reasons ?? [],
+    }));
+
+    const rowItems = [
+      ...patchedDispatcherBuckets.queueRows,
+      ...patchedDispatcherBuckets.returnedRows,
+      ...patchedPerformerBuckets.pendingRows,
+      ...patchedCreatorBuckets.reviewRows,
+      ...patchedCreatorBuckets.notifyRows,
+      ...patchedListRows,
+    ].map((row) => ({
+      key: `row-${row.id}`,
+      row,
+      reasons: [],
+    }));
+
+    return uniqInboxItems([...attentionItems, ...rowItems]);
+  }, [
+    patchedCreatorBuckets.notifyRows,
+    patchedCreatorBuckets.reviewRows,
+    patchedDispatcherBuckets.queueRows,
+    patchedDispatcherBuckets.returnedRows,
+    patchedListRows,
+    patchedOverviewDashboard?.attention_cases,
+    patchedPerformerBuckets.pendingRows,
+  ]);
+
+  const inboxBuckets = useMemo<InboxBucketMeta[]>(() => {
+    const alertCounts = patchedOverviewDashboard?.summary.alert_counts;
+    const countBucket = (key: InboxBucketKey) =>
+      inboxPriorityItems.filter((item) => matchesInboxBucket(item, key, currentUserId)).length;
+
+    return [
+      { key: 'hot', label: 'Đặc biệt', count: attentionCaseCount || countBucket('hot') },
+      { key: 'missing_estimate', label: 'Thiếu estimate', count: alertCounts?.missing_estimate ?? countBucket('missing_estimate') },
+      { key: 'waiting_pm', label: 'Chờ PM', count: countBucket('waiting_pm') },
+      { key: 'sla_risk', label: 'Nguy cơ SLA', count: alertCounts?.sla_risk ?? countBucket('sla_risk') },
+      { key: 'over_estimate', label: 'Vượt estimate', count: alertCounts?.over_estimate ?? countBucket('over_estimate') },
+      { key: 'mine', label: 'Của tôi', count: countBucket('mine') },
+      { key: 'following', label: 'Đang theo dõi', count: countBucket('following') },
+    ];
+  }, [
+    attentionCaseCount,
+    currentUserId,
+    inboxPriorityItems,
+    patchedOverviewDashboard?.summary.alert_counts,
+  ]);
+
+  const activeInboxRows = useMemo(() => {
+    const filtered = inboxPriorityItems.filter((item) =>
+      matchesInboxBucket(item, activeInboxBucket, currentUserId)
+    );
+
+    return filtered.slice(0, 14);
+  }, [activeInboxBucket, currentUserId, inboxPriorityItems]);
+  const hasIntakeMenuActions = canImportRequests || canExportRequests;
 
   return (
     <div className="p-3 pb-6">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>support_agent</span>
+      <div className="relative z-[80] mb-3 rounded-2xl border border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-sm">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-start gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  support_agent
+                </span>
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h2 className="text-sm font-bold leading-5 text-deep-teal">Quản lý yêu cầu khách hàng</h2>
+                  {attentionCaseCount > 0 ? (
+                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                      {attentionCaseCount} ca cần chú ý
+                    </span>
+                  ) : null}
+                  {isAdminViewer && (
+                    <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-tertiary">
+                      Chế độ xem quản trị
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-deep-teal leading-tight">Quản lý yêu cầu khách hàng</h2>
-            <p className="text-[11px] text-slate-400 leading-tight">Theo dõi và xử lý các yêu cầu từ khách hàng</p>
+
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+            {hasIntakeMenuActions ? (
+              <div className="relative w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsIntakeMenuOpen((value) => !value)}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:w-auto"
+                  aria-expanded={isIntakeMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>move_to_inbox</span>
+                  Nhập
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>expand_more</span>
+                </button>
+
+                {isIntakeMenuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-[calc(100%+6px)] z-[90] w-48 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-200/70"
+                  >
+                    {canImportRequests ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsIntakeMenuOpen(false);
+                          handleDownloadIntakeTemplate();
+                        }}
+                        disabled={isDownloadingTemplate}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>download</span>
+                        Tải mẫu nhập
+                      </button>
+                    ) : null}
+                    {canImportRequests ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsIntakeMenuOpen(false);
+                          setShowImportModal(true);
+                        }}
+                        disabled={isImportingIntake}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>upload_file</span>
+                        Nhập từ Excel
+                      </button>
+                    ) : null}
+                    {canExportRequests ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsIntakeMenuOpen(false);
+                          handleExportIntake();
+                        }}
+                        disabled={isExportingIntake}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>ios_share</span>
+                        Xuất dữ liệu
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {canWriteRequests && (
+              <button
+                type="button"
+                onClick={handleCreateRequest}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 sm:w-auto"
+                style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                Thêm yêu cầu
+              </button>
+            )}
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isAdminViewer && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning/15 text-tertiary">
-              Chế độ xem quản trị
-            </span>
-          )}
-          {canImportRequests && (
-            <button
-              type="button"
-              onClick={handleDownloadIntakeTemplate}
-              disabled={isDownloadingTemplate}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
-              Tải mẫu
-            </button>
-          )}
-          {canImportRequests && (
-            <button
-              type="button"
-              onClick={() => setShowImportModal(true)}
-              disabled={isImportingIntake}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>upload_file</span>
-              Import
-            </button>
-          )}
-          {canExportRequests && (
-            <button
-              type="button"
-              onClick={handleExportIntake}
-              disabled={isExportingIntake}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>ios_share</span>
-              Export
-            </button>
-          )}
-          {canWriteRequests && (
-            <button
-              type="button"
-              onClick={handleCreateRequest}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-white shadow-sm disabled:opacity-50"
-              style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-              Thêm yêu cầu
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Sticky header: Workspace tabs + Surface switch + Refresh button */}
-      <div className="sticky top-0 z-40 space-y-3 bg-white/95 backdrop-blur-sm">
+      {/* Sticky header: Surface switch + Refresh button */}
+      <div className="sticky top-0 z-30 space-y-2 bg-white/95 backdrop-blur-sm">
         <CustomerRequestWorkspaceTabs
           activeTab={activeWorkspaceTab}
           onTabChange={handleWorkspaceTabChange}
@@ -3548,27 +3803,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
           dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
           performerActionCount={patchedPerformerBuckets.pendingRows.length}
-          showPanels={activeSurface === 'inbox' && !isCreateMode}
+          showPanels={false}
+          showTabs={false}
           toolbar={
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
-              <CustomerRequestSurfaceSwitch
-                activeSurface={activeSurface}
-                onSurfaceChange={(surface) => {
-                  setActiveSurface(surface);
-                  setActiveSavedViewId(null);
-                }}
-              />
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <CustomerRequestSurfaceSwitch
+                  activeSurface={activeSurface}
+                  onSurfaceChange={(surface) => {
+                    setActiveSurface(surface);
+                    setActiveSavedViewId(null);
+                  }}
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => bumpDataVersion()}
                 disabled={isDashboardLoading}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
                 title="Làm mới dữ liệu"
               >
                 <span className={`material-symbols-outlined ${isDashboardLoading ? 'animate-spin' : ''}`} style={{ fontSize: 16 }}>
                   refresh
                 </span>
-                <span className="hidden sm:inline">Làm mới</span>
+                <span>Làm mới</span>
               </button>
             </div>
           }
@@ -3579,6 +3837,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             roleDashboards={patchedRoleDashboards}
             onOpenRequest={handleOpenRequest}
             onOpenWorkspace={handleOpenOverviewRoleWorkspace}
+            onOpenListSurface={handleOpenOverviewListSurface}
           />
         }
         creatorWorkspace={
@@ -3625,38 +3884,218 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       />
       </div>
 
-      <div ref={quickAccessAnchorRef} className={activeSurface === 'list' ? 'sticky top-[120px] z-30' : ''}>
-        {shouldCollapseQuickAccessOnMobile ? (
-          <div className="sticky top-[72px] z-20 mb-2 sm:hidden">
-            <button
-              type="button"
-              onClick={handleRevealQuickAccess}
-              aria-label="Lối tắt"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur-sm transition hover:bg-slate-50"
-            >
-              <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                bookmark_manager
+      {activeSurface === 'inbox' && !isCreateMode ? (
+        <div className="my-2 rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm backdrop-blur-sm">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => pinnedItems[0] && handleOpenQuickAccessItem(pinnedItems[0])}
+                disabled={pinnedItems.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+              >
+                Ghim {pinnedItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => recentItems[0] && handleOpenQuickAccessItem(recentItems[0])}
+                disabled={recentItems.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+              >
+                Gần đây {recentItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyInlineQuickFilter('mine')}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Của tôi
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyInlineQuickFilter('following')}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Đang theo dõi
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyInlineQuickFilter('sla')}
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 transition hover:bg-rose-100"
+              >
+                SLA risk
+              </button>
+            </div>
+
+            <label className="relative min-w-0 xl:w-[320px]">
+              <span className="sr-only">Tìm kiếm yêu cầu</span>
+              <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>
+                search
               </span>
-              <span>Lối tắt</span>
-            </button>
+              <input
+                value={requestKeyword}
+                onChange={(event) => {
+                  setRequestKeyword(event.target.value);
+                  setListPage(1);
+                }}
+                placeholder="Tìm mã, tiêu đề, khách hàng..."
+                className="h-8 w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 text-xs font-medium text-slate-700 outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
           </div>
-        ) : (
-          <CustomerRequestQuickAccessBar
-            activeSurface={activeSurface}
-            savedViews={DEFAULT_CUSTOMER_REQUEST_SAVED_VIEWS}
-            activeSavedViewId={activeSavedViewId}
-            onApplySavedView={handleApplySavedView}
-            onClearSavedView={handleClearSavedView}
-            pinnedItems={pinnedItems}
-            recentItems={recentItems}
-            onOpenRequest={handleOpenQuickAccessItem}
-            onRemovePinned={removePinnedRequest}
-          />
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {/* ── Main area ──────────────────────────────────────────────────── */}
-      {activeSurface === 'analytics' ? (
+      {activeSurface === 'inbox' && !isCreateMode ? (
+        <div className="grid gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
+          <aside className="rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm">
+            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+              Ưu tiên
+            </p>
+            <div className="space-y-1">
+              {inboxBuckets.slice(0, 5).map((bucket) => {
+                const isActive = activeInboxBucket === bucket.key;
+                return (
+                  <button
+                    key={bucket.key}
+                    type="button"
+                    onClick={() => setActiveInboxBucket(bucket.key)}
+                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
+                      isActive
+                        ? 'bg-primary/10 text-primary ring-1 ring-primary/15'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{bucket.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white text-primary' : 'bg-slate-100 text-slate-600'}`}>
+                      {bucket.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-3 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+              Nhóm nhanh
+            </p>
+            <div className="space-y-1">
+              {inboxBuckets.slice(5).map((bucket) => {
+                const isActive = activeInboxBucket === bucket.key;
+                return (
+                  <button
+                    key={bucket.key}
+                    type="button"
+                    onClick={() => setActiveInboxBucket(bucket.key)}
+                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
+                      isActive
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{bucket.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                      {bucket.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <section className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm">
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2.5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-[12px] font-bold leading-4 text-slate-900">Bảng theo dõi</p>
+                <p className="text-[11px] leading-4 text-slate-500">
+                  {activeInboxRows.length} việc đang hiển thị
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSurface('list')}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 md:w-auto"
+              >
+                Mở danh sách đầy đủ
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_forward</span>
+              </button>
+            </div>
+
+            <div className="hidden border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400 md:grid md:grid-cols-[92px_minmax(0,1fr)_128px_92px_120px_84px] md:gap-3">
+              <span>Mã</span>
+              <span>Khách hàng / Tiêu đề</span>
+              <span>Bước</span>
+              <span>SLA</span>
+              <span>Owner</span>
+              <span>Cập nhật</span>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {activeInboxRows.map((item) => {
+                const row = item.row;
+                const requestCode = resolveInboxRequestCode(row);
+                const reasons = item.reasons.length > 0
+                  ? item.reasons
+                  : [
+                      row.missing_estimate ? 'Thiếu ƯL' : '',
+                      row.over_estimate ? 'Vượt ƯL' : '',
+                      row.sla_status ? 'SLA' : '',
+                    ].filter(Boolean);
+
+                return (
+                  <div key={item.key} className="grid gap-2 px-3 py-2.5 transition hover:bg-slate-50/70 md:grid-cols-[92px_minmax(0,1fr)_128px_92px_120px_84px] md:items-start md:gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRequest(row.id, resolveRequestProcessCode(row))}
+                      className="text-left text-[12px] font-bold leading-5 text-primary hover:underline md:pt-0.5"
+                      aria-label={`Mở chi tiết ${requestCode}`}
+                    >
+                      {requestCode}
+                    </button>
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-semibold leading-5 text-slate-900">
+                        {resolveInboxCustomer(row)} / {resolveInboxTitle(row)}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {reasons.slice(0, 3).map((reason) => (
+                          <span
+                            key={`${item.key}-${reason}`}
+                            className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+                          >
+                            {String(reason).replaceAll('_', ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-semibold leading-4 text-slate-600">{resolveInboxStep(row)}</p>
+                    <p className="text-[11px] font-bold leading-4 text-amber-700">{resolveInboxSlaLabel(row)}</p>
+                    <p className="text-[11px] font-semibold leading-4 text-slate-600">{resolveInboxOwner(row)}</p>
+                    <div className="flex items-center justify-between gap-2 md:block">
+                      <p className="text-[11px] font-semibold leading-4 text-slate-500">{formatInboxTimestamp(row.updated_at)}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePinnedRequest(row)}
+                        className="mt-0 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 md:mt-1"
+                        aria-label={`Ghim ${requestCode}`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                          keep
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {activeInboxRows.length === 0 ? (
+                <div className="px-3 py-8 text-center text-[12px] font-semibold text-slate-400">
+                  Chưa có việc ưu tiên phù hợp.
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : activeSurface === 'analytics' ? (
         <div>
         <CustomerRequestDashboardCards
           activeRoleFilter={dashboardRoleFilter}
@@ -3672,28 +4111,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       ) : activeSurface === 'list' ? (
         <>
-          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} flex-1 overflow-hidden ${selectedRequestId !== null && layoutMode !== 'mobile' ? 'md:w-[calc(100%-450px)]' : ''}`}>
+          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} flex-1 overflow-hidden`}>
             <CustomerRequestListPane {...listPaneProps} />
           </div>
-
-          {/* Inline detail pane for desktop mode */}
-          {!showDetailModal && selectedRequestId !== null && layoutMode !== 'mobile' && (
-            <div className="absolute top-[152px] right-3 bottom-6 w-[420px] z-10">
-              <CustomerRequestDetailFrame
-                mode="inline"
-                request={selectedRequestSummary}
-                isPinned={isPinnedRequest(selectedRequestSummary?.id)}
-                onTogglePinned={() => {
-                  if (selectedRequestSummary) {
-                    handleTogglePinnedRequest(selectedRequestSummary);
-                  }
-                }}
-                onClose={handleCloseDetail}
-              >
-                {detailPaneNode}
-              </CustomerRequestDetailFrame>
-            </div>
-          )}
         </>
       ) : null}
 

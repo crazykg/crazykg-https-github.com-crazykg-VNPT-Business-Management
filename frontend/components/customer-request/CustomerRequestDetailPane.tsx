@@ -50,6 +50,7 @@ type CustomerRequestDetailPaneProps = {
   isDetailLoading: boolean;
   isListLoading: boolean;
   isCreateMode: boolean;
+  presentation?: 'embedded' | 'full_modal';
   /** true khi user đã click chọn một yêu cầu nhưng detail chưa/không load được */
   isRequestSelected?: boolean;
   processDetail: YeuCauProcessDetail | null;
@@ -167,6 +168,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   isDetailLoading,
   isListLoading,
   isCreateMode,
+  presentation = 'embedded',
   isRequestSelected = false,
   processDetail,
   canTransitionActiveRequest,
@@ -240,6 +242,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('hours');
   const [showDispatcherActionModal, setShowDispatcherActionModal] = useState(false);
   const [showPerformerActionModal, setShowPerformerActionModal] = useState(false);
+  const isFullModalPresentation = presentation === 'full_modal';
   const visibleDetailTabs = useMemo(
     () => (isCreateMode ? DETAIL_TABS.filter((tab) => tab.key === 'tasks') : DETAIL_TABS),
     [isCreateMode]
@@ -844,259 +847,248 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   };
 
   return (
-    <div className="min-w-0 space-y-6">
-      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="self-start rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          {!isCreateMode ? (
-            <div className="mb-6 border-b border-slate-100 pb-6">
-              <h4 className="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
-              <div className="flex flex-wrap items-center gap-3">
-                {canOpenWorklogModal ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
-                      disabled={isSaving || isSubmittingWorklog}
-                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
-                        isDetailInProgress
-                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">play_circle</span>
-                      Đang thực hiện
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenDetailStatusWorklogModal('paused')}
-                      disabled={isSaving || isSubmittingWorklog}
-                      className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${
-                        isDetailPaused
-                          ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">pause_circle</span>
-                      Tạm ngưng
-                    </button>
-                    {/* {!isDetailOpen && !isDetailCompleted && (
+    <div className={`min-w-0 ${isFullModalPresentation ? 'space-y-4' : 'space-y-6'}`}>
+      <div className={`grid min-w-0 items-start gap-4 ${isFullModalPresentation ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+        <div className={`self-start rounded-[28px] border border-slate-200/80 bg-white shadow-sm ${isFullModalPresentation ? 'p-4 sm:p-5' : 'p-5'}`}>
+          <div className="space-y-6">
+            {!isCreateMode ? (
+              <section className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>sync_alt</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Trạng thái xử lý</h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Cập nhật tiến độ làm việc, đổi trạng thái chi tiết và chốt bước tiếp theo ngay trong modal này.
+                      </p>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${meta.cls}`}>
+                        ● {meta.label}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {canOpenWorklogModal ? (
+                    <>
                       <button
                         type="button"
-                        onClick={() => onOpenDetailStatusWorklogModal('completed')}
+                        onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
                         disabled={isSaving || isSubmittingWorklog}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                          isDetailInProgress
+                            ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
                       >
-                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                        Hoàn thành text
+                        <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                        Đang thực hiện
                       </button>
-                    )} */}
-                  </>
-                ) : null}
-
-                {(() => {
-                  const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
-                  return (
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${meta.cls}`}>
-                      ● {meta.label}
-                    </span>
-                  );
-                })()}
-
-                {canTransitionActiveRequest ? (
-                  <>
-                    {!isDetailOpen && (
                       <button
                         type="button"
-                        onClick={onOpenTransitionModal}
-                        disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                        onClick={() => onOpenDetailStatusWorklogModal('paused')}
+                        disabled={isSaving || isSubmittingWorklog}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                          isDetailPaused
+                            ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
                       >
-                        <span className="material-symbols-outlined text-[16px]">arrow_right_alt</span>
-                        Hoàn thành
+                        <span className="material-symbols-outlined text-[16px]">pause_circle</span>
+                        Tạm ngưng
                       </button>
-                    )}
-                    {/* {canOpenCreatorFeedbackModal ? (
-                      <button
-                        type="button"
-                        onClick={onOpenCreatorFeedbackModal}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">fact_check</span>
-                        Đánh giá KH
-                      </button>
-                    ) : null} */}
-                    {/* {canOpenNotifyCustomerModal ? (
-                      <button
-                        type="button"
-                        onClick={onOpenNotifyCustomerModal}
-                        disabled={isSaving}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">campaign</span>
-                        Báo KH
-                      </button>
-                    ) : null} */}
-                    {!isDetailOpen && (
-                      <select
-                        value={transitionStatusCode}
-                        onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
-                        disabled={isSaving || !canTransitionActiveRequest}
-                        className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-                      >
-                        {transitionOptions.length > 0 ? (
-                          transitionOptions.map((option) => {
-                            const meta = resolveTransitionStatusMeta(option);
-                            return (
-                              <option key={option.process_code} value={option.process_code}>
-                                {meta.label}
-                              </option>
-                            );
-                          })
-                        ) : (
-                          <option value="">-- Không có bước tiếp theo --</option>
-                        )}
-                      </select>
-                    )}
-                  </>
-                ) : null}
+                    </>
+                  ) : null}
 
-                {/* {(!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenCreatorFeedbackModal ? (
+                  {canTransitionActiveRequest ? (
+                    <>
+                      {!isDetailOpen && (
+                        <button
+                          type="button"
+                          onClick={onOpenTransitionModal}
+                          disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+                          Hoàn thành
+                        </button>
+                      )}
+                      {!isDetailOpen && (
+                        <select
+                          value={transitionStatusCode}
+                          onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                          disabled={isSaving || !canTransitionActiveRequest}
+                          className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                        >
+                          {transitionOptions.length > 0 ? (
+                            transitionOptions.map((option) => {
+                              const meta = resolveTransitionStatusMeta(option);
+                              return (
+                                <option key={option.process_code} value={option.process_code}>
+                                  {meta.label}
+                                </option>
+                              );
+                            })
+                          ) : (
+                            <option value="">-- Không có bước tiếp theo --</option>
+                          )}
+                        </select>
+                      )}
+                    </>
+                  ) : null}
+
+                  {canTransitionActiveRequest && transitionOptions.length === 0 ? (
+                    <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="rounded-[24px] border border-slate-100 bg-white">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>description</span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thông tin yêu cầu</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Biểu mẫu chính của ca. Các trường tác động trực tiếp vào thông tin yêu cầu đang xử lý.
+                    </p>
+                  </div>
+                </div>
+
+                {canEditActiveForm && !isCreateMode && onSaveRequest ? (
                   <button
                     type="button"
-                    onClick={onOpenCreatorFeedbackModal}
+                    onClick={() => void onSaveRequest()}
                     disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50 sm:w-auto"
                   >
-                    <span className="material-symbols-outlined text-[16px]">fact_check</span>
-                    Đánh giá KH
+                    <span className="material-symbols-outlined text-[16px]">save</span>
+                    {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
                   </button>
-                ) : null}
-                {((!canTransitionActiveRequest || transitionOptions.length === 0) && canOpenNotifyCustomerModal) ? (
-                  <button
-                    type="button"
-                    onClick={onOpenNotifyCustomerModal}
-                    disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 disabled:opacity-50"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">campaign</span>
-                    Báo KH
-                  </button>
-                ) : null} */}
-
-                {canTransitionActiveRequest && transitionOptions.length === 0 ? (
-                  <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
                 ) : null}
               </div>
-            </div>
-          ) : null}
 
-          <div>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thông tin yêu cầu</h4>
-              {canEditActiveForm && !isCreateMode && onSaveRequest ? (
-                <button
-                  type="button"
-                  onClick={() => void onSaveRequest()}
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-[16px]">save</span>
-                  {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
-                </button>
-              ) : null}
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {masterFields.map((field) => {
-                if (field.type === 'hidden') {
-                  return null;
-                }
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {masterFields.map((field) => {
+                  if (
+                    field.type === 'hidden'
+                    || field.type === 'customer_select'
+                    || field.name === 'customer_id'
+                  ) {
+                    return null;
+                  }
 
-                return (
-                  <div
-                    key={field.name}
-                    className={
-                      field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
-                        ? 'md:col-span-2'
-                        : undefined
-                    }
+                  return (
+                    <div
+                      key={field.name}
+                      className={
+                        field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
+                          ? 'lg:col-span-2'
+                          : undefined
+                      }
+                    >
+                      <ProcessFieldInput
+                        field={field}
+                        value={masterDraft[field.name]}
+                        customers={customers}
+                        employees={employees}
+                        customerPersonnel={customerPersonnel}
+                        supportServiceGroups={supportServiceGroups}
+                        projectItems={availableProjectItems}
+                        selectedCustomerId={selectedCustomerId}
+                        disabled={!canEditActiveForm || isSaving}
+                        onChange={onMasterFieldChange}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {!isCreateMode ? (
+              <section className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-4">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>sell</span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thẻ (Tags)</h4>
+                    <p className="mt-1 text-xs text-slate-500">Giữ tags ở ngay cạnh form chính để cập nhật bối cảnh xử lý nhanh hơn.</p>
+                  </div>
+                </div>
+                <TagInput
+                  value={formTags}
+                  onChange={onFormTagsChange}
+                  disabled={!canEditActiveForm || isSaving}
+                  placeholder="Thêm tag cho yêu cầu..."
+                />
+              </section>
+            ) : null}
+
+            {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+              <section className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-4">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>flowchart</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Cập nhật riêng phần dữ liệu của bước hiện tại mà không cần rời khỏi modal chi tiết.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onSaveStatusDetail}
+                    disabled={!canEditActiveForm || isSaving}
+                    className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
                   >
+                    {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+                  </button>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {([
+                    { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
+                    { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
+                    { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
+                    { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
+                    { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+                    { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+                    { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
+                  ] satisfies YeuCauProcessField[]).map((field) => (
                     <ProcessFieldInput
+                      key={field.name}
                       field={field}
-                      value={masterDraft[field.name]}
+                      value={processDraft[field.name]}
                       customers={customers}
                       employees={employees}
                       customerPersonnel={customerPersonnel}
                       supportServiceGroups={supportServiceGroups}
                       projectItems={availableProjectItems}
-                      selectedCustomerId={selectedCustomerId}
-                      disabled={!canEditActiveForm || isSaving}
-                      onChange={onMasterFieldChange}
+                      selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                      disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                      onChange={onProcessDraftChange}
                     />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
-          {!isCreateMode ? (
-            <div className="mt-6 border-t border-slate-100 pt-6">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Thẻ (Tags)</h4>
-              </div>
-              <TagInput
-                value={formTags}
-                onChange={onFormTagsChange}
-                disabled={!canEditActiveForm || isSaving}
-                placeholder="Thêm tag cho yêu cầu..."
-              />
-            </div>
-          ) : null}
-
-          {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
-            <div className="mt-6 border-t border-slate-100 pt-6">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">{editorProcessMeta.process_label}</h4>
-                <button
-                  type="button"
-                  onClick={onSaveStatusDetail}
-                  disabled={!canEditActiveForm || isSaving}
-                  className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
-                </button>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                {([
-                  { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
-                  { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
-                  { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
-                  { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
-                  { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
-                  { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
-                  { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
-                ] satisfies YeuCauProcessField[]).map((field) => (
-                  <ProcessFieldInput
-                    key={field.name}
-                    field={field}
-                    value={processDraft[field.name]}
-                    customers={customers}
-                    employees={employees}
-                    customerPersonnel={customerPersonnel}
-                    supportServiceGroups={supportServiceGroups}
-                    projectItems={availableProjectItems}
-                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                    disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
-                    onChange={onProcessDraftChange}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {isCreateMode ? (
-            <>
-              <div className="mt-6 border-t border-slate-100 pt-6">
+            {isCreateMode ? (
+              <section className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-4">
                 <div className="mb-4">
                   <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Đính kèm nhanh</h4>
                   <p className="mt-1 text-sm text-slate-500">
@@ -1104,28 +1096,30 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   </p>
                 </div>
                 {renderFileManager()}
-              </div>
-            </>
-          ) : null}
+              </section>
+            ) : null}
+          </div>
         </div>
 
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-slate-200 p-4">
-            <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
-            <div className="mt-4 space-y-3">
-              {visibleRelatedSummaryItems.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
-                  {item.hint ? <p className="mt-1 text-xs text-slate-500">{item.hint}</p> : null}
-                </div>
-              ))}
+        <aside className={`space-y-4 ${isFullModalPresentation ? 'xl:sticky xl:top-0' : ''}`}>
+          <section className="rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>monitoring</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+                  {isCreateMode ? 'Kế hoạch khi tạo' : 'Tổng quan ca'}
+                </h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  {isCreateMode
+                    ? 'Khóa nhanh phạm vi và tài nguyên đi kèm trước khi bấm tạo.'
+                    : 'Những thông tin quan trọng nhất của yêu cầu để theo dõi khi đang cập nhật.'}
+                </p>
+              </div>
             </div>
-          </div>
 
-          {isCreateMode ? (
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Kế hoạch khi tạo</h4>
+            {isCreateMode ? (
               <div className="mt-4 space-y-3">
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ngữ cảnh đã chọn</p>
@@ -1136,40 +1130,84 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                     {[selectedProjectItem?.product_name, selectedProjectItem?.display_name].filter(Boolean).join(' · ') || 'Chọn Khách hàng | Dự án | Sản phẩm để khóa đúng phạm vi.'}
                   </p>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'Task/Ref', value: formIt360Tasks.length + formReferenceTasks.length },
+                    { label: 'Tệp', value: formAttachments.length },
+                    { label: 'Tag', value: formTags.length },
+                    { label: 'Lookup', value: customers.length + employees.length + supportServiceGroups.length },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-slate-100 bg-white px-3 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                      <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Kết quả</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {humanizeKetQua(processDetail?.yeu_cau?.ket_qua ?? '')}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {quickStats.map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-slate-100 bg-white px-3 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                      <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200/80 bg-white p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>group</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Người liên quan</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Tóm tắt vai trò và những người đang tham gia vào yêu cầu.
+                </p>
               </div>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Quick stats</h4>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {quickStats.map((item) => (
-                  <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                    <p className="mt-1 text-lg font-black text-slate-900">{item.value}</p>
-                  </div>
-                ))}
-              </div>
+            <div className="mt-4 space-y-3">
+              {visibleRelatedSummaryItems.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{item.value || '--'}</p>
+                  {item.hint ? <p className="mt-1 text-xs text-slate-500">{item.hint}</p> : null}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+          </section>
+        </aside>
       </div>
 
-      <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-5 shadow-xl shadow-slate-200/50">
+      <div className={`rounded-[28px] border border-slate-200/80 bg-white shadow-sm ${isFullModalPresentation ? 'p-4 sm:p-5' : 'p-5'}`}>
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[20px] text-slate-400">tune</span>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>tune</span>
+            </div>
             <div>
               <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Vận hành yêu cầu</h4>
+              <p className="mt-1 text-xs text-slate-500">Chuyển qua các bề mặt giờ công, ước lượng, tệp, task và timeline mà không rời modal.</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleDetailTabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveDetailTab(tab.key)}
-                className={`group inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                className={`group inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-all duration-200 ${
                   activeDetailTab === tab.key
                     ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
@@ -1182,7 +1220,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
         </div>
 
-      <div className="mt-5">{renderActiveTab()}</div>
+      <div className="mt-4">{renderActiveTab()}</div>
 
       <CustomerRequestQuickActionModal
         open={showDispatcherActionModal}
