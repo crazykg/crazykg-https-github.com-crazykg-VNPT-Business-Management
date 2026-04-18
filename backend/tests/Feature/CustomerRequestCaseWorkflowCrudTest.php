@@ -137,6 +137,31 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
             ->assertJsonPath('data.0.status_code', 'new_intake');
     }
 
+    public function test_store_worklog_accepts_empty_work_content(): void
+    {
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload())->assertCreated();
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/worklogs", [
+            'updated_by' => 1,
+            'performed_by_user_id' => 3,
+            'work_content' => null,
+            'work_date' => '2026-03-17',
+            'hours_spent' => 1.25,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.work_content', null)
+            ->assertJsonPath('data.work_date', '2026-03-17')
+            ->assertJsonPath('meta.hours_report.total_hours_spent', 1.25);
+
+        $this->assertSame(
+            '',
+            DB::table('customer_request_worklogs')
+                ->where('request_case_id', $caseId)
+                ->value('work_content')
+        );
+    }
+
     public function test_store_case_accepts_dispatcher_assignment_in_master_payload(): void
     {
         $this->postJson('/api/v5/customer-request-cases', $this->createPayload([

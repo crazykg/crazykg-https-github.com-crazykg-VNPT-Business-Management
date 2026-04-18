@@ -15,7 +15,7 @@ class StoreCustomerRequestCaseWorklogRequest extends V5FormRequest
             'updated_by' => ['nullable', 'integer'],
             'status_instance_id' => ['sometimes', 'nullable', 'integer'],
             'performed_by_user_id' => ['sometimes', 'nullable', 'integer'],
-            'work_content' => ['required', 'string'],
+            'work_content' => ['sometimes', 'nullable', 'string'],
             'work_started_at' => ['sometimes', 'nullable', 'date'],
             'work_ended_at' => ['sometimes', 'nullable', 'date'],
             'work_date' => ['sometimes', 'nullable', 'date'],

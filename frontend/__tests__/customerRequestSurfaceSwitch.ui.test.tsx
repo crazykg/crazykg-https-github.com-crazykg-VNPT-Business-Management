@@ -29,10 +29,17 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
       />
     );
 
+    const inboxButton = screen.getByRole('button', { name: /Bảng theo dõi/i });
+    const listButton = screen.getByRole('button', { name: /Danh sách/i });
+
     expect(screen.queryByText('Tra cứu chi tiết')).not.toBeInTheDocument();
     expect(screen.queryByText('Số liệu & điểm nóng')).not.toBeInTheDocument();
+    expect(inboxButton.parentElement?.className).toContain('min-w-max');
+    expect(listButton.className).toContain('w-[148px]');
+    expect(listButton.className).toContain('sm:w-[156px]');
+    expect(listButton.className).toContain('shrink-0');
 
-    await user.click(screen.getByRole('button', { name: /Danh sách/i }));
+    await user.click(listButton);
     expect(onSurfaceChange).toHaveBeenCalledWith('list');
   });
 
@@ -48,10 +55,68 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
       />
     );
 
+    const analyticsButton = screen.getByRole('button', { name: /Phân tích/i });
+
     expect(screen.queryByText('Tra cứu chi tiết')).not.toBeInTheDocument();
     expect(screen.queryByText('Số liệu & điểm nóng')).not.toBeInTheDocument();
+    expect(analyticsButton.className).toContain('w-full');
+    expect(analyticsButton.parentElement?.className).toContain('grid-cols-3');
 
-    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+    await user.click(analyticsButton);
     expect(onSurfaceChange).toHaveBeenCalledWith('analytics');
   });
+
+  it.each([375, 768, 1024])(
+    'renders icon-only compact tabs when explicitly enabled at %ipx',
+    async (width) => {
+      setViewportWidth(width);
+      const user = userEvent.setup();
+      const onSurfaceChange = vi.fn();
+
+      render(
+        <CustomerRequestSurfaceSwitch
+          activeSurface={'inbox' satisfies CustomerRequestSurfaceKey}
+          onSurfaceChange={onSurfaceChange}
+          iconOnlyOnCompact
+        />
+      );
+
+      const inboxButton = screen.getByRole('button', { name: /Bảng theo dõi/i });
+      const listButton = screen.getByRole('button', { name: /Danh sách/i });
+
+      expect(inboxButton.parentElement?.className).toContain('w-full');
+      expect(listButton.className).toContain('h-10');
+      expect(listButton.className).toContain('w-10');
+      expect(listButton.className).not.toContain('w-[148px]');
+
+      await user.click(listButton);
+      expect(onSurfaceChange).toHaveBeenCalledWith('list');
+    }
+  );
+
+  it.each([1366, 1440, 1600])(
+    'keeps labeled pill tabs on desktop widths even when compact mode is enabled (%ipx)',
+    async (width) => {
+      setViewportWidth(width);
+      const user = userEvent.setup();
+      const onSurfaceChange = vi.fn();
+
+      render(
+        <CustomerRequestSurfaceSwitch
+          activeSurface={'list' satisfies CustomerRequestSurfaceKey}
+          onSurfaceChange={onSurfaceChange}
+          iconOnlyOnCompact
+        />
+      );
+
+      const analyticsButton = screen.getByRole('button', { name: /Phân tích/i });
+
+      expect(analyticsButton).toHaveTextContent('Phân tích');
+      expect(analyticsButton.className).toContain('w-full');
+      expect(analyticsButton.parentElement?.className).toContain('grid-cols-3');
+
+      await user.click(analyticsButton);
+      expect(onSurfaceChange).toHaveBeenCalledWith('analytics');
+    }
+  );
 });

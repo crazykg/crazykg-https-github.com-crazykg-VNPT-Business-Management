@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildTransitionDraftFromFields,
+  formatCurrentDateStartOfDayForInput,
   toDateInput,
   toSqlDateTime,
 } from '../components/customer-request/helpers';
 import type { YeuCauProcessField } from '../types';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('customer request transition helpers', () => {
   it('keeps feedback date fields date-only and leaves customer dates blank by default', () => {
@@ -25,5 +30,12 @@ describe('customer request transition helpers', () => {
     expect(toDateInput('2026-03-22 21:15:00')).toBe('2026-03-22');
     expect(toDateInput('2026-03-22T21:15')).toBe('2026-03-22');
     expect(toSqlDateTime('2026-03-22')).toBe('2026-03-22 00:00:00');
+  });
+
+  it('formats the current day at midnight for fixed transition defaults', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 13, 47, 0));
+
+    expect(formatCurrentDateStartOfDayForInput()).toBe('2026-04-18T00:00');
   });
 });

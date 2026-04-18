@@ -115,7 +115,7 @@ import {
   exportImportFailureFile,
   getImportCell,
 } from '../utils/importValidation';
-import type { SearchableSelectOption } from './SearchableSelect';
+import { SearchableSelect, type SearchableSelectOption } from './SearchableSelect';
 import type { CustomerRequestIntakeImportResult } from '../services/api/customerRequestApi';
 import { normalizeImportToken } from '../utils/importUtils';
 
@@ -165,6 +165,160 @@ const buildCreatedFromFilterValue = (value: string): string | undefined =>
 
 const buildCreatedToFilterValue = (value: string): string | undefined =>
   value ? `${value} 23:59:59` : undefined;
+
+const SHARED_PRIORITY_OPTIONS: SearchableSelectOption[] = [
+  { value: '', label: 'Tất cả ưu tiên' },
+  { value: '1', label: 'Thấp' },
+  { value: '2', label: 'Trung bình' },
+  { value: '3', label: 'Cao' },
+  { value: '4', label: 'Khẩn' },
+];
+
+type SharedSurfaceFilterState = {
+  activeProcessCode: string;
+  requestKeyword: string;
+  requestCustomerFilter: string;
+  requestSupportGroupFilter: string;
+  requestPriorityFilter: string;
+  requestCreatedFrom: string;
+  requestCreatedTo: string;
+  requestMissingEstimateFilter: boolean;
+  requestOverEstimateFilter: boolean;
+  requestSlaRiskFilter: boolean;
+};
+
+const normalizeCustomerRequestFilterToken = (value: unknown): string =>
+  String(value ?? '').trim().toLowerCase();
+
+const parseCustomerRequestFilterTime = (value?: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+
+  const resolved = new Date(String(value).replace(' ', 'T'));
+  return Number.isNaN(resolved.getTime()) ? null : resolved.getTime();
+};
+
+const isTruthyCustomerRequestFlag = (value: unknown): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value > 0;
+  }
+
+  return ['1', 'true', 'yes'].includes(normalizeCustomerRequestFilterToken(value));
+};
+
+const matchesSharedSurfaceFilters = (
+  row: YeuCau,
+  filters: SharedSurfaceFilterState
+): boolean => {
+  const raw = row as unknown as Record<string, unknown>;
+  const processCode = normalizeCustomerRequestFilterToken(
+    resolveRequestProcessCode(row) ||
+      raw.current_status_code ||
+      raw.process_code ||
+      row.trang_thai
+  );
+
+  if (
+    filters.activeProcessCode &&
+    processCode !== normalizeCustomerRequestFilterToken(filters.activeProcessCode)
+  ) {
+    return false;
+  }
+
+  if (filters.requestKeyword) {
+    const haystack = normalizeCustomerRequestFilterToken(
+      [
+        row.ma_yc,
+        row.request_code,
+        row.tieu_de,
+        row.summary,
+        row.customer_name,
+        row.khach_hang_name,
+        raw.customer_name,
+        raw.customer_code,
+        row.project_name,
+        row.support_service_group_name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+
+    if (!haystack.includes(normalizeCustomerRequestFilterToken(filters.requestKeyword))) {
+      return false;
+    }
+  }
+
+  const customerId =
+    raw.customer_id ??
+    raw.khach_hang_id ??
+    raw.customerId ??
+    raw.customerID;
+  if (filters.requestCustomerFilter && String(customerId ?? '') !== filters.requestCustomerFilter) {
+    return false;
+  }
+
+  const supportGroupId =
+    raw.support_service_group_id ??
+    raw.supportGroupId ??
+    raw.group_id ??
+    raw.support_group_id;
+  if (
+    filters.requestSupportGroupFilter &&
+    String(supportGroupId ?? '') !== filters.requestSupportGroupFilter
+  ) {
+    return false;
+  }
+
+  const priorityValue = raw.do_uu_tien ?? raw.priority ?? row.do_uu_tien;
+  if (filters.requestPriorityFilter && String(priorityValue ?? '') !== filters.requestPriorityFilter) {
+    return false;
+  }
+
+  const createdTime = parseCustomerRequestFilterTime(
+    String(raw.created_at ?? raw.received_at ?? raw.updated_at ?? raw.createdAt ?? '')
+  );
+  const createdFromTime = parseCustomerRequestFilterTime(
+    filters.requestCreatedFrom ? `${filters.requestCreatedFrom}T00:00:00` : null
+  );
+  const createdToTime = parseCustomerRequestFilterTime(
+    filters.requestCreatedTo ? `${filters.requestCreatedTo}T23:59:59` : null
+  );
+
+  if (createdFromTime !== null && createdTime !== null && createdTime < createdFromTime) {
+    return false;
+  }
+
+  if (createdToTime !== null && createdTime !== null && createdTime > createdToTime) {
+    return false;
+  }
+
+  if (filters.requestMissingEstimateFilter && !isTruthyCustomerRequestFlag(raw.missing_estimate)) {
+    return false;
+  }
+
+  if (filters.requestOverEstimateFilter && !isTruthyCustomerRequestFlag(raw.over_estimate)) {
+    return false;
+  }
+
+  if (filters.requestSlaRiskFilter) {
+    const slaStatus = normalizeCustomerRequestFilterToken(raw.sla_status);
+    const hasSlaRisk =
+      isTruthyCustomerRequestFlag(raw.sla_risk) ||
+      (slaStatus !== '' &&
+        !['on_time', 'within_sla', 'normal', 'safe'].includes(slaStatus));
+
+    if (!hasSlaRisk) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 type InboxBucketKey =
   | 'hot'
@@ -988,6 +1142,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [requestMissingEstimateFilter, setRequestMissingEstimateFilter] = useState(false);
   const [requestOverEstimateFilter, setRequestOverEstimateFilter] = useState(false);
   const [requestSlaRiskFilter, setRequestSlaRiskFilter] = useState(false);
+  const [isSharedFilterExpanded, setIsSharedFilterExpanded] = useState(false);
 
   // Transition state
   const [transitionStatusCode, setTransitionStatusCode] = useState('');
@@ -1195,6 +1350,35 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     ]
   );
 
+  const dashboardFilters = useMemo(
+    () => ({
+      q: requestKeyword || undefined,
+      process_code: activeProcessCode || undefined,
+      filters: {
+        customer_id: requestCustomerFilter || undefined,
+        support_service_group_id: requestSupportGroupFilter || undefined,
+        priority: requestPriorityFilter || undefined,
+        created_from: buildCreatedFromFilterValue(requestCreatedFrom),
+        created_to: buildCreatedToFilterValue(requestCreatedTo),
+        missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
+        over_estimate: requestOverEstimateFilter ? (1 as const) : undefined,
+        sla_risk: requestSlaRiskFilter ? (1 as const) : undefined,
+      },
+    }),
+    [
+      activeProcessCode,
+      requestKeyword,
+      requestCustomerFilter,
+      requestSupportGroupFilter,
+      requestPriorityFilter,
+      requestCreatedFrom,
+      requestCreatedTo,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestSlaRiskFilter,
+    ]
+  );
+
   const { listRows, isListLoading, listMeta } = useCustomerRequestList({
     canReadRequests,
     activeProcessCode,
@@ -1267,6 +1451,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     useCustomerRequestDashboard({
       canReadRequests,
       dataVersion,
+      params: dashboardFilters,
       onError: handleDashboardError,
     });
 
@@ -2795,6 +2980,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [customers]
   );
 
+  const supportGroupOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      { value: '', label: 'Tất cả kênh' },
+      ...supportServiceGroups.map((group) => ({
+        value: String(group.id),
+        label: group.group_name,
+        searchText: `${group.group_name} ${group.group_code ?? ''} ${group.customer_name ?? ''}`,
+      })),
+    ],
+    [supportServiceGroups]
+  );
+
   const pinnedRequestIds = useMemo(
     () => new Set(pinnedItems.map((item) => String(item.requestId))),
     [pinnedItems]
@@ -2830,6 +3027,53 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   ]);
 
   const dashboardRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
+
+  const sharedSurfaceFilters = useMemo<SharedSurfaceFilterState>(
+    () => ({
+      activeProcessCode,
+      requestKeyword,
+      requestCustomerFilter,
+      requestSupportGroupFilter,
+      requestPriorityFilter,
+      requestCreatedFrom,
+      requestCreatedTo,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestSlaRiskFilter,
+    }),
+    [
+      activeProcessCode,
+      requestKeyword,
+      requestCustomerFilter,
+      requestSupportGroupFilter,
+      requestPriorityFilter,
+      requestCreatedFrom,
+      requestCreatedTo,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestSlaRiskFilter,
+    ]
+  );
+
+  const sharedAdvancedFilterCount = useMemo(
+    () =>
+      [
+        Boolean(requestCustomerFilter),
+        Boolean(requestSupportGroupFilter),
+        Boolean(requestPriorityFilter),
+        requestMissingEstimateFilter,
+        requestOverEstimateFilter,
+        requestSlaRiskFilter,
+      ].filter(Boolean).length,
+    [
+      requestCustomerFilter,
+      requestSupportGroupFilter,
+      requestPriorityFilter,
+      requestMissingEstimateFilter,
+      requestOverEstimateFilter,
+      requestSlaRiskFilter,
+    ]
+  );
 
   const hasListFilters =
     !!(
@@ -3534,6 +3778,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onClearFilters: handleClearFilters,
     requestRoleFilter,
     presentation: 'responsive' as const,
+    showFilterToolbar: false,
     pinnedRequestIds,
     onTogglePinRequest: handleTogglePinnedRequest,
     onPrimaryAction: handleRunListPrimaryAction,
@@ -3676,212 +3921,520 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       matchesInboxBucket(item, activeInboxBucket, currentUserId)
     );
 
-    return filtered.slice(0, 14);
-  }, [activeInboxBucket, currentUserId, inboxPriorityItems]);
+    return filtered
+      .filter((item) => matchesSharedSurfaceFilters(item.row, sharedSurfaceFilters))
+      .slice(0, 14);
+  }, [activeInboxBucket, currentUserId, inboxPriorityItems, sharedSurfaceFilters]);
   const hasIntakeMenuActions = canImportRequests || canExportRequests;
+  const isAnalyticsSurface = activeSurface === 'analytics';
+  const isCompactTopShell = layoutMode === 'mobile' || layoutMode === 'tablet';
+  const sharedFilterFieldClass =
+    'h-10 rounded-2xl border border-slate-200/90 bg-slate-50/70 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12';
+  const sharedSearchFieldClass =
+    'h-10 w-full rounded-2xl border border-slate-200/90 bg-slate-50/70 pl-9 pr-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12';
+  const sharedSelectTriggerClass =
+    'h-10 rounded-2xl border-slate-200/90 bg-slate-50/70 px-3.5 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] focus:bg-white';
+  const renderTopShellActions = () => (
+    <>
+      {hasIntakeMenuActions ? (
+        <div className="relative w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setIsIntakeMenuOpen((value) => !value)}
+            aria-label="Nhập"
+            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:w-auto"
+            aria-expanded={isIntakeMenuOpen}
+            aria-haspopup="menu"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>move_to_inbox</span>
+            Nhập
+            <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 15 }}>expand_more</span>
+          </button>
 
-  return (
-    <div className="p-3 pb-6">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="relative z-[80] mb-3 rounded-2xl border border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-start gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/15">
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-                  support_agent
-                </span>
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <h2 className="text-sm font-bold leading-5 text-deep-teal">Quản lý yêu cầu khách hàng</h2>
-                  {attentionCaseCount > 0 ? (
-                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                      {attentionCaseCount} ca cần chú ý
-                    </span>
-                  ) : null}
-                  {isAdminViewer && (
-                    <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-tertiary">
-                      Chế độ xem quản trị
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-            {hasIntakeMenuActions ? (
-              <div className="relative w-full sm:w-auto">
+          {isIntakeMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute right-0 top-[calc(100%+6px)] z-[90] w-48 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-200/70"
+            >
+              {canImportRequests ? (
                 <button
                   type="button"
-                  onClick={() => setIsIntakeMenuOpen((value) => !value)}
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:w-auto"
-                  aria-expanded={isIntakeMenuOpen}
-                  aria-haspopup="menu"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsIntakeMenuOpen(false);
+                    handleDownloadIntakeTemplate();
+                  }}
+                  disabled={isDownloadingTemplate}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>move_to_inbox</span>
-                  Nhập
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>expand_more</span>
+                  <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>download</span>
+                  Tải mẫu nhập
                 </button>
+              ) : null}
+              {canImportRequests ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsIntakeMenuOpen(false);
+                    setShowImportModal(true);
+                  }}
+                  disabled={isImportingIntake}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>upload_file</span>
+                  Nhập từ Excel
+                </button>
+              ) : null}
+              {canExportRequests ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsIntakeMenuOpen(false);
+                    handleExportIntake();
+                  }}
+                  disabled={isExportingIntake}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>ios_share</span>
+                  Xuất dữ liệu
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {canWriteRequests && (
+        <button
+          type="button"
+          onClick={handleCreateRequest}
+          aria-label="Thêm yêu cầu"
+          className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl px-3 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 sm:w-auto"
+          style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
+        >
+          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+          Thêm yêu cầu
+        </button>
+      )}
+    </>
+  );
 
-                {isIntakeMenuOpen ? (
-                  <div
-                    role="menu"
-                    className="absolute right-0 top-[calc(100%+6px)] z-[90] w-48 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-200/70"
-                  >
-                    {canImportRequests ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setIsIntakeMenuOpen(false);
-                          handleDownloadIntakeTemplate();
+  return (
+    <div className="px-3 pb-6">
+      <div className="sticky top-0 z-50 space-y-2 border-b border-slate-200/70 bg-white/98 pb-2 pt-3 shadow-[0_12px_24px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div
+          data-testid="customer-request-top-shell"
+          className="relative z-[80] rounded-[24px] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+        >
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+            <div className="flex min-w-0 items-center justify-between gap-3 xl:flex-[0_0_auto] xl:justify-start">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-secondary/15">
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                      support_agent
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <h2 className="text-sm font-bold leading-5 text-deep-teal">Quản lý yêu cầu khách hàng</h2>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {isCompactTopShell && (hasIntakeMenuActions || canWriteRequests) ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {renderTopShellActions()}
+                </div>
+                ) : null}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <CustomerRequestWorkspaceTabs
+                activeTab={activeWorkspaceTab}
+                onTabChange={handleWorkspaceTabChange}
+                overviewActionCount={patchedOverviewDashboard?.attention_cases.length ?? 0}
+                creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
+                dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
+                performerActionCount={patchedPerformerBuckets.pendingRows.length}
+                showPanels={false}
+                showTabs={false}
+                chromeMode="inline"
+                toolbar={
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="min-w-0 flex-1 overflow-x-auto pb-1 xl:pb-0">
+                      <CustomerRequestSurfaceSwitch
+                        activeSurface={activeSurface}
+                        onSurfaceChange={(surface) => {
+                          setActiveSurface(surface);
+                          setActiveSavedViewId(null);
                         }}
-                        disabled={isDownloadingTemplate}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                        iconOnlyOnCompact
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => bumpDataVersion()}
+                      disabled={isDashboardLoading}
+                      className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 ${
+                        isCompactTopShell ? 'w-10 px-0' : 'px-3'
+                      }`}
+                      title="Làm mới dữ liệu"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`material-symbols-outlined ${isDashboardLoading ? 'animate-spin' : ''}`}
+                        style={{ fontSize: 16 }}
                       >
-                        <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>download</span>
-                        Tải mẫu nhập
-                      </button>
-                    ) : null}
-                    {canImportRequests ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setIsIntakeMenuOpen(false);
-                          setShowImportModal(true);
-                        }}
-                        disabled={isImportingIntake}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>upload_file</span>
-                        Nhập từ Excel
-                      </button>
-                    ) : null}
-                    {canExportRequests ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setIsIntakeMenuOpen(false);
-                          handleExportIntake();
-                        }}
-                        disabled={isExportingIntake}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>ios_share</span>
-                        Xuất dữ liệu
-                      </button>
-                    ) : null}
+                        refresh
+                      </span>
+                      {isCompactTopShell ? (
+                        <span className="sr-only">Làm mới</span>
+                      ) : (
+                        <span className="whitespace-nowrap">Làm mới</span>
+                      )}
+                    </button>
+                  </div>
+                }
+                overviewWorkspace={
+                  <CustomerRequestOverviewWorkspace
+                    loading={isDashboardLoading}
+                    overviewDashboard={patchedOverviewDashboard}
+                    roleDashboards={patchedRoleDashboards}
+                    onOpenRequest={handleOpenRequest}
+                    onOpenWorkspace={handleOpenOverviewRoleWorkspace}
+                    onOpenListSurface={handleOpenOverviewListSurface}
+                  />
+                }
+                creatorWorkspace={
+                  <CustomerRequestCreatorWorkspace
+                    loading={creatorWS.isLoading}
+                    creatorName={creatorName}
+                    totalRows={patchedCreatorRows.length}
+                    reviewRows={patchedCreatorBuckets.reviewRows}
+                    notifyRows={patchedCreatorBuckets.notifyRows}
+                    followUpRows={patchedCreatorBuckets.followUpRows}
+                    closedRows={patchedCreatorBuckets.closedRows}
+                    dashboard={patchedRoleDashboards.creator}
+                    onOpenRequest={handleOpenRequest}
+                    onCreateRequest={handleCreateRequest}
+                  />
+                }
+                dispatcherWorkspace={
+                  <CustomerRequestDispatcherWorkspace
+                    loading={dispatcherWS.isLoading}
+                    dispatcherName={currentUserName}
+                    totalRows={patchedDispatcherRows.length}
+                    queueRows={patchedDispatcherBuckets.queueRows}
+                    returnedRows={patchedDispatcherBuckets.returnedRows}
+                    feedbackRows={patchedDispatcherBuckets.feedbackRows}
+                    approvalRows={patchedDispatcherBuckets.approvalRows}
+                    activeRows={patchedDispatcherBuckets.activeRows}
+                    teamLoadRows={patchedDispatcherTeamLoadRows}
+                    pmWatchRows={patchedDispatcherPmWatchRows}
+                    dashboard={patchedRoleDashboards.dispatcher}
+                    onOpenRequest={handleOpenRequest}
+                  />
+                }
+                performerWorkspace={
+                  <CustomerRequestPerformerWorkspace
+                    loading={performerWS.isLoading}
+                    performerName={currentUserName}
+                    totalRows={patchedPerformerRows.length}
+                    pendingRows={patchedPerformerBuckets.pendingRows}
+                    activeRows={patchedPerformerBuckets.activeRows}
+                    timesheet={performerWS.timesheet}
+                    onOpenRequest={handleOpenRequest}
+                  />
+                }
+              />
+            </div>
+
+            {!isCompactTopShell && (hasIntakeMenuActions || canWriteRequests) ? (
+              <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
+                {renderTopShellActions()}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {!isCreateMode ? (
+          <div className="rounded-[24px] border border-slate-200/90 bg-white p-2.5 shadow-sm">
+            {isAnalyticsSurface ? (
+              <div className="space-y-2">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[156px_156px_minmax(0,1fr)_148px]">
+                  <label>
+                    <span className="sr-only">Từ ngày tạo</span>
+                    <input
+                      type="date"
+                      value={requestCreatedFrom}
+                      onChange={(event) => {
+                        setRequestCreatedFrom(event.target.value);
+                        setListPage(1);
+                      }}
+                      className={`w-full ${sharedFilterFieldClass}`}
+                    />
+                  </label>
+
+                  <label>
+                    <span className="sr-only">Đến ngày tạo</span>
+                    <input
+                      type="date"
+                      value={requestCreatedTo}
+                      onChange={(event) => {
+                        setRequestCreatedTo(event.target.value);
+                        setListPage(1);
+                      }}
+                      className={`w-full ${sharedFilterFieldClass}`}
+                    />
+                  </label>
+
+                  <label className="relative min-w-0">
+                    <span className="sr-only">Tìm kiếm yêu cầu</span>
+                    <span
+                      className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      style={{ fontSize: 16 }}
+                    >
+                      search
+                    </span>
+                    <input
+                      value={requestKeyword}
+                      onChange={(event) => {
+                        setRequestKeyword(event.target.value);
+                        setListPage(1);
+                      }}
+                      placeholder="Tìm mã YC, tên yêu cầu..."
+                      className={sharedSearchFieldClass}
+                    />
+                  </label>
+
+                  <SearchableSelect
+                    value={activeProcessCode}
+                    options={processOptions}
+                    onChange={(value) => {
+                      setActiveProcessCode(String(value ?? ''));
+                      setListPage(1);
+                    }}
+                    label=""
+                    placeholder="Tất cả"
+                    searchPlaceholder="Tìm tiến trình..."
+                    compact
+                    usePortal
+                    portalZIndex={70}
+                    triggerClassName={sharedSelectTriggerClass}
+                  />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  <SearchableSelect
+                    value={requestCustomerFilter}
+                    options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
+                    onChange={(value) => {
+                      setRequestCustomerFilter(String(value ?? ''));
+                      setListPage(1);
+                    }}
+                    label=""
+                    placeholder="Khách hàng"
+                    searchPlaceholder="Tìm khách hàng..."
+                    compact
+                    usePortal
+                    portalZIndex={70}
+                    triggerClassName={sharedSelectTriggerClass}
+                  />
+                  <SearchableSelect
+                    value={requestSupportGroupFilter}
+                    options={supportGroupOptions}
+                    onChange={(value) => {
+                      setRequestSupportGroupFilter(String(value ?? ''));
+                      setListPage(1);
+                    }}
+                    label=""
+                    placeholder="Kênh tiếp nhận"
+                    searchPlaceholder="Tìm kênh..."
+                    compact
+                    usePortal
+                    portalZIndex={70}
+                    triggerClassName={sharedSelectTriggerClass}
+                  />
+                  <SearchableSelect
+                    value={requestPriorityFilter}
+                    options={SHARED_PRIORITY_OPTIONS}
+                    onChange={(value) => {
+                      setRequestPriorityFilter(String(value ?? ''));
+                      setListPage(1);
+                    }}
+                    label=""
+                    placeholder="Ưu tiên"
+                    searchPlaceholder="Tìm ưu tiên..."
+                    compact
+                    usePortal
+                    portalZIndex={70}
+                    triggerClassName={sharedSelectTriggerClass}
+                  />
+                </div>
+
+                {hasListFilters ? (
+                  <div className="flex justify-end pt-0.5">
+                    <button
+                      type="button"
+                      onClick={handleClearFilters}
+                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200/90 bg-white px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5"
+                    >
+                      Xóa lọc
+                    </button>
                   </div>
                 ) : null}
               </div>
-            ) : null}
-            {canWriteRequests && (
-              <button
-                type="button"
-                onClick={handleCreateRequest}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 sm:w-auto"
-                style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-                Thêm yêu cầu
-              </button>
+            ) : (
+              <>
+                <div className="min-w-0 overflow-x-auto">
+                  <div className="flex min-w-[980px] items-center gap-2">
+                    <label className="shrink-0">
+                      <span className="sr-only">Từ ngày tạo</span>
+                      <input
+                        type="date"
+                        value={requestCreatedFrom}
+                        onChange={(event) => {
+                          setRequestCreatedFrom(event.target.value);
+                          setListPage(1);
+                        }}
+                        className={`w-[156px] ${sharedFilterFieldClass}`}
+                      />
+                    </label>
+
+                    <label className="shrink-0">
+                      <span className="sr-only">Đến ngày tạo</span>
+                      <input
+                        type="date"
+                        value={requestCreatedTo}
+                        onChange={(event) => {
+                          setRequestCreatedTo(event.target.value);
+                          setListPage(1);
+                        }}
+                        className={`w-[156px] ${sharedFilterFieldClass}`}
+                      />
+                    </label>
+
+                    <label className="relative min-w-[340px] flex-1">
+                      <span className="sr-only">Tìm kiếm yêu cầu</span>
+                      <span
+                        className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        style={{ fontSize: 16 }}
+                      >
+                        search
+                      </span>
+                      <input
+                        value={requestKeyword}
+                        onChange={(event) => {
+                          setRequestKeyword(event.target.value);
+                          setListPage(1);
+                        }}
+                        placeholder="Tìm mã YC, tên yêu cầu..."
+                        className={sharedSearchFieldClass}
+                      />
+                    </label>
+
+                    <div className="w-[140px] shrink-0">
+                      <SearchableSelect
+                        value={activeProcessCode}
+                        options={processOptions}
+                        onChange={(value) => {
+                          setActiveProcessCode(String(value ?? ''));
+                          setListPage(1);
+                        }}
+                        label=""
+                        placeholder="Tất cả"
+                        searchPlaceholder="Tìm tiến trình..."
+                        compact
+                        usePortal
+                        portalZIndex={70}
+                        triggerClassName={sharedSelectTriggerClass}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsSharedFilterExpanded((value) => !value)}
+                      className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
+                    >
+                      <span className="material-symbols-outlined text-[17px]">tune</span>
+                      <span>Bộ lọc</span>
+                      {sharedAdvancedFilterCount > 0 ? (
+                        <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {sharedAdvancedFilterCount}
+                        </span>
+                      ) : null}
+                    </button>
+                  </div>
+                </div>
+
+                {isSharedFilterExpanded ? (
+                  <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]">
+                    <SearchableSelect
+                      value={requestCustomerFilter}
+                      options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
+                      onChange={(value) => {
+                        setRequestCustomerFilter(String(value ?? ''));
+                        setListPage(1);
+                      }}
+                      label=""
+                      placeholder="Khách hàng"
+                      searchPlaceholder="Tìm khách hàng..."
+                      compact
+                      usePortal
+                      portalZIndex={70}
+                      triggerClassName={sharedSelectTriggerClass}
+                    />
+                    <SearchableSelect
+                      value={requestSupportGroupFilter}
+                      options={supportGroupOptions}
+                      onChange={(value) => {
+                        setRequestSupportGroupFilter(String(value ?? ''));
+                        setListPage(1);
+                      }}
+                      label=""
+                      placeholder="Kênh tiếp nhận"
+                      searchPlaceholder="Tìm kênh..."
+                      compact
+                      usePortal
+                      portalZIndex={70}
+                      triggerClassName={sharedSelectTriggerClass}
+                    />
+                    <SearchableSelect
+                      value={requestPriorityFilter}
+                      options={SHARED_PRIORITY_OPTIONS}
+                      onChange={(value) => {
+                        setRequestPriorityFilter(String(value ?? ''));
+                        setListPage(1);
+                      }}
+                      label=""
+                      placeholder="Ưu tiên"
+                      searchPlaceholder="Tìm ưu tiên..."
+                      compact
+                      usePortal
+                      portalZIndex={70}
+                      triggerClassName={sharedSelectTriggerClass}
+                    />
+                    {hasListFilters ? (
+                      <button
+                        type="button"
+                        onClick={handleClearFilters}
+                        className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200/90 bg-white px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5"
+                      >
+                        Xóa lọc
+                      </button>
+                    ) : (
+                      <div aria-hidden="true" />
+                    )}
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
-        </div>
-      </div>
-
-      {/* Sticky header: Surface switch + Refresh button */}
-      <div className="sticky top-0 z-30 space-y-2 bg-white/95 backdrop-blur-sm">
-        <CustomerRequestWorkspaceTabs
-          activeTab={activeWorkspaceTab}
-          onTabChange={handleWorkspaceTabChange}
-          overviewActionCount={patchedOverviewDashboard?.attention_cases.length ?? 0}
-          creatorActionCount={patchedCreatorBuckets.reviewRows.length + patchedCreatorBuckets.notifyRows.length}
-          dispatcherActionCount={patchedDispatcherBuckets.queueRows.length + patchedDispatcherBuckets.returnedRows.length}
-          performerActionCount={patchedPerformerBuckets.pendingRows.length}
-          showPanels={false}
-          showTabs={false}
-          toolbar={
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <CustomerRequestSurfaceSwitch
-                  activeSurface={activeSurface}
-                  onSurfaceChange={(surface) => {
-                    setActiveSurface(surface);
-                    setActiveSavedViewId(null);
-                  }}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => bumpDataVersion()}
-                disabled={isDashboardLoading}
-                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
-                title="Làm mới dữ liệu"
-              >
-                <span className={`material-symbols-outlined ${isDashboardLoading ? 'animate-spin' : ''}`} style={{ fontSize: 16 }}>
-                  refresh
-                </span>
-                <span>Làm mới</span>
-              </button>
-            </div>
-          }
-        overviewWorkspace={
-          <CustomerRequestOverviewWorkspace
-            loading={isDashboardLoading}
-            overviewDashboard={patchedOverviewDashboard}
-            roleDashboards={patchedRoleDashboards}
-            onOpenRequest={handleOpenRequest}
-            onOpenWorkspace={handleOpenOverviewRoleWorkspace}
-            onOpenListSurface={handleOpenOverviewListSurface}
-          />
-        }
-        creatorWorkspace={
-          <CustomerRequestCreatorWorkspace
-            loading={creatorWS.isLoading}
-            creatorName={creatorName}
-            totalRows={patchedCreatorRows.length}
-            reviewRows={patchedCreatorBuckets.reviewRows}
-            notifyRows={patchedCreatorBuckets.notifyRows}
-            followUpRows={patchedCreatorBuckets.followUpRows}
-            closedRows={patchedCreatorBuckets.closedRows}
-            dashboard={patchedRoleDashboards.creator}
-            onOpenRequest={handleOpenRequest}
-            onCreateRequest={handleCreateRequest}
-          />
-        }
-        dispatcherWorkspace={
-          <CustomerRequestDispatcherWorkspace
-            loading={dispatcherWS.isLoading}
-            dispatcherName={currentUserName}
-            totalRows={patchedDispatcherRows.length}
-            queueRows={patchedDispatcherBuckets.queueRows}
-            returnedRows={patchedDispatcherBuckets.returnedRows}
-            feedbackRows={patchedDispatcherBuckets.feedbackRows}
-            approvalRows={patchedDispatcherBuckets.approvalRows}
-            activeRows={patchedDispatcherBuckets.activeRows}
-            teamLoadRows={patchedDispatcherTeamLoadRows}
-            pmWatchRows={patchedDispatcherPmWatchRows}
-            dashboard={patchedRoleDashboards.dispatcher}
-            onOpenRequest={handleOpenRequest}
-          />
-        }
-        performerWorkspace={
-          <CustomerRequestPerformerWorkspace
-            loading={performerWS.isLoading}
-            performerName={currentUserName}
-            totalRows={patchedPerformerRows.length}
-            pendingRows={patchedPerformerBuckets.pendingRows}
-            activeRows={patchedPerformerBuckets.activeRows}
-            timesheet={performerWS.timesheet}
-            onOpenRequest={handleOpenRequest}
-          />
-        }
-      />
+        ) : null}
       </div>
 
       {activeSurface === 'inbox' && !isCreateMode ? (
@@ -3926,22 +4479,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 SLA risk
               </button>
             </div>
-
-            <label className="relative min-w-0 xl:w-[320px]">
-              <span className="sr-only">Tìm kiếm yêu cầu</span>
-              <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }}>
-                search
-              </span>
-              <input
-                value={requestKeyword}
-                onChange={(event) => {
-                  setRequestKeyword(event.target.value);
-                  setListPage(1);
-                }}
-                placeholder="Tìm mã, tiêu đề, khách hàng..."
-                className="h-8 w-full rounded-xl border border-slate-200 bg-white pl-8 pr-3 text-xs font-medium text-slate-700 outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
-              />
-            </label>
+            <p className="text-[11px] font-semibold text-slate-500">
+              {activeInboxRows.length} việc đang hiển thị
+            </p>
           </div>
         </div>
       ) : null}

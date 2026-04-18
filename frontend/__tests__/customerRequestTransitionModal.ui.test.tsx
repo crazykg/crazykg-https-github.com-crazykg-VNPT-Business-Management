@@ -91,7 +91,9 @@ describe('CustomerRequestTransitionModal UI', () => {
     );
 
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveClass('z-[130]');
     expect(screen.queryByText('Thông tin cho trạng thái mới')).not.toBeInTheDocument();
     expect(screen.getByText('Nội dung khách hàng phản hồi')).toBeInTheDocument();
     expect(document.body.querySelectorAll('input[type="date"]')).toHaveLength(3);

@@ -19,7 +19,7 @@ type CustomerRequestQuickAccessBarProps = {
 };
 
 const SURFACE_LABEL: Record<CustomerRequestSurfaceKey, string> = {
-  inbox: 'Hộp việc',
+  inbox: 'Bảng theo dõi',
   list: 'Danh sách',
   analytics: 'Phân tích',
 };

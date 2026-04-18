@@ -329,11 +329,15 @@ trait InteractsWithCustomerRequestCaseFixtures
 
         $realignWorkflowRuntimeMigration = require base_path('database/migrations/2026_04_06_183000_realign_workflowa_transition_graph_runtime.php');
         $realignWorkflowRuntimeMigration->up();
+
+        $this->createSupplementalCustomerRequestStatusTables();
     }
 
     protected function dropCustomerRequestCaseSchema(): void
     {
         Schema::disableForeignKeyConstraints();
+
+        $this->dropSupplementalCustomerRequestStatusTables();
 
         $realignWorkflowRuntimeMigration = require base_path('database/migrations/2026_04_06_183000_realign_workflowa_transition_graph_runtime.php');
         $realignWorkflowRuntimeMigration->down();
@@ -413,5 +417,64 @@ trait InteractsWithCustomerRequestCaseFixtures
         Schema::dropIfExists('customers');
 
         Schema::enableForeignKeyConstraints();
+    }
+
+    protected function createSupplementalCustomerRequestStatusTables(): void
+    {
+        foreach ($this->supplementalCustomerRequestStatusTables() as $tableName) {
+            if (Schema::hasTable($tableName)) {
+                continue;
+            }
+
+            Schema::create($tableName, function (Blueprint $table) use ($tableName): void {
+                $table->bigIncrements('id');
+                $table->unsignedBigInteger('request_case_id');
+                $table->unsignedBigInteger('status_instance_id')->nullable()->unique();
+                $table->dateTime('received_at')->nullable();
+                $table->dateTime('completed_at')->nullable();
+                $table->dateTime('extended_at')->nullable();
+                $table->unsignedTinyInteger('progress_percent')->nullable();
+                $table->unsignedBigInteger('from_user_id')->nullable();
+                $table->unsignedBigInteger('to_user_id')->nullable();
+                $table->text('notes')->nullable();
+
+                if ($tableName === 'customer_request_waiting_notification') {
+                    $table->unsignedBigInteger('notified_by_user_id')->nullable();
+                    $table->string('notification_channel', 100)->nullable();
+                    $table->text('notification_content')->nullable();
+                    $table->dateTime('planned_notification_at')->nullable();
+                }
+
+                if ($tableName === 'customer_request_closed') {
+                    $table->unsignedBigInteger('closed_by_user_id')->nullable();
+                    $table->dateTime('closed_at')->nullable();
+                    $table->string('closure_reason', 100)->nullable();
+                    $table->text('closure_notes')->nullable();
+                    $table->string('customer_satisfaction', 100)->nullable();
+                }
+
+                $table->unsignedBigInteger('created_by')->nullable();
+                $table->unsignedBigInteger('updated_by')->nullable();
+                $table->timestamps();
+            });
+        }
+    }
+
+    protected function dropSupplementalCustomerRequestStatusTables(): void
+    {
+        foreach (array_reverse($this->supplementalCustomerRequestStatusTables()) as $tableName) {
+            Schema::dropIfExists($tableName);
+        }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function supplementalCustomerRequestStatusTables(): array
+    {
+        return [
+            'customer_request_waiting_notification',
+            'customer_request_closed',
+        ];
     }
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { YeuCau, YeuCauDashboardPayload } from '../types';
@@ -15,6 +15,7 @@ const mockUseCustomerRequestTransition = vi.fn();
 const mockUseCustomerRequestSearch = vi.fn();
 const mockFetchYeuCau = vi.fn();
 const mockFetchCustomerRequestProjectItems = vi.fn();
+const mockFetchWorklogActivityTypes = vi.fn();
 const mockCreateYeuCau = vi.fn();
 const mockCreateYeuCauEstimate = vi.fn();
 const mockStoreYeuCauDetailStatusWorklog = vi.fn();
@@ -64,6 +65,10 @@ vi.mock('../components/customer-request/hooks/useCustomerRequestSearch', () => (
 
 vi.mock('../shared/hooks/useCustomerRequests', () => ({
   useCreateCRC: (...args: unknown[]) => mockUseCreateCRC(...args),
+}));
+
+vi.mock('../services/api/supportConfigApi', () => ({
+  fetchWorklogActivityTypes: (...args: unknown[]) => mockFetchWorklogActivityTypes(...args),
 }));
 
 vi.mock('../services/v5Api', () => ({
@@ -233,6 +238,7 @@ beforeEach(() => {
     })
   );
   mockFetchCustomerRequestProjectItems.mockResolvedValue([]);
+  mockFetchWorklogActivityTypes.mockResolvedValue([]);
   mockFetchYeuCauProcessCatalog.mockResolvedValue({
     master_fields: [],
     groups: [],
@@ -384,6 +390,16 @@ describe('CustomerRequestManagementHub UI', () => {
           }),
         })
       );
+      expect(mockUseCustomerRequestDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({
+            filters: expect.objectContaining({
+              created_from: '2026-01-01 00:00:00',
+              created_to: '2026-04-30 23:59:59',
+            }),
+          }),
+        })
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -405,6 +421,83 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(screen.queryByRole('button', { name: /^Người tạo/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Điều phối/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Người xử lý/i })).not.toBeInTheDocument();
+  });
+
+  it('opens nested worklog and estimate dialogs above the detail frame', async () => {
+    const user = userEvent.setup();
+
+    mockUseCustomerRequestDetail.mockReturnValue({
+      processDetail: {
+        yeu_cau: makeRequest({
+          id: 12,
+          ma_yc: 'CRC-202604-0012',
+          request_code: 'CRC-202604-0012',
+          tieu_de: 'Yc1',
+          summary: 'Yc1',
+          trang_thai: 'new_intake',
+          current_status_code: 'new_intake',
+          current_status_name_vi: 'Tiếp nhận',
+        }),
+        can_write: true,
+        allowed_next_processes: [],
+        available_actions: {
+          can_write: true,
+          can_transition: false,
+          can_add_worklog: true,
+          can_add_estimate: true,
+        },
+        hours_report: {
+          request_case_id: 12,
+          estimated_hours: 8,
+          total_hours_spent: 2,
+          remaining_hours: 6,
+          hours_usage_pct: 25,
+        },
+        estimates: [],
+      },
+      setProcessDetail: vi.fn(),
+      people: [],
+      masterDraft: {},
+      setMasterDraft: vi.fn(),
+      processDraft: {},
+      setProcessDraft: vi.fn(),
+      formAttachments: [],
+      setFormAttachments: vi.fn(),
+      formIt360Tasks: [],
+      setFormIt360Tasks: vi.fn(),
+      formReferenceTasks: [],
+      setFormReferenceTasks: vi.fn(),
+      timeline: [],
+      caseWorklogs: [],
+      setCaseWorklogs: vi.fn(),
+      isDetailLoading: false,
+      refreshDetail: vi.fn(async () => undefined),
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
+    await screen.findByText(/Vận hành yêu cầu/i);
+    await user.click(screen.getByRole('button', { name: /Ghi giờ công/i }));
+    expect(await screen.findByRole('dialog', { name: /Ghi giờ công/i })).toHaveClass('z-[130]');
+    await user.click(screen.getByRole('button', { name: /Huỷ/i }));
+
+    const estimateTabButton = screen
+      .getAllByRole('button')
+      .find((button) => button.textContent?.includes('Ước lượng') && !button.textContent?.includes('Cập nhật'));
+    expect(estimateTabButton).toBeDefined();
+    await user.click(estimateTabButton!);
+    await user.click(screen.getByRole('button', { name: /Cập nhật ước lượng/i }));
+    expect(await screen.findByRole('dialog', { name: /Cập nhật ước lượng/i })).toHaveClass('z-[130]');
   });
 
   it('shows backend-filtered performer-lane targets for a new_intake case already assigned to performer', async () => {
@@ -1107,6 +1200,13 @@ describe('CustomerRequestManagementHub UI', () => {
 
     expect(screen.getByRole('button', { name: /Ghim 0/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Gần đây 0/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).toHaveLength(2);
+    const refreshButton = screen.getByRole('button', { name: /Làm mới/i });
+    const toolbar = refreshButton.parentElement as HTMLElement | null;
+
+    expect(toolbar?.className).toContain('items-center');
+    expect(within(toolbar ?? document.body).getByRole('button', { name: /Bảng theo dõi/i })).toBeInTheDocument();
 
     const listSurfaceButton = screen
       .getAllByRole('button', { name: /Danh sách/i })
@@ -1118,8 +1218,63 @@ describe('CustomerRequestManagementHub UI', () => {
       expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
     });
 
+    expect(screen.getByRole('button', { name: /Làm mới/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Ghim 0/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Gần đây 0/i })).not.toBeInTheDocument();
+  });
+
+  it('merges the top header actions and surface switch into one shell', () => {
+    setViewportWidth(1600);
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+        canImportRequests
+        canExportRequests
+        canWriteRequests
+      />
+    );
+
+    const topShell = screen.getByTestId('customer-request-top-shell');
+
+    expect(within(topShell).getByRole('heading', { name: /Quản lý yêu cầu khách hàng/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Bảng theo dõi/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Danh sách/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Phân tích/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Làm mới/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /^Nhập/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Thêm yêu cầu/i })).toBeInTheDocument();
+  });
+
+  it('shows analytics filters in two visible rows without the advanced filter toggle', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Tất cả khách hàng')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Tất cả kênh')).toBeInTheDocument();
+    expect(screen.getByText('Tất cả ưu tiên')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Bộ lọc/i })).not.toBeInTheDocument();
   });
 
   it('groups intake template, import, and export actions under the Nhập menu', async () => {

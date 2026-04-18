@@ -17,6 +17,7 @@ type CustomerRequestWorkspaceTabsProps = {
   toolbar?: React.ReactNode;
   showPanels?: boolean;
   showTabs?: boolean;
+  chromeMode?: 'card' | 'inline';
 };
 
 type WorkspaceTabMeta = {
@@ -93,11 +94,24 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
   } = props;
   const layoutMode = useCustomerRequestResponsiveLayout();
   const isMobile = layoutMode === 'mobile';
+  const chromeMode = props.chromeMode ?? 'card';
+  const chromeWrapperClass =
+    chromeMode === 'card'
+      ? 'sticky top-0 z-10 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm backdrop-blur-sm'
+      : 'min-w-0';
+  const panelNodes = (
+    <>
+      {activeTab === 'overview' ? overviewWorkspace : null}
+      {activeTab === 'creator' ? creatorWorkspace : null}
+      {activeTab === 'dispatcher' ? dispatcherWorkspace : null}
+      {activeTab === 'performer' ? performerWorkspace : null}
+    </>
+  );
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="sticky top-0 z-10 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+    <div className={showPanels ? 'flex flex-col gap-2' : 'min-w-0'}>
+      <div className={chromeWrapperClass}>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
           {showTabs ? (
             <div className={`grid min-w-0 flex-1 gap-2 ${isMobile ? 'grid-cols-2' : 'md:grid-cols-4'}`}>
               {WORKSPACE_TAB_META.map((tab) => {
@@ -144,21 +158,14 @@ export const CustomerRequestWorkspaceTabs: React.FC<CustomerRequestWorkspaceTabs
           ) : null}
 
           {toolbar ? (
-            <div className={`min-w-0 ${showTabs ? 'xl:w-[520px]' : 'w-full'}`}>
+            <div className={`min-w-0 ${showTabs ? 'flex-1 lg:max-w-none' : 'w-full flex-1'}`}>
               {toolbar}
             </div>
           ) : null}
         </div>
       </div>
 
-      {showPanels ? (
-        <>
-          {activeTab === 'overview' ? overviewWorkspace : null}
-          {activeTab === 'creator' ? creatorWorkspace : null}
-          {activeTab === 'dispatcher' ? dispatcherWorkspace : null}
-          {activeTab === 'performer' ? performerWorkspace : null}
-        </>
-      ) : null}
+      {showPanels ? panelNodes : null}
     </div>
   );
 };

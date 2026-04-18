@@ -19,6 +19,10 @@ interface TagSuggestion extends Tag {
   can_create?: boolean;
 }
 
+const shouldLogTagSuggestionErrors = !(
+  typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+);
+
 const COLOR_OPTIONS = [
   { name: 'blue', hex: '#3B82F6' },
   { name: 'red', hex: '#EF4444' },
@@ -46,12 +50,13 @@ const getColorClasses = (color: string): string => {
   return colorMap[color] || colorMap.blue;
 };
 
-export const TagInput: React.FC<TagInputProps> = ({ 
-  value, 
-  onChange, 
+export const TagInput: React.FC<TagInputProps> = ({
+  value = [],
+  onChange,
   placeholder = 'Thêm tag...',
-  disabled = false 
+  disabled = false
 }) => {
+  const selectedTags = value ?? [];
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -79,7 +84,9 @@ export const TagInput: React.FC<TagInputProps> = ({
           setShowSuggestions(true);
         }
       } catch (error) {
-        console.error('Failed to fetch tag suggestions:', error);
+        if (shouldLogTagSuggestionErrors) {
+          console.error('Failed to fetch tag suggestions:', error);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -102,8 +109,8 @@ export const TagInput: React.FC<TagInputProps> = ({
   }, []);
 
   const handleSelectTag = (tag: Tag) => {
-    if (!value.find(t => t.id === tag.id)) {
-      onChange([...value, tag]);
+    if (!selectedTags.find(t => t.id === tag.id)) {
+      onChange([...selectedTags, tag]);
     }
     setInput('');
     setShowSuggestions(false);
@@ -120,8 +127,8 @@ export const TagInput: React.FC<TagInputProps> = ({
       color: selectedColor,
     };
     
-    if (!value.find(t => t.name === newTag.name)) {
-      onChange([...value, newTag]);
+    if (!selectedTags.find(t => t.name === newTag.name)) {
+      onChange([...selectedTags, newTag]);
     }
     setInput('');
     setShowSuggestions(false);
@@ -129,7 +136,7 @@ export const TagInput: React.FC<TagInputProps> = ({
   };
 
   const handleRemoveTag = (tagToRemove: Tag) => {
-    onChange(value.filter(t => t.id !== tagToRemove.id));
+    onChange(selectedTags.filter(t => t.id !== tagToRemove.id));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -140,8 +147,8 @@ export const TagInput: React.FC<TagInputProps> = ({
       } else {
         handleCreateNewTag();
       }
-    } else if (e.key === 'Backspace' && !input && value.length > 0) {
-      handleRemoveTag(value[value.length - 1]);
+    } else if (e.key === 'Backspace' && !input && selectedTags.length > 0) {
+      handleRemoveTag(selectedTags[selectedTags.length - 1]);
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
       setShowColorPicker(false);
@@ -153,16 +160,16 @@ export const TagInput: React.FC<TagInputProps> = ({
 
   return (
     <div ref={containerRef} className="relative">
-      <div className={`flex flex-wrap gap-2 p-2 border rounded-lg min-h-[42px] transition-all ${
-        disabled 
-          ? 'bg-slate-50 border-slate-200 cursor-not-allowed' 
+      <div className={`flex min-h-[36px] flex-wrap gap-1.5 rounded border px-2.5 py-1.5 transition-all ${
+        disabled
+          ? 'bg-slate-50 border-slate-200 cursor-not-allowed'
           : 'border-slate-300 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary bg-white'
       }`}>
         {/* Selected tags */}
-        {value.map(tag => (
+        {selectedTags.map(tag => (
           <span
             key={tag.id}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getColorClasses(tag.color)} ${
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getColorClasses(tag.color)} ${
               disabled ? 'opacity-60' : ''
             }`}
           >
@@ -172,14 +179,14 @@ export const TagInput: React.FC<TagInputProps> = ({
               <button
                 type="button"
                 onClick={() => handleRemoveTag(tag)}
-                className="ml-1 hover:opacity-70 font-bold"
+                className="ml-0.5 text-[11px] font-bold hover:opacity-70"
               >
                 ×
               </button>
             )}
           </span>
         ))}
-        
+
         {/* Input */}
         {!disabled && (
           <input
@@ -189,15 +196,15 @@ export const TagInput: React.FC<TagInputProps> = ({
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => setShowSuggestions(true)}
-            placeholder={value.length === 0 ? placeholder : 'Thêm tag...'}
-            className="flex-1 min-w-[120px] outline-none text-sm bg-transparent"
+            placeholder={selectedTags.length === 0 ? placeholder : 'Thêm tag...'}
+            className="min-w-[120px] flex-1 bg-transparent text-sm leading-5 outline-none"
           />
         )}
 
         {/* Loading indicator */}
         {isLoading && (
-          <div className="flex items-center text-xs text-slate-400">
-            <svg className="animate-spin h-4 w-4 mr-1" viewBox="0 0 24 24">
+          <div className="flex items-center text-[11px] text-slate-400">
+            <svg className="mr-1 h-4 w-4 animate-spin" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
@@ -208,16 +215,16 @@ export const TagInput: React.FC<TagInputProps> = ({
 
       {/* Suggestions dropdown */}
       {showSuggestions && (input || suggestions.length > 0) && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-auto">
+        <div className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded border border-slate-200 bg-white shadow-lg">
           {/* Existing tags */}
           {suggestions.map(tag => (
             <button
               key={tag.id}
               type="button"
               onClick={() => handleSelectTag(tag)}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 flex items-center justify-between border-b border-slate-100 last:border-b-0"
+              className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-slate-50 last:border-b-0"
             >
-              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${getColorClasses(tag.color)}`}>
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getColorClasses(tag.color)}`}>
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLOR_OPTIONS.find(c => c.name === tag.color)?.hex }} />
                 {tag.name}
               </span>
@@ -235,16 +242,16 @@ export const TagInput: React.FC<TagInputProps> = ({
               <button
                 type="button"
                 onClick={handleCreateNewTag}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 text-primary font-medium flex items-center gap-2"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-primary hover:bg-slate-50"
               >
                 <span className="text-lg">+</span>
                 <span>Tạo tag mới: "<strong>{input}</strong>"</span>
               </button>
-              
+
               {/* Color picker */}
-              <div className="px-3 py-2 bg-slate-50 border-t border-slate-100">
-                <div className="text-xs text-slate-500 mb-2">Chọn màu cho tag:</div>
-                <div className="flex gap-2 flex-wrap">
+              <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
+                <div className="mb-2 text-[11px] text-slate-500">Chọn màu cho tag:</div>
+                <div className="flex flex-wrap gap-2">
                   {COLOR_OPTIONS.map(color => (
                     <button
                       key={color.name}

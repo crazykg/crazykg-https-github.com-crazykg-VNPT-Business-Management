@@ -6,7 +6,7 @@ import { CustomerRequestWorklogModal } from '../components/customer-request/Cust
 
 const mockFetchWorklogActivityTypes = vi.fn();
 
-vi.mock('../services/v5Api', () => ({
+vi.mock('../services/api/supportConfigApi', () => ({
   fetchWorklogActivityTypes: (...args: unknown[]) => mockFetchWorklogActivityTypes(...args),
 }));
 
@@ -42,13 +42,14 @@ describe('CustomerRequestWorklogModal UI', () => {
       />
     );
 
+    expect(screen.getByRole('dialog', { name: /Ghi giờ công/i })).toHaveClass('z-[130]');
     await screen.findByRole('option', { name: 'Phân tích' });
 
     await user.type(screen.getByLabelText('Giờ công'), '1.5');
     fireEvent.change(screen.getByLabelText('Ngày làm việc'), {
       target: { value: '2026-03-23' },
     });
-    await user.selectOptions(screen.getByLabelText('Activity'), 'ANALYSIS');
+    await user.selectOptions(screen.getByLabelText('Loại hoạt động'), 'ANALYSIS');
     await user.type(screen.getByLabelText('Nội dung công việc'), 'Đã xử lý và kiểm tra lại yêu cầu.');
     await user.click(screen.getByRole('button', { name: /Lưu giờ công/i }));
 
@@ -58,6 +59,48 @@ describe('CustomerRequestWorklogModal UI', () => {
       activity_type_code: 'ANALYSIS',
       hours_spent: '1.5',
       is_billable: true,
+      difficulty_note: null,
+      proposal_note: null,
+      difficulty_status: 'none',
+      detail_status_action: null,
+    });
+  });
+
+  it('allows submitting without work content', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    mockFetchWorklogActivityTypes.mockResolvedValue([]);
+
+    render(
+      <CustomerRequestWorklogModal
+        open
+        isSubmitting={false}
+        requestCode="CRC-202603-0009"
+        requestSummary="Hỗ trợ LIS"
+        hoursReport={null}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await user.type(screen.getByLabelText('Giờ công'), '0.5');
+    fireEvent.change(screen.getByLabelText('Ngày làm việc'), {
+      target: { value: '2026-03-24' },
+    });
+    await user.click(screen.getByRole('button', { name: /Lưu giờ công/i }));
+
+    expect(screen.queryByText('Nhập nội dung công việc.')).not.toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledWith({
+      work_content: '',
+      work_date: '2026-03-24',
+      activity_type_code: null,
+      hours_spent: '0.5',
+      is_billable: true,
+      difficulty_note: null,
+      proposal_note: null,
+      difficulty_status: 'none',
+      detail_status_action: null,
     });
   });
 });

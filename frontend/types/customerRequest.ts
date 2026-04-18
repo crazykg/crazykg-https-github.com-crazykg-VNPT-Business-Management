@@ -318,6 +318,7 @@ export interface YeuCau {
   current_status_code?: string | null;
   current_status_name_vi?: string | null;
   current_status_instance_id?: string | number | null;
+  current_entered_at?: string | null;
   nguoi_xu_ly_id?: string | number | null;
   nguoi_xu_ly_name?: string | null;
   current_owner_user_id?: string | number | null;
@@ -331,11 +332,7 @@ export interface YeuCau {
   receiver_username?: string | null;
   receiver_code?: string | null;
   performer_id?: string | number | null;
-  nguoi_xu_ly_id?: string | number | null;
-  nguoi_xu_ly_name?: string | null;
-  current_owner_user_id?: string | number | null;
-  current_owner_name?: string | null;
-  current_owner_field?: string | null;
+  completed_at?: string | null;
   process_row?: YeuCauProcessRow | null;
   status_row?: YeuCauProcessRow | null;
 }
@@ -553,10 +550,26 @@ export interface YeuCauDashboardAlertCounts {
   sla_risk: number;
 }
 
+export interface YeuCauDashboardOperationalCounts {
+  total_cases: number;
+  active_cases: number;
+  completed_cases: number;
+  waiting_customer_feedback_cases: number;
+  completion_rate: number;
+}
+
+export interface YeuCauDashboardOperationalSummary extends YeuCauDashboardOperationalCounts {
+  by_type: {
+    support: YeuCauDashboardOperationalCounts;
+    programming: YeuCauDashboardOperationalCounts;
+  };
+}
+
 export interface YeuCauDashboardSummary {
   total_cases: number;
   status_counts: YeuCauDashboardStatusCount[];
   alert_counts: YeuCauDashboardAlertCounts;
+  operational?: YeuCauDashboardOperationalSummary;
 }
 
 export interface YeuCauDashboardTopCustomer {
@@ -575,11 +588,35 @@ export interface YeuCauDashboardTopPerformer {
   performer_user_id: string | number;
   performer_name?: string | null;
   count: number;
+  department_id?: string | number | null;
+  department_name?: string | null;
+  total_cases?: number;
+  active_cases?: number;
+  completed_cases?: number;
+  waiting_customer_feedback_cases?: number;
+  completion_rate?: number;
+  support_cases?: number;
+  programming_cases?: number;
 }
 
 export interface YeuCauDashboardAttentionCase {
   request_case: YeuCau;
   reasons: string[];
+}
+
+export interface YeuCauDashboardUnitMetric {
+  unit_key: string;
+  customer_id?: string | number | null;
+  customer_code?: string | null;
+  customer_name: string;
+  total_cases: number;
+  active_cases: number;
+  completed_cases: number;
+  waiting_customer_feedback_cases: number;
+  completion_rate: number;
+  backlog_cases?: number;
+  support_cases: number;
+  programming_cases: number;
 }
 
 export interface YeuCauDashboardPayload {
@@ -588,6 +625,8 @@ export interface YeuCauDashboardPayload {
   top_customers: YeuCauDashboardTopCustomer[];
   top_projects?: YeuCauDashboardTopProject[];
   top_performers: YeuCauDashboardTopPerformer[];
+  unit_chart?: YeuCauDashboardUnitMetric[];
+  top_backlog_units?: YeuCauDashboardUnitMetric[];
   attention_cases: YeuCauDashboardAttentionCase[];
 }
 

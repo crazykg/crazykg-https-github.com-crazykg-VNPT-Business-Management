@@ -221,11 +221,139 @@ describe('CustomerRequestDetailPane UI', () => {
       />
     );
 
-    expect(screen.getByText('Đính kèm nhanh')).toBeInTheDocument();
-    expect(screen.getByText('Kế hoạch khi tạo')).toBeInTheDocument();
+    expect(screen.getByText('Ngữ cảnh')).toBeInTheDocument();
+    expect(screen.getByText('Workflow')).toBeInTheDocument();
+    expect(screen.getByText('Tệp đính kèm')).toBeInTheDocument();
+    expect(screen.getByText('Thẻ')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Task\/Ref/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Giờ công/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Ước lượng/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Kế hoạch khi tạo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tổng quan ca')).not.toBeInTheDocument();
+  });
+
+  it('hides the summary bar in full modal update presentation', () => {
+    render(
+      <CustomerRequestDetailPane
+        isDetailLoading={false}
+        isListLoading={false}
+        isCreateMode={false}
+        presentation="full_modal"
+        processDetail={{
+          yeu_cau: {
+            id: 20,
+            ma_yc: 'CRC-202603-0020',
+            request_code: 'CRC-202603-0020',
+            tieu_de: 'YC full modal',
+            summary: 'YC full modal',
+            trang_thai: 'new_intake',
+            current_status_code: 'new_intake',
+            current_status_name_vi: 'Tiếp nhận',
+            ket_qua: 'dang_xu_ly',
+            customer_name: 'VNPT Hà Nội',
+            khach_hang_name: 'VNPT Hà Nội',
+            project_name: 'Dashboard SOC',
+          },
+          process: {
+            process_code: 'new_intake',
+            process_label: 'Mới tiếp nhận',
+            group_code: 'intake',
+            group_label: 'Tiếp nhận',
+            table_name: 'customer_request_cases',
+            default_status: 'new_intake',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          allowed_next_processes: [],
+          transition_allowed: false,
+          can_write: true,
+          available_actions: {
+            can_write: true,
+          },
+          estimates: [],
+          hours_report: null,
+        } as never}
+        canTransitionActiveRequest={false}
+        transitionOptions={[]}
+        transitionStatusCode=""
+        onTransitionStatusCodeChange={vi.fn()}
+        onOpenTransitionModal={vi.fn()}
+        isSaving={false}
+        canEditActiveForm={true}
+        masterFields={[
+          { name: 'summary', label: 'Nội dung yêu cầu', type: 'text', required: true },
+        ]}
+        masterDraft={{ summary: 'YC full modal' }}
+        onMasterFieldChange={vi.fn()}
+        editorProcessMeta={null}
+        processDraft={{}}
+        onProcessDraftChange={vi.fn()}
+        customers={[{ id: 20, uuid: 'customer-20', customer_code: 'C020', customer_name: 'VNPT Hà Nội', tax_code: '0123456789', address: 'Hà Nội' }]}
+        employees={employees}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        availableProjectItems={[selectedProjectItem]}
+        selectedProjectItem={selectedProjectItem}
+        selectedCustomerId="20"
+        activeTaskTab="IT360"
+        onActiveTaskTabChange={vi.fn()}
+        onAddTaskRow={vi.fn()}
+        formIt360Tasks={[]}
+        onUpdateIt360TaskRow={vi.fn()}
+        onRemoveIt360TaskRow={vi.fn()}
+        formReferenceTasks={[]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
+        taskReferenceOptions={[]}
+        onUpdateReferenceTaskRow={vi.fn()}
+        onTaskReferenceSearchTermChange={vi.fn()}
+        taskReferenceSearchTerm=""
+        taskReferenceSearchError=""
+        isTaskReferenceSearchLoading={false}
+        onRemoveReferenceTaskRow={vi.fn()}
+        formAttachments={[]}
+        onUploadAttachment={async () => undefined}
+        onDeleteAttachment={async () => undefined}
+        isUploadingAttachment={false}
+        attachmentError=""
+        attachmentNotice=""
+        relatedSummaryItems={[
+          { label: 'Người tiếp nhận', value: 'Nguyễn A' },
+          { label: 'Khách hàng', value: 'VNPT Hà Nội' },
+        ]}
+        currentHoursReport={null}
+        estimateHistory={[]}
+        timeline={[]}
+        caseWorklogs={[]}
+        canOpenCreatorFeedbackModal={false}
+        onOpenCreatorFeedbackModal={vi.fn()}
+        canOpenNotifyCustomerModal={false}
+        onOpenNotifyCustomerModal={vi.fn()}
+        canOpenWorklogModal={false}
+        onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
+        isSubmittingWorklog={false}
+        canOpenEstimateModal={false}
+        onOpenEstimateModal={vi.fn()}
+        isSubmittingEstimate={false}
+        dispatcherQuickActions={[]}
+        onRunDispatcherAction={vi.fn()}
+        performerQuickActions={[]}
+        onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Kết quả')).not.toBeInTheDocument();
+    expect(screen.queryByText('Người tiếp nhận')).not.toBeInTheDocument();
+    expect(screen.getByText('Trạng thái xử lý')).toBeInTheDocument();
+    expect(screen.getByText('Thông tin yêu cầu')).toBeInTheDocument();
+    expect(screen.queryByText('Tổng quan ca')).not.toBeInTheDocument();
+    expect(screen.queryByText('Người liên quan')).not.toBeInTheDocument();
   });
 
   it('shows direct worklog and estimate actions inside their tabs when actions are allowed', async () => {

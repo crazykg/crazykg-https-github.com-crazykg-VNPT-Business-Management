@@ -1056,7 +1056,6 @@ class CustomerRequestCaseDomainService
         }
 
         $payload = $this->writeService->filterByTableColumns('customer_request_worklogs', [
-            'work_content' => $this->normalizeNullableString($request->input('work_content')),
             'difficulty_note' => $this->normalizeNullableString($request->input('difficulty_note')),
             'proposal_note' => $this->normalizeNullableString($request->input('proposal_note')),
             'difficulty_status' => $difficultyStatus,
@@ -1069,6 +1068,10 @@ class CustomerRequestCaseDomainService
             'updated_by' => $actorId,
             'updated_at' => now(),
         ]);
+
+        if ($request->exists('work_content')) {
+            $payload['work_content'] = $this->normalizeNullableString($request->input('work_content')) ?? '';
+        }
 
         unset($payload['status_instance_id'], $payload['status_code'], $payload['detail_status_action']);
 

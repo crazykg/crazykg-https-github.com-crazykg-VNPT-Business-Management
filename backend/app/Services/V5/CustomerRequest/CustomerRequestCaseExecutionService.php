@@ -176,10 +176,7 @@ class CustomerRequestCaseExecutionService
 
     public function storeWorklog(Request $request, CustomerRequestCase $case, ?int $actorId): JsonResponse
     {
-        $workContent = $this->support->normalizeNullableString($request->input('work_content'));
-        if ($workContent === null) {
-            return response()->json(['message' => 'work_content là bắt buộc.'], 422);
-        }
+        $workContent = $this->support->normalizeNullableString($request->input('work_content')) ?? '';
 
         $statusInstanceId = $this->support->parseNullableInt($request->input('status_instance_id'))
             ?? $this->support->parseNullableInt($case->current_status_instance_id);

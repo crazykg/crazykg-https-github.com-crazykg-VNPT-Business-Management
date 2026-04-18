@@ -97,7 +97,10 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Cập nhật ước lượng"
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={(event) => {
         if (event.target === event.currentTarget && !isSubmitting) {
           onClose();

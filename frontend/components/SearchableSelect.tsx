@@ -326,7 +326,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     return [...baseOptions, customOption];
   }, [customOption, options, searchTerm]);
 
-  const resolvedOptionEstimateSize = optionEstimateSize ?? (compact ? 36 : 44);
+  const resolvedOptionEstimateSize = optionEstimateSize ?? (compact ? 40 : 44);
   const rowVirtualizer = useVirtualizer({
     count: filteredOptions.length,
     getScrollElement: () => optionsScrollRef.current,
@@ -532,7 +532,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   );
 
   const baseTriggerClass = compact
-    ? 'relative flex w-full items-center h-8 px-3 rounded border border-slate-300 bg-white text-left text-xs text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed'
+    ? 'relative flex w-full items-center h-9 px-3 rounded border border-slate-200 bg-white text-left text-sm text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed'
     : 'relative flex w-full items-center h-10 px-3 rounded border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed';
 
   const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${selectedOption?.triggerButtonClassName || ''} ${triggerClassName}`.trim();
@@ -549,7 +549,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       ? 'bg-slate-100 text-slate-900'
       : 'text-slate-700 hover:bg-slate-50';
 
-    return `block w-full rounded px-3 py-2 text-xs leading-5 transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
+    return `${compact ? 'block w-full rounded px-3 py-2 text-sm leading-5' : 'block w-full rounded px-3 py-2 text-xs leading-5'} transition-colors ${baseClassName} ${option.optionClassName || ''} ${isSelected ? option.selectedOptionClassName || '' : ''} ${isHighlighted ? option.highlightedOptionClassName || '' : ''}`.trim();
   };
 
   const renderOptionBody = useCallback(
@@ -580,7 +580,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   }, [portalMaxWidth, portalMinWidth]);
 
   const renderDropdownOptions = useCallback(() => {
-    const scrollClassName = `${compact ? 'max-h-44' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`;
+    const scrollClassName = `${compact ? 'max-h-48' : 'max-h-60'} overflow-y-auto custom-scrollbar p-1`;
 
     if (filteredOptions.length === 0) {
       return (
@@ -676,7 +676,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
       {label ? (
         <label
           id={labelId}
-          className={`${denseLabel ? 'mb-0.5' : 'mb-1'} block text-xs font-semibold text-neutral`}
+          className={`${denseLabel ? 'mb-1' : 'mb-1'} block text-xs font-semibold text-neutral`}
         >
           {label} {required && <span className="text-red-500">*</span>}
         </label>
@@ -743,7 +743,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         >
           <span
             title={selectedOption?.label || placeholder}
-            className={`block w-full truncate pr-8 text-left leading-6 ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
+            className={`block w-full truncate pr-8 text-left leading-5 ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
           >
             {selectedOption?.label || placeholder}
           </span>
@@ -769,7 +769,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         <div
           ref={dropdownRef}
           style={portalStyle}
-          className={`rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${dropdownClassName}`.trim()}
+            className={`rounded border border-slate-200 bg-white shadow-2xl overflow-hidden ${dropdownClassName}`.trim()}
         >
           <div className="border-b border-slate-100 bg-slate-50 p-2">
             <div className="relative">
@@ -785,7 +785,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 aria-label={searchInputAriaLabel}
-                className="h-8 w-full rounded border border-slate-300 bg-white py-0 pl-8 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="h-9 w-full rounded border border-slate-200 bg-white py-0 pl-8 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 onClick={(event) => event.stopPropagation()}
               />
               {searching ? (
@@ -801,7 +801,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         ) : <div
           ref={dropdownRef}
           style={nonPortalDropdownStyle}
-          className={`absolute left-0 z-[120] w-full rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden ${
+          className={`absolute left-0 z-[120] w-full rounded border border-slate-200 bg-white shadow-2xl overflow-hidden ${
             openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
           } ${dropdownClassName}`.trim()}
         >
@@ -819,7 +819,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
                 aria-label={searchInputAriaLabel}
-                className="h-8 w-full rounded border border-slate-300 bg-white py-0 pl-8 pr-8 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="h-9 w-full rounded border border-slate-200 bg-white py-0 pl-8 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 onClick={(event) => event.stopPropagation()}
               />
               {searching ? (

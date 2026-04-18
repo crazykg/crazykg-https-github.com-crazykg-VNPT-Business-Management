@@ -88,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
         { id: 'businesses', icon: 'category', label: 'Lĩnh vực kinh doanh' },
         { id: 'vendors', icon: 'storefront', label: 'Đối tác/Nhà cung cấp' },
         { id: 'products', icon: 'inventory_2', label: 'Sản phẩm/Dịch vụ' },
+        { id: 'product_quotes', icon: 'description', label: 'Báo giá' },
         { id: 'product_packages', icon: 'inventory', label: 'Gói sản phẩm' },
       ]
     },
