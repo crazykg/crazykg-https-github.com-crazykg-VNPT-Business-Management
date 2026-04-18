@@ -36,6 +36,7 @@ interface ProductQuotationRow {
   id: string;
   catalogValue: string;
   productId: string;
+  packageId: string;
   productName: string;
   unit: string;
   quantity: string;
@@ -59,6 +60,7 @@ interface QuotationCatalogItem {
   value: string;
   source: 'package' | 'product';
   productId: string;
+  packageId: string;
   productCode: string;
   packageCode: string;
   label: string;
@@ -127,6 +129,7 @@ const createEmptyRow = (): ProductQuotationRow => ({
   id: createRowId(),
   catalogValue: '',
   productId: '',
+  packageId: '',
   productName: '',
   unit: '',
   quantity: '1',
@@ -359,6 +362,7 @@ const buildSnapshotFromDraftDetail = (draft: ProductQuotationDraft): string =>
       .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
       .map((item) => ({
         product_id: item.product_id ?? null,
+        package_id: item.package_id ?? null,
         product_name: String(item.product_name || ''),
         unit: String(item.unit || ''),
         quantity: Number(item.quantity || 0),
@@ -782,6 +786,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           value: `package:${String(productPackage.id)}`,
           source: 'package' as const,
           productId: String(productPackage.product_id || ''),
+          packageId: String(productPackage.id || ''),
           productCode,
           packageCode,
           label,
@@ -824,6 +829,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             value: `product:${String(product.id)}`,
             source: 'product' as const,
             productId: String(product.id || ''),
+            packageId: '',
             productCode,
             packageCode: '',
             label,
@@ -867,6 +873,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         value: `product:${String(product.id)}`,
         source: 'product' as const,
         productId: String(product.id || ''),
+        packageId: '',
         productCode,
         packageCode: '',
         label,
@@ -916,6 +923,19 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
     return nextMap;
   }, [quotationCatalog]);
 
+  const quotationCatalogValueByPackageId = useMemo(() => {
+    const nextMap = new Map<string, string>();
+
+    quotationCatalog.forEach((catalogItem) => {
+      const packageId = String(catalogItem.packageId || '').trim();
+      if (packageId !== '' && !nextMap.has(packageId)) {
+        nextMap.set(packageId, catalogItem.value);
+      }
+    });
+
+    return nextMap;
+  }, [quotationCatalog]);
+
   const quotationCatalogValueByLookupKey = useMemo(() => {
     const nextMap = new Map<string, string>();
 
@@ -932,6 +952,14 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
   const resolveDraftRowCatalogValue = useCallback(
     (item: ProductQuotationDraft['items'][number]): string => {
+      const packageId = item.package_id ? String(item.package_id) : '';
+      if (packageId !== '') {
+        const directPackageMatch = quotationCatalogValueByPackageId.get(packageId);
+        if (directPackageMatch) {
+          return directPackageMatch;
+        }
+      }
+
       const productId = item.product_id ? String(item.product_id) : '';
       if (productId === '') {
         return '';
@@ -962,7 +990,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
 
       return '';
     },
-    [quotationCatalogValueByLookupKey, quotationCatalogValuesByProductId]
+    [quotationCatalogValueByLookupKey, quotationCatalogValueByPackageId, quotationCatalogValuesByProductId]
   );
 
   const productById = useMemo(
@@ -1214,6 +1242,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
       signatory_name: quotationSettings.signatoryName.trim(),
       items: normalizedRows.map((row) => ({
         product_id: row.productId ? Number(row.productId) : null,
+        package_id: row.packageId ? Number(row.packageId) : null,
         product_name: row.productName,
         unit: row.unit,
         quantity: row.quantityValue,
@@ -1282,6 +1311,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
             id: String(item.id || createRowId()),
             catalogValue: resolveDraftRowCatalogValue(item),
             productId: item.product_id ? String(item.product_id) : '',
+            packageId: item.package_id ? String(item.package_id) : '',
             productName: String(item.product_name || ''),
             unit: String(item.unit || ''),
             quantity: formatQuantityInputValue(Number(item.quantity || 0)),
@@ -1792,6 +1822,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
           ...current,
           catalogValue: '',
           productId: '',
+          packageId: '',
           productName: '',
           unit: '',
           unitPrice: '0',
@@ -1803,6 +1834,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
         ...current,
         catalogValue,
         productId: catalogItem.productId,
+        packageId: catalogItem.packageId,
         productName: catalogItem.label,
         unit: catalogItem.unit,
         unitPrice: String(Number(catalogItem.unitPrice || 0)),

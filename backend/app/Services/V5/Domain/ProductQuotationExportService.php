@@ -158,6 +158,7 @@ class ProductQuotationExportService
      *   total_in_words: string,
      *   items: array<int, array{
      *     product_id: int|null,
+     *     package_id: int|null,
      *     product_name: string,
      *     unit: string,
      *     quantity: float,
@@ -170,7 +171,7 @@ class ProductQuotationExportService
      *   }>
      * }
      */
-    public function normalizeQuotationPayload(array $payload): array
+    public function normalizeQuotationPayload(array $payload, bool $allowDeletedPackages = false): array
     {
         $validator = Validator::make($payload, [
             'recipient_name' => ['required', 'string', 'max:255'],
@@ -187,6 +188,7 @@ class ProductQuotationExportService
             'signatory_name' => ['nullable', 'string', 'max:255'],
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*.product_id' => ['nullable', 'integer'],
+            'items.*.package_id' => ['nullable', 'integer'],
             'items.*.product_name' => ['required', 'string', 'max:500'],
             'items.*.unit' => ['nullable', 'string', 'max:100'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
@@ -221,6 +223,8 @@ class ProductQuotationExportService
             }
         }
 
+        $this->validateQuotationItemPackages($validated['items'] ?? [], $allowDeletedPackages);
+
         $defaultVatRate = round((float) ($validated['vat_rate'] ?? 10), 2);
         $items = [];
         $subtotal = 0.0;
@@ -237,6 +241,9 @@ class ProductQuotationExportService
 
             $items[] = [
                 'product_id' => isset($item['product_id']) ? (int) $item['product_id'] : null,
+                'package_id' => isset($item['package_id']) && $item['package_id'] !== '' && (int) $item['package_id'] > 0
+                    ? (int) $item['package_id']
+                    : null,
                 'product_name' => trim((string) $item['product_name']),
                 'unit' => trim((string) ($item['unit'] ?? '')),
                 'quantity' => $quantity,
@@ -299,6 +306,66 @@ class ProductQuotationExportService
             'total_in_words' => $this->capitalizeFirstLetter($this->toVietnameseMoneyText((int) round($total))),
             'items' => $items,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function validateQuotationItemPackages(array $items, bool $allowDeletedPackages = false): void
+    {
+        $packageIds = collect($items)
+            ->pluck('package_id')
+            ->filter(fn ($value): bool => $value !== null && $value !== '' && (int) $value > 0)
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($packageIds === []) {
+            return;
+        }
+
+        if (! Schema::hasTable('product_packages')) {
+            throw ValidationException::withMessages([
+                'items' => ['Không tìm thấy bảng product_packages để kiểm tra gói sản phẩm đã chọn.'],
+            ]);
+        }
+
+        $packageQuery = DB::table('product_packages')
+            ->select(['id', 'product_id'])
+            ->whereIn('id', $packageIds);
+
+        if (! $allowDeletedPackages && Schema::hasColumn('product_packages', 'deleted_at')) {
+            $packageQuery->whereNull('deleted_at');
+        }
+
+        $packageProductMap = $packageQuery
+            ->get()
+            ->mapWithKeys(fn ($row): array => [(string) $row->id => (int) ($row->product_id ?? 0)])
+            ->all();
+
+        $missingIds = array_values(array_diff($packageIds, array_map('intval', array_keys($packageProductMap))));
+        if ($missingIds !== []) {
+            throw ValidationException::withMessages([
+                'items' => ['Không tìm thấy gói sản phẩm: ' . implode(', ', $missingIds) . '.'],
+            ]);
+        }
+
+        foreach ($items as $index => $item) {
+            $packageId = isset($item['package_id']) ? (int) $item['package_id'] : 0;
+            if ($packageId <= 0) {
+                continue;
+            }
+
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : 0;
+            $ownerProductId = (int) ($packageProductMap[(string) $packageId] ?? 0);
+
+            if ($productId <= 0 || $ownerProductId !== $productId) {
+                throw ValidationException::withMessages([
+                    "items.$index.package_id" => ['Gói sản phẩm không thuộc sản phẩm đã chọn.'],
+                ]);
+            }
+        }
     }
 
     public function buildWordBinaryFromNormalizedQuotation(array $quotation): string
@@ -1388,9 +1455,23 @@ class ProductQuotationExportService
 
         foreach ($quotation['items'] as $item) {
             $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
+            $packageId = isset($item['package_id']) ? (int) $item['package_id'] : null;
             $fallbackProductName = trim((string) ($item['product_name'] ?? ''));
-            $catalog = $productId !== null && $productId > 0
-                ? ($catalogCache[$productId] ??= $this->loadAppendixCatalogForQuotationItem($productId))
+            $cacheKey = implode('::', [
+                (int) ($productId ?? 0),
+                (int) ($packageId ?? 0),
+                trim((string) ($item['unit'] ?? '')),
+                number_format((float) ($item['unit_price'] ?? 0), 2, '.', ''),
+                trim((string) ($item['note'] ?? '')),
+            ]);
+            $catalog = (($productId !== null && $productId > 0) || ($packageId !== null && $packageId > 0))
+                ? ($catalogCache[$cacheKey] ??= $this->loadAppendixCatalogForQuotationItem(
+                    $productId !== null && $productId > 0 ? $productId : null,
+                    $packageId !== null && $packageId > 0 ? $packageId : null,
+                    trim((string) ($item['unit'] ?? '')),
+                    round((float) ($item['unit_price'] ?? 0), 2),
+                    trim((string) ($item['note'] ?? ''))
+                ))
                 : null;
 
             $rows = $catalog['rows'] ?? [];
@@ -1418,14 +1499,33 @@ class ProductQuotationExportService
     /**
      * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
      */
-    private function loadAppendixCatalogForQuotationItem(int $productId): ?array
+    private function loadAppendixCatalogForQuotationItem(
+        ?int $productId,
+        ?int $packageId = null,
+        string $unit = '',
+        float $unitPrice = 0,
+        string $note = ''
+    ): ?array
     {
-        $packageCatalog = $this->loadAppendixCatalogForMatchingPackage($productId);
-        if (($packageCatalog['rows'] ?? []) !== []) {
-            return $packageCatalog;
+        if ($packageId !== null && $packageId > 0) {
+            $packageCatalog = $this->loadAppendixCatalogForPackageId($packageId);
+            if (($packageCatalog['rows'] ?? []) !== []) {
+                return $packageCatalog;
+            }
         }
 
-        return $this->loadAppendixCatalogForProduct($productId);
+        if ($productId !== null && $productId > 0) {
+            $productCatalog = $this->loadAppendixCatalogForProduct($productId);
+            if (($productCatalog['rows'] ?? []) !== []) {
+                return $productCatalog;
+            }
+
+            if ($packageId === null || $packageId <= 0) {
+                return $this->loadAppendixCatalogForMatchingPackage($productId, $unit, $unitPrice, $note);
+            }
+        }
+
+        return null;
     }
 
     private function buildWordAppendixSections(array $quotation, int $tableWidth): string
@@ -1655,7 +1755,7 @@ class ProductQuotationExportService
     /**
      * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
      */
-    private function loadAppendixCatalogForMatchingPackage(int $productId): ?array
+    private function loadAppendixCatalogForPackageId(int $packageId): ?array
     {
         if (
             ! Schema::hasTable('product_packages')
@@ -1674,12 +1774,7 @@ class ProductQuotationExportService
 
         $package = DB::table('product_packages')
             ->select($packageColumns)
-            ->where('product_id', $productId)
-            ->when(
-                Schema::hasColumn('product_packages', 'deleted_at'),
-                fn ($query) => $query->whereNull('deleted_at')
-            )
-            ->orderBy('id')
+            ->where('id', $packageId)
             ->first();
 
         if (! $package) {
@@ -1721,6 +1816,158 @@ class ProductQuotationExportService
             'product_name' => trim((string) ($packageRow['package_name'] ?? $packageRow['package_code'] ?? '')),
             'rows' => $rows,
         ];
+    }
+
+    /**
+     * @return array{product_name: string, rows: array<int, array{type: string, stt: string, name: string, description: string}>}|null
+     */
+    private function loadAppendixCatalogForMatchingPackage(
+        int $productId,
+        string $unit = '',
+        float $unitPrice = 0,
+        string $note = ''
+    ): ?array {
+        $packageId = $this->resolveLegacyPackageIdForQuotationItem($productId, $unit, $unitPrice, $note);
+        if ($packageId === null) {
+            return null;
+        }
+
+        return $this->loadAppendixCatalogForPackageId($packageId);
+    }
+
+    private function resolveLegacyPackageIdForQuotationItem(
+        int $productId,
+        string $unit = '',
+        float $unitPrice = 0,
+        string $note = ''
+    ): ?int {
+        if (! Schema::hasTable('product_packages')) {
+            return null;
+        }
+
+        static $packageCandidatesByProduct = [];
+
+        if (! array_key_exists($productId, $packageCandidatesByProduct)) {
+            $packageColumns = ['id', 'product_id'];
+            foreach (['unit', 'standard_price', 'description'] as $column) {
+                if (Schema::hasColumn('product_packages', $column)) {
+                    $packageColumns[] = $column;
+                }
+            }
+
+            $packageCandidatesByProduct[$productId] = DB::table('product_packages')
+                ->select($packageColumns)
+                ->where('product_id', $productId)
+                ->orderBy('id')
+                ->get()
+                ->map(fn ($row): array => (array) $row)
+                ->all();
+        }
+
+        $candidates = $packageCandidatesByProduct[$productId];
+        if ($candidates === []) {
+            return null;
+        }
+
+        $normalizedUnit = trim($unit);
+        if ($normalizedUnit !== '') {
+            $filteredByUnit = array_values(array_filter(
+                $candidates,
+                static fn (array $candidate): bool => trim((string) ($candidate['unit'] ?? '')) === $normalizedUnit
+            ));
+            if ($filteredByUnit !== []) {
+                $candidates = $filteredByUnit;
+            }
+        }
+
+        if ($unitPrice > 0) {
+            $filteredByPrice = array_values(array_filter(
+                $candidates,
+                static fn (array $candidate): bool => round((float) ($candidate['standard_price'] ?? 0), 2) === round($unitPrice, 2)
+            ));
+            if ($filteredByPrice !== []) {
+                $candidates = $filteredByPrice;
+            }
+        }
+
+        $normalizedNote = $this->normalizeAppendixComparableText($note);
+        if ($normalizedNote !== '') {
+            $filteredByDescription = array_values(array_filter(
+                $candidates,
+                fn (array $candidate): bool => $this->noteContainsAppendixDescription(
+                    $normalizedNote,
+                    $this->normalizeAppendixComparableText((string) ($candidate['description'] ?? ''))
+                )
+            ));
+            if ($filteredByDescription !== []) {
+                $candidates = $filteredByDescription;
+            }
+        }
+
+        if (count($candidates) === 1) {
+            return (int) ($candidates[0]['id'] ?? 0);
+        }
+
+        if (count($candidates) > 1) {
+            $catalogCandidates = array_values(array_filter(
+                $candidates,
+                fn (array $candidate): bool => $this->packageHasAppendixCatalog((int) ($candidate['id'] ?? 0))
+            ));
+
+            if (count($catalogCandidates) === 1) {
+                return (int) ($catalogCandidates[0]['id'] ?? 0);
+            }
+        }
+
+        return null;
+    }
+
+    private function packageHasAppendixCatalog(int $packageId): bool
+    {
+        if ($packageId <= 0) {
+            return false;
+        }
+
+        static $catalogPresence = [];
+        if (array_key_exists($packageId, $catalogPresence)) {
+            return $catalogPresence[$packageId];
+        }
+
+        if (
+            ! Schema::hasTable('product_package_feature_groups')
+            || ! Schema::hasTable('product_package_features')
+        ) {
+            $catalogPresence[$packageId] = false;
+
+            return false;
+        }
+
+        $groupQuery = DB::table('product_package_feature_groups')->where('package_id', $packageId);
+        if (Schema::hasColumn('product_package_feature_groups', 'deleted_at')) {
+            $groupQuery->whereNull('deleted_at');
+        }
+
+        $featureQuery = DB::table('product_package_features')->where('package_id', $packageId);
+        if (Schema::hasColumn('product_package_features', 'deleted_at')) {
+            $featureQuery->whereNull('deleted_at');
+        }
+        if (Schema::hasColumn('product_package_features', 'status')) {
+            $featureQuery->where('status', 'ACTIVE');
+        }
+
+        $catalogPresence[$packageId] = $groupQuery->exists() && $featureQuery->exists();
+
+        return $catalogPresence[$packageId];
+    }
+
+    private function normalizeAppendixComparableText(string $value): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $value) ?? ''), 'UTF-8');
+    }
+
+    private function noteContainsAppendixDescription(string $note, string $description): bool
+    {
+        return $description !== '' && str_contains($note, $description);
     }
 
     /**

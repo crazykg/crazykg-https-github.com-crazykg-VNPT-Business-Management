@@ -15,6 +15,7 @@ class ProductQuotationVersionItem extends Model
         'version_id',
         'sort_order',
         'product_id',
+        'package_id',
         'product_name',
         'unit',
         'quantity',
@@ -28,6 +29,7 @@ class ProductQuotationVersionItem extends Model
 
     protected $casts = [
         'sort_order' => 'integer',
+        'package_id' => 'integer',
         'quantity' => 'float',
         'unit_price' => 'float',
         'vat_rate' => 'float',
@@ -39,5 +41,10 @@ class ProductQuotationVersionItem extends Model
     public function version(): BelongsTo
     {
         return $this->belongsTo(ProductQuotationVersion::class, 'version_id');
+    }
+
+    public function productPackage(): BelongsTo
+    {
+        return $this->belongsTo(ProductPackage::class, 'package_id');
     }
 }

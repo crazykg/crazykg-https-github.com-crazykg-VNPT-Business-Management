@@ -37,6 +37,7 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertJsonPath('data.recipient_name', 'BỆNH VIỆN ĐA KHOA CẦN THƠ');
         $response->assertJsonPath('data.latest_version_no', 0);
         $response->assertJsonCount(2, 'data.items');
+        $response->assertJsonPath('data.items.0.package_id', 11);
         $this->assertSame(211000000.0, (float) $response->json('data.subtotal'));
         $this->assertSame(21100000.0, (float) $response->json('data.vat_amount'));
         $this->assertSame(232100000.0, (float) $response->json('data.total_amount'));
@@ -48,6 +49,11 @@ class ProductQuotationPersistenceTest extends TestCase
             'recipient_name' => 'BỆNH VIỆN ĐA KHOA CẦN THƠ',
             'status' => 'DRAFT',
             'latest_version_no' => 0,
+        ]);
+        $this->assertDatabaseHas('product_quotation_items', [
+            'quotation_id' => $quotationId,
+            'product_id' => 1,
+            'package_id' => 11,
         ]);
         $this->assertSame(2, DB::table('product_quotation_items')->where('quotation_id', $quotationId)->count());
         $this->assertDatabaseHas('product_quotation_events', [
@@ -71,6 +77,7 @@ class ProductQuotationPersistenceTest extends TestCase
         $payload['items'] = [
             [
                 'product_id' => 2,
+                'package_id' => 22,
                 'product_name' => 'VNPT EMR',
                 'unit' => 'Gói',
                 'quantity' => 3,
@@ -85,12 +92,18 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('data.recipient_name', 'BỆNH VIỆN PHỔI HẬU GIANG');
         $response->assertJsonCount(1, 'data.items');
+        $response->assertJsonPath('data.items.0.package_id', 22);
         $response->assertJsonPath('data.items.0.product_name', 'VNPT EMR');
         $this->assertSame(126000000.0, (float) $response->json('data.subtotal'));
         $this->assertSame(10080000.0, (float) $response->json('data.vat_amount'));
         $this->assertSame(136080000.0, (float) $response->json('data.total_amount'));
 
         $this->assertSame(1, DB::table('product_quotation_items')->where('quotation_id', $quotationId)->count());
+        $this->assertDatabaseHas('product_quotation_items', [
+            'quotation_id' => $quotationId,
+            'product_id' => 2,
+            'package_id' => 22,
+        ]);
         $this->assertDatabaseHas('product_quotation_events', [
             'quotation_id' => $quotationId,
             'event_type' => 'DRAFT_UPDATED',
@@ -116,6 +129,17 @@ class ProductQuotationPersistenceTest extends TestCase
         );
         $this->assertSame(0, DB::table('product_quotations')->count());
         $this->assertSame(0, DB::table('product_quotation_items')->count());
+    }
+
+    public function test_it_rejects_package_id_that_does_not_belong_to_selected_product(): void
+    {
+        $payload = $this->quotationPayload();
+        $payload['items'][0]['package_id'] = 22;
+
+        $response = $this->postJson('/api/v5/products/quotations', $payload);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['items.0.package_id']);
     }
 
     public function test_it_rejects_updating_product_quotation_draft_to_zero_amount(): void
@@ -170,6 +194,14 @@ class ProductQuotationPersistenceTest extends TestCase
         $this->assertSame(21100000.0, (float) $versions[0]->vat_amount);
         $this->assertSame(232100000.0, (float) $versions[0]->total_amount);
         $this->assertSame(232100000.0, (float) $versions[1]->total_amount);
+        $this->assertDatabaseHas('product_quotation_version_items', [
+            'version_id' => DB::table('product_quotation_versions')
+                ->where('quotation_id', $quotationId)
+                ->where('version_no', 1)
+                ->value('id'),
+            'product_id' => 1,
+            'package_id' => 11,
+        ]);
 
         $this->assertSame(2, DB::table('product_quotation_events')
             ->where('quotation_id', $quotationId)
@@ -339,6 +371,7 @@ class ProductQuotationPersistenceTest extends TestCase
         $response->assertJsonPath('data.version_no', 1);
         $response->assertJsonPath('data.recipient_name', 'BỆNH VIỆN ĐA KHOA CẦN THƠ');
         $response->assertJsonCount(2, 'data.items');
+        $response->assertJsonPath('data.items.0.package_id', 11);
         $response->assertJsonPath('data.items.0.product_name', 'VNPT HIS Cloud');
     }
 
@@ -499,6 +532,18 @@ class ProductQuotationPersistenceTest extends TestCase
             $table->string('product_name')->nullable();
         });
 
+        Schema::create('product_packages', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('package_code', 100)->nullable();
+            $table->string('package_name', 255)->nullable();
+            $table->decimal('standard_price', 18, 2)->default(0.00);
+            $table->string('unit', 100)->nullable();
+            $table->text('description')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('customers', function (Blueprint $table): void {
             $table->id();
             $table->string('customer_name')->nullable();
@@ -570,6 +615,7 @@ class ProductQuotationPersistenceTest extends TestCase
             $table->unsignedBigInteger('quotation_id');
             $table->unsignedInteger('sort_order')->default(0);
             $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('package_id')->nullable();
             $table->string('product_name', 500);
             $table->string('unit', 100)->nullable();
             $table->decimal('quantity', 18, 2)->default(0.00);
@@ -618,6 +664,7 @@ class ProductQuotationPersistenceTest extends TestCase
             $table->unsignedBigInteger('version_id');
             $table->unsignedInteger('sort_order')->default(0);
             $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('package_id')->nullable();
             $table->string('product_name', 500);
             $table->string('unit', 100)->nullable();
             $table->decimal('quantity', 18, 2)->default(0.00);
@@ -667,6 +714,31 @@ class ProductQuotationPersistenceTest extends TestCase
             ['id' => 1, 'product_name' => 'VNPT HIS Cloud'],
             ['id' => 2, 'product_name' => 'VNPT EMR'],
         ]);
+
+        DB::table('product_packages')->insert([
+            [
+                'id' => 11,
+                'product_id' => 1,
+                'package_code' => 'PKG-HIS-STD',
+                'package_name' => 'Gói HIS tiêu chuẩn',
+                'standard_price' => 180000000,
+                'unit' => 'Gói/Năm',
+                'description' => 'Bao gồm triển khai cơ bản',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 22,
+                'product_id' => 2,
+                'package_code' => 'PKG-EMR-STD',
+                'package_name' => 'Gói EMR tiêu chuẩn',
+                'standard_price' => 42000000,
+                'unit' => 'Gói',
+                'description' => 'Điều chỉnh gói in lại',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
     }
 
     private function quotationPayload(): array
@@ -689,6 +761,7 @@ class ProductQuotationPersistenceTest extends TestCase
             'items' => [
                 [
                     'product_id' => 1,
+                    'package_id' => 11,
                     'product_name' => 'VNPT HIS Cloud',
                     'unit' => 'Gói/Năm',
                     'quantity' => 1,
