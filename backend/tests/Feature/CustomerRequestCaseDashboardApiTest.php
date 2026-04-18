@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Services\V5\CacheService;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Tests\Feature\Concerns\InteractsWithCustomerRequestCaseFixtures;
 use Tests\TestCase;
@@ -138,6 +140,160 @@ class CustomerRequestCaseDashboardApiTest extends TestCase
             ->assertJsonFragment(['project_name' => 'Dự án NOC'])
             ->assertJsonPath('data.top_customers.0.customer_name', 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')
             ->assertJsonFragment(['customer_name' => 'Bệnh viện Số 2']);
+    }
+
+    public function test_dashboard_overview_returns_operational_kpis_units_backlog_and_top_performers(): void
+    {
+        Schema::dropIfExists('departments');
+        Schema::create('departments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('dept_code', 50)->nullable();
+            $table->string('dept_name', 255)->nullable();
+        });
+
+        try {
+            DB::table('departments')->insert([
+                ['id' => 10, 'dept_code' => 'SUPPORT', 'dept_name' => 'Trung tâm hỗ trợ'],
+                ['id' => 11, 'dept_code' => 'DEV', 'dept_name' => 'Trung tâm lập trình'],
+            ]);
+
+            DB::table('internal_users')->insert([
+                ['id' => 5, 'user_code' => 'U005', 'username' => 'developer', 'full_name' => 'Lập trình viên', 'department_id' => 11],
+                ['id' => 6, 'user_code' => 'U006', 'username' => 'cancelled', 'full_name' => 'Người không thực hiện', 'department_id' => 11],
+            ]);
+
+            $supportActive = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu hỗ trợ đang thực hiện',
+                ],
+            ]))->assertCreated();
+            $supportActiveId = (int) $supportActive->json('data.request_case.id');
+
+            $supportWaiting = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu chờ khách hàng phản hồi',
+                ],
+            ]))->assertCreated();
+            $supportWaitingId = (int) $supportWaiting->json('data.request_case.id');
+
+            $supportSecondCustomer = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu hỗ trợ của khách hàng khác',
+                ],
+            ]))->assertCreated();
+            $supportSecondCustomerId = (int) $supportSecondCustomer->json('data.request_case.id');
+
+            $supportUnknownCustomer = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu hỗ trợ chưa xác định khách hàng',
+                ],
+            ]))->assertCreated();
+            $supportUnknownCustomerId = (int) $supportUnknownCustomer->json('data.request_case.id');
+
+            $programmingCompleted = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu lập trình đã hoàn thành',
+                ],
+            ]))->assertCreated();
+            $programmingCompletedId = (int) $programmingCompleted->json('data.request_case.id');
+
+            $notExecuted = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => 'Yêu cầu không thực hiện',
+                ],
+            ]))->assertCreated();
+            $notExecutedId = (int) $notExecuted->json('data.request_case.id');
+
+            DB::table('customer_request_cases')->where('id', $supportActiveId)->update([
+                'current_status_code' => 'in_progress',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+                'updated_at' => '2026-04-01 08:00:00',
+            ]);
+
+            DB::table('customer_request_cases')->where('id', $supportWaitingId)->update([
+                'current_status_code' => 'waiting_customer_feedback',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+                'updated_at' => '2026-04-01 09:00:00',
+            ]);
+
+            DB::table('customer_request_cases')->where('id', $supportSecondCustomerId)->update([
+                'customer_id' => 11,
+                'current_status_code' => 'in_progress',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+                'updated_at' => '2026-04-01 09:30:00',
+            ]);
+
+            DB::table('customer_request_cases')->where('id', $supportUnknownCustomerId)->update([
+                'customer_id' => null,
+                'current_status_code' => 'in_progress',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+                'updated_at' => '2026-04-01 09:45:00',
+            ]);
+
+            DB::table('customer_request_cases')->where('id', $programmingCompletedId)->update([
+                'customer_id' => 11,
+                'current_status_code' => 'completed',
+                'completed_at' => '2026-04-01 10:00:00',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 5,
+                'updated_at' => '2026-04-01 10:00:00',
+            ]);
+
+            DB::table('customer_request_cases')->where('id', $notExecutedId)->update([
+                'current_status_code' => 'not_executed',
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 6,
+                'updated_at' => '2026-04-01 11:00:00',
+            ]);
+
+            DB::table('customer_request_status_instances')->insert([
+                'request_case_id' => $programmingCompletedId,
+                'status_code' => 'coding',
+                'status_table' => 'customer_request_coding',
+                'is_current' => false,
+                'entered_at' => '2026-04-01 09:30:00',
+                'exited_at' => '2026-04-01 09:55:00',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $response = $this->getJson('/api/v5/customer-request-cases/dashboard/overview?updated_by=9&dashboard_test=operational')
+                ->assertOk()
+                ->assertJsonPath('data.summary.total_cases', 6)
+                ->assertJsonPath('data.summary.operational.total_cases', 5)
+                ->assertJsonPath('data.summary.operational.active_cases', 4)
+                ->assertJsonPath('data.summary.operational.completed_cases', 1)
+                ->assertJsonPath('data.summary.operational.waiting_customer_feedback_cases', 1)
+                ->assertJsonPath('data.summary.operational.by_type.support.total_cases', 4)
+                ->assertJsonPath('data.summary.operational.by_type.programming.total_cases', 1)
+                ->assertJsonPath('data.top_backlog_units.0.customer_name', 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang')
+                ->assertJsonPath('data.top_backlog_units.0.active_cases', 2)
+                ->assertJsonPath('data.top_performers.0.department_name', 'Trung tâm hỗ trợ')
+                ->assertJsonPath('data.top_performers.0.performer_name', 'Người xử lý')
+                ->assertJsonPath('data.top_performers.0.count', 4)
+                ->assertJsonFragment(['customer_name' => 'TT Phòng, Chống HIV/AIDS tỉnh Hậu Giang'])
+                ->assertJsonFragment(['customer_name' => 'Trung tâm Y tế khu vực Long Mỹ'])
+                ->assertJsonFragment(['customer_name' => 'Chưa xác định khách hàng']);
+
+            $operational = $response->json('data.summary.operational');
+            $this->assertSame(
+                $operational['total_cases'],
+                $operational['active_cases'] + $operational['completed_cases']
+            );
+            $this->assertLessThanOrEqual(
+                $operational['active_cases'],
+                $operational['waiting_customer_feedback_cases']
+            );
+            $this->assertCount(3, $response->json('data.unit_chart'));
+            $this->assertLessThanOrEqual(5, count($response->json('data.top_backlog_units')));
+            $this->assertLessThanOrEqual(10, count($response->json('data.top_performers')));
+        } finally {
+            Schema::dropIfExists('departments');
+        }
     }
 
     public function test_dashboard_overview_uses_cache_service_standardized_tag(): void

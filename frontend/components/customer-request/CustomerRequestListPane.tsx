@@ -8,8 +8,6 @@ import {
   buildRequestContextCaption,
   resolveHealthSummaryMeta,
   resolveHoursSummaryMeta,
-  resolveOwnerSummaryMeta,
-  resolveUpdatedSummaryMeta,
   type CustomerRequestPrimaryActionMeta,
   type CustomerRequestRoleFilter,
 } from './presentation';
@@ -63,6 +61,7 @@ type CustomerRequestListPaneProps = {
   onClearFilters: () => void;
   requestRoleFilter: CustomerRequestRoleFilter;
   presentation?: 'responsive' | 'table' | 'cards';
+  showFilterToolbar?: boolean;
   pinnedRequestIds?: Set<string>;
   onTogglePinRequest?: (row: YeuCau) => void;
 };
@@ -77,6 +76,12 @@ const PRIORITY_OPTIONS: SearchableSelectOption[] = [
 
 const resolveCreatedLabel = (row: YeuCau): string =>
   row.created_at ? formatDateTimeDdMmYyyy(row.created_at).slice(0, 16) : '--';
+
+const resolveExecutionLabel = (row: YeuCau): string =>
+  row.current_entered_at ? formatDateTimeDdMmYyyy(row.current_entered_at).slice(0, 16) : '--';
+
+const resolveCompletedLabel = (row: YeuCau): string =>
+  row.completed_at ? formatDateTimeDdMmYyyy(row.completed_at).slice(0, 16) : '--';
 
 const resolveHandlerSummaryMeta = (row: YeuCau): { label: string; hint: string } => {
   const handler =
@@ -102,20 +107,23 @@ const resolveStatusLabel = (row: YeuCau): string =>
 const SummaryCell: React.FC<{
   label: string;
   value: string;
-  hint: string;
+  hint?: string;
   valueCls?: string;
 }> = ({ label, value, hint, valueCls = 'text-slate-800' }) => (
   <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-50/80 to-slate-100/80 px-3 py-2 shadow-sm transition-shadow hover:shadow-md">
     <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
     <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
     <p className={`relative mt-1 line-clamp-1 text-[13px] font-semibold leading-4 ${valueCls}`}>{value}</p>
-    <p className="relative mt-0.5 line-clamp-1 text-[10px] leading-4 text-slate-400">{hint}</p>
+    {hint ? (
+      <p className="relative mt-0.5 line-clamp-1 text-[10px] leading-4 text-slate-400">{hint}</p>
+    ) : null}
   </div>
 );
 
 const renderHealthChips = (
   layoutMode: CustomerRequestResponsiveLayoutMode,
-  request: YeuCau
+  request: YeuCau,
+  options?: { includePrimary?: boolean }
 ): React.ReactNode => {
   const healthMeta = resolveHealthSummaryMeta(request);
   const maxSecondary = layoutMode === 'desktopWide' ? 2 : 1;
@@ -123,12 +131,15 @@ const renderHealthChips = (
     layoutMode === 'desktopCompact'
       ? 'px-2 py-0.5 text-[10px]'
       : 'px-2.5 py-1 text-[11px]';
+  const includePrimary = options?.includePrimary ?? true;
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${chipCls} ${healthMeta.primary.cls}`}>
-        ● {healthMeta.primary.label}
-      </span>
+      {includePrimary ? (
+        <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${chipCls} ${healthMeta.primary.cls}`}>
+          ● {healthMeta.primary.label}
+        </span>
+      ) : null}
       {healthMeta.secondary.slice(0, maxSecondary).map((item) => (
         <span
           key={`${item.code}-${item.label}`}
@@ -156,13 +167,13 @@ const RequestCardRow: React.FC<{
   onSelectRow,
   onTogglePinRequest,
 }) => {
-  const ownerMeta = resolveOwnerSummaryMeta(row);
   const handlerMeta = resolveHandlerSummaryMeta(row);
   const hoursMeta = resolveHoursSummaryMeta(row);
-  const updatedMeta = resolveUpdatedSummaryMeta(row);
   const contextCaption =
     buildRequestContextCaption(row) || 'Chưa có khách hàng / dự án / sản phẩm';
   const createdLabel = resolveCreatedLabel(row);
+  const executionLabel = resolveExecutionLabel(row);
+  const completedLabel = resolveCompletedLabel(row);
 
   return (
     <div
@@ -215,24 +226,19 @@ const RequestCardRow: React.FC<{
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <SummaryCell label="Phụ trách" value={ownerMeta.label} hint={ownerMeta.hint} />
-          <SummaryCell label="Người xử lý" value={handlerMeta.label} hint={handlerMeta.hint} />
+          <SummaryCell label="Người xử lý" value={handlerMeta.label} />
           <SummaryCell label="Trạng thái xử lý" value={resolveStatusLabel(row)} hint="Trạng thái hiện tại" />
           <SummaryCell
             label="Giờ"
             value={hoursMeta.value}
-            hint={hoursMeta.hint}
             valueCls={hoursMeta.valueCls}
           />
-          <SummaryCell label="Ngày tạo" value={createdLabel} hint="Ngày tạo yêu cầu" />
-          <SummaryCell
-            label="Cập nhật"
-            value={updatedMeta.updatedLabel}
-            hint={updatedMeta.dueLabel}
-          />
+          <SummaryCell label="Ngày tạo" value={createdLabel} />
+          <SummaryCell label="Ngày thực hiện" value={executionLabel} />
+          <SummaryCell label="Ngày kết thúc" value={completedLabel} />
         </div>
 
-        <div>{renderHealthChips(layoutMode, row)}</div>
+        <div>{renderHealthChips(layoutMode, row, { includePrimary: false })}</div>
       </div>
     </div>
   );
@@ -253,14 +259,14 @@ const RequestTableRow: React.FC<{
   onSelectRow,
   onTogglePinRequest,
 }) => {
-  const ownerMeta = resolveOwnerSummaryMeta(row);
   const handlerMeta = resolveHandlerSummaryMeta(row);
   const hoursMeta = resolveHoursSummaryMeta(row);
-  const updatedMeta = resolveUpdatedSummaryMeta(row);
   const isWide = layoutMode === 'desktopWide';
   const isCompact = layoutMode === 'desktopCompact';
   const cellPaddingCls = isCompact ? 'px-3 py-3' : 'px-3 py-3.5';
   const compactTextCls = isCompact ? 'text-[13px]' : 'text-sm';
+  const executionDateLabel = resolveExecutionLabel(row);
+  const completedDateLabel = resolveCompletedLabel(row);
 
   return (
     <tr
@@ -278,14 +284,14 @@ const RequestTableRow: React.FC<{
           : 'hover:bg-gradient-to-r hover:from-slate-50/80 hover:to-slate-100/40 focus:bg-slate-50'
       }`}
     >
-      <td className={`${cellPaddingCls} w-[44px] align-top`}>
+      <td className={`${cellPaddingCls} w-[56px] align-middle text-center`}>
         <button
           type="button"
           onClick={(event) => {
             event.stopPropagation();
             onTogglePinRequest?.(row);
           }}
-          className={`inline-flex rounded-full p-1.5 transition-all duration-200 ${
+          className={`mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200 ${
             isPinned
               ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-md'
               : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
@@ -311,50 +317,18 @@ const RequestTableRow: React.FC<{
         </p>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-800 ${compactTextCls}`}>{ownerMeta.label}</p>
-        <p className={`mt-1 text-[11px] leading-5 text-slate-400 ${isWide ? 'line-clamp-2' : 'line-clamp-1'}`}>
-          {ownerMeta.hint}
-        </p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
         <p className={`font-semibold text-slate-800 ${compactTextCls}`}>{handlerMeta.label}</p>
-        <p className={`mt-1 text-[11px] leading-5 text-slate-400 ${isWide ? 'line-clamp-2' : 'line-clamp-1'}`}>
-          {handlerMeta.hint}
-        </p>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-800 ${compactTextCls}`}>{resolveStatusLabel(row)}</p>
-        <div className="mt-1">{renderHealthChips(layoutMode, row)}</div>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold ${hoursMeta.valueCls} ${compactTextCls}`}>{hoursMeta.value}</p>
-        <p className={`mt-1 text-[11px] leading-5 text-slate-400 ${isWide ? 'line-clamp-2' : 'line-clamp-1'}`}>
-          {hoursMeta.hint}
-        </p>
+        <div>{renderHealthChips(layoutMode, row)}</div>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
         <p className={`font-semibold text-slate-700 ${compactTextCls}`}>
-          {resolveCreatedLabel(row)}
+          {executionDateLabel}
         </p>
-        <p className="mt-1 text-[11px] text-slate-400">Ngày tạo yêu cầu</p>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
-        <div className="space-y-2">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-              {updatedMeta.updatedHint}
-            </p>
-            <p className={`mt-0.5 font-semibold text-slate-700 ${isCompact ? 'text-xs' : 'text-[13px]'}`}>
-              {updatedMeta.updatedLabel}
-            </p>
-          </div>
-          <div>
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-sm ${updatedMeta.slaCls}`}>
-              {updatedMeta.slaLabel}
-            </span>
-            <p className="mt-1 text-[11px] text-slate-400">{updatedMeta.dueLabel}</p>
-          </div>
-        </div>
+        <p className={`font-semibold text-slate-700 ${compactTextCls}`}>{completedDateLabel}</p>
       </td>
     </tr>
   );
@@ -394,6 +368,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   onClearFilters,
   requestRoleFilter,
   presentation = 'table',
+  showFilterToolbar = true,
   pinnedRequestIds = new Set<string>(),
   onTogglePinRequest,
 }) => {
@@ -431,13 +406,6 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
       requestSupportGroupFilter,
     ]
   );
-  const visibleRangeStart = listMeta.total === 0 ? 0 : (safePage - 1) * rowsPerPage + 1;
-  const visibleRangeEnd =
-    listMeta.total === 0
-      ? 0
-      : Math.min(listMeta.total, visibleRangeStart + Math.max(rows.length - 1, 0));
-  const visibleRangeLabel = `${visibleRangeStart} – ${visibleRangeEnd} / ${listMeta.total} bản ghi`;
-
   const filterControlsNode = (
     <div
       className={`grid gap-2.5 ${
@@ -557,170 +525,159 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="shrink-0">
-        <div className="sticky top-0 z-[60] rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-xl">
-          <div className="space-y-2">
-            {isMobile ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="relative min-w-0 flex-1">
-                    <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">
-                      search
-                    </span>
-                    <input
-                      type="text"
-                      value={requestKeyword}
-                      onChange={(event) => onRequestKeywordChange(event.target.value)}
-                      placeholder="Tìm mã YC, tên yêu cầu..."
-                      className="h-10 w-full rounded-xl border border-slate-200 bg-white/80 pl-9 pr-4 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 focus:shadow-md"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowMobileFilters((value) => !value)}
-                    className="group inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
-                  >
-                    <span className="material-symbols-outlined text-[18px] transition-transform group-hover:rotate-12">tune</span>
-                    <span className="hidden lg:inline">Bộ lọc</span>
-                    {activeFilterCount > 0 ? (
-                      <span className="rounded-full bg-gradient-to-br from-slate-900 to-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                        {activeFilterCount}
+      {showFilterToolbar ? (
+        <div className="shrink-0">
+          <div className="sticky top-0 z-[60] rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-xl">
+            <div className="space-y-2">
+              {isMobile ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                        Từ ngày
                       </span>
-                    ) : null}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="min-w-0">
-                    <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                      Từ ngày
-                    </span>
-                    <input
-                      type="date"
-                      value={requestCreatedFrom}
-                      onChange={(event) => onRequestCreatedFromChange(event.target.value)}
-                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                  </label>
-                  <label className="min-w-0">
-                    <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                      Đến ngày
-                    </span>
-                    <input
-                      type="date"
-                      value={requestCreatedTo}
-                      onChange={(event) => onRequestCreatedToChange(event.target.value)}
-                      className="h-10 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                  </label>
-                </div>
-
-                {showMobileFilters ? (
-                  <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
-                    {filterControlsNode}
+                      <input
+                        type="date"
+                        value={requestCreatedFrom}
+                        onChange={(event) => onRequestCreatedFromChange(event.target.value)}
+                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                        Đến ngày
+                      </span>
+                      <input
+                        type="date"
+                        value={requestCreatedTo}
+                        onChange={(event) => onRequestCreatedToChange(event.target.value)}
+                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                      />
+                    </label>
                   </div>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-[minmax(0,1.3fr)_220px]">
-                    <div className="relative">
-                      <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-slate-400">
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative min-w-0 flex-1">
+                      <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
                         search
                       </span>
                       <input
                         type="text"
                         value={requestKeyword}
                         onChange={(event) => onRequestKeywordChange(event.target.value)}
-                        placeholder={
-                          requestRoleFilter === 'creator'
-                            ? 'Tìm YC tôi tạo...'
-                            : requestRoleFilter === 'dispatcher'
-                            ? 'Tìm YC tôi điều phối...'
-                            : requestRoleFilter === 'performer'
-                            ? 'Tìm việc tôi xử lý...'
-                            : 'Tìm mã YC, tên yêu cầu, khách hàng...'
-                        }
-                        className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+                        placeholder="Tìm mã YC, tên yêu cầu..."
+                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8.5 pr-3 text-[13px] font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
                       />
                     </div>
-                    <SearchableSelect
-                      value={activeProcessCode}
-                      options={processOptions}
-                      onChange={onProcessCodeChange}
-                      label=""
-                      placeholder="Tiến trình"
-                      searchPlaceholder="Tìm tiến trình..."
-                      compact
-                      usePortal
-                      portalZIndex={60}
-                    />
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                      {visibleRangeLabel}
-                    </span>
-                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                      Trang {safePage}/{totalPages}
-                    </span>
                     <button
                       type="button"
-                      onClick={() => setIsFilterExpanded((value) => !value)}
-                      className="group inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+                      onClick={() => setShowMobileFilters((value) => !value)}
+                      className="group inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
                     >
-                      <span className="material-symbols-outlined text-[18px]">tune</span>
-                      <span>Bộ lọc</span>
+                      <span className="material-symbols-outlined text-[17px] transition-transform group-hover:rotate-12">tune</span>
+                      <span className="hidden lg:inline">Bộ lọc</span>
                       {activeFilterCount > 0 ? (
-                        <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        <span className="rounded-full bg-gradient-to-br from-slate-900 to-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
                           {activeFilterCount}
                         </span>
                       ) : null}
                     </button>
                   </div>
-                </div>
 
-                <div className="grid gap-2 xl:grid-cols-[150px_150px_minmax(0,1fr)_auto] xl:items-center">
-                  <label className="min-w-0">
-                    <span className="sr-only">Từ ngày tạo</span>
-                    <input
-                      type="date"
-                      value={requestCreatedFrom}
-                      onChange={(event) => onRequestCreatedFromChange(event.target.value)}
-                      className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                  </label>
-                  <label className="min-w-0">
-                    <span className="sr-only">Đến ngày tạo</span>
-                    <input
-                      type="date"
-                      value={requestCreatedTo}
-                      onChange={(event) => onRequestCreatedToChange(event.target.value)}
-                      className="h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                  </label>
-                  <div className="hidden xl:block" aria-hidden="true" />
-                  {hasListFilters ? (
-                    <button
-                      type="button"
-                      onClick={onClearFilters}
-                      className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5"
-                    >
-                      Xóa lọc
-                    </button>
+                  {showMobileFilters ? (
+                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
+                      {filterControlsNode}
+                    </div>
                   ) : null}
                 </div>
-
-                {isFilterExpanded ? (
-                  <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
-                    {desktopExpandedFiltersNode}
+              ) : (
+                <>
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 lg:grid-cols-[150px_150px_minmax(0,1fr)_auto]">
+                    <label className="min-w-0">
+                      <span className="sr-only">Từ ngày tạo</span>
+                      <input
+                        type="date"
+                        value={requestCreatedFrom}
+                        onChange={(event) => onRequestCreatedFromChange(event.target.value)}
+                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="sr-only">Đến ngày tạo</span>
+                      <input
+                        type="date"
+                        value={requestCreatedTo}
+                        onChange={(event) => onRequestCreatedToChange(event.target.value)}
+                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                      />
+                    </label>
+                    <div className="hidden lg:block" aria-hidden="true" />
+                    {hasListFilters ? (
+                      <button
+                        type="button"
+                        onClick={onClearFilters}
+                        className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5 hover:text-primary"
+                      >
+                        Xóa lọc
+                      </button>
+                    ) : null}
                   </div>
-                ) : null}
-              </>
-            )}
+
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                    <div className="grid min-w-0 flex-1 gap-2 lg:grid-cols-[minmax(0,1.35fr)_200px] xl:grid-cols-[minmax(0,1.4fr)_220px]">
+                      <div className="relative">
+                        <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
+                          search
+                        </span>
+                        <input
+                          type="text"
+                          value={requestKeyword}
+                          onChange={(event) => onRequestKeywordChange(event.target.value)}
+                          placeholder="Tìm mã YC, tên yêu cầu..."
+                          className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 pl-8.5 pr-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        />
+                      </div>
+                      <SearchableSelect
+                        value={activeProcessCode}
+                        options={processOptions}
+                        onChange={onProcessCodeChange}
+                        label=""
+                        placeholder="Tiến trình"
+                        searchPlaceholder="Tìm tiến trình..."
+                        compact
+                        usePortal
+                        portalZIndex={60}
+                        triggerClassName="h-9 rounded-xl border-slate-200/90 bg-slate-50/60 px-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] focus:bg-white"
+                      />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setIsFilterExpanded((value) => !value)}
+                        className="group inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
+                      >
+                        <span className="material-symbols-outlined text-[17px]">tune</span>
+                        <span>Bộ lọc</span>
+                        {activeFilterCount > 0 ? (
+                          <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                            {activeFilterCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isFilterExpanded ? (
+                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
+                      {desktopExpandedFiltersNode}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="min-h-0 flex-1">
         <div className="min-h-0 flex flex-1 flex-col">
@@ -755,35 +712,38 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 
             {showTable ? (
               <div className="h-full overflow-auto rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-xl shadow-slate-200/50">
-                <table className="min-w-[1240px] w-full table-fixed text-sm">
+                <table className="min-w-[1120px] w-full table-fixed text-sm">
                   <colgroup>
-                    <col className="w-[44px]" />
+                    <col className="w-[56px]" />
                     <col className="w-[132px]" />
-                    <col className="w-[260px]" />
-                    <col className="w-[150px]" />
-                    <col className="w-[150px]" />
-                    <col className="w-[180px]" />
-                    <col className="w-[90px]" />
-                    <col className="w-[140px]" />
-                    <col className="w-[140px]" />
+                    <col className="w-[292px]" />
+                    <col className="w-[160px]" />
+                    <col className="w-[176px]" />
+                    <col className="w-[158px]" />
+                    <col className="w-[158px]" />
                   </colgroup>
                   <thead className="sticky top-0 z-10 border-b border-slate-100 bg-gradient-to-r from-slate-50/95 to-slate-100/90 backdrop-blur-sm">
                     <tr className="text-left text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                      <th className="px-3 py-3">☆</th>
+                      <th className="px-2 py-3 text-center">
+                        <span
+                          aria-hidden="true"
+                          className="mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-300"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">star_outline</span>
+                        </span>
+                      </th>
                       <th className="px-3 py-3">Mã yêu cầu</th>
                       <th className="px-3 py-3">Tên yêu cầu</th>
-                      <th className="px-3 py-3">Phụ trách</th>
                       <th className="px-3 py-3">Người xử lý</th>
                       <th className="px-3 py-3">Trạng thái XL</th>
-                      <th className="px-3 py-3">Giờ</th>
-                      <th className="px-3 py-3">Ngày tạo</th>
-                      <th className="px-3 py-3">Cập nhật</th>
+                      <th className="px-3 py-3">Ngày thực hiện</th>
+                      <th className="px-3 py-3">Ngày kết thúc</th>
                     </tr>
                   </thead>
                   <tbody>
                     {isListLoading ? (
                       <tr>
-                        <td colSpan={9} className="px-4 py-12 text-center">
+                        <td colSpan={7} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined animate-spin text-[32px] text-slate-300">progress_activity</span>
                             <p className="text-sm font-medium text-slate-500">Đang tải danh sách yêu cầu...</p>
@@ -792,7 +752,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                       </tr>
                     ) : rows.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-4 py-12 text-center">
+                        <td colSpan={7} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined text-[32px] text-slate-300">inbox</span>
                             <p className="text-sm font-medium text-slate-500">Không có yêu cầu nào phù hợp với bộ lọc hiện tại.</p>

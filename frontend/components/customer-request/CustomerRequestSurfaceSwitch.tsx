@@ -6,6 +6,7 @@ export type CustomerRequestSurfaceKey = 'inbox' | 'list' | 'analytics';
 type CustomerRequestSurfaceSwitchProps = {
   activeSurface: CustomerRequestSurfaceKey;
   onSurfaceChange: (surface: CustomerRequestSurfaceKey) => void;
+  iconOnlyOnCompact?: boolean;
 };
 
 const SURFACE_META: Array<{
@@ -44,12 +45,24 @@ const SURFACE_META: Array<{
 export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitchProps> = ({
   activeSurface,
   onSurfaceChange,
+  iconOnlyOnCompact = false,
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const isMobile = layoutMode === 'mobile';
+  const isCompact = layoutMode === 'mobile' || layoutMode === 'tablet';
+  const isDesktop = layoutMode === 'desktopCompact' || layoutMode === 'desktopWide';
+  const useIconOnly = iconOnlyOnCompact && isCompact;
 
   return (
-    <div className={`grid gap-2 ${isMobile ? 'grid-cols-3' : 'grid-cols-3'}`}>
+    <div
+      className={`items-stretch gap-2 ${
+        useIconOnly
+          ? 'grid w-full grid-cols-3'
+          : isDesktop
+            ? 'grid min-w-0 w-full grid-cols-3'
+            : 'flex min-w-max'
+      }`}
+    >
       {SURFACE_META.map((surface) => {
         const isActive = activeSurface === surface.key;
 
@@ -57,12 +70,15 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
           <button
             key={surface.key}
             type="button"
+            aria-label={surface.label}
             aria-pressed={isActive}
             onClick={() => onSurfaceChange(surface.key)}
-            className={`group flex min-w-0 items-center text-left transition-all duration-200 ${
-              isMobile
-                ? 'justify-center rounded-2xl border px-2 py-2'
-                : 'rounded-2xl border px-2.5 py-2.5'
+            className={`group inline-flex shrink-0 items-center transition-all duration-200 ${
+              useIconOnly
+                ? 'h-10 w-10 justify-center rounded-2xl border'
+                : isDesktop
+                  ? 'min-w-0 w-full gap-2.5 rounded-2xl border px-3 py-2.5 text-left'
+                  : 'w-[148px] gap-2 rounded-2xl border px-2.5 py-2 text-left sm:w-[156px]'
             } ${
               isActive
                 ? surface.activeClass
@@ -70,8 +86,8 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             }`}
           >
             <span
-              className={`flex shrink-0 items-center justify-center rounded-xl transition-colors ${
-                isMobile ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'
+              className={`flex shrink-0 items-center justify-center transition-colors ${
+                useIconOnly ? 'h-8 w-8 rounded-xl' : 'h-8 w-8 rounded-2xl'
               } ${
                 isActive
                   ? surface.activeIconClass
@@ -83,21 +99,17 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
               </span>
             </span>
 
-            {!isMobile ? (
-              <span className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold leading-4">
+            {useIconOnly ? (
+              <span className="sr-only">{surface.label}</span>
+            ) : (
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block truncate font-semibold ${isMobile ? 'text-[11px]' : 'text-[12px]'} leading-4`}
+                >
                   {surface.label}
                 </span>
               </span>
-            ) : (
-              <span className="sr-only">{surface.label}</span>
             )}
-
-            {isMobile ? (
-              <span className="ml-1 min-w-0 truncate text-[11px] font-semibold leading-4">
-                {surface.label}
-              </span>
-            ) : null}
           </button>
         );
       })}

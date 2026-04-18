@@ -1,22 +1,27 @@
 import { useEffect } from 'react';
-import { useCRCDashboard } from '../../../shared/hooks/useCustomerRequests';
+import {
+  useCRCDashboard,
+  type CRCListParams,
+} from '../../../shared/hooks/useCustomerRequests';
 import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 
 type UseCustomerRequestDashboardOptions = {
   canReadRequests: boolean;
   dataVersion: number;
+  params?: CRCListParams;
   onError: (message: string) => void;
 };
 
 export const useCustomerRequestDashboard = ({
   canReadRequests,
   dataVersion,
+  params,
   onError,
 }: UseCustomerRequestDashboardOptions) => {
-  const overviewQuery = useCRCDashboard('overview', undefined, { enabled: canReadRequests });
-  const creatorQuery = useCRCDashboard('creator', undefined, { enabled: canReadRequests });
-  const dispatcherQuery = useCRCDashboard('dispatcher', undefined, { enabled: canReadRequests });
-  const performerQuery = useCRCDashboard('performer', undefined, { enabled: canReadRequests });
+  const overviewQuery = useCRCDashboard('overview', params, { enabled: canReadRequests });
+  const creatorQuery = useCRCDashboard('creator', params, { enabled: canReadRequests });
+  const dispatcherQuery = useCRCDashboard('dispatcher', params, { enabled: canReadRequests });
+  const performerQuery = useCRCDashboard('performer', params, { enabled: canReadRequests });
 
   useEffect(() => {
     if (dataVersion <= 0 || !canReadRequests) {

@@ -1147,7 +1147,7 @@ export const createYeuCauEstimate = async (
 };
 
 export type YeuCauWorklogStorePayload = {
-  work_content: string;
+  work_content?: string | null;
   work_date?: string | null;
   activity_type_code?: string | null;
   hours_spent?: string | number | null;

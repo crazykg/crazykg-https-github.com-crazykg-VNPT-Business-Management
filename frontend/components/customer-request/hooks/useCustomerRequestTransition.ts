@@ -17,6 +17,7 @@ import type {
 import {
   createEmptyIt360TaskRow,
   createEmptyReferenceTaskRow,
+  formatCurrentDateStartOfDayForInput,
   normalizeSupportTaskStatus,
   normalizeText,
 } from '../helpers';
@@ -193,6 +194,20 @@ const applyFixedDefaultsFromCurrentCase = (
   return payload;
 };
 
+const applyFixedDateFallbackDefaults = (
+  payload: Record<string, unknown>,
+): Record<string, unknown> => {
+  const todayAtStartOfDay = formatCurrentDateStartOfDayForInput();
+
+  for (const fieldName of ['received_at', 'completed_at', 'extended_at'] as const) {
+    if (!hasValue(payload[fieldName])) {
+      payload[fieldName] = todayAtStartOfDay;
+    }
+  }
+
+  return payload;
+};
+
 const toMutationStatusPayload = (
   processDetail: YeuCauProcessDetail | null,
   draft: Record<string, unknown>,
@@ -216,7 +231,14 @@ const buildInitialTransitionDraft = (
   currentUserId?: string | number | null,
   toStatusCode?: string,
 ): Record<string, unknown> =>
-  applyFixedDefaultsFromCurrentCase(buildFixedTransitionDraft(currentUserId), processDetail, currentUserId, toStatusCode);
+  applyFixedDateFallbackDefaults(
+    applyFixedDefaultsFromCurrentCase(
+      buildFixedTransitionDraft(currentUserId),
+      processDetail,
+      currentUserId,
+      toStatusCode,
+    ),
+  );
 
 export const useCustomerRequestTransition = ({
   currentUserId,

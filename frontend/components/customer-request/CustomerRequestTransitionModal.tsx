@@ -162,7 +162,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
       role="dialog"
       aria-modal="true"
       aria-label={`Chuyển trạng thái ${targetStatusMeta.label}`}
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4 lg:p-6"
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4 lg:p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget && !isTransitioning) {
           onClose();

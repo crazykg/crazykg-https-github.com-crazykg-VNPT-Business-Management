@@ -32,6 +32,10 @@ describe('CustomerRequestDetailFrame UI', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Chi tiết modal')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0001')).toBeInTheDocument();
+    expect(screen.queryByText('Đang xử lý')).not.toBeInTheDocument();
+    expect(screen.queryByText('Điều chỉnh chức năng')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bệnh viện Sản')).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe('hidden');
     expect(document.documentElement.style.overflow).toBe('hidden');
 

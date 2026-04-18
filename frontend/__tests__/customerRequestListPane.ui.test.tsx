@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { PaginationMeta, YeuCau } from '../types';
@@ -37,6 +37,8 @@ const makeRequest = (partial?: Partial<YeuCau>): YeuCau => ({
   project_name: partial?.project_name ?? 'SOC Dashboard',
   received_at: partial?.received_at ?? '2026-03-20 08:00:00',
   created_at: partial?.created_at ?? '2026-03-20 08:00:00',
+  current_entered_at: partial?.current_entered_at ?? '2026-03-21 08:30:00',
+  completed_at: partial?.completed_at ?? '2026-03-21 17:45:00',
   sla_due_at: partial?.sla_due_at ?? '2026-03-22 17:00:00',
   requester_name: partial?.requester_name ?? 'Nguyễn A',
   ...partial,
@@ -59,6 +61,17 @@ describe('CustomerRequestListPane UI', () => {
     const onRowsPerPageChange = vi.fn();
     const onRequestPriorityFilterChange = vi.fn();
     const onRequestCustomerFilterChange = vi.fn();
+    const rows = [
+      makeRequest(),
+      makeRequest({
+        id: 33,
+        ma_yc: 'CRC-202603-0033',
+        tieu_de: 'Theo dõi ca không có ngày',
+        summary: 'Theo dõi ca không có ngày',
+        current_entered_at: null,
+        completed_at: null,
+      }),
+    ];
 
     const { container } = render(
       <CustomerRequestListPane
@@ -93,7 +106,7 @@ describe('CustomerRequestListPane UI', () => {
         onToggleSlaRisk={vi.fn()}
         alertCounts={{ missing_estimate: 3, over_estimate: 2, sla_risk: 1 }}
         isDashboardLoading={false}
-        rows={[makeRequest()]}
+        rows={rows}
         isListLoading={false}
         selectedRequestId={null}
         onSelectRow={onSelectRow}
@@ -115,13 +128,46 @@ describe('CustomerRequestListPane UI', () => {
     expect(screen.queryByText(/Nguy cơ SLA \(1\)/)).not.toBeInTheDocument();
     expect(screen.getByText('Mã yêu cầu')).toBeInTheDocument();
     expect(screen.getByText('Tên yêu cầu')).toBeInTheDocument();
+    expect(screen.queryByText('Phụ trách')).not.toBeInTheDocument();
     expect(screen.getByText('Người xử lý')).toBeInTheDocument();
     expect(screen.getByText('Trạng thái XL')).toBeInTheDocument();
-    expect(screen.getByText('Ngày tạo')).toBeInTheDocument();
+    expect(screen.queryByText('Ngày tạo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Giờ')).not.toBeInTheDocument();
+    expect(screen.getByText('Ngày thực hiện')).toBeInTheDocument();
+    expect(screen.getByText('Ngày kết thúc')).toBeInTheDocument();
+    expect(screen.queryByText('Cập nhật')).not.toBeInTheDocument();
     expect(screen.queryByText('CTA')).not.toBeInTheDocument();
     expect(screen.queryByText('Ưu tiên mở trước')).not.toBeInTheDocument();
     expect(screen.queryByText('Độ ưu tiên')).not.toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+    expect(screen.queryByText('Người xử lý hiện tại')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ngày tạo yêu cầu')).not.toBeInTheDocument();
+    expect(screen.queryByText('125% kế hoạch')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hạn:/)).not.toBeInTheDocument();
+    const requestRow = screen.getByText('CRC-202603-0022').closest('tr');
+    expect(requestRow).not.toBeNull();
+    expect(within(requestRow as HTMLTableRowElement).getAllByText(/Đang xử lý/i)).toHaveLength(1);
+    expect(within(requestRow as HTMLTableRowElement).queryByText('20/03/2026 15:00')).not.toBeInTheDocument();
+    expect(within(requestRow as HTMLTableRowElement).getByText('21/03/2026 15:30')).toBeInTheDocument();
+    expect(within(requestRow as HTMLTableRowElement).getByText('22/03/2026 00:45')).toBeInTheDocument();
+    const emptyDateRow = screen.getByText('CRC-202603-0033').closest('tr');
+    expect(emptyDateRow).not.toBeNull();
+    expect(within(emptyDateRow as HTMLTableRowElement).getAllByText('--')).toHaveLength(2);
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-9');
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('bg-slate-50/60');
+    expect(screen.getByDisplayValue('2026-01-01')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2026-03-31')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Xóa lọc' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Bộ lọc/i }).className).toContain('h-9');
+    expect(screen.getByDisplayValue('2026-01-01').closest('div.grid')?.className).toContain(
+      'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+    );
+    expect(
+      screen.getByDisplayValue('2026-01-01').compareDocumentPosition(
+        screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
 
     await user.click(screen.getByText('CRC-202603-0022'));
     expect(onSelectRow).toHaveBeenCalledTimes(1);
@@ -211,11 +257,179 @@ describe('CustomerRequestListPane UI', () => {
 
     expect(screen.queryByText('Yêu cầu')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-9');
+    expect(screen.getByDisplayValue('2026-01-01').className).toContain('h-9');
+    expect(screen.getByDisplayValue('2026-03-31').className).toContain('h-9');
+    expect(
+      screen.getByDisplayValue('2026-01-01').compareDocumentPosition(
+        screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
     expect(screen.getByRole('button', { name: 'Ưu tiên' })).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: /Ra soat estimate/i })).not.toBeInTheDocument();
     expect(onPrimaryAction).not.toHaveBeenCalled();
+    expect(screen.queryByText('Phụ trách')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cập nhật')).not.toBeInTheDocument();
+    expect(screen.queryByText('Người xử lý hiện tại')).not.toBeInTheDocument();
+    expect(screen.queryByText('125% kế hoạch')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hạn:/)).not.toBeInTheDocument();
+    expect(screen.getByText('Giờ')).toBeInTheDocument();
+    expect(screen.getByText('Ngày tạo')).toBeInTheDocument();
+    expect(screen.getByText('Ngày thực hiện')).toBeInTheDocument();
+    expect(screen.getByText('Ngày kết thúc')).toBeInTheDocument();
+    expect(screen.getByText('21/03/2026 15:30')).toBeInTheDocument();
+    expect(screen.getByText('22/03/2026 00:45')).toBeInTheDocument();
+  });
+
+  it('keeps desktop loading and empty states aligned with the reduced table column count', () => {
+    setViewportWidth(1440);
+
+    const { rerender } = render(
+      <CustomerRequestListPane
+        activeProcessCode=""
+        processOptions={[{ value: 'in_progress', label: 'Đang xử lý' }]}
+        onProcessCodeChange={vi.fn()}
+        requestKeyword=""
+        onRequestKeywordChange={vi.fn()}
+        requestCustomerFilter=""
+        onRequestCustomerFilterChange={vi.fn()}
+        requestSupportGroupFilter=""
+        onRequestSupportGroupFilterChange={vi.fn()}
+        requestPriorityFilter=""
+        onRequestPriorityFilterChange={vi.fn()}
+        requestCreatedFrom="2026-01-01"
+        onRequestCreatedFromChange={vi.fn()}
+        requestCreatedTo="2026-03-31"
+        onRequestCreatedToChange={vi.fn()}
+        customerOptions={[]}
+        supportServiceGroups={[]}
+        requestMissingEstimateFilter={false}
+        onToggleMissingEstimate={vi.fn()}
+        requestOverEstimateFilter={false}
+        onToggleOverEstimate={vi.fn()}
+        requestSlaRiskFilter={false}
+        onToggleSlaRisk={vi.fn()}
+        alertCounts={{ missing_estimate: 0, over_estimate: 0, sla_risk: 0 }}
+        isDashboardLoading={false}
+        rows={[]}
+        isListLoading
+        selectedRequestId={null}
+        onSelectRow={vi.fn()}
+        onPrimaryAction={vi.fn()}
+        listPage={1}
+        rowsPerPage={20}
+        listMeta={{ ...defaultMeta, page: 1 }}
+        onListPageChange={vi.fn()}
+        onRowsPerPageChange={vi.fn()}
+        hasListFilters={false}
+        onClearFilters={vi.fn()}
+        requestRoleFilter=""
+        presentation="responsive"
+      />
+    );
+
+    expect(screen.getByText('Đang tải danh sách yêu cầu...').closest('td')).toHaveAttribute('colspan', '7');
+
+    rerender(
+      <CustomerRequestListPane
+        activeProcessCode=""
+        processOptions={[{ value: 'in_progress', label: 'Đang xử lý' }]}
+        onProcessCodeChange={vi.fn()}
+        requestKeyword=""
+        onRequestKeywordChange={vi.fn()}
+        requestCustomerFilter=""
+        onRequestCustomerFilterChange={vi.fn()}
+        requestSupportGroupFilter=""
+        onRequestSupportGroupFilterChange={vi.fn()}
+        requestPriorityFilter=""
+        onRequestPriorityFilterChange={vi.fn()}
+        requestCreatedFrom="2026-01-01"
+        onRequestCreatedFromChange={vi.fn()}
+        requestCreatedTo="2026-03-31"
+        onRequestCreatedToChange={vi.fn()}
+        customerOptions={[]}
+        supportServiceGroups={[]}
+        requestMissingEstimateFilter={false}
+        onToggleMissingEstimate={vi.fn()}
+        requestOverEstimateFilter={false}
+        onToggleOverEstimate={vi.fn()}
+        requestSlaRiskFilter={false}
+        onToggleSlaRisk={vi.fn()}
+        alertCounts={{ missing_estimate: 0, over_estimate: 0, sla_risk: 0 }}
+        isDashboardLoading={false}
+        rows={[]}
+        isListLoading={false}
+        selectedRequestId={null}
+        onSelectRow={vi.fn()}
+        onPrimaryAction={vi.fn()}
+        listPage={1}
+        rowsPerPage={20}
+        listMeta={{ ...defaultMeta, page: 1 }}
+        onListPageChange={vi.fn()}
+        onRowsPerPageChange={vi.fn()}
+        hasListFilters={false}
+        onClearFilters={vi.fn()}
+        requestRoleFilter=""
+        presentation="responsive"
+      />
+    );
+
+    expect(screen.getByText('Không có yêu cầu nào phù hợp với bộ lọc hiện tại.').closest('td')).toHaveAttribute('colspan', '7');
+  });
+
+  it('can hide the internal filter toolbar when a shared hub filter bar is used', () => {
+    setViewportWidth(1440);
+
+    render(
+      <CustomerRequestListPane
+        activeProcessCode=""
+        processOptions={[{ value: 'in_progress', label: 'Đang xử lý' }]}
+        onProcessCodeChange={vi.fn()}
+        requestKeyword=""
+        onRequestKeywordChange={vi.fn()}
+        requestCustomerFilter=""
+        onRequestCustomerFilterChange={vi.fn()}
+        requestSupportGroupFilter=""
+        onRequestSupportGroupFilterChange={vi.fn()}
+        requestPriorityFilter=""
+        onRequestPriorityFilterChange={vi.fn()}
+        requestCreatedFrom="2026-01-01"
+        onRequestCreatedFromChange={vi.fn()}
+        requestCreatedTo="2026-03-31"
+        onRequestCreatedToChange={vi.fn()}
+        customerOptions={[]}
+        supportServiceGroups={[]}
+        requestMissingEstimateFilter={false}
+        onToggleMissingEstimate={vi.fn()}
+        requestOverEstimateFilter={false}
+        onToggleOverEstimate={vi.fn()}
+        requestSlaRiskFilter={false}
+        onToggleSlaRisk={vi.fn()}
+        alertCounts={{ missing_estimate: 0, over_estimate: 0, sla_risk: 0 }}
+        isDashboardLoading={false}
+        rows={[makeRequest()]}
+        isListLoading={false}
+        selectedRequestId={null}
+        onSelectRow={vi.fn()}
+        onPrimaryAction={vi.fn()}
+        listPage={1}
+        rowsPerPage={20}
+        listMeta={{ ...defaultMeta, page: 1 }}
+        onListPageChange={vi.fn()}
+        onRowsPerPageChange={vi.fn()}
+        hasListFilters={false}
+        onClearFilters={vi.fn()}
+        requestRoleFilter=""
+        presentation="responsive"
+        showFilterToolbar={false}
+      />
+    );
+
+    expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Bộ lọc/i })).not.toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
   });
 });

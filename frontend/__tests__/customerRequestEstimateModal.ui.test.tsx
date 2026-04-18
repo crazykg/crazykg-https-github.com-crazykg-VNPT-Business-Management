@@ -28,6 +28,7 @@ describe('CustomerRequestEstimateModal UI', () => {
       />
     );
 
+    expect(screen.getByRole('dialog', { name: /Cập nhật ước lượng/i })).toHaveClass('z-[130]');
     await user.clear(screen.getByLabelText('Giờ ước lượng'));
     await user.type(screen.getByLabelText('Giờ ước lượng'), '6');
     await user.selectOptions(screen.getByLabelText('Phạm vi'), 'phase');

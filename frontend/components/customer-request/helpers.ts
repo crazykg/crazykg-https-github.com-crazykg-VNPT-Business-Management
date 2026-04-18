@@ -85,6 +85,9 @@ export const formatCurrentDateForInput = (): string => {
   return `${year}-${month}-${day}`;
 };
 
+export const formatCurrentDateStartOfDayForInput = (): string =>
+  `${formatCurrentDateForInput()}T00:00`;
+
 export const DATE_ONLY_TRANSITION_FIELD_NAMES = new Set([
   'feedback_requested_at',
   'customer_due_at',

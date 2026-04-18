@@ -62,8 +62,9 @@ describe('CustomerRequestFieldRenderer', () => {
     const input = container.querySelector('input');
     expect(input).not.toBeNull();
     expect(input).toHaveValue('Zalo OA');
-    expect(input).toHaveClass('h-8');
-    expect(input).toHaveClass('text-xs');
+    expect(input).toHaveClass('h-9');
+    expect(input).toHaveClass('text-sm');
+    expect(input).toHaveClass('rounded');
   });
 
   it('renames support group selection to Zalo/Tele in the shared form renderer', () => {
@@ -77,5 +78,9 @@ describe('CustomerRequestFieldRenderer', () => {
     expect(screen.getByText('Zalo/Tele')).toBeInTheDocument();
     expect(screen.queryByText('Kênh tiếp nhận')).not.toBeInTheDocument();
     expect(screen.getByText('Chọn zalo/tele')).toBeInTheDocument();
+    const selectTrigger = screen.getByRole('button', { name: 'Zalo/Tele' });
+    expect(selectTrigger).toHaveClass('h-9');
+    expect(selectTrigger).toHaveClass('text-sm');
+    expect(selectTrigger).toHaveClass('rounded');
   });
 });

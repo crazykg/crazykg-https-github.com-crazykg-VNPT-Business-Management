@@ -88,4 +88,41 @@ describe('Sidebar avatar handling', () => {
     expect(screen.queryByText('Đổi ảnh')).not.toBeInTheDocument();
     expect(screen.queryByText('Đã cập nhật ảnh đại diện.')).not.toBeInTheDocument();
   });
+
+  it('shows the Báo giá menu under Danh mục & Sản phẩm only when product_quotes is visible and opens that tab', async () => {
+    const user = userEvent.setup();
+    const setActiveTab = vi.fn();
+    const { rerender } = render(
+      <Sidebar
+        activeTab="dashboard"
+        setActiveTab={setActiveTab}
+        isOpen
+        onClose={vi.fn()}
+        currentUser={buildUser()}
+        visibleTabIds={new Set(['dashboard', 'products', 'product_packages'])}
+        onLogout={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /Báo giá/i })).not.toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        activeTab="dashboard"
+        setActiveTab={setActiveTab}
+        isOpen
+        onClose={vi.fn()}
+        currentUser={buildUser()}
+        visibleTabIds={new Set(['dashboard', 'products', 'product_quotes', 'product_packages'])}
+        onLogout={vi.fn()}
+      />
+    );
+
+    const quoteButton = screen.getByRole('button', { name: /Báo giá/i });
+    expect(screen.getAllByRole('button', { name: /Sản phẩm\/Dịch vụ/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Gói sản phẩm/i })).toHaveLength(1);
+
+    await user.click(quoteButton);
+    expect(setActiveTab).toHaveBeenCalledWith('product_quotes');
+  });
 });

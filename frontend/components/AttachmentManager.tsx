@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { Attachment } from '../types';
 
 interface AttachmentManagerProps {
@@ -16,7 +16,13 @@ interface AttachmentManagerProps {
   enableClipboardPaste?: boolean;
   clipboardPasteHint?: string;
   uploadButtonClassName?: string;
+  showUploadButton?: boolean;
+  showListTitle?: boolean;
 }
+
+export type AttachmentManagerHandle = {
+  openFilePicker: () => void;
+};
 
 const formatSize = (bytes: number) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 Bytes';
@@ -162,7 +168,7 @@ const extractClipboardImageFiles = (items: DataTransferItemList | undefined | nu
   return files;
 };
 
-export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
+export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentManagerProps>(({
   attachments,
   onUpload,
   onDelete,
@@ -170,14 +176,16 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
   disabled = false,
   compact = false,
   accept = '.pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar',
-  helperText = 'Sau khi tải lên, hệ thống hiển thị luôn liên kết mở file tương ứng.',
+  helperText,
   emptyStateDescription = 'Tải file lên để nhận ngay liên kết mở file từ kho lưu trữ đang cấu hình hoặc máy chủ nội bộ.',
   uploadButtonLabel = 'Tải file',
   showSummaryMeta = true,
   enableClipboardPaste = false,
   clipboardPasteHint = 'Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp.',
   uploadButtonClassName,
-}) => {
+  showUploadButton = true,
+  showListTitle = true,
+}, ref) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef = useRef<HTMLDivElement>(null);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
@@ -189,6 +197,10 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
 
     fileInputRef.current?.click();
   };
+
+  useImperativeHandle(ref, () => ({
+    openFilePicker,
+  }), [isUploading, disabled]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -266,6 +278,9 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
     }
   };
 
+  const shouldShowSummaryMeta = showSummaryMeta && (attachments.length > 0 || Boolean(helperText));
+  const shouldRenderHeader = showListTitle || shouldShowSummaryMeta || showUploadButton;
+
   // Khi disabled và chưa có file → không render gì cả (tránh hộp rỗng)
   if (disabled && attachments.length === 0) {
     return null;
@@ -273,36 +288,54 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
 
   return (
     <div className={compact ? 'space-y-2' : 'space-y-3'}>
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1">
-          <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
-            <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
-            Danh sách file đính kèm
-          </h3>
-          {showSummaryMeta ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                {attachments.length} file
-              </span>
-              {helperText ? <span className="text-xs text-slate-500">{helperText}</span> : null}
-            </div>
+      {shouldRenderHeader ? (
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-1">
+            {showListTitle ? (
+              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
+                Danh sách file đính kèm
+              </h3>
+            ) : null}
+            {shouldShowSummaryMeta ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {attachments.length > 0 ? (
+                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                    {attachments.length} file
+                  </span>
+                ) : null}
+                {helperText ? <span className="text-xs text-slate-500">{helperText}</span> : null}
+              </div>
+            ) : null}
+          </div>
+          {showUploadButton ? (
+            <button
+              type="button"
+              onClick={openFilePicker}
+              disabled={isUploading || disabled}
+              className={uploadButtonClassName || `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+                compact ? 'px-3 py-1.5' : 'px-4 py-2'
+              } min-w-[116px]`}
+            >
+              {isUploading ? (
+                <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+              ) : (
+                <span className="material-symbols-outlined text-base">upload</span>
+              )}
+              {uploadButtonLabel}
+            </button>
           ) : null}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={accept}
+            disabled={isUploading || disabled}
+            onChange={handleFileChange}
+            className="sr-only"
+          />
         </div>
-        <button
-          type="button"
-          onClick={openFilePicker}
-          disabled={isUploading || disabled}
-          className={uploadButtonClassName || `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
-            compact ? 'px-3 py-1.5' : 'px-4 py-2'
-          } min-w-[116px]`}
-        >
-          {isUploading ? (
-            <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
-          ) : (
-            <span className="material-symbols-outlined text-base">upload</span>
-          )}
-          {uploadButtonLabel}
-        </button>
+      ) : (
         <input
           ref={fileInputRef}
           type="file"
@@ -312,7 +345,7 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           onChange={handleFileChange}
           className="sr-only"
         />
-      </div>
+      )}
 
       {attachments.length > 0 ? (
         <div
@@ -436,23 +469,25 @@ export const AttachmentManager: React.FC<AttachmentManagerProps> = ({
           ref={pasteZoneRef}
           tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
           onPaste={(event) => { void handlePaste(event); }}
-          className={`rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${
-            compact ? 'py-3.5' : 'py-5'
+          className={`rounded-xl border border-dashed border-slate-300 bg-slate-50/90 px-4 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${
+            compact ? 'py-3' : 'py-4.5'
           }`}
         >
           <div className={`mx-auto flex items-center justify-center rounded-full bg-white text-slate-400 shadow-sm ${
-            compact ? 'h-8 w-8' : 'h-10 w-10'
+            compact ? 'h-7 w-7' : 'h-9 w-9'
           }`}>
-            <span className={`material-symbols-outlined ${compact ? 'text-lg' : 'text-2xl'}`}>upload_file</span>
+            <span className={`material-symbols-outlined ${compact ? 'text-base' : 'text-[22px]'}`}>upload_file</span>
           </div>
-          <p className={`text-sm font-semibold text-slate-600 ${compact ? 'mt-1.5' : 'mt-2'}`}>Chưa có file nào được tải lên.</p>
-          <p className="mt-1 text-xs text-slate-500">{emptyStateDescription}</p>
+          <p className={`font-semibold text-slate-600 ${compact ? 'mt-1 text-[13px]' : 'mt-1.5 text-sm'}`}>Chưa có file nào được tải lên.</p>
+          <p className={`text-slate-500 ${compact ? 'mt-0.5 text-[11px]' : 'mt-1 text-xs'}`}>{emptyStateDescription}</p>
           {enableClipboardPaste && !disabled ? (
-            <p className="mt-2 text-xs font-medium text-primary">{clipboardPasteHint}</p>
+            <p className={`font-medium text-primary ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-xs'}`}>{clipboardPasteHint}</p>
           ) : null}
         </div>
       )}
 
     </div>
   );
-};
+});
+
+AttachmentManager.displayName = 'AttachmentManager';
