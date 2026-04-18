@@ -1527,6 +1527,28 @@ const App: React.FC = () => {
     sync_raci: Array.isArray(data.raci),
   }), []);
 
+  const buildProjectCopySeed = React.useCallback((source?: Partial<Project> | null): Partial<Project> => ({
+    project_code: '',
+    project_name: source?.project_name ?? '',
+    customer_id: source?.customer_id ?? null,
+    department_id: source?.department_id ?? null,
+    implementation_user_id: source?.implementation_user_id ?? null,
+    implementation_user_code: source?.implementation_user_code ?? null,
+    implementation_full_name: source?.implementation_full_name ?? null,
+    implementation_unit_code: source?.implementation_unit_code ?? null,
+    implementation_unit_name: source?.implementation_unit_name ?? null,
+    investment_mode: source?.investment_mode ?? null,
+    payment_cycle: source?.payment_cycle ?? null,
+    status: source?.status,
+    status_reason: source?.status_reason ?? null,
+    opportunity_score: source?.opportunity_score ?? null,
+    start_date: source?.start_date ?? null,
+    expected_end_date: source?.expected_end_date ?? null,
+    actual_end_date: source?.actual_end_date ?? null,
+    items: Array.isArray(source?.items) ? source.items : undefined,
+    raci: Array.isArray(source?.raci) ? source.raci : undefined,
+  }), []);
+
   const handleCreateProjectSave = React.useCallback(async (data: Partial<Project>) => {
     setIsSaving(true);
     try {
@@ -2373,6 +2395,8 @@ const App: React.FC = () => {
               canDeleteRequests: hasPermission(authUser, 'support_requests.delete'),
             }}
             handleOpenModal={(type, item) => {
+              const buildProjectCopyPrefill = (source?: Partial<Project> | null): Project =>
+                buildProjectCopySeed(source) as Project;
               resetModalSelections();
               setImportModuleOverride(null);
               setIsContractDetailLoading(false);
@@ -2401,6 +2425,23 @@ const App: React.FC = () => {
 
               if (type === 'IMPORT_DATA') {
                 setImportModuleOverride(activeModuleKey);
+                return;
+              }
+
+              if (type === 'ADD_PROJECT' && item && typeof item === 'object' && 'id' in item) {
+                const project = item as Project;
+                setSelectedProject(buildProjectCopyPrefill(project));
+                void (async () => {
+                  try {
+                    const detail = await fetchProjectDetail(project.id);
+                    setSelectedProject(buildProjectCopyPrefill(detail));
+                  } catch (error) {
+                    if (isRequestCanceledError(error)) {
+                      return;
+                    }
+                    setSelectedProject(buildProjectCopyPrefill(project));
+                  }
+                })();
                 return;
               }
 
