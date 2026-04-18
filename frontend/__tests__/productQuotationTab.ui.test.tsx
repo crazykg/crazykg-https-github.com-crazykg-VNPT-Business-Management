@@ -264,6 +264,7 @@ const buildVersionDetailResponse = (
       id: 1,
       sort_order: 1,
       product_id: 1,
+      package_id: null,
       product_name: 'VNPT HIS Cloud',
       unit: 'Gói/Năm',
       quantity: 1,
@@ -522,6 +523,7 @@ describe('ProductQuotationTab UI', () => {
               id: index + 1,
               sort_order: index + 1,
               product_id: typeof item?.product_id === 'number' ? item.product_id : null,
+              package_id: typeof item?.package_id === 'number' ? item.package_id : null,
               product_name: String(item?.product_name || ''),
               unit: String(item?.unit || ''),
               quantity: Number(item?.quantity || 0),
@@ -1187,6 +1189,153 @@ describe('ProductQuotationTab UI', () => {
       ).length
     ).toBeGreaterThan(0);
     expect(screen.getByText('1.500.000')).toBeInTheDocument();
+  });
+
+  it('sends package_id in draft save and export payloads when the user selects a product package', async () => {
+    const user = userEvent.setup();
+    previewSpies.openProductQuotationPreview.mockImplementation(async ({ loadPdf }) => {
+      await loadPdf();
+      return true;
+    });
+
+    await renderProductQuotationTab({
+      productPackages,
+    });
+
+    await searchAndSelectCustomer(user, 'Đa khoa', 'Bệnh viện Đa khoa Cần Thơ');
+    await user.click(getProductCatalogButton());
+    await user.click(screen.getByRole('button', { name: /VNPT HIS L3/i }));
+    await user.click(getExportQuotationButton());
+    await user.click(getExportMenuActionButton(/^Xem báo giá$/i));
+
+    await waitFor(() => {
+      expect(previewSpies.openProductQuotationPreview).toHaveBeenCalledTimes(1);
+      expect(quotationApiSpies.exportProductQuotationPdf).toHaveBeenCalledTimes(1);
+    });
+
+    expect(quotationApiSpies.exportProductQuotationPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            product_id: 1,
+            package_id: 101,
+            product_name: 'VNPT HIS L3',
+            unit: 'Gói/Năm',
+            unit_price: 180000000,
+          }),
+        ],
+      })
+    );
+
+    await waitFor(() => {
+      expect(quotationApiSpies.createProductQuotation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              product_id: 1,
+              package_id: 101,
+              product_name: 'VNPT HIS L3',
+              unit: 'Gói/Năm',
+              unit_price: 180000000,
+            }),
+          ],
+        })
+      );
+    });
+  });
+
+  it('reopens the exact saved package by package_id even when duplicate packages share the same label and price', async () => {
+    const user = userEvent.setup();
+    const duplicatePackages: ProductPackage[] = [
+      {
+        ...productPackages[0],
+        id: 101,
+        package_code: 'HIS_L3_A',
+        package_name: 'VNPT HIS L3',
+        description: 'Phương án triển khai A',
+      },
+      {
+        ...productPackages[0],
+        id: 102,
+        package_code: 'HIS_L3_B',
+        package_name: 'VNPT HIS L3',
+        description: 'Phương án triển khai B',
+      },
+    ];
+
+    previewSpies.openProductQuotationPreview.mockImplementation(async ({ loadPdf }) => {
+      await loadPdf();
+      return true;
+    });
+
+    seedSavedQuotation(
+      { id: 88, recipient_name: 'Bệnh viện Đa khoa Cần Thơ' },
+      {
+        id: 88,
+        recipient_name: 'Bệnh viện Đa khoa Cần Thơ',
+        items: [
+          {
+            id: 1,
+            sort_order: 1,
+            product_id: 1,
+            package_id: 102,
+            product_name: 'VNPT HIS L3',
+            unit: 'Gói/Năm',
+            quantity: 1,
+            unit_price: 180000000,
+            vat_rate: 10,
+            vat_amount: 18000000,
+            line_total: 180000000,
+            total_with_vat: 198000000,
+            note: 'Phương án triển khai B',
+          },
+        ],
+      }
+    );
+
+    await renderProductQuotationTab({
+      productPackages: duplicatePackages,
+    });
+    await openSavedQuotation(user);
+
+    expect(getProductCatalogButton()).toHaveTextContent('VNPT HIS L3');
+
+    await user.click(getProductCatalogButton());
+
+    const packageAOption = screen
+      .getAllByText('Phương án triển khai A')
+      .map((element) => element.closest('button'))
+      .find((element): element is HTMLButtonElement => element instanceof HTMLButtonElement);
+    const packageBOption = screen
+      .getAllByText('Phương án triển khai B')
+      .map((element) => element.closest('button'))
+      .find((element): element is HTMLButtonElement => element instanceof HTMLButtonElement);
+
+    expect(packageAOption).toBeDefined();
+    expect(packageBOption).toBeDefined();
+    expect(packageAOption).not.toHaveClass('bg-primary/10');
+    expect(packageBOption).toHaveClass('bg-primary/10');
+
+    await user.click(getExportQuotationButton());
+    await user.click(getExportMenuActionButton(/^Xem báo giá$/i));
+
+    await waitFor(() => {
+      expect(quotationApiSpies.exportProductQuotationPdf).toHaveBeenCalledTimes(1);
+    });
+
+    expect(quotationApiSpies.exportProductQuotationPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            product_id: 1,
+            package_id: 102,
+            product_name: 'VNPT HIS L3',
+            unit: 'Gói/Năm',
+            unit_price: 180000000,
+          }),
+        ],
+      })
+    );
   });
 
   it('formats quantity with thousand separators and comma decimals before exporting', async () => {

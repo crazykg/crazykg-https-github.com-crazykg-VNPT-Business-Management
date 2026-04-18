@@ -56,9 +56,181 @@ class ProductPackageFeatureCatalogTest extends TestCase
             ->assertJsonPath('data.rows.1.name', 'Dang nhap package');
     }
 
+    public function test_it_falls_back_to_product_catalog_in_read_only_mode_when_package_is_empty(): void
+    {
+        \Illuminate\Support\Facades\DB::table('product_feature_groups')->insert([
+            'id' => 101,
+            'uuid' => 'product-group-101',
+            'product_id' => 1,
+            'group_name' => 'Danh muc product',
+            'display_order' => 1,
+            'notes' => 'Du lieu tham chieu',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('product_features')->insert([
+            'id' => 201,
+            'uuid' => 'product-feature-201',
+            'product_id' => 1,
+            'group_id' => 101,
+            'feature_name' => 'Tinh nang product',
+            'detail_description' => 'Du lieu cap product',
+            'status' => 'ACTIVE',
+            'display_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->getJson('/api/v5/product-packages/1/feature-catalog')
+            ->assertOk()
+            ->assertJsonPath('data.product.product_code', 'PKG-HIS-01')
+            ->assertJsonPath('data.catalog_policy.owner_level', 'product')
+            ->assertJsonPath('data.catalog_policy.source', 'product')
+            ->assertJsonPath('data.catalog_policy.read_only', true)
+            ->assertJsonPath('data.catalog_policy.lock_reason', 'blocked_by_product')
+            ->assertJsonPath('data.catalog_policy.inherited_product_code', 'SP001')
+            ->assertJsonPath('data.groups.0.group_name', 'Danh muc product')
+            ->assertJsonPath('data.groups.0.features.0.feature_name', 'Tinh nang product');
+
+        $this->getJson('/api/v5/product-packages/1/feature-catalog/list')
+            ->assertOk()
+            ->assertJsonPath('data.catalog_policy.owner_level', 'product')
+            ->assertJsonPath('data.rows.0.name', 'Danh muc product')
+            ->assertJsonPath('data.rows.1.name', 'Tinh nang product');
+
+        $this->putJson('/api/v5/product-packages/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Khong duoc luu',
+                    'features' => [],
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['groups']);
+    }
+
+    public function test_it_prefers_package_catalog_when_both_product_and_package_have_data(): void
+    {
+        \Illuminate\Support\Facades\DB::table('product_feature_groups')->insert([
+            'id' => 111,
+            'uuid' => 'product-group-111',
+            'product_id' => 1,
+            'group_name' => 'Danh muc product',
+            'display_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('product_features')->insert([
+            'id' => 211,
+            'uuid' => 'product-feature-211',
+            'product_id' => 1,
+            'group_id' => 111,
+            'feature_name' => 'Tinh nang product',
+            'detail_description' => 'Du lieu product',
+            'status' => 'ACTIVE',
+            'display_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('product_package_feature_groups')->insert([
+            'id' => 311,
+            'uuid' => 'package-group-311',
+            'package_id' => 1,
+            'group_name' => 'Danh muc package',
+            'display_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('product_package_features')->insert([
+            'id' => 411,
+            'uuid' => 'package-feature-411',
+            'package_id' => 1,
+            'group_id' => 311,
+            'feature_name' => 'Tinh nang package',
+            'detail_description' => 'Du lieu package',
+            'status' => 'ACTIVE',
+            'display_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->getJson('/api/v5/product-packages/1/feature-catalog');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.catalog_policy.owner_level', 'package')
+            ->assertJsonPath('data.catalog_policy.source', 'package')
+            ->assertJsonPath('data.catalog_policy.read_only', false)
+            ->assertJsonPath('data.groups.0.group_name', 'Danh muc package')
+            ->assertJsonPath('data.groups.0.features.0.feature_name', 'Tinh nang package');
+
+        $groupId = (int) \Illuminate\Support\Facades\DB::table('product_package_feature_groups')->value('id');
+        $featureId = (int) \Illuminate\Support\Facades\DB::table('product_package_features')->value('id');
+
+        $this->putJson('/api/v5/product-packages/1/feature-catalog', [
+            'groups' => [
+                [
+                    'id' => $groupId,
+                    'group_name' => 'Danh muc package',
+                    'features' => [
+                        [
+                            'id' => $featureId,
+                            'feature_name' => 'Tinh nang package cap nhat',
+                            'detail_description' => 'Van cho sua package',
+                            'status' => 'INACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'FORM',
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.catalog_policy.owner_level', 'package')
+            ->assertJsonPath('data.groups.0.features.0.feature_name', 'Tinh nang package cap nhat');
+    }
+
+    public function test_it_accepts_package_feature_names_longer_than_255_characters(): void
+    {
+        $longFeatureName = trim(str_repeat('Tinh nang package mo rong ', 18));
+
+        $this->putJson('/api/v5/product-packages/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan tri he thong',
+                    'features' => [
+                        [
+                            'feature_name' => $longFeatureName,
+                            'detail_description' => 'Cho phep luu ten tinh nang package dai hon 255 ky tu',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'IMPORT',
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.groups.0.features.0.feature_name', $longFeatureName);
+
+        $this->assertSame(
+            $longFeatureName,
+            \Illuminate\Support\Facades\DB::table('product_package_features')->value('feature_name')
+        );
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('audit_logs');
+        Schema::dropIfExists('product_features');
+        Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('product_package_features');
         Schema::dropIfExists('product_package_feature_groups');
         Schema::dropIfExists('product_packages');
@@ -87,6 +259,32 @@ class ProductPackageFeatureCatalogTest extends TestCase
             $table->timestamp('updated_at')->nullable();
         });
 
+        Schema::create('product_feature_groups', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->uuid('uuid')->nullable();
+            $table->unsignedBigInteger('product_id');
+            $table->string('group_name', 255);
+            $table->unsignedInteger('display_order')->default(1);
+            $table->text('notes')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('product_features', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->uuid('uuid')->nullable();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('group_id');
+            $table->text('feature_name');
+            $table->longText('detail_description')->nullable();
+            $table->string('status', 20)->default('ACTIVE');
+            $table->unsignedInteger('display_order')->default(1);
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
         Schema::create('product_package_feature_groups', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->uuid('uuid')->nullable();
@@ -106,7 +304,7 @@ class ProductPackageFeatureCatalogTest extends TestCase
             $table->uuid('uuid')->nullable();
             $table->unsignedBigInteger('package_id');
             $table->unsignedBigInteger('group_id');
-            $table->string('feature_name', 255);
+            $table->text('feature_name');
             $table->longText('detail_description')->nullable();
             $table->string('status', 20)->default('ACTIVE');
             $table->unsignedInteger('display_order')->default(1);

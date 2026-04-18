@@ -160,6 +160,9 @@ class ProductQuotationExportTest extends TestCase
         $this->assertStringContainsString('Dang nhap package', $documentXml);
         $this->assertStringContainsString('Quản lý hồ sơ bệnh án', $documentXml);
         $this->assertStringContainsString('Bệnh án điện tử', $documentXml);
+        $this->assertStringNotContainsString('Quản trị hệ thống (Quản lý người dùng, quản lý cấu hình)', $documentXml);
+        $this->assertStringNotContainsString('Đăng nhập', $documentXml);
+        $this->assertStringNotContainsString('Trang chủ', $documentXml);
         $this->assertStringContainsString('Đính kèm báo giá ngày 25/03/2026', $documentXml);
         $this->assertStringContainsString('Trung tâm Kinh doanh Giải pháp – VNPT Cần Thơ', $documentXml);
         $this->assertStringContainsString('phát hành đến BỆNH VIỆN ĐA KHOA CẦN THƠ', $documentXml);
@@ -168,6 +171,75 @@ class ProductQuotationExportTest extends TestCase
         $this->assertStringContainsString('w:trHeight w:val="575" w:hRule="atLeast"', $documentXml);
         $this->assertStringContainsString('w:trHeight w:val="315" w:hRule="atLeast"', $documentXml);
         $this->assertStringContainsString('<w:tcMar><w:top w:w="30" w:type="dxa"/><w:left w:w="45" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:right w:w="45" w:type="dxa"/></w:tcMar>', $documentXml);
+    }
+
+    public function test_it_uses_product_feature_appendix_when_package_id_is_not_selected(): void
+    {
+        $payload = $this->quotationPayload();
+        $payload['items'] = [[
+            'product_id' => 1,
+            'product_name' => 'VNPT HIS Cloud',
+            'unit' => 'Gói/Năm',
+            'quantity' => 1,
+            'unit_price' => 180000000,
+            'vat_rate' => 10,
+            'note' => "Theo gói tiêu chuẩn\nBao gồm triển khai cơ bản",
+        ]];
+
+        $response = $this->post('/api/v5/products/quotation/export-word', $payload);
+
+        $response->assertOk();
+
+        $binary = $response->getContent();
+        $this->assertIsString($binary);
+        $this->assertNotSame('', $binary);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'quote_word_product_catalog_');
+        $this->assertNotFalse($tempFile);
+        file_put_contents($tempFile, $binary);
+
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($tempFile) === true);
+
+        $documentXml = $zip->getFromName('word/document.xml');
+        $zip->close();
+        @unlink($tempFile);
+
+        $this->assertIsString($documentXml);
+        $this->assertStringContainsString('VNPT HIS CLOUD', $documentXml);
+        $this->assertStringContainsString('Quản trị hệ thống (Quản lý người dùng, quản lý cấu hình)', $documentXml);
+        $this->assertStringContainsString('Đăng nhập', $documentXml);
+        $this->assertStringContainsString('Trang chủ', $documentXml);
+        $this->assertStringNotContainsString('Tinh nang package HIS', $documentXml);
+        $this->assertStringNotContainsString('Dang nhap package', $documentXml);
+    }
+
+    public function test_it_falls_back_to_product_package_feature_appendix_when_product_catalog_is_empty(): void
+    {
+        $response = $this->post('/api/v5/products/quotation/export-word', $this->quotationPayloadForPackageFallback());
+
+        $response->assertOk();
+
+        $binary = $response->getContent();
+        $this->assertIsString($binary);
+        $this->assertNotSame('', $binary);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'quote_word_package_fallback_');
+        $this->assertNotFalse($tempFile);
+        file_put_contents($tempFile, $binary);
+
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($tempFile) === true);
+
+        $documentXml = $zip->getFromName('word/document.xml');
+        $zip->close();
+        @unlink($tempFile);
+
+        $this->assertIsString($documentXml);
+        $this->assertStringContainsString('VNPT LIS', $documentXml);
+        $this->assertStringContainsString('Tinh nang package LIS', $documentXml);
+        $this->assertStringContainsString('Dang nhap package LIS', $documentXml);
+        $this->assertStringNotContainsString('Chưa cấu hình danh sách tính năng', $documentXml);
     }
 
     public function test_it_exports_product_quotation_as_excel_document(): void
@@ -249,6 +321,7 @@ class ProductQuotationExportTest extends TestCase
             'items' => [
                 [
                     'product_id' => 1,
+                    'package_id' => 10,
                     'product_name' => 'VNPT HIS Cloud',
                     'unit' => 'Gói/Năm',
                     'quantity' => 1,
@@ -258,6 +331,7 @@ class ProductQuotationExportTest extends TestCase
                 ],
                 [
                     'product_id' => 2,
+                    'package_id' => 11,
                     'product_name' => 'VNPT EMR',
                     'unit' => 'Gói',
                     'quantity' => 1,
@@ -273,6 +347,22 @@ class ProductQuotationExportTest extends TestCase
     {
         $payload = $this->quotationPayload();
         $payload['items'][1]['vat_rate'] = 8;
+
+        return $payload;
+    }
+
+    private function quotationPayloadForPackageFallback(): array
+    {
+        $payload = $this->quotationPayload();
+        $payload['items'] = [[
+            'product_id' => 3,
+            'product_name' => 'VNPT LIS',
+            'unit' => 'Gói',
+            'quantity' => 1,
+            'unit_price' => 15000000,
+            'vat_rate' => 10,
+            'note' => 'Theo phụ lục package fallback',
+        ]];
 
         return $payload;
     }
@@ -296,6 +386,7 @@ class ProductQuotationExportTest extends TestCase
         DB::table('products')->insert([
             ['id' => 1, 'product_name' => 'VNPT HIS Cloud', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 2, 'product_name' => 'VNPT EMR', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 3, 'product_name' => 'VNPT LIS', 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         Schema::create('product_feature_groups', function (Blueprint $table): void {
@@ -310,7 +401,7 @@ class ProductQuotationExportTest extends TestCase
             $table->bigIncrements('id');
             $table->unsignedBigInteger('product_id');
             $table->unsignedBigInteger('group_id');
-            $table->string('feature_name', 255);
+            $table->text('feature_name');
             $table->text('detail_description')->nullable();
             $table->integer('display_order')->default(0);
             $table->string('status', 20)->default('ACTIVE');
@@ -322,6 +413,9 @@ class ProductQuotationExportTest extends TestCase
             $table->unsignedBigInteger('product_id');
             $table->string('package_code', 100)->nullable();
             $table->string('package_name', 255)->nullable();
+            $table->decimal('standard_price', 18, 2)->default(0.00);
+            $table->string('unit', 100)->nullable();
+            $table->text('description')->nullable();
             $table->timestamp('deleted_at')->nullable();
             $table->timestamps();
         });
@@ -339,7 +433,7 @@ class ProductQuotationExportTest extends TestCase
             $table->bigIncrements('id');
             $table->unsignedBigInteger('package_id');
             $table->unsignedBigInteger('group_id');
-            $table->string('feature_name', 255);
+            $table->text('feature_name');
             $table->text('detail_description')->nullable();
             $table->integer('display_order')->default(0);
             $table->string('status', 20)->default('ACTIVE');
@@ -405,6 +499,9 @@ class ProductQuotationExportTest extends TestCase
                 'product_id' => 1,
                 'package_code' => 'PKG-HIS-01',
                 'package_name' => 'Goi HIS nang cao',
+                'standard_price' => 180000000,
+                'unit' => 'Gói/Năm',
+                'description' => 'Bao gồm triển khai cơ bản',
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
@@ -413,6 +510,31 @@ class ProductQuotationExportTest extends TestCase
                 'product_id' => 2,
                 'package_code' => 'PKG-EMR-01',
                 'package_name' => 'Goi EMR co ban',
+                'standard_price' => 31000000,
+                'unit' => 'Gói',
+                'description' => 'Theo phụ lục 02',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 9,
+                'product_id' => 3,
+                'package_code' => 'PKG-LIS-00',
+                'package_name' => 'Goi LIS rong',
+                'standard_price' => 15000000,
+                'unit' => 'Gói',
+                'description' => 'Goi LIS rong',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'id' => 12,
+                'product_id' => 3,
+                'package_code' => 'PKG-LIS-01',
+                'package_name' => 'Goi LIS co ban',
+                'standard_price' => 15000000,
+                'unit' => 'Gói',
+                'description' => 'Theo phụ lục package fallback',
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
@@ -427,6 +549,14 @@ class ProductQuotationExportTest extends TestCase
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
+            [
+                'id' => 102,
+                'package_id' => 12,
+                'group_name' => 'Tinh nang package LIS',
+                'display_order' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ]);
 
         DB::table('product_package_features')->insert([
@@ -435,6 +565,16 @@ class ProductQuotationExportTest extends TestCase
                 'group_id' => 101,
                 'feature_name' => 'Dang nhap package',
                 'detail_description' => 'Su dung catalog rieng cua goi cuoc.',
+                'display_order' => 1,
+                'status' => 'ACTIVE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'package_id' => 12,
+                'group_id' => 102,
+                'feature_name' => 'Dang nhap package LIS',
+                'detail_description' => 'Su dung catalog package khi product chua co du lieu.',
                 'display_order' => 1,
                 'status' => 'ACTIVE',
                 'created_at' => now(),

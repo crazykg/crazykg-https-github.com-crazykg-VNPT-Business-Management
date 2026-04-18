@@ -19,10 +19,13 @@ class ProductPackageFeatureCatalogDomainService
     private const CATALOG_AUDIT_TYPE = 'product_package_feature_catalogs';
     private const FEATURE_STATUS_ACTIVE = 'ACTIVE';
     private const FEATURE_STATUS_INACTIVE = 'INACTIVE';
+    private const FEATURE_NAME_MAX_LENGTH = 2000;
 
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
+        private readonly ProductFeatureCatalogOwnershipService $catalogOwnership,
+        private readonly ProductFeatureCatalogDomainService $productCatalogService,
     ) {}
 
     public function show(Request $request, int $packageId): JsonResponse
@@ -37,8 +40,10 @@ class ProductPackageFeatureCatalogDomainService
             return response()->json(['message' => 'Product package not found.'], 404);
         }
 
+        $catalogPolicy = $this->catalogOwnership->resolvePackageCatalogPolicy($package);
+
         return response()->json([
-            'data' => $this->buildCatalogPayload($package),
+            'data' => $this->buildResolvedCatalogPayload($request, $package, $catalogPolicy),
         ]);
     }
 
@@ -57,28 +62,18 @@ class ProductPackageFeatureCatalogDomainService
         [$page, $perPage] = $this->support->resolvePaginationParams($request, 40, 100);
         $groupId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'group_id'));
         $search = trim((string) $this->support->readFilterParam($request, 'search', ''));
-        $packageIds = [$packageId];
-        $listPayload = $this->loadCatalogListRows(
-            $packageIds,
-            $groupId,
-            $search !== '' ? $search : null,
-            $page,
-            $perPage
-        );
+        $catalogPolicy = $this->catalogOwnership->resolvePackageCatalogPolicy($package);
 
         return response()->json([
-            'data' => [
-                'product' => $this->serializePackageSummary($package),
-                'catalog_scope' => [
-                    'catalog_product_id' => $packageId,
-                    'product_ids' => $packageIds,
-                    'package_count' => 1,
-                    'product_codes' => [trim((string) ($package['package_code'] ?? ''))],
-                ],
-                'group_filters' => $this->loadCatalogGroupFilters($packageIds),
-                'rows' => $listPayload['rows'],
-                'meta' => $this->support->buildPaginationMeta($page, $perPage, $listPayload['total']),
-            ],
+            'data' => $this->buildResolvedCatalogListPayload(
+                $request,
+                $package,
+                $catalogPolicy,
+                $page,
+                $perPage,
+                $groupId,
+                $search !== '' ? $search : null
+            ),
         ]);
     }
 
@@ -94,6 +89,13 @@ class ProductPackageFeatureCatalogDomainService
             return response()->json(['message' => 'Product package not found.'], 404);
         }
 
+        $catalogPolicy = $this->catalogOwnership->resolvePackageCatalogPolicy($package);
+        if (($catalogPolicy['can_edit'] ?? false) !== true) {
+            throw ValidationException::withMessages([
+                'groups' => [$this->buildPackageCatalogLockedMessage($catalogPolicy)],
+            ]);
+        }
+
         $validated = $request->validate([
             'groups' => ['required', 'array'],
             'groups.*.id' => ['nullable', 'integer'],
@@ -104,7 +106,7 @@ class ProductPackageFeatureCatalogDomainService
             'groups.*.features' => ['nullable', 'array'],
             'groups.*.features.*.id' => ['nullable', 'integer'],
             'groups.*.features.*.uuid' => ['nullable', 'string', 'max:100'],
-            'groups.*.features.*.feature_name' => ['required', 'string', 'max:255'],
+            'groups.*.features.*.feature_name' => ['required', 'string', 'max:'.self::FEATURE_NAME_MAX_LENGTH],
             'groups.*.features.*.detail_description' => ['nullable', 'string', 'max:20000'],
             'groups.*.features.*.status' => ['nullable', 'string', Rule::in([
                 self::FEATURE_STATUS_ACTIVE,
@@ -194,7 +196,11 @@ class ProductPackageFeatureCatalogDomainService
         $reloadedPackage = $this->findPackageSummary($packageId);
 
         return response()->json([
-            'data' => $this->buildCatalogPayload($reloadedPackage ?? $package),
+            'data' => $this->buildResolvedCatalogPayload(
+                $request,
+                $reloadedPackage ?? $package,
+                $this->catalogOwnership->resolvePackageCatalogPolicy($reloadedPackage ?? $package)
+            ),
         ]);
     }
 
@@ -259,7 +265,7 @@ class ProductPackageFeatureCatalogDomainService
      * @param array<string, mixed> $package
      * @return array<string, mixed>
      */
-    private function buildCatalogPayload(array $package): array
+    private function buildCatalogPayload(array $package, array $catalogPolicy = []): array
     {
         $packageId = (int) ($package['id'] ?? 0);
         $packageIds = $packageId > 0 ? [$packageId] : [];
@@ -296,6 +302,7 @@ class ProductPackageFeatureCatalogDomainService
                 'package_count' => 1,
                 'product_codes' => [trim((string) ($package['package_code'] ?? ''))],
             ],
+            'catalog_policy' => $catalogPolicy,
             'groups' => collect($snapshot)
                 ->map(fn (array $group): array => $this->decorateGroupActors($group, $actorMap))
                 ->values()
@@ -305,6 +312,115 @@ class ProductPackageFeatureCatalogDomainService
                 ->values()
                 ->all(),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $package
+     * @param array<string, mixed> $catalogPolicy
+     * @return array<string, mixed>
+     */
+    private function buildResolvedCatalogPayload(Request $request, array $package, array $catalogPolicy): array
+    {
+        if (($catalogPolicy['source'] ?? 'empty') !== 'product') {
+            return $this->buildCatalogPayload($package, $catalogPolicy);
+        }
+
+        $parentProductId = $this->support->parseNullableInt($package['product_id'] ?? null);
+        if ($parentProductId === null) {
+            return $this->buildCatalogPayload($package, $catalogPolicy);
+        }
+
+        $response = $this->productCatalogService->show($request, $parentProductId);
+        $payload = $response->getData(true);
+        $productCatalog = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+
+        return [
+            ...$productCatalog,
+            'product' => $this->serializePackageSummary($package),
+            'catalog_scope' => is_array($productCatalog['catalog_scope'] ?? null)
+                ? $productCatalog['catalog_scope']
+                : [
+                    'catalog_product_id' => $package['id'] ?? null,
+                    'product_ids' => [$package['id'] ?? null],
+                    'package_count' => 1,
+                    'product_codes' => [trim((string) ($package['package_code'] ?? ''))],
+                ],
+            'catalog_policy' => $catalogPolicy,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $package
+     * @param array<string, mixed> $catalogPolicy
+     * @return array<string, mixed>
+     */
+    private function buildResolvedCatalogListPayload(
+        Request $request,
+        array $package,
+        array $catalogPolicy,
+        int $page,
+        int $perPage,
+        ?int $groupId,
+        ?string $search
+    ): array {
+        if (($catalogPolicy['source'] ?? 'empty') === 'product') {
+            $parentProductId = $this->support->parseNullableInt($package['product_id'] ?? null);
+            if ($parentProductId !== null) {
+                $response = $this->productCatalogService->list($request, $parentProductId);
+                $payload = $response->getData(true);
+                $productCatalog = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+
+                return [
+                    ...$productCatalog,
+                    'product' => $this->serializePackageSummary($package),
+                    'catalog_policy' => $catalogPolicy,
+                ];
+            }
+        }
+
+        $packageId = (int) ($package['id'] ?? 0);
+        $packageIds = $packageId > 0 ? [$packageId] : [];
+        $listPayload = $this->loadCatalogListRows(
+            $packageIds,
+            $groupId,
+            $search,
+            $page,
+            $perPage
+        );
+
+        return [
+            'product' => $this->serializePackageSummary($package),
+            'catalog_scope' => [
+                'catalog_product_id' => $packageId,
+                'product_ids' => $packageIds,
+                'package_count' => 1,
+                'product_codes' => [trim((string) ($package['package_code'] ?? ''))],
+            ],
+            'catalog_policy' => $catalogPolicy,
+            'group_filters' => $this->loadCatalogGroupFilters($packageIds),
+            'rows' => $listPayload['rows'],
+            'meta' => $this->support->buildPaginationMeta($page, $perPage, $listPayload['total']),
+        ];
+    }
+
+    private function buildPackageCatalogLockedMessage(array $catalogPolicy): string
+    {
+        if (($catalogPolicy['lock_reason'] ?? null) === 'blocked_by_product') {
+            $productCode = trim((string) ($catalogPolicy['inherited_product_code'] ?? ''));
+            $productName = trim((string) ($catalogPolicy['inherited_product_name'] ?? ''));
+
+            if ($productCode !== '' && $productName !== '') {
+                return sprintf(
+                    'Danh mục tính năng của gói cước đang bị khóa vì đang tham chiếu từ product %s - %s.',
+                    $productCode,
+                    $productName
+                );
+            }
+
+            return 'Danh mục tính năng của gói cước đang bị khóa vì đang tham chiếu từ product.';
+        }
+
+        return 'Danh mục tính năng của gói cước đang bị khóa.';
     }
 
     /**

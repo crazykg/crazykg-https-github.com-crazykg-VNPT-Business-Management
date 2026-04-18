@@ -13,6 +13,7 @@ class ProductQuotationItem extends Model
         'quotation_id',
         'sort_order',
         'product_id',
+        'package_id',
         'product_name',
         'unit',
         'quantity',
@@ -26,6 +27,7 @@ class ProductQuotationItem extends Model
 
     protected $casts = [
         'sort_order' => 'integer',
+        'package_id' => 'integer',
         'quantity' => 'float',
         'unit_price' => 'float',
         'vat_rate' => 'float',
@@ -42,5 +44,10 @@ class ProductQuotationItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function productPackage(): BelongsTo
+    {
+        return $this->belongsTo(ProductPackage::class, 'package_id');
     }
 }

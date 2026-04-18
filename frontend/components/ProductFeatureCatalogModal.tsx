@@ -4,6 +4,7 @@ import type { AuditLog } from '../types/admin';
 import type {
   Product,
   ProductFeatureCatalog,
+  ProductFeatureCatalogPolicy,
   ProductFeatureCatalogListPage,
   ProductFeatureGroup,
   ProductFeatureStatus,
@@ -186,6 +187,9 @@ const FEATURE_STATUS_LABELS: Record<ProductFeatureStatus, string> = {
   INACTIVE: 'Tạm ngưng',
 };
 
+const GROUP_NAME_MAX_LENGTH = 255;
+const FEATURE_NAME_MAX_LENGTH = 2000;
+
 const DEFAULT_FEATURE_CATALOG_MODAL_CONFIG: FeatureCatalogModalConfig = {
   entityLabel: 'sản phẩm',
   catalogLabel: 'Danh mục chức năng',
@@ -198,6 +202,19 @@ const DEFAULT_FEATURE_CATALOG_MODAL_CONFIG: FeatureCatalogModalConfig = {
   loadCatalogList: fetchProductFeatureCatalogList,
   updateCatalog: updateProductFeatureCatalog,
 };
+
+const createDefaultCatalogPolicy = (): ProductFeatureCatalogPolicy => ({
+  owner_level: 'none',
+  source: 'empty',
+  can_edit: true,
+  can_import: true,
+  read_only: false,
+  lock_reason: null,
+  inherited_product_id: null,
+  inherited_product_code: null,
+  inherited_product_name: null,
+  blocking_packages: [],
+});
 
 const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
@@ -229,6 +246,15 @@ const normalizeStatus = (value: unknown): ProductFeatureStatus => {
 };
 
 const toRomanLabel = (value: number): string => ROMAN_NUMERALS[value - 1] || String(value);
+
+const buildLengthExceededMessage = (label: string, maxLength: number, prefix?: string): string =>
+  `${prefix ? `${prefix} ` : ''}${label} không được vượt quá ${maxLength} ký tự.`;
+
+const assertMaxLength = (value: string, maxLength: number, message: string): void => {
+  if (value.length > maxLength) {
+    throw new Error(message);
+  }
+};
 
 const formatAuditDateTime = (value?: string | null): string => {
   if (!value) {
@@ -647,7 +673,7 @@ const parseCompactImportedGroups = (
   const groups: DraftGroup[] = [];
   let currentGroup: DraftGroup | null = null;
 
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const productCode = productCodeIndex >= 0 ? toText(row[productCodeIndex]) : '';
     if (productCode && acceptedProductCodeTokens.length > 0 && !acceptedProductCodeTokens.includes(normalizeToken(productCode))) {
       return;
@@ -662,6 +688,11 @@ const parseCompactImportedGroups = (
     const detail = compactDetailIndex >= 0 ? toText(row[compactDetailIndex]) : '';
 
     if (isRomanOrdinalLabel(rawOrder)) {
+      assertMaxLength(
+        rowName,
+        GROUP_NAME_MAX_LENGTH,
+        buildLengthExceededMessage('Tên nhóm/phân hệ', GROUP_NAME_MAX_LENGTH, `Dòng import #${rowIndex + 1}`)
+      );
       currentGroup = createDraftGroup({
         group_name: rowName,
         notes: detail,
@@ -673,6 +704,11 @@ const parseCompactImportedGroups = (
     }
 
     if (!currentGroup) {
+      assertMaxLength(
+        rowName,
+        GROUP_NAME_MAX_LENGTH,
+        buildLengthExceededMessage('Tên nhóm/phân hệ', GROUP_NAME_MAX_LENGTH, `Dòng import #${rowIndex + 1}`)
+      );
       currentGroup = createDraftGroup({
         group_name: rowName,
         notes: detail,
@@ -683,6 +719,11 @@ const parseCompactImportedGroups = (
       return;
     }
 
+    assertMaxLength(
+      rowName,
+      FEATURE_NAME_MAX_LENGTH,
+      buildLengthExceededMessage('Tên chức năng', FEATURE_NAME_MAX_LENGTH, `Dòng import #${rowIndex + 1}`)
+    );
     currentGroup.features.push(
       createDraftFeature({
         feature_name: rowName,
@@ -730,7 +771,7 @@ const parseImportedGroups = (headers: string[], rows: string[][], expectedProduc
 
   const groups = new Map<string, DraftGroup>();
 
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const productCode = productCodeIndex >= 0 ? toText(row[productCodeIndex]) : '';
     if (productCode && acceptedProductCodeTokens.length > 0 && !acceptedProductCodeTokens.includes(normalizeToken(productCode))) {
       return;
@@ -740,6 +781,12 @@ const parseImportedGroups = (headers: string[], rows: string[][], expectedProduc
     if (!groupName) {
       return;
     }
+
+    assertMaxLength(
+      groupName,
+      GROUP_NAME_MAX_LENGTH,
+      buildLengthExceededMessage('Tên nhóm/phân hệ', GROUP_NAME_MAX_LENGTH, `Dòng import #${rowIndex + 1}`)
+    );
 
     const groupOrder = groupOrderIndex >= 0 ? Number(row[groupOrderIndex]) || groups.size + 1 : groups.size + 1;
     const groupKey = `${groupOrder}::${groupName}`;
@@ -759,6 +806,12 @@ const parseImportedGroups = (headers: string[], rows: string[][], expectedProduc
     if (!featureName) {
       return;
     }
+
+    assertMaxLength(
+      featureName,
+      FEATURE_NAME_MAX_LENGTH,
+      buildLengthExceededMessage('Tên chức năng', FEATURE_NAME_MAX_LENGTH, `Dòng import #${rowIndex + 1}`)
+    );
 
     const draftGroup = groups.get(groupKey)!;
     const featureOrder = featureOrderIndex >= 0 ? Number(row[featureOrderIndex]) || draftGroup.features.length + 1 : draftGroup.features.length + 1;
@@ -1029,6 +1082,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   const [listMeta, setListMeta] = useState<ProductFeatureCatalogListPage['meta'] | null>(null);
   const [hasAttemptedListLoadMore, setHasAttemptedListLoadMore] = useState(false);
   const [listGroupFilters, setListGroupFilters] = useState<ProductFeatureCatalogListPage['group_filters']>([]);
+  const [listCatalogPolicy, setListCatalogPolicy] = useState<ProductFeatureCatalogPolicy | null>(null);
+  const [listCatalogScope, setListCatalogScope] = useState<ProductFeatureCatalog['catalog_scope'] | null>(null);
+  const [listCatalogProduct, setListCatalogProduct] = useState<ProductFeatureCatalog['product'] | null>(null);
   const listRequestIdRef = useRef(0);
   const featureEditorNameInputRef = useRef<HTMLInputElement>(null);
   const importMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1094,7 +1150,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     };
   }, [canUsePortal, showImportMenu, syncImportMenuPlacement]);
 
-  const productSummary = catalog?.product || {
+  const productSummary = catalog?.product || listCatalogProduct || {
     id: product.id,
     uuid: product.uuid ?? null,
     service_group: product.service_group ?? null,
@@ -1105,16 +1161,73 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     is_active: product.is_active !== false,
     catalog_package_count: 1,
   };
-  const catalogScope = catalog?.catalog_scope ?? {
+  const catalogScope = catalog?.catalog_scope ?? listCatalogScope ?? {
     catalog_product_id: product.id,
     product_ids: [product.id],
     package_count: productSummary.catalog_package_count ?? 1,
     product_codes: [product.product_code],
   };
+  const catalogPolicy = catalog?.catalog_policy ?? listCatalogPolicy ?? createDefaultCatalogPolicy();
   const acceptedProductCodes = useMemo(
     () => Array.from(new Set((catalogScope.product_codes || []).map((code) => toText(code)).filter(Boolean))),
     [catalogScope.product_codes]
   );
+  const canEditCatalog = canManage && catalogPolicy.can_edit;
+  const canImportCatalog = canManage && catalogPolicy.can_import;
+  const isPolicyLoading = canManage && catalog === null && listCatalogPolicy === null;
+  const importButtonTitle = useMemo(() => {
+    if (isPolicyLoading) {
+      return `Đang tải trạng thái ${catalogLabelLower}...`;
+    }
+    if (catalogPolicy.lock_reason === 'blocked_by_product') {
+      const inheritedLabel = [catalogPolicy.inherited_product_code, catalogPolicy.inherited_product_name]
+        .map((value) => toText(value))
+        .filter(Boolean)
+        .join(' - ');
+      return inheritedLabel
+        ? `Đang tham chiếu từ product ${inheritedLabel}. Không thể nhập tại ${entityLabel}.`
+        : `Đang tham chiếu từ product. Không thể nhập tại ${entityLabel}.`;
+    }
+    if (catalogPolicy.lock_reason === 'blocked_by_package') {
+      const packageLabels = (catalogPolicy.blocking_packages || [])
+        .map((pkg) => [toText(pkg.package_code), toText(pkg.package_name)].filter(Boolean).join(' - '))
+        .filter(Boolean);
+      return packageLabels.length > 0
+        ? `Product đang bị khóa vì đã có danh sách chức năng ở package: ${packageLabels.join(', ')}.`
+        : 'Product đang bị khóa vì đã có danh sách chức năng ở package.';
+    }
+    return undefined;
+  }, [catalogLabelLower, catalogPolicy, entityLabel, isPolicyLoading]);
+  const policyNotice = useMemo(() => {
+    if (catalogPolicy.lock_reason === 'blocked_by_product') {
+      const inheritedLabel = [catalogPolicy.inherited_product_code, catalogPolicy.inherited_product_name]
+        .map((value) => toText(value))
+        .filter(Boolean)
+        .join(' - ');
+
+      return {
+        title: 'Đang tham chiếu từ product',
+        message: inheritedLabel
+          ? `${entityLabelCapitalized} này đang dùng danh mục từ product ${inheritedLabel} và hiện ở chế độ chỉ đọc.`
+          : `${entityLabelCapitalized} này đang dùng danh mục từ product và hiện ở chế độ chỉ đọc.`,
+      };
+    }
+
+    if (catalogPolicy.lock_reason === 'blocked_by_package') {
+      const packageLabels = (catalogPolicy.blocking_packages || [])
+        .map((pkg) => [toText(pkg.package_code), toText(pkg.package_name)].filter(Boolean).join(' - '))
+        .filter(Boolean);
+
+      return {
+        title: 'Product bị khóa vì đã có danh sách chức năng ở package',
+        message: packageLabels.length > 0
+          ? `Sản phẩm này chỉ đọc vì các package sau đã có danh sách chức năng riêng: ${packageLabels.join(', ')}.`
+          : 'Sản phẩm này chỉ đọc vì đã có danh sách chức năng ở package.',
+      };
+    }
+
+    return null;
+  }, [catalogPolicy, entityLabelCapitalized]);
   const isSharedAcrossPackages = (catalogScope.package_count || productSummary.catalog_package_count || 1) > 1;
   const auditLogCount = (catalog?.audit_logs || []).length;
   const normalizedDraftGroups = useMemo(() => normalizeDraftGroups(draftGroups), [draftGroups]);
@@ -1257,6 +1370,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         return;
       }
 
+      setListCatalogProduct(result.product || null);
+      setListCatalogScope(result.catalog_scope ?? null);
+      setListCatalogPolicy(result.catalog_policy ?? createDefaultCatalogPolicy());
       setListGroupFilters(result.group_filters || []);
       setListMeta(result.meta || null);
       setListRows((previous) => {
@@ -1306,6 +1422,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     setListMeta(null);
     setHasAttemptedListLoadMore(false);
     setListGroupFilters([]);
+    setListCatalogPolicy(null);
+    setListCatalogScope(null);
+    setListCatalogProduct(null);
     listRequestIdRef.current = 0;
   }, [product.id]);
 
@@ -1395,7 +1514,20 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     }
   };
 
+  const notifyCatalogLocked = (actionLabel: string) => {
+    const fallbackMessage = `Không thể ${actionLabel} khi ${catalogLabelLower} đang ở chế độ chỉ đọc.`;
+    onNotify?.(
+      'error',
+      'Danh mục đang bị khóa',
+      importButtonTitle || fallbackMessage
+    );
+  };
+
   const updateGroup = (groupId: string | number, updater: (group: DraftGroup) => DraftGroup) => {
+    if (!canEditCatalog) {
+      return;
+    }
+
     setPendingAuditContext((previous) => previous?.source === 'FORM' ? previous : { source: 'FORM' });
     setDraftGroups((previous) =>
       normalizeDraftGroups(
@@ -1422,6 +1554,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const openFeatureEditor = (groupId: string | number, featureId: string | number) => {
+    if (!canEditCatalog) {
+      return;
+    }
+
     const targetGroup = normalizedDraftGroups.find((group) => String(group.id) === String(groupId));
     const targetFeature = targetGroup?.features?.find((feature) => String(feature.id) === String(featureId));
     if (!targetGroup || !targetFeature) {
@@ -1459,6 +1595,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   }, [featureEditorDraft?.groupId, featureEditorDraft?.featureId]);
 
   const addGroup = () => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('thêm nhóm');
+      return;
+    }
+
     setPendingAuditContext((previous) => previous?.source === 'FORM' ? previous : { source: 'FORM' });
     const nextGroup = createDraftGroup({
       group_name: `Phân hệ ${draftGroups.length + 1}`,
@@ -1476,6 +1617,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const removeGroup = (groupId: string | number) => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('xóa nhóm');
+      return;
+    }
+
     const targetGroup = draftGroups.find((group) => String(group.id) === String(groupId));
     if (targetGroup && isPersistedCatalogRecord(targetGroup.id)) {
       onNotify?.(
@@ -1502,6 +1648,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const moveGroup = (groupId: string | number, direction: 'up' | 'down') => {
+    if (!canEditCatalog) {
+      return;
+    }
+
     setPendingAuditContext((previous) => previous?.source === 'FORM' ? previous : { source: 'FORM' });
     setDraftGroups((previous) => {
       const next = [...previous];
@@ -1520,6 +1670,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const addFeature = (groupId: string | number) => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('thêm chức năng');
+      return;
+    }
+
     const nextFeature = createDraftFeature({ feature_name: '', status: 'ACTIVE' });
     const sourceGroup = normalizedDraftGroups.find((group) => String(group.id) === String(groupId));
     updateGroup(groupId, (group) =>
@@ -1553,6 +1708,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const removeFeature = (groupId: string | number, featureId: string | number) => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('xóa chức năng');
+      return;
+    }
+
     if (featureEditorDraft && String(featureEditorDraft.groupId) === String(groupId) && String(featureEditorDraft.featureId) === String(featureId)) {
       closeFeatureEditor();
     }
@@ -1568,6 +1728,10 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const moveFeature = (groupId: string | number, featureId: string | number, direction: 'up' | 'down') => {
+    if (!canEditCatalog) {
+      return;
+    }
+
     updateGroup(groupId, (group) => {
       const nextFeatures = [...(group.features || [])];
       const index = nextFeatures.findIndex((feature) => String(feature.id) === String(featureId));
@@ -1591,6 +1755,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
     editingFeatureKeys.includes(buildFeatureEditKey(groupId, featureId));
 
   const applyFeatureEditor = () => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('cập nhật chức năng');
+      return;
+    }
+
     if (!featureEditorDraft) {
       return;
     }
@@ -1605,6 +1774,16 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
 
     if (!nextFeatureName) {
       setFeatureEditorError('Tên chức năng không được để trống.');
+      return;
+    }
+
+    if (nextGroupName.length > GROUP_NAME_MAX_LENGTH) {
+      setFeatureEditorError(buildLengthExceededMessage('Tên nhóm chức năng', GROUP_NAME_MAX_LENGTH));
+      return;
+    }
+
+    if (nextFeatureName.length > FEATURE_NAME_MAX_LENGTH) {
+      setFeatureEditorError(buildLengthExceededMessage('Tên chức năng', FEATURE_NAME_MAX_LENGTH));
       return;
     }
 
@@ -1636,6 +1815,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
       if (!groupName) {
         return `Phân hệ #${groupIndex + 1} chưa có tên nhóm chức năng.`;
       }
+      if (groupName.length > GROUP_NAME_MAX_LENGTH) {
+        return `Phân hệ #${groupIndex + 1} có tên nhóm chức năng vượt quá ${GROUP_NAME_MAX_LENGTH} ký tự.`;
+      }
       const normalizedGroupKey = normalizeToken(groupName);
       if (normalizedGroupKey && seenGroups.has(normalizedGroupKey)) {
         return `Tên phân hệ "${groupName}" đang bị trùng. Vui lòng kiểm tra lại trước khi lưu.`;
@@ -1650,6 +1832,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         if (!featureName) {
           return `Phân hệ "${group.group_name}" có chức năng #${featureIndex + 1} chưa có tên.`;
         }
+        if (featureName.length > FEATURE_NAME_MAX_LENGTH) {
+          return `Phân hệ #${groupIndex + 1} có chức năng #${featureIndex + 1} có tên vượt quá ${FEATURE_NAME_MAX_LENGTH} ký tự.`;
+        }
         const normalizedFeatureKey = normalizeToken(featureName);
         if (normalizedFeatureKey && seenFeatures.has(normalizedFeatureKey)) {
           return `Phân hệ "${groupName}" đang có chức năng trùng tên "${featureName}".`;
@@ -1662,6 +1847,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const handleSave = async () => {
+    if (!canEditCatalog) {
+      notifyCatalogLocked('lưu');
+      return;
+    }
+
     if (!isDirty) {
       onNotify?.('error', 'Chưa có thay đổi', `${catalogLabel} chưa có thay đổi mới để lưu.`);
       return;
@@ -1800,6 +1990,11 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
   };
 
   const handleApplyImportedCatalog = async (payload: ImportPayload) => {
+    if (!canImportCatalog) {
+      notifyCatalogLocked('nhập dữ liệu');
+      return;
+    }
+
     setIsImporting(true);
     setErrorMessage('');
 
@@ -1892,8 +2087,14 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 <button
                   ref={importMenuButtonRef}
                   type="button"
-                  onClick={() => setShowImportMenu((prev) => !prev)}
-                  disabled={isImporting}
+                  onClick={() => {
+                    if (!canImportCatalog || isPolicyLoading) {
+                      return;
+                    }
+                    setShowImportMenu((prev) => !prev);
+                  }}
+                  disabled={isImporting || !canImportCatalog || isPolicyLoading}
+                  title={importButtonTitle}
                   aria-label="Nhập"
                   aria-haspopup="menu"
                   aria-expanded={showImportMenu}
@@ -1930,6 +2131,13 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
         {errorMessage ? (
           <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
             {errorMessage}
+          </div>
+        ) : null}
+
+        {policyNotice ? (
+          <div className="rounded-lg border border-secondary/20 bg-secondary/5 px-3 py-2.5 text-xs text-slate-700">
+            <p className="font-semibold text-secondary">{policyNotice.title}</p>
+            <p className="mt-1 text-slate-600">{policyNotice.message}</p>
           </div>
         ) : null}
 
@@ -2026,7 +2234,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     <button
                       type="button"
                       onClick={addGroup}
-                      disabled={activeTab !== 'editor'}
+                      disabled={!canEditCatalog || activeTab !== 'editor' || isPolicyLoading}
+                      title={!canEditCatalog ? importButtonTitle : undefined}
                       className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
@@ -2146,7 +2355,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                   <p className="mt-1.5 text-xs text-slate-500">
                     {(shouldUseServerList ? hasAnyListGroups : hasAnyCatalogGroups)
                       ? `Hãy đổi nhóm ${featureNounPlural} hoặc xóa từ khóa tìm kiếm để xem lại toàn bộ danh mục.`
-                      : `Hãy thêm hoặc import ${catalogLabelLower} rồi chuyển lại tab này để xem nhanh.`}
+                      : canEditCatalog
+                        ? `Hãy thêm hoặc import ${catalogLabelLower} rồi chuyển lại tab này để xem nhanh.`
+                        : `Danh mục hiện đang ở chế độ chỉ đọc.`}
                   </p>
                 </div>
               )
@@ -2156,13 +2367,17 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                 <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 36 }}>fact_check</span>
                 <p className="mt-3 text-xs font-semibold text-slate-700">{`${entityLabelCapitalized} này chưa có ${catalogLabelLower}.`}</p>
                 <p className="mt-1.5 text-xs text-slate-500">
-                  {`Tạo nhóm ${featureNounPlural} đầu tiên hoặc nhập từ file mẫu để bắt đầu.`}
+                  {canEditCatalog
+                    ? `Tạo nhóm ${featureNounPlural} đầu tiên hoặc nhập từ file mẫu để bắt đầu.`
+                    : `Danh mục này hiện ở chế độ chỉ đọc nên chưa thể tạo dữ liệu mới.`}
                 </p>
                 {canManage && (
                   <button
                     type="button"
                     onClick={addGroup}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
+                    disabled={!canEditCatalog || isPolicyLoading}
+                    title={!canEditCatalog ? importButtonTitle : undefined}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                     {`Thêm nhóm ${featureNounPlural}`}
@@ -2213,7 +2428,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                     })
                                   )
                                 }
-                                disabled={!canManage}
+                                maxLength={GROUP_NAME_MAX_LENGTH}
+                                disabled={!canEditCatalog}
                                 className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-50 disabled:text-slate-500"
                                 placeholder="Ví dụ: Quản trị hệ thống"
                                 title={group.group_name}
@@ -2225,7 +2441,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             <button
                               type="button"
                               onClick={() => moveGroup(group.id, 'up')}
-                              disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === 1}
+                              disabled={!canEditCatalog || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === 1}
                               className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                               title="Đưa nhóm lên trên"
                             >
@@ -2234,7 +2450,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             <button
                               type="button"
                               onClick={() => moveGroup(group.id, 'down')}
-                              disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === draftGroups.length}
+                              disabled={!canEditCatalog || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (group.display_order || groupIndex + 1) === draftGroups.length}
                               className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                               title="Đưa nhóm xuống dưới"
                             >
@@ -2244,7 +2460,9 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                               <button
                                 type="button"
                                 onClick={() => addFeature(group.id)}
-                                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal"
+                                disabled={!canEditCatalog || isPolicyLoading}
+                                title={!canEditCatalog ? importButtonTitle : undefined}
+                                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>playlist_add</span>
                                 Thêm chức năng
@@ -2254,7 +2472,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                               <button
                                 type="button"
                                 onClick={() => removeGroup(group.id)}
-                                disabled={isPersistedGroup || hasChildFeatures}
+                                disabled={!canEditCatalog || isPersistedGroup || hasChildFeatures}
                                 title={deleteGroupTitle}
                                 className="inline-flex items-center gap-1.5 rounded border border-error/30 bg-error/10 px-2.5 py-1.5 text-xs font-semibold text-error transition-colors hover:bg-error/20 disabled:cursor-not-allowed disabled:opacity-50"
                               >
@@ -2368,11 +2586,12 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                     <button
                                       type="button"
                                       onClick={() => openFeatureEditor(group.id, feature.id)}
+                                      disabled={!canEditCatalog || isPolicyLoading}
                                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded border transition-colors ${
                                         featureEditing
                                           ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
                                           : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                      }`}
+                                      } disabled:cursor-not-allowed disabled:opacity-40`}
                                       title="Sửa chức năng"
                                       aria-label="Sửa chức năng"
                                     >
@@ -2382,7 +2601,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                   <button
                                     type="button"
                                     onClick={() => moveFeature(group.id, feature.id, 'up')}
-                                    disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === 1}
+                                    disabled={!canEditCatalog || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === 1}
                                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                     title="Đưa chức năng lên trên"
                                   >
@@ -2391,7 +2610,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                   <button
                                     type="button"
                                     onClick={() => moveFeature(group.id, feature.id, 'down')}
-                                    disabled={!canManage || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === (groupFeatureCountMap[String(group.id)] || group.features.length)}
+                                    disabled={!canEditCatalog || selectedGroupFilter !== 'ALL' || normalizedFeatureSearchKeyword !== '' || (feature.display_order || featureIndex + 1) === (groupFeatureCountMap[String(group.id)] || group.features.length)}
                                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                     title="Đưa chức năng xuống dưới"
                                   >
@@ -2401,7 +2620,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                                     <button
                                       type="button"
                                       onClick={() => removeFeature(group.id, feature.id)}
-                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-error/30 bg-error/10 text-error transition-colors hover:bg-error/20"
+                                      disabled={!canEditCatalog || isPolicyLoading}
+                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-error/30 bg-error/10 text-error transition-colors hover:bg-error/20 disabled:cursor-not-allowed disabled:opacity-40"
                                       title="Xóa chức năng"
                                     >
                                       <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
@@ -2414,7 +2634,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                         )})
                         ) : (
                           <div className="px-3 py-4 text-xs text-slate-500">
-                            Phân hệ này chưa có chức năng nào. {canManage ? 'Bạn có thể bấm "Thêm chức năng" để bổ sung.' : ''}
+                            Phân hệ này chưa có chức năng nào. {canEditCatalog ? 'Bạn có thể bấm "Thêm chức năng" để bổ sung.' : ''}
                           </div>
                         )}
                       </div>
@@ -2441,8 +2661,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                     <button
                       type="button"
                       onClick={handleSave}
-                      disabled={isSaving || isLoading || !isDirty || activeTab !== 'editor'}
-                      title={!isDirty ? 'Chưa có thay đổi để lưu' : undefined}
+                      disabled={!canEditCatalog || isSaving || isLoading || !isDirty || activeTab !== 'editor'}
+                      title={!canEditCatalog ? importButtonTitle : (!isDirty ? 'Chưa có thay đổi để lưu' : undefined)}
                       className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
@@ -2495,7 +2715,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             groupName: event.target.value,
                           }) : previous);
                         }}
-                        disabled={!canManage}
+                        maxLength={GROUP_NAME_MAX_LENGTH}
+                        disabled={!canEditCatalog}
                         className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                         placeholder="Ví dụ: Quản trị hệ thống"
                       />
@@ -2530,7 +2751,8 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             featureName: event.target.value,
                           }) : previous);
                         }}
-                        disabled={!canManage}
+                        maxLength={FEATURE_NAME_MAX_LENGTH}
+                        disabled={!canEditCatalog}
                         className="h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                         placeholder="Ví dụ: Đăng nhập"
                       />
@@ -2552,7 +2774,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                             status: value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
                           }) : previous);
                         }}
-                        disabled={!canManage}
+                        disabled={!canEditCatalog}
                         triggerClassName="flex h-8 items-center rounded border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 shadow-none"
                       />
                     </div>
@@ -2570,7 +2792,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
                           detailDescription: event.target.value,
                         }) : previous);
                       }}
-                      disabled={!canManage}
+                      disabled={!canEditCatalog}
                       rows={10}
                       className="min-h-[220px] w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs leading-5 text-slate-700 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500"
                       placeholder="Mô tả chi tiết nghiệp vụ / phạm vi của chức năng..."
@@ -2627,7 +2849,7 @@ export const ProductFeatureCatalogModal: React.FC<ProductFeatureCatalogModalProp
               <button
                 type="button"
                 onClick={applyFeatureEditor}
-                disabled={!canManage}
+                disabled={!canEditCatalog}
                 className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>

@@ -121,6 +121,18 @@ const buildCatalog = (): ProductFeatureCatalog => ({
     package_count: 2,
     product_codes: ['VNPT_HIS_L2', 'VNPT_HIS_L3'],
   },
+  catalog_policy: {
+    owner_level: 'product',
+    source: 'product',
+    can_edit: true,
+    can_import: true,
+    read_only: false,
+    lock_reason: null,
+    inherited_product_id: null,
+    inherited_product_code: null,
+    inherited_product_name: null,
+    blocking_packages: [],
+  },
   groups: [
     {
       id: 11,
@@ -199,6 +211,7 @@ const buildCatalog = (): ProductFeatureCatalog => ({
 const buildListPage = (catalog: ProductFeatureCatalog = buildCatalog(), overrides: Partial<ProductFeatureCatalogListPage> = {}): ProductFeatureCatalogListPage => ({
   product: catalog.product,
   catalog_scope: catalog.catalog_scope,
+  catalog_policy: catalog.catalog_policy,
   group_filters: (catalog.groups || []).map((group) => ({
     id: group.id,
     group_name: group.group_name,
@@ -314,6 +327,38 @@ describe('ProductFeatureCatalogModal', () => {
     );
   });
 
+  it('blocks manual feature names longer than 2000 characters before applying editor changes', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Sửa chức năng/i }));
+    const modalFeatureNameInput = screen
+      .getAllByDisplayValue('Đăng nhập')
+      .find((element) => !element.hasAttribute('disabled'));
+
+    expect(modalFeatureNameInput).toBeTruthy();
+    fireEvent.change(modalFeatureNameInput!, {
+      target: { value: 'A'.repeat(2001) },
+    });
+    await user.click(screen.getByRole('button', { name: /Cập nhật thông tin/i }));
+
+    expect(screen.getByText('Tên chức năng không được vượt quá 2000 ký tự.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Lưu danh mục chức năng/i })).toBeDisabled();
+    expect(apiSpies.updateProductFeatureCatalog).not.toHaveBeenCalled();
+  });
+
   it('shows current feature list in the dedicated tab', async () => {
     const user = userEvent.setup();
 
@@ -379,6 +424,137 @@ describe('ProductFeatureCatalogModal', () => {
         group_id: null,
         search: null,
       });
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+      Object.defineProperty(window, 'outerWidth', { configurable: true, value: originalOuterWidth });
+      window.dispatchEvent(new Event('resize'));
+    }
+  });
+
+  it('locks product controls when a package already owns the catalog', async () => {
+    apiSpies.fetchProductFeatureCatalog.mockResolvedValue({
+      ...buildCatalog(),
+      catalog_policy: {
+        owner_level: 'package',
+        source: 'product',
+        can_edit: false,
+        can_import: false,
+        read_only: true,
+        lock_reason: 'blocked_by_package',
+        inherited_product_id: null,
+        inherited_product_code: null,
+        inherited_product_name: null,
+        blocking_packages: [
+          {
+            id: 21,
+            package_code: 'PKG-001',
+            package_name: 'Gói triển khai HIS',
+          },
+        ],
+      },
+    });
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Product bị khóa vì đã có danh sách chức năng ở package')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /^Nhập$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Thêm nhóm/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Lưu danh mục chức năng/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Sửa chức năng/i })).toBeDisabled();
+    expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeDisabled();
+  });
+
+  it('shows inherited package catalogs in read-only mode on tablet/list-first layouts', async () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalOuterWidth = window.outerWidth;
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 768 });
+    Object.defineProperty(window, 'outerWidth', { configurable: true, value: 768 });
+    window.dispatchEvent(new Event('resize'));
+
+    const packageCatalog: ProductFeatureCatalog = {
+      ...buildCatalog(),
+      product: {
+        ...buildCatalog().product,
+        id: 21,
+        product_code: 'PKG-001',
+        product_name: 'Gói triển khai HIS',
+        package_name: 'Phần mềm VNPT-HIS',
+      },
+      catalog_policy: {
+        owner_level: 'product',
+        source: 'product',
+        can_edit: false,
+        can_import: false,
+        read_only: true,
+        lock_reason: 'blocked_by_product',
+        inherited_product_id: 1,
+        inherited_product_code: 'SP001',
+        inherited_product_name: 'Phần mềm VNPT-HIS',
+        blocking_packages: [],
+      },
+    };
+    const loadCatalog = vi.fn().mockResolvedValue(packageCatalog);
+    const loadCatalogList = vi.fn().mockResolvedValue(buildListPage(packageCatalog));
+    const updateCatalog = vi.fn().mockResolvedValue(packageCatalog);
+
+    try {
+      render(
+        <ProductFeatureCatalogModal
+          product={{
+            id: 21,
+            product_code: 'PKG-001',
+            product_name: 'Gói triển khai HIS',
+            package_name: 'Phần mềm VNPT-HIS',
+            service_group: 'GROUP_B',
+            domain_id: 1,
+            vendor_id: 1,
+            standard_price: 0,
+            description: 'Gói cước test',
+            is_active: true,
+          }}
+          canManage={true}
+          onClose={vi.fn()}
+          onNotify={vi.fn()}
+          config={{
+            entityLabel: 'gói cước',
+            catalogLabel: 'Danh mục tính năng',
+            listLabel: 'Danh sách tính năng',
+            featureNounPlural: 'tính năng',
+            importModuleKey: 'product_feature_catalog',
+            templateFilename: 'mau_nhap_danh_muc_tinh_nang_goi_cuoc',
+            exportFilenamePrefix: 'danh_muc_tinh_nang_goi_cuoc',
+            loadCatalog,
+            loadCatalogList,
+            updateCatalog,
+          }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Đang tham chiếu từ product')).toBeInTheDocument();
+      });
+
+      expect(loadCatalog).not.toHaveBeenCalled();
+      expect(loadCatalogList).toHaveBeenCalledWith(21, {
+        page: 1,
+        per_page: 100,
+        group_id: null,
+        search: null,
+      });
+      expect(screen.getByRole('button', { name: /^Nhập$/i })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /Cập nhật danh mục/i })).not.toBeInTheDocument();
+      expect(screen.getByText('Đăng nhập')).toBeInTheDocument();
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
       Object.defineProperty(window, 'outerWidth', { configurable: true, value: originalOuterWidth });
@@ -463,7 +639,6 @@ describe('ProductFeatureCatalogModal', () => {
       });
     });
 
-    expect(screen.getByText(/Đang hiển thị 2 \/ 4 chức năng — bấm "Tải thêm" để tiếp tục/i)).toBeInTheDocument();
     expect(await screen.findByText('Khám bệnh')).toBeInTheDocument();
     expect(screen.getByText('Thiết lập khoa/phòng')).toBeInTheDocument();
   });
@@ -744,6 +919,49 @@ describe('ProductFeatureCatalogModal', () => {
       'Import danh mục chức năng',
       'Đã nạp 1 phân hệ từ file, vui lòng kiểm tra rồi bấm Lưu.'
     );
+  });
+
+  it('rejects imported feature names longer than 2000 characters before merging into the draft', async () => {
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+
+    importModalState.payload = {
+      moduleKey: 'product_feature_catalog',
+      fileName: 'catalog-invalid.xlsx',
+      sheetName: 'ChucNang',
+      headers: ['STT nhóm', 'Tên nhóm/phân hệ', 'STT chức năng', 'Tên chức năng', 'Mô tả chi tiết', 'Trạng thái'],
+      rows: [
+        ['1', 'Khám bệnh', '1', 'A'.repeat(2001), 'Tiếp nhận khám bệnh', 'Hoạt động'],
+      ],
+    };
+
+    render(
+      <ProductFeatureCatalogModal
+        product={product}
+        canManage={true}
+        onClose={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quản trị hệ thống')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /^Nhập$/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận import giả' }));
+
+    await waitFor(() => {
+      expect(onNotify).toHaveBeenCalledWith(
+        'error',
+        'Import thất bại',
+        'Dòng import #1 Tên chức năng không được vượt quá 2000 ký tự.'
+      );
+    });
+
+    expect(screen.queryByDisplayValue('Khám bệnh')).not.toBeInTheDocument();
+    expect(apiSpies.updateProductFeatureCatalog).not.toHaveBeenCalled();
   });
 
   it('accepts the compact 3-column catalog sheet exported from the modal', async () => {

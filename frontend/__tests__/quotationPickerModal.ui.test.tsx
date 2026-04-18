@@ -107,6 +107,7 @@ describe('QuotationPickerModal', () => {
           id: 1,
           sort_order: 1,
           product_id: 801,
+          package_id: 901,
           product_name: 'Thuê phần mềm VNPT-HIS',
           unit: 'Gói/tháng',
           quantity: 9,
@@ -187,7 +188,9 @@ describe('QuotationPickerModal', () => {
       [
         expect.objectContaining({
           productId: '801',
+          productPackageId: 901,
           product_id: 801,
+          product_package_id: 901,
           quantity: 9,
           unitPrice: 2000000,
           unit_price: 2000000,

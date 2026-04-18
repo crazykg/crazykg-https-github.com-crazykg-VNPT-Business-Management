@@ -112,6 +112,23 @@ export interface ProductFeatureGroup {
   updated_by_actor?: Pick<Employee, 'id' | 'full_name' | 'username'> | null;
 }
 
+export interface ProductFeatureCatalogPolicy {
+  owner_level: 'none' | 'product' | 'package';
+  source: 'empty' | 'product' | 'package';
+  can_edit: boolean;
+  can_import: boolean;
+  read_only: boolean;
+  lock_reason?: 'blocked_by_product' | 'blocked_by_package' | null;
+  inherited_product_id?: string | number | null;
+  inherited_product_code?: string | null;
+  inherited_product_name?: string | null;
+  blocking_packages?: Array<{
+    id: string | number;
+    package_code: string;
+    package_name: string;
+  }>;
+}
+
 export interface ProductFeatureCatalog {
   product: Pick<Product, 'id' | 'uuid' | 'service_group' | 'product_code' | 'product_name' | 'package_name' | 'description' | 'is_active'> & {
     catalog_package_count?: number;
@@ -122,6 +139,7 @@ export interface ProductFeatureCatalog {
     package_count: number;
     product_codes: string[];
   };
+  catalog_policy?: ProductFeatureCatalogPolicy;
   groups: ProductFeatureGroup[];
   audit_logs: AuditLog[];
 }
@@ -146,6 +164,7 @@ export interface ProductFeatureCatalogListPage {
     package_count: number;
     product_codes: string[];
   };
+  catalog_policy?: ProductFeatureCatalogPolicy;
   group_filters: Array<{
     id: string | number;
     group_name: string;

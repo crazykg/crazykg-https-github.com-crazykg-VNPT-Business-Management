@@ -37,6 +37,7 @@ export const fetchProductsOptionsPage = async (
 
 export interface ProductQuotationExportPayloadItem {
   product_id?: number | null;
+  package_id?: number | null;
   product_name: string;
   unit?: string | null;
   quantity: number;
@@ -87,6 +88,7 @@ export interface ProductQuotationDraftItem {
   id: number;
   sort_order: number;
   product_id?: number | null;
+  package_id?: number | null;
   product_name: string;
   unit?: string | null;
   quantity: number;
@@ -176,6 +178,7 @@ export interface ProductQuotationVersionDetailItem {
   id: number;
   sort_order: number;
   product_id?: number | null;
+  package_id?: number | null;
   product_name: string;
   unit?: string | null;
   quantity: number;

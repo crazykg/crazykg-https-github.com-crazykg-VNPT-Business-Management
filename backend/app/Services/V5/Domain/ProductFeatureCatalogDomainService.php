@@ -22,12 +22,14 @@ class ProductFeatureCatalogDomainService
     private const CATALOG_AUDIT_TYPE = 'product_feature_catalogs';
     private const FEATURE_STATUS_ACTIVE = 'ACTIVE';
     private const FEATURE_STATUS_INACTIVE = 'INACTIVE';
+    private const FEATURE_NAME_MAX_LENGTH = 2000;
 
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly V5AccessAuditService $accessAudit,
         private readonly CustomerInsightService $insightService,
         private readonly EmailSmtpIntegrationService $emailSmtp,
+        private readonly ProductFeatureCatalogOwnershipService $catalogOwnership,
     ) {}
 
     public function show(Request $request, int $productId): JsonResponse
@@ -42,10 +44,11 @@ class ProductFeatureCatalogDomainService
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
-        $catalogScope = $this->resolveCatalogScope($product);
+        $catalogScope = $this->catalogOwnership->resolveProductCatalogScope($product);
+        $catalogPolicy = $this->catalogOwnership->resolveProductCatalogPolicy($product, $catalogScope);
 
         return response()->json([
-            'data' => $this->buildCatalogPayload($catalogScope, $product),
+            'data' => $this->buildCatalogPayload($catalogScope, $product, $catalogPolicy),
         ]);
     }
 
@@ -61,7 +64,8 @@ class ProductFeatureCatalogDomainService
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
-        $catalogScope = $this->resolveCatalogScope($product);
+        $catalogScope = $this->catalogOwnership->resolveProductCatalogScope($product);
+        $catalogPolicy = $this->catalogOwnership->resolveProductCatalogPolicy($product, $catalogScope);
         $catalogProductIds = collect($catalogScope['product_ids'] ?? [])
             ->map(fn (mixed $id): int => (int) $id)
             ->filter(fn (int $id): bool => $id > 0)
@@ -88,6 +92,7 @@ class ProductFeatureCatalogDomainService
                     'package_count' => (int) ($catalogScope['package_count'] ?? 1),
                     'product_codes' => array_values(array_filter($catalogScope['product_codes'] ?? [], fn (mixed $code): bool => trim((string) $code) !== '')),
                 ],
+                'catalog_policy' => $catalogPolicy,
                 'group_filters' => $groupFilters,
                 'rows' => $listPayload['rows'],
                 'meta' => $this->support->buildPaginationMeta($page, $perPage, $listPayload['total']),
@@ -107,7 +112,14 @@ class ProductFeatureCatalogDomainService
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
-        $catalogScope = $this->resolveCatalogScope($product);
+        $catalogScope = $this->catalogOwnership->resolveProductCatalogScope($product);
+        $catalogPolicy = $this->catalogOwnership->resolveProductCatalogPolicy($product, $catalogScope);
+        if (($catalogPolicy['lock_reason'] ?? null) === 'blocked_by_package') {
+            throw ValidationException::withMessages([
+                'groups' => [$this->buildProductCatalogLockedMessage($catalogPolicy)],
+            ]);
+        }
+
         $catalogProductId = (int) ($catalogScope['catalog_product_id'] ?? $productId);
         $catalogProductIds = collect($catalogScope['product_ids'] ?? [])
             ->map(fn (mixed $id): int => (int) $id)
@@ -125,7 +137,7 @@ class ProductFeatureCatalogDomainService
             'groups.*.features' => ['nullable', 'array'],
             'groups.*.features.*.id' => ['nullable', 'integer'],
             'groups.*.features.*.uuid' => ['nullable', 'string', 'max:100'],
-            'groups.*.features.*.feature_name' => ['required', 'string', 'max:255'],
+            'groups.*.features.*.feature_name' => ['required', 'string', 'max:'.self::FEATURE_NAME_MAX_LENGTH],
             'groups.*.features.*.detail_description' => ['nullable', 'string', 'max:20000'],
             'groups.*.features.*.status' => ['nullable', 'string', Rule::in([
                 self::FEATURE_STATUS_ACTIVE,
@@ -234,8 +246,10 @@ class ProductFeatureCatalogDomainService
             $this->insightService->invalidateProductDetailCaches($catalogProductId);
         }
 
+        $updatedCatalogPolicy = $this->catalogOwnership->resolveProductCatalogPolicy($product, $catalogScope);
+
         return response()->json([
-            'data' => $this->buildCatalogPayload($catalogScope, $product),
+            'data' => $this->buildCatalogPayload($catalogScope, $product, $updatedCatalogPolicy),
         ]);
     }
 
@@ -254,7 +268,7 @@ class ProductFeatureCatalogDomainService
         return null;
     }
 
-    private function buildCatalogPayload(array $catalogScope, Product $product): array
+    private function buildCatalogPayload(array $catalogScope, Product $product, array $catalogPolicy = []): array
     {
         $catalogProductIds = collect($catalogScope['product_ids'] ?? [])
             ->map(fn (mixed $id): int => (int) $id)
@@ -304,6 +318,7 @@ class ProductFeatureCatalogDomainService
                 'package_count' => (int) ($catalogScope['package_count'] ?? 1),
                 'product_codes' => array_values(array_filter($catalogScope['product_codes'] ?? [], fn (mixed $code): bool => trim((string) $code) !== '')),
             ],
+            'catalog_policy' => $catalogPolicy,
             'groups' => $groups,
             'audit_logs' => $auditLogs,
         ];
@@ -1076,91 +1091,30 @@ class ProductFeatureCatalogDomainService
         ];
     }
 
-    private function resolveCatalogScope(Product $product): array
+    private function buildProductCatalogLockedMessage(array $catalogPolicy): string
     {
-        $productName = trim((string) ($product->product_name ?? ''));
-        $currentProductId = (int) $product->getKey();
+        $blockingPackages = collect($catalogPolicy['blocking_packages'] ?? [])
+            ->map(function (mixed $package): string {
+                $packageData = is_array($package) ? $package : [];
+                $packageCode = trim((string) ($packageData['package_code'] ?? ''));
+                $packageName = trim((string) ($packageData['package_name'] ?? ''));
 
-        if ($productName === '' || ! $this->support->hasTable('products')) {
-            return [
-                'catalog_product_id' => $currentProductId,
-                'product_ids' => [$currentProductId],
-                'package_count' => 1,
-                'product_codes' => [trim((string) ($product->product_code ?? ''))],
-            ];
+                return $packageCode !== '' && $packageName !== ''
+                    ? sprintf('%s - %s', $packageCode, $packageName)
+                    : ($packageCode !== '' ? $packageCode : $packageName);
+            })
+            ->filter(fn (string $label): bool => $label !== '')
+            ->values()
+            ->all();
+
+        if ($blockingPackages === []) {
+            return 'Danh mục chức năng của sản phẩm đang bị khóa vì đã có dữ liệu ở product-package.';
         }
 
-        $selectColumns = $this->support->selectColumns('products', [
-            'id',
-            'product_code',
-            'product_name',
-            'service_group',
-            'domain_id',
-            'vendor_id',
-            'deleted_at',
-        ]);
-
-        $query = DB::table('products')
-            ->select($selectColumns)
-            ->where('product_name', $productName);
-
-        $serviceGroup = $this->support->normalizeNullableString($product->service_group ?? null);
-        if ($serviceGroup !== null && $this->support->hasColumn('products', 'service_group')) {
-            $query->where('service_group', $serviceGroup);
-        }
-
-        $domainId = $this->support->parseNullableInt($product->domain_id ?? null);
-        if ($domainId !== null && $this->support->hasColumn('products', 'domain_id')) {
-            $query->where('domain_id', $domainId);
-        }
-
-        $vendorId = $this->support->parseNullableInt($product->vendor_id ?? null);
-        if ($vendorId !== null && $this->support->hasColumn('products', 'vendor_id')) {
-            $query->where('vendor_id', $vendorId);
-        }
-
-        $records = $query
-            ->orderBy('id')
-            ->get()
-            ->map(fn (object $record): array => (array) $record)
-            ->values();
-
-        if ($records->isEmpty()) {
-            return [
-                'catalog_product_id' => $currentProductId,
-                'product_ids' => [$currentProductId],
-                'package_count' => 1,
-                'product_codes' => [trim((string) ($product->product_code ?? ''))],
-            ];
-        }
-
-        $activeRecords = $records->filter(function (array $record): bool {
-            if (! array_key_exists('deleted_at', $record)) {
-                return true;
-            }
-
-            return $record['deleted_at'] === null;
-        })->values();
-
-        $catalogProductId = (int) (($activeRecords->first()['id'] ?? null) ?: ($records->first()['id'] ?? $currentProductId));
-
-        return [
-            'catalog_product_id' => $catalogProductId,
-            'product_ids' => $records
-                ->pluck('id')
-                ->map(fn (mixed $id): int => (int) $id)
-                ->filter(fn (int $id): bool => $id > 0)
-                ->unique()
-                ->values()
-                ->all(),
-            'package_count' => max(1, (int) $activeRecords->count()),
-            'product_codes' => $activeRecords
-                ->pluck('product_code')
-                ->map(fn (mixed $code): string => trim((string) $code))
-                ->filter(fn (string $code): bool => $code !== '')
-                ->values()
-                ->all(),
-        ];
+        return sprintf(
+            'Danh mục chức năng của sản phẩm đang bị khóa vì đã có dữ liệu ở product-package: %s.',
+            implode(', ', $blockingPackages)
+        );
     }
 
     private function serializeGroupRecord(array $record): array

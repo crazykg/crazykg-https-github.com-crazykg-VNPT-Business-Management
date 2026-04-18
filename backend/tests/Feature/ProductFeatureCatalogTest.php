@@ -196,6 +196,45 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame(76, $newValues['change_summary']['import']['feature_count'] ?? null);
     }
 
+    public function test_it_accepts_feature_names_longer_than_255_characters(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 15,
+            'uuid' => 'user-15',
+            'user_code' => 'U015',
+            'username' => 'tester-long-name',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Pham Thi H',
+            'email' => 'tester-long-name@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $longFeatureName = trim(str_repeat('Tinh nang mo rong ', 20));
+
+        $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan tri he thong',
+                    'features' => [
+                        [
+                            'feature_name' => $longFeatureName,
+                            'detail_description' => 'Cho phep luu ten tinh nang dai hon 255 ky tu',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+            'audit_context' => [
+                'source' => 'IMPORT',
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.groups.0.features.0.feature_name', $longFeatureName);
+
+        $this->assertSame($longFeatureName, DB::table('product_features')->value('feature_name'));
+    }
+
     public function test_it_sends_email_notification_after_saving_feature_catalog(): void
     {
         $user = InternalUser::query()->create([
@@ -552,9 +591,78 @@ class ProductFeatureCatalogTest extends TestCase
         $this->assertSame(2, DB::table('product_feature_groups')->whereNull('deleted_at')->count());
     }
 
+    public function test_it_locks_product_catalog_when_a_package_has_its_own_catalog(): void
+    {
+        $user = InternalUser::query()->create([
+            'id' => 15,
+            'uuid' => 'user-15',
+            'user_code' => 'U015',
+            'username' => 'owner-check',
+            'password' => bcrypt('secret'),
+            'full_name' => 'Pham Thi K',
+            'email' => 'owner-check@example.com',
+            'status' => 'ACTIVE',
+        ]);
+        $this->actingAs($user);
+
+        $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Quan tri san pham',
+                    'features' => [
+                        [
+                            'feature_name' => 'Bao cao tong hop',
+                            'detail_description' => 'Danh muc cap product',
+                            'status' => 'ACTIVE',
+                        ],
+                    ],
+                ],
+            ],
+        ])->assertOk();
+
+        DB::table('product_package_feature_groups')->insert([
+            'id' => 301,
+            'uuid' => 'pkg-group-301',
+            'package_id' => 11,
+            'group_name' => 'Quan tri goi cuoc',
+            'display_order' => 1,
+            'notes' => 'Danh muc cap package',
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $this->getJson('/api/v5/products/1/feature-catalog')
+            ->assertOk()
+            ->assertJsonPath('data.catalog_policy.owner_level', 'package')
+            ->assertJsonPath('data.catalog_policy.read_only', true)
+            ->assertJsonPath('data.catalog_policy.lock_reason', 'blocked_by_package')
+            ->assertJsonPath('data.catalog_policy.blocking_packages.0.id', 11)
+            ->assertJsonPath('data.catalog_policy.blocking_packages.0.package_code', 'PKG-HIS-L2');
+
+        $response = $this->putJson('/api/v5/products/1/feature-catalog', [
+            'groups' => [
+                [
+                    'group_name' => 'Khong duoc cap nhat',
+                    'features' => [],
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['groups']);
+
+        $messages = $response->json('errors.groups') ?? [];
+        $this->assertNotEmpty($messages);
+        $this->assertStringContainsString('PKG-HIS-L2', $messages[0]);
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('audit_logs');
+        Schema::dropIfExists('product_package_feature_groups');
+        Schema::dropIfExists('product_packages');
         Schema::dropIfExists('product_features');
         Schema::dropIfExists('product_feature_groups');
         Schema::dropIfExists('products');
@@ -590,6 +698,29 @@ class ProductFeatureCatalogTest extends TestCase
             $table->softDeletes();
         });
 
+        Schema::create('product_packages', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->uuid('uuid')->nullable();
+            $table->unsignedBigInteger('product_id');
+            $table->string('package_code', 100)->unique();
+            $table->string('package_name', 255);
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
+        Schema::create('product_package_feature_groups', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->uuid('uuid')->nullable();
+            $table->unsignedBigInteger('package_id');
+            $table->string('group_name', 255);
+            $table->unsignedInteger('display_order')->default(1);
+            $table->text('notes')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamp('created_at')->nullable();
+            $table->timestamp('updated_at')->nullable();
+        });
+
         Schema::create('product_feature_groups', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->uuid('uuid')->nullable();
@@ -608,7 +739,7 @@ class ProductFeatureCatalogTest extends TestCase
             $table->uuid('uuid')->nullable();
             $table->unsignedBigInteger('product_id');
             $table->unsignedBigInteger('group_id');
-            $table->string('feature_name', 255);
+            $table->text('feature_name');
             $table->longText('detail_description')->nullable();
             $table->string('status', 20)->default('ACTIVE');
             $table->unsignedInteger('display_order')->default(1);
@@ -676,6 +807,26 @@ class ProductFeatureCatalogTest extends TestCase
             'is_active' => true,
             'created_by' => 7,
             'updated_by' => 7,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('product_packages')->insert([
+            'id' => 11,
+            'uuid' => 'package-11',
+            'product_id' => 1,
+            'package_code' => 'PKG-HIS-L2',
+            'package_name' => 'Goi HIS L2',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('product_packages')->insert([
+            'id' => 12,
+            'uuid' => 'package-12',
+            'product_id' => 2,
+            'package_code' => 'PKG-HIS-L3',
+            'package_name' => 'Goi HIS L3',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

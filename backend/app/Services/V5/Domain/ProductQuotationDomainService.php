@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class ProductQuotationDomainService
@@ -574,7 +575,8 @@ class ProductQuotationDomainService
 
             $beforeSnapshot = $this->serializeQuotationAuditSnapshot($quotation);
             $normalized = $this->quotationExportService->normalizeQuotationPayload(
-                $this->buildExportPayloadArrayFromQuotation($quotation)
+                $this->buildExportPayloadArrayFromQuotation($quotation),
+                true
             );
 
             $contentHash = $this->buildVersionContentHash($normalized);
@@ -1066,6 +1068,7 @@ class ProductQuotationDomainService
      *   uses_multi_vat_template: bool,
      *   items: array<int, array{
      *     product_id: int|null,
+     *     package_id: int|null,
      *     product_name: string,
      *     unit: string,
      *     quantity: float,
@@ -1095,6 +1098,7 @@ class ProductQuotationDomainService
             'signatory_name' => ['nullable', 'string', 'max:255'],
             'items' => ['nullable', 'array', 'max:200'],
             'items.*.product_id' => ['nullable', 'integer'],
+            'items.*.package_id' => ['nullable', 'integer'],
             'items.*.product_name' => ['nullable', 'string', 'max:500'],
             'items.*.unit' => ['nullable', 'string', 'max:100'],
             'items.*.quantity' => ['nullable', 'numeric', 'min:0'],
@@ -1112,11 +1116,14 @@ class ProductQuotationDomainService
             $productId = isset($item['product_id']) && $item['product_id'] !== ''
                 ? (int) $item['product_id']
                 : null;
+            $packageId = isset($item['package_id']) && $item['package_id'] !== ''
+                ? (int) $item['package_id']
+                : null;
             $productName = trim((string) ($item['product_name'] ?? ''));
             $unit = trim((string) ($item['unit'] ?? ''));
             $note = trim((string) ($item['note'] ?? ''));
 
-            if ($productId === null && $productName === '' && $unit === '' && $note === '') {
+            if ($productId === null && $packageId === null && $productName === '' && $unit === '' && $note === '') {
                 continue;
             }
 
@@ -1134,6 +1141,7 @@ class ProductQuotationDomainService
             $vatAmount += $itemVatAmount;
             $items[] = [
                 'product_id' => $productId,
+                'package_id' => $packageId !== null && $packageId > 0 ? $packageId : null,
                 'product_name' => $productName,
                 'unit' => $unit,
                 'quantity' => $quantity,
@@ -1145,6 +1153,8 @@ class ProductQuotationDomainService
                 'note' => $note,
             ];
         }
+
+        $this->validateQuotationItemPackages($items);
 
         $normalizedVatRateKeys = array_values(array_unique(array_map(
             static fn (array $item): string => number_format((float) ($item['vat_rate'] ?? $defaultVatRate), 2, '.', ''),
@@ -1176,6 +1186,66 @@ class ProductQuotationDomainService
             'uses_multi_vat_template' => $usesMultiVatTemplate,
             'items' => $items,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function validateQuotationItemPackages(array $items): void
+    {
+        $packageIds = collect($items)
+            ->pluck('package_id')
+            ->filter(fn ($value): bool => $value !== null && (int) $value > 0)
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($packageIds === []) {
+            return;
+        }
+
+        if (! $this->support->hasTable('product_packages')) {
+            throw ValidationException::withMessages([
+                'items' => ['Không tìm thấy bảng product_packages để kiểm tra gói sản phẩm đã chọn.'],
+            ]);
+        }
+
+        $packageQuery = DB::table('product_packages')
+            ->select($this->support->selectColumns('product_packages', ['id', 'product_id']))
+            ->whereIn('id', $packageIds);
+
+        if ($this->support->hasColumn('product_packages', 'deleted_at')) {
+            $packageQuery->whereNull('deleted_at');
+        }
+
+        $packageProductMap = $packageQuery
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [(string) $row->id => (int) ($row->product_id ?? 0)])
+            ->all();
+
+        $missingIds = array_values(array_diff($packageIds, array_map('intval', array_keys($packageProductMap))));
+        if ($missingIds !== []) {
+            throw ValidationException::withMessages([
+                'items' => ['Không tìm thấy gói sản phẩm: ' . implode(', ', $missingIds) . '.'],
+            ]);
+        }
+
+        foreach ($items as $index => $item) {
+            $packageId = isset($item['package_id']) ? (int) $item['package_id'] : 0;
+            if ($packageId <= 0) {
+                continue;
+            }
+
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : 0;
+            $ownerProductId = (int) ($packageProductMap[(string) $packageId] ?? 0);
+
+            if ($productId <= 0 || $ownerProductId !== $productId) {
+                throw ValidationException::withMessages([
+                    "items.$index.package_id" => ['Gói sản phẩm không thuộc sản phẩm đã chọn.'],
+                ]);
+            }
+        }
     }
 
     private function validatePersistableDraftPayload(array $normalized): ?JsonResponse
@@ -1285,6 +1355,7 @@ class ProductQuotationDomainService
                 return [
                     'sort_order' => $index + 1,
                     'product_id' => $item['product_id'],
+                    'package_id' => $item['package_id'] ?? null,
                     'product_name' => $item['product_name'],
                     'unit' => $item['unit'],
                     'quantity' => $item['quantity'],
@@ -1312,6 +1383,7 @@ class ProductQuotationDomainService
                     'version_id' => $versionId,
                     'sort_order' => $index + 1,
                     'product_id' => $item['product_id'],
+                    'package_id' => $item['package_id'] ?? null,
                     'product_name' => $item['product_name'],
                     'unit' => $item['unit'],
                     'quantity' => $item['quantity'],
@@ -1352,6 +1424,7 @@ class ProductQuotationDomainService
                 ->map(function (ProductQuotationItem $item): array {
                     return [
                         'product_id' => $item->product_id,
+                        'package_id' => $item->package_id,
                         'product_name' => $item->product_name,
                         'unit' => $item->unit,
                         'quantity' => $item->quantity,
@@ -1433,6 +1506,7 @@ class ProductQuotationDomainService
     {
         return [
             'product_id' => $item['product_id'] ?? null,
+            'package_id' => $item['package_id'] ?? null,
             'product_name' => (string) ($item['product_name'] ?? ''),
             'unit' => (string) ($item['unit'] ?? ''),
             'quantity' => round((float) ($item['quantity'] ?? 0), 2),
@@ -1632,6 +1706,7 @@ class ProductQuotationDomainService
             'id' => $item->id,
             'sort_order' => (int) $item->sort_order,
             'product_id' => $item->product_id,
+            'package_id' => $item->package_id,
             'product_name' => $item->product_name,
             'unit' => $item->unit,
             'quantity' => (float) $item->quantity,
@@ -1711,6 +1786,7 @@ class ProductQuotationDomainService
                     'id' => $item->id,
                     'sort_order' => (int) $item->sort_order,
                     'product_id' => $item->product_id,
+                    'package_id' => $item->package_id,
                     'product_name' => $item->product_name,
                     'unit' => $item->unit,
                     'quantity' => (float) $item->quantity,

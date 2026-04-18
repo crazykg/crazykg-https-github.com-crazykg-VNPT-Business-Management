@@ -214,7 +214,9 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
       return {
         id: `ITEM_QUO_${quotationDetail.id}_${item.id ?? idx}_${Date.now()}`,
         productId: String(item.product_id),
+        productPackageId: item.package_id ?? null,
         product_id: item.product_id ?? null,
+        product_package_id: item.package_id ?? null,
         quantity: qty,
         unitPrice: price,
         unit_price: price,
