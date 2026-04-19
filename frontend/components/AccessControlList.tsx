@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEscKey } from '../hooks/useEscKey';
 import {
   Department,
@@ -421,6 +422,7 @@ const compactSelectTriggerClass =
 const compactMultiSelectTriggerClass =
   'min-h-[32px] rounded border border-slate-300 px-3 py-1.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
 
+const modalOverlayClass = 'fixed inset-0 z-[500] overflow-y-auto bg-slate-900/35 p-3 backdrop-blur-sm sm:p-4';
 const modalPanelClass = 'mx-auto overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl';
 
 export const AccessControlList: React.FC<AccessControlListProps> = ({
@@ -467,8 +469,13 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   const [roleDraft, setRoleDraft] = useState<number[]>([]);
   const [scopeDraft, setScopeDraft] = useState<Array<{ dept_id: number; scope_type: DeptScopeType }>>([]);
   const [permissionDraft, setPermissionDraft] = useState<Record<number, PermissionDraftValue>>({});
+  const roleEditorPanelRef = useRef<HTMLDivElement | null>(null);
+  const roleEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const isAnyBulkModalOpen = isBulkRoleModalOpen || isBulkPermissionModalOpen || isBulkScopeModalOpen;
+  const isEditorModalOpen = !!editorMode && selectedRecord !== null;
+  const isAnyAccessControlModalOpen = isAnyBulkModalOpen || isEditorModalOpen;
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
   const selectedUserIdSet = useMemo(() => new Set(selectedUserIds), [selectedUserIds]);
 
@@ -729,11 +736,54 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [editorMode, hasUnsavedChanges]);
 
-  const openRoleEditor = (record: UserAccessRecord) => {
+  useEffect(() => {
+    if (editorMode !== 'roles' || !selectedRecord) {
+      return;
+    }
+
+    const panel = roleEditorPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      const nextFocusTarget =
+        panel.querySelector<HTMLElement>('input[type="checkbox"]:checked:not([disabled])') ||
+        panel.querySelector<HTMLElement>('input[type="checkbox"]:not([disabled])') ||
+        panel.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+
+      nextFocusTarget?.focus();
+    }, 0);
+
+    return () => window.clearTimeout(focusTimer);
+  }, [editorMode, selectedRecord, roles]);
+
+  useEffect(() => {
+    if (!isAnyAccessControlModalOpen) {
+      return;
+    }
+
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverflow = documentElement.style.overflow;
+
+    body.style.overflow = 'hidden';
+    documentElement.style.overflow = 'hidden';
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [isAnyAccessControlModalOpen]);
+
+  const openRoleEditor = (record: UserAccessRecord, trigger?: HTMLButtonElement | null) => {
     if (isSaving || isBulkSaving || isAnyBulkModalOpen) {
       return;
     }
     const draft = record.roles.map((role) => role.role_id);
+    roleEditorTriggerRef.current = trigger || null;
     setSelectedRecord(record);
     setRoleDraft(draft);
     setInitialRoleDraft(draft);
@@ -744,6 +794,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     if (isSaving || isBulkSaving || isAnyBulkModalOpen) {
       return;
     }
+    roleEditorTriggerRef.current = null;
     setSelectedRecord(record);
     setPermissionDraft(buildPermissionDraftMap(permissions, record.permissions));
     setInitialPermissionDraft(buildPermissionDraftMap(permissions, record.permissions));
@@ -757,6 +808,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     if (isSaving || isBulkSaving || isAnyBulkModalOpen) {
       return;
     }
+    roleEditorTriggerRef.current = null;
     const scopes: BulkScopeDraftRow[] = record.dept_scopes.map((scope) => ({
       dept_id: Number(scope.dept_id || 0),
       scope_type: normalizeScopeType(scope.scope_type),
@@ -771,6 +823,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   };
 
   const closeEditorNow = () => {
+    const roleTrigger = editorMode === 'roles' ? roleEditorTriggerRef.current : null;
     setCloseAfterSaveRequested(false);
     setIsSaving(false);
     setEditorMode(null);
@@ -784,6 +837,14 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     setPermissionCopySourceUserId(0);
     setPermissionSearch('');
     setShowChangedOnly(false);
+    roleEditorTriggerRef.current = null;
+    if (roleTrigger?.isConnected) {
+      window.requestAnimationFrame(() => {
+        if (roleTrigger.isConnected) {
+          roleTrigger.focus();
+        }
+      });
+    }
   };
 
   const openBulkRoleEditor = () => {
@@ -860,10 +921,53 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
     closeEditorNow();
   };
 
+  const handleRoleEditorKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.tabIndex !== -1 && !element.hasAttribute('disabled'));
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+      return;
+    }
+
+    if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
+
   useEscKey(closeBulkRoleEditor, isBulkRoleModalOpen);
   useEscKey(closeBulkPermissionEditor, isBulkPermissionModalOpen);
   useEscKey(closeBulkScopeEditor, isBulkScopeModalOpen);
   useEscKey(requestCloseEditor, !!editorMode && selectedRecord !== null);
+
+  const renderModalInPortal = (modal: React.ReactNode) => {
+    if (!modal) {
+      return null;
+    }
+
+    if (!portalRoot) {
+      return modal;
+    }
+
+    return createPortal(modal, portalRoot);
+  };
 
   const handleRefresh = async () => {
     if (isSaving || isBulkSaving) {
@@ -1169,7 +1273,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
   };
 
   return (
-    <div className="p-3 pb-6 space-y-3">
+    <div data-testid="access-control-page" className="space-y-3 px-3 pb-6 pt-0">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
@@ -1493,7 +1597,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => openRoleEditor(record)}
+                            onClick={(event) => openRoleEditor(record, event.currentTarget)}
                             className={tableActionButtonClass}
                           >
                             <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
@@ -1546,147 +1650,150 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
         ) : null}
       </div>
 
-      {isBulkRoleModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeBulkRoleEditor();
-            }
-          }}
-        >
-          <div className={`${modalPanelClass} max-w-3xl`}>
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
-                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-                    group
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-deep-teal leading-tight">Gán vai trò hàng loạt</h3>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    Áp dụng cho {selectedRecords.length} người dùng đã chọn.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => closeBulkRoleEditor()}
-                className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
-                  close
-                </span>
-              </button>
-            </div>
-
-            <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
-              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="text-xs font-bold text-slate-700">Danh sách người dùng</p>
-                <p className="mb-2 text-[10px] text-slate-400">Kiểm tra nhanh phạm vi áp dụng trước khi lưu.</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedRecords.map((record) => (
-                    <span
-                      key={`bulk-user-${record.user.id}`}
-                      className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600"
-                    >
-                      {record.user.full_name || record.user.username} ({record.user.username})
+      {isBulkRoleModalOpen
+        ? renderModalInPortal(
+            <div
+              className={modalOverlayClass}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  closeBulkRoleEditor();
+                }
+              }}
+            >
+              <div className={`${modalPanelClass} max-w-3xl`}>
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                      <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                        group
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-deep-teal leading-tight">Gán vai trò hàng loạt</h3>
+                      <p className="text-[11px] text-slate-400 leading-tight">
+                        Áp dụng cho {selectedRecords.length} người dùng đã chọn.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => closeBulkRoleEditor()}
+                    className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                      close
                     </span>
-                  ))}
+                  </button>
                 </div>
-              </div>
 
-              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                <p className="mb-2 text-xs font-bold text-slate-700">Chế độ áp dụng</p>
-                <div className="space-y-2 text-sm text-slate-700">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="bulk-role-mode"
-                      checked={bulkRoleMode === 'MERGE'}
-                      onChange={() => setBulkRoleMode('MERGE')}
-                    />
-                    Bổ sung vai trò đã chọn, giữ nguyên role hiện có.
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="bulk-role-mode"
-                      checked={bulkRoleMode === 'REPLACE'}
-                      onChange={() => setBulkRoleMode('REPLACE')}
-                    />
-                    Thay toàn bộ role bằng danh sách dưới đây.
-                  </label>
-                </div>
-              </div>
+                <div className="max-h-[78vh] space-y-3 overflow-y-auto bg-slate-50/30 p-4">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <p className="text-xs font-bold text-slate-700">Danh sách người dùng</p>
+                    <p className="mb-2 text-[10px] text-slate-400">Kiểm tra nhanh phạm vi áp dụng trước khi lưu.</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedRecords.map((record) => (
+                        <span
+                          key={`bulk-user-${record.user.id}`}
+                          className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600"
+                        >
+                          {record.user.full_name || record.user.username} ({record.user.username})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {roles.map((role) => {
-                  const checked = bulkRoleDraft.includes(role.id);
-                  return (
-                    <label
-                      key={`bulk-role-${role.id}`}
-                      className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
-                        checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <p className="mb-2 text-xs font-bold text-slate-700">Chế độ áp dụng</p>
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <label className="flex items-center gap-2">
                         <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={checked}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              setBulkRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
-                            } else {
-                              setBulkRoleDraft((prev) => prev.filter((id) => id !== role.id));
-                            }
-                          }}
+                          type="radio"
+                          name="bulk-role-mode"
+                          checked={bulkRoleMode === 'MERGE'}
+                          onChange={() => setBulkRoleMode('MERGE')}
                         />
-                        <div>
-                          <span className="text-sm font-semibold text-slate-800">{role.role_code}</span>
-                          <p className="mt-1 text-[11px] text-slate-500">{role.role_name}</p>
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
+                        Bổ sung vai trò đã chọn, giữ nguyên role hiện có.
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="bulk-role-mode"
+                          checked={bulkRoleMode === 'REPLACE'}
+                          onChange={() => setBulkRoleMode('REPLACE')}
+                        />
+                        Thay toàn bộ role bằng danh sách dưới đây.
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {roles.map((role) => {
+                      const checked = bulkRoleDraft.includes(role.id);
+                      return (
+                        <label
+                          key={`bulk-role-${role.id}`}
+                          className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
+                            checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={checked}
+                              onChange={(event) => {
+                                if (event.target.checked) {
+                                  setBulkRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
+                                } else {
+                                  setBulkRoleDraft((prev) => prev.filter((id) => id !== role.id));
+                                }
+                              }}
+                            />
+                            <div>
+                              <span className="text-sm font-semibold text-slate-800">{role.role_code}</span>
+                              <p className="mt-1 text-[11px] text-slate-500">{role.role_name}</p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => closeBulkRoleEditor()}
+                    className={secondaryButtonClass}
+                    disabled={isBulkSaving}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveBulkRoles}
+                    className={primaryButtonClass}
+                    disabled={isBulkSaving || bulkRoleDraft.length === 0}
+                  >
+                    {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
+                  </button>
+                </div>
               </div>
             </div>
+          )
+        : null}
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-3">
-              <button
-                type="button"
-                onClick={() => closeBulkRoleEditor()}
-                className={secondaryButtonClass}
-                disabled={isBulkSaving}
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveBulkRoles}
-                className={primaryButtonClass}
-                disabled={isBulkSaving || bulkRoleDraft.length === 0}
-              >
-                {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isBulkPermissionModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeBulkPermissionEditor();
-            }
-          }}
-        >
-          <div className={`${modalPanelClass} max-w-4xl`}>
+      {isBulkPermissionModalOpen
+        ? renderModalInPortal(
+            <div
+              className={modalOverlayClass}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  closeBulkPermissionEditor();
+                }
+              }}
+            >
+              <div className={`${modalPanelClass} max-w-4xl`}>
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
@@ -1878,20 +1985,22 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                 {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
               </button>
             </div>
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>
+          )
+        : null}
 
-      {isBulkScopeModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              closeBulkScopeEditor();
-            }
-          }}
-        >
-          <div className={`${modalPanelClass} max-w-3xl`}>
+      {isBulkScopeModalOpen
+        ? renderModalInPortal(
+            <div
+              className={modalOverlayClass}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  closeBulkScopeEditor();
+                }
+              }}
+            >
+              <div className={`${modalPanelClass} max-w-3xl`}>
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
@@ -2018,34 +2127,218 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                 {isBulkSaving ? 'Đang lưu...' : 'Áp dụng'}
               </button>
             </div>
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>
+          )
+        : null}
 
-      {editorMode && selectedRecord ? (
-        <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              requestCloseEditor();
-            }
-          }}
-        >
-          <div className={`${modalPanelClass} max-w-4xl`}>
+      {editorMode === 'roles' && selectedRecord
+        ? renderModalInPortal(
+            <div
+              className={modalOverlayClass}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  requestCloseEditor();
+                }
+              }}
+            >
+              <div
+                ref={roleEditorPanelRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={`access-role-editor-title-${selectedRecord.user.id}`}
+                onKeyDown={handleRoleEditorKeyDown}
+                className={`${modalPanelClass} max-w-3xl`}
+              >
+            <div className="flex max-h-[min(90vh,calc(100dvh-32px))] flex-col">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                      group
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <h3
+                      id={`access-role-editor-title-${selectedRecord.user.id}`}
+                      className="text-sm font-bold leading-tight text-deep-teal"
+                    >
+                      Cập nhật vai trò
+                    </h3>
+                    <p className="text-[11px] leading-tight text-slate-400">
+                      {selectedRecord.user.full_name} ({selectedRecord.user.username})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => requestCloseEditor()}
+                  aria-label="Đóng modal cập nhật vai trò"
+                  className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                    close
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto bg-slate-50/30 p-4">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="mb-2 flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                        <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                          person
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-700">Thông tin người dùng</p>
+                        <p className="text-[10px] text-slate-400">Dữ liệu gốc để đối chiếu khi cấu hình.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Mã NV</p>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {selectedRecord.user.user_code || `U${selectedRecord.user.id}`}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Tài khoản</p>
+                        <p className="text-sm font-semibold text-slate-800">{selectedRecord.user.username}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Email</p>
+                        <p className="text-sm text-slate-700">{selectedRecord.user.email || 'Chưa cập nhật'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral">Phòng ban</p>
+                        <p className="text-sm text-slate-700">{selectedRecord.user.department_name || 'Chưa gắn phòng ban'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="mb-2 flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
+                        <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                          insights
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-700">Tóm tắt chỉnh sửa</p>
+                        <p className="text-[10px] text-slate-400">Kiểm tra nhanh trước khi lưu cấu hình.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                        <span>Chế độ</span>
+                        <span className="text-xs font-bold text-deep-teal">Vai trò</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                        <span>Mục đang cấu hình</span>
+                        <span className="text-xs font-bold text-deep-teal">{roleDraft.length}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
+                        <span>Trạng thái</span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            hasUnsavedChanges ? 'bg-warning/15 text-warning' : 'bg-success/10 text-success'
+                          }`}
+                        >
+                          {hasUnsavedChanges ? 'Chưa lưu' : 'Đồng bộ'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+	                  {roles.map((role) => {
+	                    const checked = roleDraft.includes(role.id);
+	                    return (
+	                      <label
+	                        key={role.id}
+	                        className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
+	                          checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
+	                        }`}
+	                      >
+	                        <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
+	                          <div className="flex h-5 items-center pt-0.5">
+	                            <input
+	                              type="checkbox"
+	                              className="h-5 w-5 shrink-0 rounded border-slate-300 text-primary focus:ring-2 focus:ring-primary/30"
+	                              aria-label={`Chọn vai trò ${role.role_code}`}
+	                              checked={checked}
+	                              onChange={(event) => {
+	                                if (event.target.checked) {
+	                                  setRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
+	                                } else {
+	                                  setRoleDraft((prev) => prev.filter((id) => id !== role.id));
+	                                }
+	                              }}
+	                            />
+	                          </div>
+	                          <div className="min-w-0">
+	                            <span className="block text-sm font-semibold leading-5 text-slate-800">{role.role_code}</span>
+	                            <p className="mt-1 text-[11px] leading-5 text-slate-500">{role.role_name}</p>
+	                          </div>
+	                        </div>
+	                      </label>
+	                    );
+	                  })}
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 shrink-0 border-t border-slate-100 bg-white px-4 py-3">
+                {closeAfterSaveRequested ? (
+                  <p className="mb-2 text-[10px] text-slate-400">
+                    Yêu cầu đóng đã ghi nhận, màn hình sẽ tự đóng sau khi lưu xong.
+                  </p>
+                ) : null}
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => requestCloseEditor()} className={secondaryButtonClass}>
+                    {isSaving ? 'Đóng sau khi lưu' : 'Hủy'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveRoles}
+                    className={primaryButtonClass}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
+                  </button>
+                </div>
+              </div>
+            </div>
+              </div>
+            </div>
+          )
+        : null}
+
+      {editorMode && editorMode !== 'roles' && selectedRecord
+        ? renderModalInPortal(
+            <div
+              className={modalOverlayClass}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  requestCloseEditor();
+                }
+              }}
+            >
+              <div className={`${modalPanelClass} max-w-4xl`}>
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
                   <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-                    {editorMode === 'roles' ? 'group' : editorMode === 'permissions' ? 'vpn_key' : 'tune'}
+                    {editorMode === 'permissions' ? 'vpn_key' : 'tune'}
                   </span>
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-deep-teal leading-tight">
-                    {editorMode === 'roles'
-                      ? 'Cập nhật vai trò'
-                      : editorMode === 'permissions'
-                        ? 'Cập nhật quyền override'
-                        : 'Cập nhật phạm vi dữ liệu'}
+                    {editorMode === 'permissions' ? 'Cập nhật quyền override' : 'Cập nhật phạm vi dữ liệu'}
                   </h3>
                   <p className="text-[11px] text-slate-400 leading-tight">
                     {selectedRecord.user.full_name} ({selectedRecord.user.username})
@@ -2117,17 +2410,15 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                     <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
                       <span>Chế độ</span>
                       <span className="text-xs font-bold text-deep-teal">
-                        {editorMode === 'roles' ? 'Vai trò' : editorMode === 'permissions' ? 'Override quyền' : 'Scope dữ liệu'}
+                        {editorMode === 'permissions' ? 'Override quyền' : 'Scope dữ liệu'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
                       <span>Mục đang cấu hình</span>
                       <span className="text-xs font-bold text-deep-teal">
-                        {editorMode === 'roles'
-                          ? roleDraft.length
-                          : editorMode === 'permissions'
-                            ? changedPermissionCount
-                            : scopeDraft.filter((item) => Number(item.dept_id || 0) > 0).length}
+                        {editorMode === 'permissions'
+                          ? changedPermissionCount
+                          : scopeDraft.filter((item) => Number(item.dept_id || 0) > 0).length}
                       </span>
                     </div>
                     <div className="flex items-center justify-between rounded bg-slate-50 px-3 py-2">
@@ -2143,41 +2434,6 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                   </div>
                 </div>
               </div>
-
-              {editorMode === 'roles' ? (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {roles.map((role) => {
-                    const checked = roleDraft.includes(role.id);
-                    return (
-                      <label
-                        key={role.id}
-                        className={`cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition ${
-                          checked ? 'border-primary bg-primary/5' : 'border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5"
-                            checked={checked}
-                            onChange={(event) => {
-                              if (event.target.checked) {
-                                setRoleDraft((prev) => Array.from(new Set([...prev, role.id])));
-                              } else {
-                                setRoleDraft((prev) => prev.filter((id) => id !== role.id));
-                              }
-                            }}
-                          />
-                          <div>
-                            <span className="text-sm font-semibold text-slate-800">{role.role_code}</span>
-                            <p className="mt-1 text-[11px] text-slate-500">{role.role_name}</p>
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : null}
 
               {editorMode === 'permissions' ? (
                 <div className="space-y-3">
@@ -2410,7 +2666,7 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
               </button>
               <button
                 type="button"
-                onClick={editorMode === 'roles' ? handleSaveRoles : editorMode === 'permissions' ? handleSavePermissions : handleSaveScopes}
+                onClick={editorMode === 'permissions' ? handleSavePermissions : handleSaveScopes}
                 className={primaryButtonClass}
                 disabled={isSaving}
               >
@@ -2422,9 +2678,10 @@ export const AccessControlList: React.FC<AccessControlListProps> = ({
                 Yêu cầu đóng đã ghi nhận, màn hình sẽ tự đóng sau khi lưu xong.
               </div>
             ) : null}
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>
+          )
+        : null}
     </div>
   );
 };
