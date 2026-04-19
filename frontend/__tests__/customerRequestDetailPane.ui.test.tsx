@@ -233,7 +233,7 @@ describe('CustomerRequestDetailPane UI', () => {
   });
 
   it('hides the summary bar in full modal update presentation', () => {
-    render(
+    const { container } = render(
       <CustomerRequestDetailPane
         isDetailLoading={false}
         isListLoading={false}
@@ -348,12 +348,180 @@ describe('CustomerRequestDetailPane UI', () => {
       />
     );
 
+    const topLayout = Array.from(container.querySelectorAll('div')).find((node) =>
+      typeof node.className === 'string'
+      && node.className.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]')
+    );
+
     expect(screen.queryByText('Kết quả')).not.toBeInTheDocument();
     expect(screen.queryByText('Người tiếp nhận')).not.toBeInTheDocument();
     expect(screen.getByText('Trạng thái xử lý')).toBeInTheDocument();
     expect(screen.getByText('Thông tin yêu cầu')).toBeInTheDocument();
+    expect(screen.getByText('Thẻ')).toBeInTheDocument();
+    expect(screen.getByText('Task liên quan')).toBeInTheDocument();
+    expect(screen.getByText('Tệp đính kèm')).toBeInTheDocument();
     expect(screen.queryByText('Tổng quan ca')).not.toBeInTheDocument();
     expect(screen.queryByText('Người liên quan')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Task\/Ref$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Tệp$/i })).not.toBeInTheDocument();
+    expect(topLayout).toBeTruthy();
+  });
+
+  it('removes activity and performer summary cards from the hours tab in full modal presentation', () => {
+    render(
+      <CustomerRequestDetailPane
+        isDetailLoading={false}
+        isListLoading={false}
+        isCreateMode={false}
+        presentation="full_modal"
+        processDetail={{
+          yeu_cau: {
+            id: 21,
+            ma_yc: 'CRC-202603-0021',
+            request_code: 'CRC-202603-0021',
+            tieu_de: 'YC ẩn summary giờ công',
+            summary: 'YC ẩn summary giờ công',
+            trang_thai: 'in_progress',
+            current_status_name_vi: 'Đang xử lý',
+            customer_name: 'VNPT Hà Nội',
+            khach_hang_name: 'VNPT Hà Nội',
+            project_name: 'Dashboard SOC',
+          },
+          process: {
+            process_code: 'in_progress',
+            process_label: 'Đang xử lý',
+            group_code: 'processing',
+            group_label: 'Xử lý',
+            table_name: 'customer_request_in_progress',
+            default_status: 'in_progress',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          allowed_next_processes: [],
+          transition_allowed: false,
+          can_write: true,
+          available_actions: {
+            can_write: true,
+            can_add_worklog: true,
+          },
+          estimates: [],
+          hours_report: {
+            request_case_id: 21,
+            estimated_hours: 8,
+            total_hours_spent: 4,
+            remaining_hours: 4,
+            hours_usage_pct: 50,
+            by_activity: [
+              {
+                activity_type_code: 'Khảo sát hiện trường',
+                hours_spent: 4,
+                worklog_count: 2,
+              },
+            ],
+            by_performer: [
+              {
+                performed_by_user_id: 7,
+                performed_by_name: 'Phan Văn Rở',
+                hours_spent: 4,
+                worklog_count: 2,
+              },
+            ],
+          },
+        } as never}
+        canTransitionActiveRequest={false}
+        transitionOptions={[]}
+        transitionStatusCode=""
+        onTransitionStatusCodeChange={vi.fn()}
+        onOpenTransitionModal={vi.fn()}
+        isSaving={false}
+        canEditActiveForm={true}
+        masterFields={[]}
+        masterDraft={{}}
+        onMasterFieldChange={vi.fn()}
+        editorProcessMeta={null}
+        processDraft={{}}
+        onProcessDraftChange={vi.fn()}
+        customers={[]}
+        employees={employees}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        availableProjectItems={[selectedProjectItem]}
+        selectedProjectItem={selectedProjectItem}
+        selectedCustomerId="20"
+        activeTaskTab="IT360"
+        onActiveTaskTabChange={vi.fn()}
+        onAddTaskRow={vi.fn()}
+        formIt360Tasks={[]}
+        onUpdateIt360TaskRow={vi.fn()}
+        onRemoveIt360TaskRow={vi.fn()}
+        formReferenceTasks={[]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
+        taskReferenceOptions={[]}
+        onUpdateReferenceTaskRow={vi.fn()}
+        onTaskReferenceSearchTermChange={vi.fn()}
+        taskReferenceSearchTerm=""
+        taskReferenceSearchError=""
+        isTaskReferenceSearchLoading={false}
+        onRemoveReferenceTaskRow={vi.fn()}
+        formAttachments={[]}
+        onUploadAttachment={async () => undefined}
+        onDeleteAttachment={async () => undefined}
+        isUploadingAttachment={false}
+        attachmentError=""
+        attachmentNotice=""
+        relatedSummaryItems={[]}
+        currentHoursReport={{
+          request_case_id: 21,
+          estimated_hours: 8,
+          total_hours_spent: 4,
+          remaining_hours: 4,
+          hours_usage_pct: 50,
+          by_activity: [
+            {
+              activity_type_code: 'Khảo sát hiện trường',
+              hours_spent: 4,
+              worklog_count: 2,
+            },
+          ],
+          by_performer: [
+            {
+              performed_by_user_id: 7,
+              performed_by_name: 'Phan Văn Rở',
+              hours_spent: 4,
+              worklog_count: 2,
+            },
+          ],
+        }}
+        estimateHistory={[]}
+        timeline={[]}
+        caseWorklogs={[]}
+        canOpenCreatorFeedbackModal={false}
+        onOpenCreatorFeedbackModal={vi.fn()}
+        canOpenNotifyCustomerModal={false}
+        onOpenNotifyCustomerModal={vi.fn()}
+        canOpenWorklogModal={true}
+        onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
+        isSubmittingWorklog={false}
+        canOpenEstimateModal={false}
+        onOpenEstimateModal={vi.fn()}
+        isSubmittingEstimate={false}
+        dispatcherQuickActions={[]}
+        onRunDispatcherAction={vi.fn()}
+        performerQuickActions={[]}
+        onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Nhật ký công việc gần nhất')).toBeInTheDocument();
+    expect(screen.queryByText('Theo hoạt động')).not.toBeInTheDocument();
+    expect(screen.queryByText('Theo người thực hiện')).not.toBeInTheDocument();
   });
 
   it('shows direct worklog and estimate actions inside their tabs when actions are allowed', async () => {

@@ -3862,6 +3862,51 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     />
   );
 
+  const detailModalFooter = (
+    <div className="flex shrink-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 lg:px-4 xl:px-5">
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 sm:text-[11px]">
+        {formTags.length > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px]">label</span>
+            {formTags.length} tag
+          </span>
+        ) : null}
+        {formAttachments.length > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px]">attach_file</span>
+            {formAttachments.length} file
+          </span>
+        ) : null}
+        {formIt360Tasks.length + formReferenceTasks.length > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px]">task</span>
+            {formIt360Tasks.length + formReferenceTasks.length} task
+          </span>
+        ) : null}
+      </p>
+
+      <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2.5">
+        <button
+          type="button"
+          onClick={handleCloseDetail}
+          disabled={isSaving}
+          className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
+        >
+          Hủy
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleUpdateCase()}
+          disabled={!canEditActiveForm || isSaving}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-primary/20 transition hover:brightness-105 disabled:opacity-50 sm:w-auto"
+        >
+          <span className="material-symbols-outlined text-[15px]">save</span>
+          {isSaving ? 'Đang cập nhật…' : 'Cập nhật yêu cầu'}
+        </button>
+      </div>
+    </div>
+  );
+
   const showDetailModal = selectedRequestId !== null;
   const attentionCaseCount = patchedOverviewDashboard?.attention_cases.length ?? 0;
   const inboxPriorityItems = useMemo<InboxPriorityItem[]>(() => {
@@ -4664,6 +4709,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           mode="modal"
           request={selectedRequestSummary}
           isPinned={isPinnedRequest(selectedRequestSummary?.id)}
+          title="Cập nhật yêu cầu"
+          subtitle={selectedRequestSummary?.tieu_de ?? selectedRequestSummary?.summary ?? ''}
+          icon="edit_note"
+          footer={detailModalFooter}
           onTogglePinned={() => {
             if (selectedRequestSummary) {
               handleTogglePinnedRequest(selectedRequestSummary);

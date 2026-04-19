@@ -84,7 +84,7 @@ import { normalizeQuerySignature } from './utils/queryUtils';
 import { canOpenModal, hasPermission, isImportSupportedModule } from './utils/authorization';
 import { fetchEmployeePartyProfilesPage, upsertEmployeePartyProfile } from './services/api/employeeApi';
 import { useContractStore } from './shared/stores';
-import { FILTER_DEFAULTS } from './shared/stores/filterStore';
+import { getDefaultTabFilter } from './shared/stores/filterStore';
 
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
@@ -340,10 +340,7 @@ const App: React.FC = () => {
   const employeesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const partyProfilesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
-  const projectsPageQueryRef = React.useRef<PaginatedQuery>({
-    ...FILTER_DEFAULTS.projectsPage,
-    filters: { ...(FILTER_DEFAULTS.projectsPage.filters || {}) },
-  });
+  const projectsPageQueryRef = React.useRef<PaginatedQuery>(getDefaultTabFilter('projectsPage'));
   const contractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const passContractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });

@@ -22,6 +22,10 @@ describe('CustomerRequestDetailFrame UI', () => {
           current_status_name_vi: 'Đang xử lý',
         }}
         isPinned={false}
+        title="Cập nhật yêu cầu"
+        subtitle="Điều chỉnh chức năng"
+        icon="edit_note"
+        footer={<div>Cập nhật yêu cầu</div>}
         onTogglePinned={vi.fn()}
         onClose={vi.fn()}
       >
@@ -30,12 +34,18 @@ describe('CustomerRequestDetailFrame UI', () => {
     );
 
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.className).toContain('lg:max-w-[1120px]');
+    expect(dialog.className).toContain('xl:max-w-[1240px]');
+    expect(dialog.className).toContain('2xl:max-w-[1280px]');
     expect(screen.getByText('Chi tiết modal')).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0001')).toBeInTheDocument();
+    expect(screen.getAllByText('Cập nhật yêu cầu')).toHaveLength(2);
+    expect(screen.getAllByText('Điều chỉnh chức năng')[0]).toBeInTheDocument();
     expect(screen.queryByText('Đang xử lý')).not.toBeInTheDocument();
-    expect(screen.queryByText('Điều chỉnh chức năng')).not.toBeInTheDocument();
     expect(screen.queryByText('Bệnh viện Sản')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Đóng')).toBeInTheDocument();
     expect(document.body.style.overflow).toBe('hidden');
     expect(document.documentElement.style.overflow).toBe('hidden');
 

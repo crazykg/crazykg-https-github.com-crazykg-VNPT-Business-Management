@@ -9,7 +9,7 @@ import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { formatCurrencyVnd } from '../utils/revenueDisplay';
-import { FILTER_DEFAULTS, useFilterStore } from '../shared/stores/filterStore';
+import { getProjectsPageDefaultDateFilters, useFilterStore } from '../shared/stores/filterStore';
 import { resolveProjectDefaultDepartmentFilterId } from '../utils/projectDepartmentOwnership';
 
 interface ProjectListQuery extends PaginatedQuery {
@@ -42,7 +42,7 @@ interface ProjectListProps {
 
 const getDefaultProjectDateFilter = (
   key: 'start_date_from' | 'start_date_to'
-): string => String(FILTER_DEFAULTS.projectsPage.filters?.[key] ?? '').trim();
+): string => String(getProjectsPageDefaultDateFilters()[key] ?? '').trim();
 
 const resolveInitialProjectDateFilter = (
   key: 'start_date_from' | 'start_date_to'
@@ -50,6 +50,13 @@ const resolveInitialProjectDateFilter = (
   const storedQuery = useFilterStore.getState().getTabFilter('projectsPage') as ProjectListQuery;
   const storedValue = String(storedQuery.filters?.[key] ?? '').trim();
   return storedValue || getDefaultProjectDateFilter(key);
+};
+
+const normalizeProjectDateFilterValue = (value: unknown): string => {
+  const normalized = String(value ?? '').trim();
+  const matchedIsoDate = normalized.match(/^\d{4}-\d{2}-\d{2}/);
+
+  return matchedIsoDate?.[0] ?? '';
 };
 
 const normalizeDepartmentToken = (value: unknown): string =>
@@ -281,8 +288,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       const matchesDepartment = departmentFilter
         ? String(proj.department_id ?? '') === departmentFilter
         : true;
+      const projectStartDate = normalizeProjectDateFilterValue(proj.start_date);
+      const matchesStartDateFrom = startDateFrom
+        ? projectStartDate !== '' && projectStartDate >= startDateFrom
+        : true;
+      const matchesStartDateTo = startDateTo
+        ? projectStartDate !== '' && projectStartDate <= startDateTo
+        : true;
 
-      return matchesSearch && matchesStatus && matchesDepartment;
+      return matchesSearch && matchesStatus && matchesDepartment && matchesStartDateFrom && matchesStartDateTo;
     });
 
     if (sortConfig !== null) {
@@ -321,7 +335,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }
 
     return result;
-  }, [serverMode, projects, searchTerm, statusFilter, departmentFilter, sortConfig, customers, projectItemsTotalByProjectId]);
+  }, [serverMode, projects, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig, customers, projectItemsTotalByProjectId]);
 
   const statusFilterOptions = useMemo(
     () => [
@@ -563,16 +577,18 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   };
 
   const handleResetFilters = () => {
+    const defaultDateFilters = getProjectsPageDefaultDateFilters();
+
     setPendingSearchTerm('');
     setPendingStatusFilter('');
     setPendingDepartmentFilter(initialDepartmentFilter);
-    setPendingStartDateFrom('');
-    setPendingStartDateTo('');
+    setPendingStartDateFrom(defaultDateFilters.start_date_from);
+    setPendingStartDateTo(defaultDateFilters.start_date_to);
     setSearchTerm('');
     setStatusFilter('');
     setDepartmentFilter(initialDepartmentFilter);
-    setStartDateFrom('');
-    setStartDateTo('');
+    setStartDateFrom(defaultDateFilters.start_date_from);
+    setStartDateTo(defaultDateFilters.start_date_to);
     setCurrentPage(1);
     setSearchTrigger((prev) => prev + 1);
   };
@@ -757,6 +773,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       setIsExporting(false);
     }
   };
+
+  const defaultDateFilters = getProjectsPageDefaultDateFilters();
+  const shouldShowDateReset = pendingStartDateFrom !== defaultDateFilters.start_date_from
+    || pendingStartDateTo !== defaultDateFilters.start_date_to;
 
   return (
     <div className="p-3 pb-6">
@@ -974,10 +994,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   className="h-8 w-full sm:w-36 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none"
                   title="Đến ngày"
                 />
-                {(pendingStartDateFrom || pendingStartDateTo) && (
+                {shouldShowDateReset && (
                   <button
                     type="button"
-                    onClick={() => { setPendingStartDateFrom(''); setPendingStartDateTo(''); }}
+                    onClick={() => {
+                      setPendingStartDateFrom(defaultDateFilters.start_date_from);
+                      setPendingStartDateTo(defaultDateFilters.start_date_to);
+                    }}
                     className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50 transition-colors shrink-0"
                     title="Xóa lọc ngày"
                   >

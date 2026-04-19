@@ -115,6 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
       icon: 'description',
       items: [
         { id: 'contracts', icon: 'contract', label: 'Hợp đồng' },
+        { id: 'pass_contract', icon: 'assignment', label: 'Hợp đồng đầu kỳ' },
         { id: 'documents', icon: 'folder_open', label: 'Hồ sơ tài liệu' },
       ]
     },
