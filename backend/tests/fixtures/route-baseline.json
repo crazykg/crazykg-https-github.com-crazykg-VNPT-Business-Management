@@ -996,6 +996,10 @@
     "uri": "api/v5/project-procedure-templates/{templateId}/steps"
   },
   {
+    "method": "POST",
+    "uri": "api/v5/project-procedure-templates/{templateId}/steps/import"
+  },
+  {
     "method": "DELETE",
     "uri": "api/v5/project-procedure-templates/{templateId}/steps/{stepId}"
   },

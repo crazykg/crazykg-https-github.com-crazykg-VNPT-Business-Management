@@ -636,6 +636,54 @@ export const deleteProcedureTemplateSteps = async (
   }
 };
 
+export const importProcedureTemplateSteps = async (
+  templateId: string | number,
+  steps: Array<{
+    step_key: string;
+    parent_key?: string | null;
+    step_number: number;
+    phase?: string | null;
+    step_name: string;
+    step_detail?: string | null;
+    lead_unit?: string | null;
+    support_unit?: string | null;
+    expected_result?: string | null;
+    default_duration_days?: number | null;
+    sort_order: number;
+  }>
+): Promise<{ imported_count?: number; root_count?: number }> => {
+  const res = await projectMutationRequest(
+    `/api/v5/project-procedure-templates/${templateId}/steps/import`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        steps: (steps || []).map((step) => ({
+          step_key: normalizeNullableText(step.step_key),
+          parent_key: normalizeNullableText(step.parent_key),
+          step_number: step.step_number,
+          phase: normalizeNullableText(step.phase),
+          step_name: normalizeNullableText(step.step_name),
+          step_detail: normalizeNullableText(step.step_detail),
+          lead_unit: normalizeNullableText(step.lead_unit),
+          support_unit: normalizeNullableText(step.support_unit),
+          expected_result: normalizeNullableText(step.expected_result),
+          default_duration_days: step.default_duration_days ?? null,
+          sort_order: step.sort_order,
+        })),
+      }),
+    },
+    'Nhập bước thủ tục quá lâu, vui lòng thử lại.'
+  );
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'IMPORT_TEMPLATE_STEPS_FAILED'));
+  }
+
+  return parseItemJson<{ imported_count?: number; root_count?: number }>(res);
+};
+
 export const fetchProjectProcedures = async (projectId: string | number): Promise<ProjectProcedure[]> => {
   const res = await apiFetch(`/api/v5/projects/${projectId}/procedures`, {
     credentials: 'include',

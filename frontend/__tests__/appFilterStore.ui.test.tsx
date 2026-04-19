@@ -53,13 +53,16 @@ vi.mock('../hooks/useImportProductPackages', () => ({
 
 vi.mock('../AppPages', () => ({
   AppPages: ({
+    activeTab,
     handleProjectsPageQueryChange,
     exportProjectsByCurrentQuery,
   }: {
+    activeTab?: string;
     handleProjectsPageQueryChange: (query: Record<string, unknown>) => void;
     exportProjectsByCurrentQuery: () => Promise<unknown>;
   }) => (
     <div>
+      <div data-testid="app-active-tab">{activeTab}</div>
       <button
         type="button"
         onClick={() =>
@@ -106,7 +109,7 @@ vi.mock('../services/v5Api', async () => {
 });
 
 describe('App filter store integration', () => {
-  const renderApp = () => {
+  const renderApp = (initialEntries: string[] = ['/']) => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -116,7 +119,7 @@ describe('App filter store integration', () => {
 
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={initialEntries}>
           <App />
         </MemoryRouter>
       </QueryClientProvider>
@@ -166,5 +169,65 @@ describe('App filter store integration', () => {
         },
       }));
     });
+  });
+
+  it('keeps the access-control route inside a scrollable app shell on narrow layouts', async () => {
+    const previousInnerWidth = window.innerWidth;
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 390,
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    fetchAuthBootstrapMock.mockResolvedValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        full_name: 'Admin',
+        roles: ['ADMIN'],
+        permissions: ['*'],
+        password_change_required: false,
+      },
+      permissions: ['*'],
+      counters: {},
+    });
+    fetchContractsMock.mockResolvedValue([]);
+    fetchPaymentSchedulesMock.mockResolvedValue([]);
+    fetchProjectsMock.mockResolvedValue([]);
+    fetchCustomersMock.mockResolvedValue([]);
+    fetchProjectsPageMock.mockResolvedValue({
+      data: [],
+      meta: {
+        total_pages: 1,
+      },
+    });
+
+    try {
+      renderApp(['/access-control']);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('app-active-tab')).toHaveTextContent('access_control');
+      });
+
+      const main = screen.getByRole('main');
+
+      expect(main).toHaveClass('flex-1');
+      expect(main).toHaveClass('overflow-y-auto');
+      expect(main).toHaveClass('w-full');
+      expect(main).toHaveClass('min-h-0');
+      expect(main.parentElement).toHaveClass('flex-col');
+      expect(main.parentElement).toHaveClass('overflow-hidden');
+      expect(main.parentElement).toHaveClass('h-[100dvh]');
+      expect(main.parentElement).not.toHaveClass('h-screen');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: previousInnerWidth,
+      });
+      window.dispatchEvent(new Event('resize'));
+    }
   });
 });

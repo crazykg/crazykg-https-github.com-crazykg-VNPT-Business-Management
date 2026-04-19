@@ -3972,13 +3972,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [activeInboxBucket, currentUserId, inboxPriorityItems, sharedSurfaceFilters]);
   const hasIntakeMenuActions = canImportRequests || canExportRequests;
   const isAnalyticsSurface = activeSurface === 'analytics';
+  const showsSharedSurfaceFilters = !isCreateMode;
   const isCompactTopShell = layoutMode === 'mobile' || layoutMode === 'tablet';
+  const controlHeightClass = isCompactTopShell ? 'h-11' : 'h-10';
+  const workspaceShellClass =
+    'rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-[var(--ui-shadow-shell)]';
   const sharedFilterFieldClass =
-    'h-10 rounded-2xl border border-slate-200/90 bg-slate-50/70 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12';
+    `${controlHeightClass} rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const sharedSearchFieldClass =
-    'h-10 w-full rounded-2xl border border-slate-200/90 bg-slate-50/70 pl-9 pr-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12';
+    `${controlHeightClass} w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] pl-9 pr-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const sharedSelectTriggerClass =
-    'h-10 rounded-2xl border-slate-200/90 bg-slate-50/70 px-3.5 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] focus:bg-white';
+    `${controlHeightClass} rounded-[var(--ui-control-radius)] border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] focus:bg-white`;
+  const sharedSecondaryButtonClass =
+    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
+  const sharedPrimaryButtonClass =
+    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] bg-primary px-3 text-xs font-semibold text-white shadow-[var(--ui-shadow-shell)] transition hover:bg-deep-teal disabled:opacity-50`;
   const renderTopShellActions = () => (
     <>
       {hasIntakeMenuActions ? (
@@ -3987,7 +3995,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             type="button"
             onClick={() => setIsIntakeMenuOpen((value) => !value)}
             aria-label="Nhập"
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:w-auto"
+            className={`${sharedSecondaryButtonClass} w-full gap-1.5 sm:w-auto`}
             aria-expanded={isIntakeMenuOpen}
             aria-haspopup="menu"
           >
@@ -3999,7 +4007,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           {isIntakeMenuOpen ? (
             <div
               role="menu"
-              className="absolute right-0 top-[calc(100%+6px)] z-[90] w-48 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-200/70"
+              className="absolute right-0 top-[calc(100%+6px)] z-[90] w-48 overflow-hidden rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] py-1.5 shadow-xl shadow-slate-200/70"
             >
               {canImportRequests ? (
                 <button
@@ -4055,8 +4063,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           type="button"
           onClick={handleCreateRequest}
           aria-label="Thêm yêu cầu"
-          className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl px-3 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-50 sm:w-auto"
-          style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
+          className={`${sharedPrimaryButtonClass} w-full gap-1.5 sm:w-auto`}
         >
           <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
           Thêm yêu cầu
@@ -4064,28 +4071,188 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       )}
     </>
   );
+  const sharedSurfaceFilterNode = showsSharedSurfaceFilters ? (
+    <div className={`${workspaceShellClass} p-3`}>
+      <div className="space-y-2.5">
+        <div
+          className={`grid gap-2 ${
+            isCompactTopShell
+              ? 'grid-cols-1'
+              : 'xl:grid-cols-[156px_156px_minmax(0,1fr)_180px_auto]'
+          }`}
+        >
+          <label>
+            <span className="sr-only">Từ ngày tạo</span>
+            <input
+              type="date"
+              value={requestCreatedFrom}
+              onChange={(event) => {
+                setRequestCreatedFrom(event.target.value);
+                setListPage(1);
+              }}
+              className={`w-full ${sharedFilterFieldClass}`}
+            />
+          </label>
+
+          <label>
+            <span className="sr-only">Đến ngày tạo</span>
+            <input
+              type="date"
+              value={requestCreatedTo}
+              onChange={(event) => {
+                setRequestCreatedTo(event.target.value);
+                setListPage(1);
+              }}
+              className={`w-full ${sharedFilterFieldClass}`}
+            />
+          </label>
+
+          <label className="relative min-w-0">
+            <span className="sr-only">Tìm kiếm yêu cầu</span>
+            <span
+              className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              style={{ fontSize: 16 }}
+            >
+              search
+            </span>
+            <input
+              value={requestKeyword}
+              onChange={(event) => {
+                setRequestKeyword(event.target.value);
+                setListPage(1);
+              }}
+              placeholder="Tìm mã YC, tên yêu cầu..."
+              className={sharedSearchFieldClass}
+            />
+          </label>
+
+          <SearchableSelect
+            value={activeProcessCode}
+            options={processOptions}
+            onChange={(value) => {
+              setActiveProcessCode(String(value ?? ''));
+              setListPage(1);
+            }}
+            label=""
+            placeholder="Tiến trình"
+            searchPlaceholder="Tìm tiến trình..."
+            compact
+            usePortal
+            portalZIndex={70}
+            triggerClassName={sharedSelectTriggerClass}
+          />
+
+          {!isAnalyticsSurface ? (
+            <button
+              type="button"
+              onClick={() => setIsSharedFilterExpanded((value) => !value)}
+              className={`${sharedSecondaryButtonClass} gap-1.5`}
+            >
+              <span className="material-symbols-outlined text-[17px]">tune</span>
+              <span>Bộ lọc</span>
+              {sharedAdvancedFilterCount > 0 ? (
+                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {sharedAdvancedFilterCount}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+        </div>
+
+        {(isAnalyticsSurface || isSharedFilterExpanded) ? (
+          <div
+            className={`grid gap-2 ${
+              isCompactTopShell
+                ? 'grid-cols-1'
+                : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]'
+            }`}
+          >
+            <SearchableSelect
+              value={requestCustomerFilter}
+              options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
+              onChange={(value) => {
+                setRequestCustomerFilter(String(value ?? ''));
+                setListPage(1);
+              }}
+              label=""
+              placeholder="Khách hàng"
+              searchPlaceholder="Tìm khách hàng..."
+              compact
+              usePortal
+              portalZIndex={70}
+              triggerClassName={sharedSelectTriggerClass}
+            />
+            <SearchableSelect
+              value={requestSupportGroupFilter}
+              options={supportGroupOptions}
+              onChange={(value) => {
+                setRequestSupportGroupFilter(String(value ?? ''));
+                setListPage(1);
+              }}
+              label=""
+              placeholder="Kênh tiếp nhận"
+              searchPlaceholder="Tìm kênh..."
+              compact
+              usePortal
+              portalZIndex={70}
+              triggerClassName={sharedSelectTriggerClass}
+            />
+            <SearchableSelect
+              value={requestPriorityFilter}
+              options={SHARED_PRIORITY_OPTIONS}
+              onChange={(value) => {
+                setRequestPriorityFilter(String(value ?? ''));
+                setListPage(1);
+              }}
+              label=""
+              placeholder="Ưu tiên"
+              searchPlaceholder="Tìm ưu tiên..."
+              compact
+              usePortal
+              portalZIndex={70}
+              triggerClassName={sharedSelectTriggerClass}
+            />
+            {hasListFilters ? (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className={`${sharedSecondaryButtonClass} text-primary hover:bg-primary/5`}
+              >
+                Xóa lọc
+              </button>
+            ) : (
+              <div aria-hidden="true" />
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
 
   return (
-    <div className="px-3 pb-6">
-      <div className="sticky top-0 z-50 space-y-2 border-b border-slate-200/70 bg-white/98 pb-2 pt-3 shadow-[0_12px_24px_rgba(15,23,42,0.08)] backdrop-blur-md">
+    <div className="bg-[var(--ui-page-bg)] px-3 pb-6">
+      <div className="sticky top-0 z-50 space-y-2 bg-[var(--ui-page-bg)] pb-2 pt-3 backdrop-blur-md">
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div
           data-testid="customer-request-top-shell"
-          className="relative z-[80] rounded-[24px] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+          className={`relative z-[80] px-3 py-3 ${workspaceShellClass}`}
         >
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
             <div className="flex min-w-0 items-center justify-between gap-3 xl:flex-[0_0_auto] xl:justify-start">
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-secondary/15">
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-[var(--ui-accent-soft)]">
+                    <span className="material-symbols-outlined text-[color:var(--ui-primary)]" style={{ fontSize: 18 }}>
                       support_agent
                     </span>
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <h2 className="text-sm font-bold leading-5 text-deep-teal">Quản lý yêu cầu khách hàng</h2>
+                      <h2 className="text-sm font-bold leading-tight text-[color:var(--ui-text-title)]">Quản lý yêu cầu khách hàng</h2>
                     </div>
+                    <p className="mt-1 text-[11px] leading-4 text-[color:var(--ui-text-muted)]">
+                      Workspace tổng hợp cho bảng theo dõi, danh sách và phân tích yêu cầu CRC.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -4110,21 +4277,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 chromeMode="inline"
                 toolbar={
                   <div className="flex min-w-0 items-center gap-2">
-                    <div className="min-w-0 flex-1 overflow-x-auto pb-1 xl:pb-0">
+                    <div className="min-w-0 flex-1 pb-1 xl:pb-0">
                       <CustomerRequestSurfaceSwitch
                         activeSurface={activeSurface}
                         onSurfaceChange={(surface) => {
                           setActiveSurface(surface);
                           setActiveSavedViewId(null);
                         }}
-                        iconOnlyOnCompact
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => bumpDataVersion()}
                       disabled={isDashboardLoading}
-                      className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 ${
+                      className={`${sharedSecondaryButtonClass} shrink-0 gap-1.5 disabled:opacity-50 ${
                         isCompactTopShell ? 'w-10 px-0' : 'px-3'
                       }`}
                       title="Làm mới dữ liệu"
@@ -4206,284 +4372,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </div>
         </div>
 
-        {!isCreateMode ? (
-          <div className="rounded-[24px] border border-slate-200/90 bg-white p-2.5 shadow-sm">
-            {isAnalyticsSurface ? (
-              <div className="space-y-2">
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[156px_156px_minmax(0,1fr)_148px]">
-                  <label>
-                    <span className="sr-only">Từ ngày tạo</span>
-                    <input
-                      type="date"
-                      value={requestCreatedFrom}
-                      onChange={(event) => {
-                        setRequestCreatedFrom(event.target.value);
-                        setListPage(1);
-                      }}
-                      className={`w-full ${sharedFilterFieldClass}`}
-                    />
-                  </label>
-
-                  <label>
-                    <span className="sr-only">Đến ngày tạo</span>
-                    <input
-                      type="date"
-                      value={requestCreatedTo}
-                      onChange={(event) => {
-                        setRequestCreatedTo(event.target.value);
-                        setListPage(1);
-                      }}
-                      className={`w-full ${sharedFilterFieldClass}`}
-                    />
-                  </label>
-
-                  <label className="relative min-w-0">
-                    <span className="sr-only">Tìm kiếm yêu cầu</span>
-                    <span
-                      className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      style={{ fontSize: 16 }}
-                    >
-                      search
-                    </span>
-                    <input
-                      value={requestKeyword}
-                      onChange={(event) => {
-                        setRequestKeyword(event.target.value);
-                        setListPage(1);
-                      }}
-                      placeholder="Tìm mã YC, tên yêu cầu..."
-                      className={sharedSearchFieldClass}
-                    />
-                  </label>
-
-                  <SearchableSelect
-                    value={activeProcessCode}
-                    options={processOptions}
-                    onChange={(value) => {
-                      setActiveProcessCode(String(value ?? ''));
-                      setListPage(1);
-                    }}
-                    label=""
-                    placeholder="Tất cả"
-                    searchPlaceholder="Tìm tiến trình..."
-                    compact
-                    usePortal
-                    portalZIndex={70}
-                    triggerClassName={sharedSelectTriggerClass}
-                  />
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  <SearchableSelect
-                    value={requestCustomerFilter}
-                    options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-                    onChange={(value) => {
-                      setRequestCustomerFilter(String(value ?? ''));
-                      setListPage(1);
-                    }}
-                    label=""
-                    placeholder="Khách hàng"
-                    searchPlaceholder="Tìm khách hàng..."
-                    compact
-                    usePortal
-                    portalZIndex={70}
-                    triggerClassName={sharedSelectTriggerClass}
-                  />
-                  <SearchableSelect
-                    value={requestSupportGroupFilter}
-                    options={supportGroupOptions}
-                    onChange={(value) => {
-                      setRequestSupportGroupFilter(String(value ?? ''));
-                      setListPage(1);
-                    }}
-                    label=""
-                    placeholder="Kênh tiếp nhận"
-                    searchPlaceholder="Tìm kênh..."
-                    compact
-                    usePortal
-                    portalZIndex={70}
-                    triggerClassName={sharedSelectTriggerClass}
-                  />
-                  <SearchableSelect
-                    value={requestPriorityFilter}
-                    options={SHARED_PRIORITY_OPTIONS}
-                    onChange={(value) => {
-                      setRequestPriorityFilter(String(value ?? ''));
-                      setListPage(1);
-                    }}
-                    label=""
-                    placeholder="Ưu tiên"
-                    searchPlaceholder="Tìm ưu tiên..."
-                    compact
-                    usePortal
-                    portalZIndex={70}
-                    triggerClassName={sharedSelectTriggerClass}
-                  />
-                </div>
-
-                {hasListFilters ? (
-                  <div className="flex justify-end pt-0.5">
-                    <button
-                      type="button"
-                      onClick={handleClearFilters}
-                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200/90 bg-white px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5"
-                    >
-                      Xóa lọc
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="min-w-0 overflow-x-auto">
-                  <div className="flex min-w-[980px] items-center gap-2">
-                    <label className="shrink-0">
-                      <span className="sr-only">Từ ngày tạo</span>
-                      <input
-                        type="date"
-                        value={requestCreatedFrom}
-                        onChange={(event) => {
-                          setRequestCreatedFrom(event.target.value);
-                          setListPage(1);
-                        }}
-                        className={`w-[156px] ${sharedFilterFieldClass}`}
-                      />
-                    </label>
-
-                    <label className="shrink-0">
-                      <span className="sr-only">Đến ngày tạo</span>
-                      <input
-                        type="date"
-                        value={requestCreatedTo}
-                        onChange={(event) => {
-                          setRequestCreatedTo(event.target.value);
-                          setListPage(1);
-                        }}
-                        className={`w-[156px] ${sharedFilterFieldClass}`}
-                      />
-                    </label>
-
-                    <label className="relative min-w-[340px] flex-1">
-                      <span className="sr-only">Tìm kiếm yêu cầu</span>
-                      <span
-                        className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                        style={{ fontSize: 16 }}
-                      >
-                        search
-                      </span>
-                      <input
-                        value={requestKeyword}
-                        onChange={(event) => {
-                          setRequestKeyword(event.target.value);
-                          setListPage(1);
-                        }}
-                        placeholder="Tìm mã YC, tên yêu cầu..."
-                        className={sharedSearchFieldClass}
-                      />
-                    </label>
-
-                    <div className="w-[140px] shrink-0">
-                      <SearchableSelect
-                        value={activeProcessCode}
-                        options={processOptions}
-                        onChange={(value) => {
-                          setActiveProcessCode(String(value ?? ''));
-                          setListPage(1);
-                        }}
-                        label=""
-                        placeholder="Tất cả"
-                        searchPlaceholder="Tìm tiến trình..."
-                        compact
-                        usePortal
-                        portalZIndex={70}
-                        triggerClassName={sharedSelectTriggerClass}
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsSharedFilterExpanded((value) => !value)}
-                      className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
-                    >
-                      <span className="material-symbols-outlined text-[17px]">tune</span>
-                      <span>Bộ lọc</span>
-                      {sharedAdvancedFilterCount > 0 ? (
-                        <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          {sharedAdvancedFilterCount}
-                        </span>
-                      ) : null}
-                    </button>
-                  </div>
-                </div>
-
-                {isSharedFilterExpanded ? (
-                  <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]">
-                    <SearchableSelect
-                      value={requestCustomerFilter}
-                      options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-                      onChange={(value) => {
-                        setRequestCustomerFilter(String(value ?? ''));
-                        setListPage(1);
-                      }}
-                      label=""
-                      placeholder="Khách hàng"
-                      searchPlaceholder="Tìm khách hàng..."
-                      compact
-                      usePortal
-                      portalZIndex={70}
-                      triggerClassName={sharedSelectTriggerClass}
-                    />
-                    <SearchableSelect
-                      value={requestSupportGroupFilter}
-                      options={supportGroupOptions}
-                      onChange={(value) => {
-                        setRequestSupportGroupFilter(String(value ?? ''));
-                        setListPage(1);
-                      }}
-                      label=""
-                      placeholder="Kênh tiếp nhận"
-                      searchPlaceholder="Tìm kênh..."
-                      compact
-                      usePortal
-                      portalZIndex={70}
-                      triggerClassName={sharedSelectTriggerClass}
-                    />
-                    <SearchableSelect
-                      value={requestPriorityFilter}
-                      options={SHARED_PRIORITY_OPTIONS}
-                      onChange={(value) => {
-                        setRequestPriorityFilter(String(value ?? ''));
-                        setListPage(1);
-                      }}
-                      label=""
-                      placeholder="Ưu tiên"
-                      searchPlaceholder="Tìm ưu tiên..."
-                      compact
-                      usePortal
-                      portalZIndex={70}
-                      triggerClassName={sharedSelectTriggerClass}
-                    />
-                    {hasListFilters ? (
-                      <button
-                        type="button"
-                        onClick={handleClearFilters}
-                        className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200/90 bg-white px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5"
-                      >
-                        Xóa lọc
-                      </button>
-                    ) : (
-                      <div aria-hidden="true" />
-                    )}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : null}
+        {sharedSurfaceFilterNode}
       </div>
 
       {activeSurface === 'inbox' && !isCreateMode ? (
-        <div className="my-2 rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm backdrop-blur-sm">
+        <div className="my-2 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-2.5 shadow-sm backdrop-blur-sm">
           <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <button

@@ -74,18 +74,21 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
 
   return (
     <div className="space-y-3">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <div className="bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.14),rgba(255,255,255,0.98)_42%),linear-gradient(135deg,rgba(15,23,42,0.04),rgba(255,255,255,1))] p-3">
+      <section className="overflow-hidden rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-[var(--ui-shadow-shell)]">
+        <div className="bg-[linear-gradient(180deg,var(--ui-surface-subtle),var(--ui-surface-bg))] p-3">
           <div className="flex items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-[var(--ui-primary)] text-white shadow-[var(--ui-shadow-shell)]">
               <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
                 monitoring
               </span>
             </span>
             <div>
-              <h3 className="text-lg font-black leading-6 text-slate-950">
+              <h3 className="text-sm font-bold leading-tight text-[color:var(--ui-text-title)]">
                 Dashboard yêu cầu khách hàng
               </h3>
+              <p className="mt-1 text-[11px] leading-4 text-[color:var(--ui-text-muted)]">
+                Theo dõi khối lượng, tồn đọng và hiệu suất xử lý theo cùng design language với workspace CRC.
+              </p>
             </div>
           </div>
 
@@ -125,7 +128,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
           </div>
 
           {!hasOperationalData ? (
-            <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white/80 px-3 py-4 text-[12px] font-semibold text-slate-500">
+            <div className="mt-3 rounded-[var(--ui-control-radius)] border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-4 text-sm font-semibold text-[color:var(--ui-text-muted)]">
               Chưa có dữ liệu
             </div>
           ) : null}
@@ -133,7 +136,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
       </section>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.42fr)_420px]">
-        <section className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm">
+        <section className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-3 shadow-[var(--ui-shadow-shell)]">
           <SectionHeader title="Số lượng yêu cầu theo từng khách hàng" />
 
           <div className="mt-3 overflow-x-auto">
@@ -149,7 +152,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm">
+        <section className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-3 shadow-[var(--ui-shadow-shell)]">
           <SectionHeader title="Top 5 khách hàng có yêu cầu tồn nhiều nhất" />
 
           <div className="mt-3 space-y-2">
@@ -164,7 +167,7 @@ export const CustomerRequestDashboardCards: React.FC<CustomerRequestDashboardCar
         </section>
       </div>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm">
+      <section className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-3 shadow-[var(--ui-shadow-shell)]">
         <SectionHeader title="Top 10 người xử lý" />
 
         <div className="mt-3 overflow-x-auto">
@@ -228,19 +231,19 @@ const OperationalKpiCard: React.FC<{
   metaValue,
 }) => {
   const toneClass = {
-    slate: 'border-slate-200 bg-white text-slate-950',
+    slate: 'border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-default)]',
     blue: 'border-sky-200 bg-sky-50/90 text-sky-950',
     emerald: 'border-emerald-200 bg-emerald-50/90 text-emerald-950',
   }[tone];
 
   return (
-    <article className={`rounded-[24px] border p-3 shadow-sm ${toneClass} ${className}`}>
+    <article className={`rounded-[var(--ui-shell-radius)] border p-3 shadow-[var(--ui-shadow-shell)] ${toneClass} ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] opacity-70">{title}</p>
-          <p className="mt-2 text-3xl font-black leading-none">{value}</p>
+          <p className="mt-2 text-2xl font-black leading-none">{value}</p>
         </div>
-        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/90 text-slate-800 shadow-sm">
+        <span className="flex h-10 w-10 items-center justify-center rounded-[var(--ui-control-radius)] bg-white/90 text-slate-800 shadow-[var(--ui-shadow-shell)]">
           <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
             {icon}
           </span>

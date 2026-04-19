@@ -73,6 +73,11 @@ class ProjectProcedureController extends V5BaseController
         return $this->templates->deleteTemplateSteps($request, $templateId);
     }
 
+    public function importTemplateSteps(Request $request, int $templateId): JsonResponse
+    {
+        return $this->templates->importTemplateSteps($request, $templateId);
+    }
+
     public function projectProcedures(int $projectId, Request $request): JsonResponse
     {
         return $this->lifecycle->projectProcedures($projectId, $request);

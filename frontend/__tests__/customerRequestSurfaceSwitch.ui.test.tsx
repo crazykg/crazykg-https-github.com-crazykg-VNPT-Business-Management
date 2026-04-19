@@ -17,7 +17,7 @@ const setViewportWidth = (width: number) => {
 };
 
 describe('CustomerRequestSurfaceSwitch UI', () => {
-  it('keeps the surface switch compact on mobile while keeping actions clickable', async () => {
+  it('keeps labeled surface buttons visible on mobile while keeping actions clickable', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
     const onSurfaceChange = vi.fn();
@@ -34,10 +34,10 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
 
     expect(screen.queryByText('Tra cứu chi tiết')).not.toBeInTheDocument();
     expect(screen.queryByText('Số liệu & điểm nóng')).not.toBeInTheDocument();
-    expect(inboxButton.parentElement?.className).toContain('min-w-max');
-    expect(listButton.className).toContain('w-[148px]');
-    expect(listButton.className).toContain('sm:w-[156px]');
-    expect(listButton.className).toContain('shrink-0');
+    expect(inboxButton.parentElement?.className).toContain('grid-cols-3');
+    expect(listButton).toHaveTextContent('Danh sách');
+    expect(listButton.className).toContain('min-h-11');
+    expect(listButton.className).toContain('w-full');
 
     await user.click(listButton);
     expect(onSurfaceChange).toHaveBeenCalledWith('list');
@@ -84,10 +84,10 @@ describe('CustomerRequestSurfaceSwitch UI', () => {
       const inboxButton = screen.getByRole('button', { name: /Bảng theo dõi/i });
       const listButton = screen.getByRole('button', { name: /Danh sách/i });
 
-      expect(inboxButton.parentElement?.className).toContain('w-full');
-      expect(listButton.className).toContain('h-10');
-      expect(listButton.className).toContain('w-10');
-      expect(listButton.className).not.toContain('w-[148px]');
+      expect(inboxButton.parentElement?.className).toContain('grid-cols-3');
+      expect(listButton.className).toContain('h-11');
+      expect(listButton.className).toContain('w-full');
+      expect(listButton.className).not.toContain('min-h-11');
 
       await user.click(listButton);
       expect(onSurfaceChange).toHaveBeenCalledWith('list');

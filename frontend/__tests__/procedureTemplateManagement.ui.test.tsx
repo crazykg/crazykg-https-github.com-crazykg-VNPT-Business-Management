@@ -14,6 +14,8 @@ const createProcedureTemplateStepMock = vi.hoisted(() => vi.fn());
 const updateProcedureTemplateStepMock = vi.hoisted(() => vi.fn());
 const deleteProcedureTemplateStepMock = vi.hoisted(() => vi.fn());
 const deleteProcedureTemplateStepsMock = vi.hoisted(() => vi.fn());
+const importProcedureTemplateStepsMock = vi.hoisted(() => vi.fn());
+const downloadExcelWorkbookMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/api/projectApi', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
@@ -25,6 +27,53 @@ vi.mock('../services/api/projectApi', () => ({
   updateProcedureTemplateStep: updateProcedureTemplateStepMock,
   deleteProcedureTemplateStep: deleteProcedureTemplateStepMock,
   deleteProcedureTemplateSteps: deleteProcedureTemplateStepsMock,
+  importProcedureTemplateSteps: importProcedureTemplateStepsMock,
+}));
+
+vi.mock('../utils/excelTemplate', () => ({
+  downloadExcelWorkbook: downloadExcelWorkbookMock,
+}));
+
+vi.mock('../components/modals', () => ({
+  ImportModal: ({
+    title,
+    onClose,
+    onSave,
+    isLoading,
+  }: {
+    title: string;
+    onClose: () => void;
+    onSave: (payload: {
+      moduleKey: string;
+      fileName: string;
+      sheetName: string;
+      headers: string[];
+      rows: string[][];
+    }) => Promise<void> | void;
+    isLoading?: boolean;
+  }) => (
+    <div role="dialog" aria-label={title}>
+      <button type="button" onClick={onClose}>Đóng import</button>
+      <button
+        type="button"
+        disabled={Boolean(isLoading)}
+        onClick={() =>
+          onSave({
+            moduleKey: 'procedure_template_steps',
+            fileName: 'thu-tuc.xlsx',
+            sheetName: 'ThuTuc',
+            headers: ['STT', 'Giai đoạn', 'Trình tự công việc', 'Chi tiết bước', 'Số ngày mặc định'],
+            rows: [
+              ['1', 'Khảo sát', 'Khảo sát', 'Bước cha', '3'],
+              ['1.1', '', 'Tiếp cận khách hàng', 'Bước con', '2'],
+            ],
+          })
+        }
+      >
+        Xác nhận import test
+      </button>
+    </div>
+  ),
 }));
 
 const emptyTemplate: ProcedureTemplate = {
@@ -115,6 +164,8 @@ describe('ProcedureTemplateManagement', () => {
     updateProcedureTemplateStepMock.mockResolvedValue({});
     deleteProcedureTemplateStepMock.mockResolvedValue(undefined);
     deleteProcedureTemplateStepsMock.mockResolvedValue(undefined);
+    importProcedureTemplateStepsMock.mockResolvedValue({ imported_count: 2, root_count: 1 });
+    downloadExcelWorkbookMock.mockReset();
   });
 
   it('shows only the template name in the dropdown options', async () => {
@@ -223,5 +274,135 @@ describe('ProcedureTemplateManagement', () => {
     });
     expect(deleteProcedureTemplateStepsMock).toHaveBeenCalledTimes(1);
     expect(globalThis.confirm).toHaveBeenCalledWith('Xóa 3 bước đã chọn?');
+  });
+
+  it('downloads the selected template as an import workbook using current database-backed steps', async () => {
+    const user = userEvent.setup();
+    fetchProcedureTemplatesMock.mockResolvedValue([templateWithSteps]);
+    fetchProcedureTemplateStepsMock.mockResolvedValue(templateSteps);
+
+    render(<ProcedureTemplateManagement />);
+
+    await waitFor(() => expect(fetchProcedureTemplatesMock).toHaveBeenCalledTimes(1));
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /Chọn mẫu/i }),
+      String(templateWithSteps.id),
+    );
+
+    await waitFor(() => expect(fetchProcedureTemplateStepsMock).toHaveBeenCalledWith(templateWithSteps.id));
+    await screen.findByText('Bước cha');
+
+    await user.click(screen.getByRole('button', { name: /Nhập/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Tải file mẫu/i }));
+
+    expect(downloadExcelWorkbookMock).toHaveBeenCalledTimes(1);
+    const [fileName, sheets] = downloadExcelWorkbookMock.mock.calls[0];
+    expect(fileName).toBe('mau_nhap_thu_tuc_nhanh');
+    expect(sheets[0].headers).toEqual([
+      'STT',
+      'Giai đoạn',
+      'Trình tự công việc',
+      'Chi tiết bước',
+      'Đơn vị chủ trì',
+      'Đơn vị phối hợp',
+      'Kết quả mong đợi',
+      'Số ngày mặc định',
+    ]);
+    expect(sheets[0].rows[0]).toEqual([1, 'CHUAN_BI', 'Bước cha', '', 'Đơn vị A', '', 'Kết quả A', 3]);
+    expect(sheets[0].rows[1]).toEqual(['1.1', '', 'Bước con', '', 'Đơn vị B', '', 'Kết quả B', 1]);
+  });
+
+  it('opens import modal from the dropdown and imports parsed steps into the selected template', async () => {
+    const user = userEvent.setup();
+    fetchProcedureTemplatesMock
+      .mockResolvedValueOnce([emptyTemplate])
+      .mockResolvedValueOnce([{ ...emptyTemplate, steps_count: 2, can_delete: false }]);
+    fetchProcedureTemplateStepsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 301,
+          template_id: emptyTemplate.id,
+          step_number: 1,
+          parent_step_id: null,
+          phase: 'Khảo sát',
+          step_name: 'Khảo sát',
+          step_detail: 'Bước cha',
+          lead_unit: null,
+          support_unit: null,
+          expected_result: null,
+          default_duration_days: 3,
+          sort_order: 10,
+        },
+        {
+          id: 302,
+          template_id: emptyTemplate.id,
+          step_number: 1,
+          parent_step_id: 301,
+          phase: 'Khảo sát',
+          step_name: 'Tiếp cận khách hàng',
+          step_detail: 'Bước con',
+          lead_unit: null,
+          support_unit: null,
+          expected_result: null,
+          default_duration_days: 2,
+          sort_order: 20,
+        },
+      ]);
+
+    render(<ProcedureTemplateManagement />);
+
+    await waitFor(() => expect(fetchProcedureTemplatesMock).toHaveBeenCalledTimes(1));
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /Chọn mẫu/i }),
+      String(emptyTemplate.id),
+    );
+
+    await waitFor(() => expect(fetchProcedureTemplateStepsMock).toHaveBeenCalledWith(emptyTemplate.id));
+
+    await user.click(screen.getByRole('button', { name: /Nhập/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Nhập dữ liệu/i }));
+
+    expect(screen.getByRole('dialog', { name: /Nhập dữ liệu bước thủ tục/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Xác nhận import test/i }));
+
+    await waitFor(() => {
+      expect(importProcedureTemplateStepsMock).toHaveBeenCalledWith(emptyTemplate.id, [
+        {
+          step_key: '1',
+          parent_key: null,
+          step_number: 1,
+          phase: 'Khảo sát',
+          step_name: 'Khảo sát',
+          step_detail: 'Bước cha',
+          lead_unit: null,
+          support_unit: null,
+          expected_result: null,
+          default_duration_days: 3,
+          sort_order: 10,
+        },
+        {
+          step_key: '1.1',
+          parent_key: '1',
+          step_number: 1,
+          phase: 'Khảo sát',
+          step_name: 'Tiếp cận khách hàng',
+          step_detail: 'Bước con',
+          lead_unit: null,
+          support_unit: null,
+          expected_result: null,
+          default_duration_days: 2,
+          sort_order: 20,
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(fetchProcedureTemplateStepsMock).toHaveBeenCalledTimes(2);
+      expect(fetchProcedureTemplatesMock).toHaveBeenCalledTimes(2);
+    });
   });
 });

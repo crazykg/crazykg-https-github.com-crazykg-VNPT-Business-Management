@@ -124,6 +124,100 @@ class ProjectProcedureTemplateDeletionTest extends TestCase
         $this->assertSame(1, DB::table('project_procedure_template_steps')->where('id', 120)->count());
     }
 
+    public function test_import_steps_route_replaces_template_steps_and_keeps_parent_child_mapping(): void
+    {
+        $this->createTemplate(id: 21);
+        $this->createStep(id: 210, templateId: 21, stepNumber: 1);
+
+        $response = $this->postJson('/api/v5/project-procedure-templates/21/steps/import', [
+            'steps' => [
+                [
+                    'step_key' => '1',
+                    'parent_key' => null,
+                    'step_number' => 1,
+                    'phase' => 'Khảo sát',
+                    'step_name' => 'Khảo sát',
+                    'step_detail' => 'Bước cha',
+                    'lead_unit' => 'Đơn vị A',
+                    'support_unit' => null,
+                    'expected_result' => 'Biên bản khảo sát',
+                    'default_duration_days' => 3,
+                    'sort_order' => 10,
+                ],
+                [
+                    'step_key' => '1.1',
+                    'parent_key' => '1',
+                    'step_number' => 1,
+                    'phase' => 'Khảo sát',
+                    'step_name' => 'Tiếp cận khách hàng',
+                    'step_detail' => 'Bước con',
+                    'lead_unit' => 'Đơn vị B',
+                    'support_unit' => 'Đơn vị C',
+                    'expected_result' => 'Biên bản làm việc',
+                    'default_duration_days' => 2,
+                    'sort_order' => 20,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.imported_count', 2)
+            ->assertJsonPath('data.root_count', 1);
+
+        $this->assertSame(2, DB::table('project_procedure_template_steps')->where('template_id', 21)->count());
+        $this->assertSame(0, DB::table('project_procedure_template_steps')->where('id', 210)->count());
+
+        $parentId = DB::table('project_procedure_template_steps')
+            ->where('template_id', 21)
+            ->whereNull('parent_step_id')
+            ->value('id');
+
+        $this->assertNotNull($parentId);
+        $this->assertSame(
+            (int) $parentId,
+            (int) DB::table('project_procedure_template_steps')
+                ->where('template_id', 21)
+                ->where('step_name', 'Tiếp cận khách hàng')
+                ->value('parent_step_id')
+        );
+    }
+
+    public function test_import_steps_route_rejects_template_that_is_already_applied_to_project(): void
+    {
+        $this->createTemplate(id: 22);
+        DB::table('project_procedures')->insert([
+            'id' => 220,
+            'project_id' => 999,
+            'template_id' => 22,
+            'procedure_name' => 'Thủ tục dự án',
+            'overall_progress' => 0,
+            'notes' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => null,
+        ]);
+
+        $response = $this->postJson('/api/v5/project-procedure-templates/22/steps/import', [
+            'steps' => [
+                [
+                    'step_key' => '1',
+                    'parent_key' => null,
+                    'step_number' => 1,
+                    'phase' => 'Khảo sát',
+                    'step_name' => 'Khảo sát',
+                    'sort_order' => 10,
+                ],
+            ],
+        ]);
+
+        $response
+            ->assertStatus(409)
+            ->assertJson([
+                'message' => 'Không thể import vì mẫu đã được áp dụng cho dự án. Hãy tạo mẫu mới hoặc đồng bộ lại các thủ tục liên quan trước.',
+            ]);
+    }
+
     private function createTemplate(int $id): void
     {
         DB::table('project_procedure_templates')->insert([
