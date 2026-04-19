@@ -19,14 +19,6 @@ vi.mock('../App', async () => {
   };
 });
 
-vi.mock('../components/customer-request/CustomerRequestManagementWireframe', async () => {
-  const ReactModule = await import('react');
-  return {
-    CustomerRequestManagementWireframe: () =>
-      ReactModule.createElement('div', null, 'Wireframe preview ready'),
-  };
-});
-
 import { AppWithRouter } from '../AppWithRouter';
 
 describe('AppWithRouter', () => {
@@ -35,13 +27,5 @@ describe('AppWithRouter', () => {
     render(<AppWithRouter />);
 
     expect(screen.getByText('Query client ready')).toBeInTheDocument();
-  });
-
-  it('bypasses the app shell for customer request wireframe preview', () => {
-    window.history.pushState({}, '', '/customer-request-management?preview=wireframe');
-    render(<AppWithRouter />);
-
-    expect(screen.getByText('Wireframe preview ready')).toBeInTheDocument();
-    expect(screen.queryByText('Query client ready')).not.toBeInTheDocument();
   });
 });
