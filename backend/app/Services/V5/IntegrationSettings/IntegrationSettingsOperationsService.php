@@ -24,6 +24,7 @@ class IntegrationSettingsOperationsService
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly EmailSmtpIntegrationService $emailSmtp,
+        private readonly TelegramIntegrationService $telegram,
         private readonly UserAccessService $userAccessService,
     ) {}
 
@@ -254,6 +255,120 @@ class IntegrationSettingsOperationsService
             return $this->support->missingTable('reminders');
         }
 
+        $reminder = $this->loadReminderById($id);
+        if ($reminder === null) {
+            return response()->json([
+                'message' => 'Không tìm thấy nhắc việc.',
+            ], 404);
+        }
+
+        $mailResult = $this->emailSmtp->sendReminderEmail($reminder, $recipientEmail);
+
+        if (! ($mailResult['success'] ?? false)) {
+            return response()->json([
+                'message' => $mailResult['message'] ?? 'Không thể gửi email nhắc việc.',
+            ], 422);
+        }
+
+        return response()->json([
+            'status' => 'SENT',
+            'message' => $mailResult['message'] ?? 'Đã gửi email nhắc việc.',
+            'recipient_email' => $recipientEmail,
+            'sent_at' => $mailResult['sent_at'] ?? now()->toIso8601String(),
+            'reminder' => [
+                'id' => (string) ($reminder['id'] ?? ''),
+                'title' => (string) ($reminder['reminder_title'] ?? ''),
+                'remindDate' => $this->formatDateColumn($reminder['remind_date'] ?? null) ?? '',
+            ],
+        ]);
+    }
+
+    public function sendReminderTelegram(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'recipient_user_id' => ['required', 'integer'],
+        ]);
+
+        $recipientUserId = $this->support->parseNullableInt($validated['recipient_user_id'] ?? null);
+        if ($recipientUserId === null) {
+            return response()->json([
+                'message' => 'recipient_user_id không hợp lệ.',
+            ], 422);
+        }
+
+        if (! $this->support->hasTable('reminders')) {
+            return $this->support->missingTable('reminders');
+        }
+
+        $reminder = $this->loadReminderById($id);
+        if ($reminder === null) {
+            return response()->json([
+                'message' => 'Không tìm thấy nhắc việc.',
+            ], 404);
+        }
+
+        if (! $this->support->hasTable('internal_users')) {
+            return $this->support->missingTable('internal_users');
+        }
+
+        $recipient = DB::table('internal_users')
+            ->select($this->support->selectColumns('internal_users', [
+                'id',
+                'full_name',
+                'username',
+                'telechatbot',
+            ]))
+            ->where('id', $recipientUserId)
+            ->first();
+
+        if ($recipient === null) {
+            return response()->json([
+                'message' => 'Không tìm thấy người nhận.',
+            ], 404);
+        }
+
+        $recipientRow = (array) $recipient;
+        $chatId = $this->support->normalizeNullableString($recipientRow['telechatbot'] ?? null);
+        if ($chatId === null) {
+            return response()->json([
+                'message' => 'Người nhận chưa được gán Telegram chat ID.',
+            ], 422);
+        }
+
+        $recipientName = (string) $this->support->firstNonEmpty($recipientRow, ['full_name', 'username', 'id'], '');
+        $messageLines = [
+            'Nhắc việc: '.(string) ($reminder['reminder_title'] ?? ''),
+            'Nội dung: '.(string) ($reminder['content'] ?? ''),
+            'Hạn nhắc: '.($this->formatDateColumn($reminder['remind_date'] ?? null) ?? ''),
+        ];
+
+        $telegramResult = $this->telegram->sendMessageToChatId($chatId, implode("\n", $messageLines));
+        if (! ($telegramResult['success'] ?? false)) {
+            return response()->json([
+                'message' => $telegramResult['message'] ?? 'Không thể gửi Telegram nhắc việc.',
+            ], 422);
+        }
+
+        return response()->json([
+            'status' => 'SENT',
+            'message' => $telegramResult['message'] ?? 'Đã gửi Telegram nhắc việc.',
+            'recipient_user_id' => (string) $recipientUserId,
+            'recipient_name' => $recipientName,
+            'sent_at' => $telegramResult['sent_at'] ?? now()->toIso8601String(),
+            'reminder' => [
+                'id' => (string) ($reminder['id'] ?? ''),
+                'title' => (string) ($reminder['reminder_title'] ?? ''),
+                'remindDate' => $this->formatDateColumn($reminder['remind_date'] ?? null) ?? '',
+            ],
+        ]);
+    }
+
+    private function loadReminderById(string $id): ?array
+    {
+        if (! $this->support->hasTable('reminders')) {
+            return null;
+        }
+
         $selectColumns = $this->support->selectColumns('reminders', [
             'id',
             'reminder_title',
@@ -272,32 +387,7 @@ class IntegrationSettingsOperationsService
             ->where('id', $id)
             ->first();
 
-        if ($reminder === null) {
-            return response()->json([
-                'message' => 'Không tìm thấy nhắc việc.',
-            ], 404);
-        }
-
-        $row = (array) $reminder;
-        $mailResult = $this->emailSmtp->sendReminderEmail($row, $recipientEmail);
-
-        if (! ($mailResult['success'] ?? false)) {
-            return response()->json([
-                'message' => $mailResult['message'] ?? 'Không thể gửi email nhắc việc.',
-            ], 422);
-        }
-
-        return response()->json([
-            'status' => 'SENT',
-            'message' => $mailResult['message'] ?? 'Đã gửi email nhắc việc.',
-            'recipient_email' => $recipientEmail,
-            'sent_at' => $mailResult['sent_at'] ?? now()->toIso8601String(),
-            'reminder' => [
-                'id' => (string) ($row['id'] ?? ''),
-                'title' => (string) ($row['reminder_title'] ?? ''),
-                'remindDate' => $this->formatDateColumn($row['remind_date'] ?? null) ?? '',
-            ],
-        ]);
+        return $reminder === null ? null : (array) $reminder;
     }
 
     public function userDeptHistory(Request $request): JsonResponse

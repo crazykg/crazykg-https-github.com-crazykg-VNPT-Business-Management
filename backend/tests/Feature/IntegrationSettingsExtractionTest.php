@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -17,6 +18,15 @@ class IntegrationSettingsExtractionTest extends TestCase
 
         $this->withoutMiddleware();
         $this->setUpSchema();
+
+        Cache::store('file')->forget('telegram:polling:last_update_id');
+    }
+
+    protected function tearDown(): void
+    {
+        Cache::store('file')->forget('telegram:polling:last_update_id');
+
+        parent::tearDown();
     }
 
     public function test_backblaze_b2_settings_can_get_update_and_test_via_api(): void
@@ -236,6 +246,407 @@ class IntegrationSettingsExtractionTest extends TestCase
         }
     }
 
+    public function test_telegram_settings_can_get_update_and_test_via_api(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.provider', 'TELEGRAM')
+            ->assertJsonPath('data.enabled', true)
+            ->assertJsonPath('data.bot_username', '@vnpt_notify_bot')
+            ->assertJsonPath('data.has_bot_token', true)
+            ->assertJsonPath('data.source', 'DB');
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/getMe' => Http::response([
+                'ok' => true,
+                'result' => [
+                    'id' => 987654321,
+                    'is_bot' => true,
+                    'first_name' => 'VNPT Notify',
+                    'username' => 'vnpt_notify_bot',
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson('/api/v5/integrations/telegram/test')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'SUCCESS')
+            ->assertJsonPath('data.bot.username', 'vnpt_notify_bot')
+            ->assertJsonPath('data.persisted', true);
+
+        $stored = DB::table('integration_settings')->where('provider', 'TELEGRAM')->first();
+        $this->assertNotNull($stored);
+        $this->assertSame('SUCCESS', $stored->telegram_last_test_status);
+        $this->assertNotNull($stored->telegram_bot_token_encrypted);
+        $this->assertNotSame('123456:ABC-DEF_test_token_001', $stored->telegram_bot_token_encrypted);
+
+        $this->getJson('/api/v5/integrations/telegram')
+            ->assertOk()
+            ->assertJsonPath('data.has_bot_token', true)
+            ->assertJsonMissingPath('data.bot_token');
+    }
+
+    public function test_telegram_webhook_replies_with_chat_id_on_start_command(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => true,
+                'result' => [
+                    'message_id' => 11,
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887254,
+            'message' => [
+                'text' => '/start',
+                'chat' => [
+                    'id' => 1994683418,
+                    'username' => 'ManhQuynh1999',
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertSent(function ($request): bool {
+            if (! str_contains((string) $request->url(), '/sendMessage')) {
+                return false;
+            }
+
+            $body = $request->data();
+            $text = (string) ($body['text'] ?? '');
+
+            return (string) ($body['chat_id'] ?? '') === '1994683418'
+                && str_contains($text, 'Chat ID của bạn là: 1994683418')
+                && str_contains($text, 'Vui lòng gửi chat ID này cho quản trị viên để cập nhật vào phần mềm.');
+        });
+    }
+
+    public function test_telegram_webhook_ignores_non_start_message(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake();
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887255,
+            'message' => [
+                'text' => 'hello',
+                'chat' => [
+                    'id' => 1994683418,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_webhook_ignores_start_when_telegram_integration_disabled(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => false,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake();
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887256,
+            'message' => [
+                'text' => '/start',
+                'chat' => [
+                    'id' => 1994683418,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_webhook_handles_start_without_chat_id(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake();
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887257,
+            'message' => [
+                'text' => '/start',
+                'chat' => [
+                    'username' => 'ManhQuynh1999',
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_webhook_keeps_ok_response_when_send_message_fails(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => false,
+                'description' => 'Forbidden: bot was blocked by the user',
+            ], 403),
+        ]);
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887258,
+            'message' => [
+                'text' => '/start',
+                'chat' => [
+                    'id' => 1994683418,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+    }
+
+    public function test_telegram_webhook_returns_ok_when_telegram_columns_missing(): void
+    {
+        Schema::table('integration_settings', function (Blueprint $table): void {
+            if (Schema::hasColumn('integration_settings', 'telegram_bot_token_encrypted')) {
+                $table->dropColumn('telegram_bot_token_encrypted');
+            }
+        });
+
+        Http::fake();
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887259,
+            'message' => [
+                'text' => '/start',
+                'chat' => [
+                    'id' => 1994683418,
+                ],
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_webhook_ignores_non_message_update_payload(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake();
+
+        $this->postJson('/api/v5/telegram/webhook', [
+            'update_id' => 442887260,
+            'callback_query' => [
+                'id' => 'abc',
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_polling_command_replies_with_chat_id_on_start_command(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/getUpdates*' => Http::response([
+                'ok' => true,
+                'result' => [
+                    [
+                        'update_id' => 442887261,
+                        'message' => [
+                            'text' => '/start',
+                            'chat' => [
+                                'id' => 1994683418,
+                                'username' => 'ManhQuynh1999',
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => true,
+                'result' => [
+                    'message_id' => 12,
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('telegram:poll-updates')
+            ->expectsOutput('Telegram poll OK: processed=1, start_commands=1, next_offset=442887262')
+            ->assertSuccessful();
+
+        Http::assertSent(function ($request): bool {
+            if (! str_contains((string) $request->url(), '/sendMessage')) {
+                return false;
+            }
+
+            $body = $request->data();
+
+            return (string) ($body['chat_id'] ?? '') === '1994683418'
+                && str_contains((string) ($body['text'] ?? ''), 'Chat ID của bạn là: 1994683418');
+        });
+    }
+
+    public function test_telegram_polling_command_skips_when_disabled(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => false,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake();
+
+        $this->artisan('telegram:poll-updates')
+            ->expectsOutput('Telegram poll SKIPPED (telegram_disabled).')
+            ->assertSuccessful();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_polling_command_skips_when_missing_token(): void
+    {
+        DB::table('integration_settings')->insert([
+            'provider' => 'TELEGRAM',
+            'is_enabled' => true,
+            'telegram_enabled' => true,
+            'telegram_bot_username' => '@vnpt_notify_bot',
+            'telegram_bot_token_encrypted' => null,
+        ]);
+
+        Http::fake();
+
+        $this->artisan('telegram:poll-updates')
+            ->expectsOutput('Telegram poll SKIPPED (missing_bot_token).')
+            ->assertSuccessful();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_telegram_polling_command_fails_when_get_updates_errors(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/getUpdates*' => Http::response([
+                'ok' => false,
+                'description' => 'Bad Request: invalid token',
+            ], 401),
+        ]);
+
+        $this->artisan('telegram:poll-updates')
+            ->expectsOutput('Telegram poll FAILED (telegram_get_updates_failed): Bad Request: invalid token')
+            ->assertFailed();
+    }
+
+    public function test_telegram_polling_command_advances_offset_and_ignores_old_updates(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/getUpdates*' => Http::response([
+                'ok' => true,
+                'result' => [
+                    [
+                        'update_id' => 100,
+                        'message' => [
+                            'text' => '/start',
+                            'chat' => ['id' => 2001],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        $this->artisan('telegram:poll-updates')
+            ->expectsOutput('Telegram poll OK: processed=1, start_commands=1, next_offset=101')
+            ->assertSuccessful();
+
+        Http::assertSent(function ($request): bool {
+            if (! str_contains((string) $request->url(), '/getUpdates')) {
+                return false;
+            }
+
+            return (string) ($request->data()['offset'] ?? '') === '0';
+        });
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/getUpdates*' => Http::response([
+                'ok' => true,
+                'result' => [],
+            ], 200),
+        ]);
+
+        $this->artisan('telegram:poll-updates')
+            ->assertSuccessful();
+
+        $this->assertSame(101, Cache::store('file')->get('telegram:polling:last_update_id'));
+
+        Http::assertSent(function ($request): bool {
+            if (! str_contains((string) $request->url(), '/getUpdates')) {
+                return false;
+            }
+
+            return (string) ($request->data()['offset'] ?? '') === '101';
+        });
+    }
     public function test_email_smtp_settings_can_get_update_and_preserve_multiple_recipient_emails(): void
     {
         $this->putJson('/api/v5/integrations/email-smtp', [
@@ -529,6 +940,167 @@ class IntegrationSettingsExtractionTest extends TestCase
         $this->assertLessThanOrEqual(500, strlen((string) $stored->last_test_message));
     }
 
+    public function test_send_reminder_telegram_success_returns_sent_payload(): void
+    {
+        $this->setUpReminderTelegramSchema();
+        $this->enableTelegramIntegration();
+
+        DB::table('reminders')->insert([
+            'id' => 'R001',
+            'reminder_title' => 'Nhắc gia hạn tài liệu',
+            'content' => 'Kiểm tra hợp đồng và biên bản nghiệm thu.',
+            'remind_date' => '2099-01-01',
+            'assigned_to' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+        ]);
+
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'full_name' => 'Nguyễn Văn A',
+            'username' => 'nva',
+            'telechatbot' => '1994683418',
+        ]);
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => true,
+                'result' => [
+                    'message_id' => 2001,
+                ],
+            ], 200),
+        ]);
+
+        $this->postJson('/api/v5/reminders/R001/send-telegram', [
+            'recipient_user_id' => 1,
+        ])
+            ->assertOk()
+            ->assertJsonPath('status', 'SENT')
+            ->assertJsonPath('recipient_user_id', '1')
+            ->assertJsonPath('recipient_name', 'Nguyễn Văn A')
+            ->assertJsonPath('reminder.id', 'R001')
+            ->assertJsonPath('reminder.title', 'Nhắc gia hạn tài liệu')
+            ->assertJsonPath('reminder.remindDate', '2099-01-01');
+    }
+
+    public function test_send_reminder_telegram_returns_404_when_reminder_not_found(): void
+    {
+        $this->setUpReminderTelegramSchema();
+        $this->enableTelegramIntegration();
+
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'full_name' => 'Nguyễn Văn A',
+            'username' => 'nva',
+            'telechatbot' => '1994683418',
+        ]);
+
+        Http::fake();
+
+        $this->postJson('/api/v5/reminders/NOT_FOUND/send-telegram', [
+            'recipient_user_id' => 1,
+        ])
+            ->assertStatus(404)
+            ->assertJsonPath('message', 'Không tìm thấy nhắc việc.');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_send_reminder_telegram_returns_404_when_recipient_not_found(): void
+    {
+        $this->setUpReminderTelegramSchema();
+        $this->enableTelegramIntegration();
+
+        DB::table('reminders')->insert([
+            'id' => 'R001',
+            'reminder_title' => 'Nhắc gia hạn tài liệu',
+            'content' => 'Kiểm tra hợp đồng và biên bản nghiệm thu.',
+            'remind_date' => '2099-01-01',
+            'assigned_to' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+        ]);
+
+        Http::fake();
+
+        $this->postJson('/api/v5/reminders/R001/send-telegram', [
+            'recipient_user_id' => 999,
+        ])
+            ->assertStatus(404)
+            ->assertJsonPath('message', 'Không tìm thấy người nhận.');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_send_reminder_telegram_returns_422_when_recipient_has_no_chat_id(): void
+    {
+        $this->setUpReminderTelegramSchema();
+        $this->enableTelegramIntegration();
+
+        DB::table('reminders')->insert([
+            'id' => 'R001',
+            'reminder_title' => 'Nhắc gia hạn tài liệu',
+            'content' => 'Kiểm tra hợp đồng và biên bản nghiệm thu.',
+            'remind_date' => '2099-01-01',
+            'assigned_to' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+        ]);
+
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'full_name' => 'Nguyễn Văn B',
+            'username' => 'nvb',
+            'telechatbot' => null,
+        ]);
+
+        Http::fake();
+
+        $this->postJson('/api/v5/reminders/R001/send-telegram', [
+            'recipient_user_id' => 1,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Người nhận chưa được gán Telegram chat ID.');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_send_reminder_telegram_returns_422_when_telegram_send_fails(): void
+    {
+        $this->setUpReminderTelegramSchema();
+        $this->enableTelegramIntegration();
+
+        DB::table('reminders')->insert([
+            'id' => 'R001',
+            'reminder_title' => 'Nhắc gia hạn tài liệu',
+            'content' => 'Kiểm tra hợp đồng và biên bản nghiệm thu.',
+            'remind_date' => '2099-01-01',
+            'assigned_to' => 1,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+        ]);
+
+        DB::table('internal_users')->insert([
+            'id' => 1,
+            'full_name' => 'Nguyễn Văn A',
+            'username' => 'nva',
+            'telechatbot' => '1994683418',
+        ]);
+
+        Http::fake([
+            'https://api.telegram.org/bot123456:ABC-DEF_test_token_001/sendMessage' => Http::response([
+                'ok' => false,
+                'description' => 'Forbidden: bot was blocked by the user',
+            ], 403),
+        ]);
+
+        $this->postJson('/api/v5/reminders/R001/send-telegram', [
+            'recipient_user_id' => 1,
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Forbidden: bot was blocked by the user');
+    }
+
     public function test_contract_expiry_alert_settings_can_get_update_and_persist_to_database(): void
     {
         $this->putJson('/api/v5/utilities/contract-expiry-alert', [
@@ -569,6 +1141,38 @@ class IntegrationSettingsExtractionTest extends TestCase
         $this->assertSame(21, (int) $stored->contract_payment_warning_days);
     }
 
+    private function setUpReminderTelegramSchema(): void
+    {
+        Schema::dropIfExists('reminders');
+        Schema::dropIfExists('internal_users');
+
+        Schema::create('reminders', function (Blueprint $table): void {
+            $table->string('id')->primary();
+            $table->string('reminder_title')->nullable();
+            $table->text('content')->nullable();
+            $table->date('remind_date')->nullable();
+            $table->unsignedBigInteger('assigned_to')->nullable();
+            $table->string('status')->nullable();
+            $table->timestamp('created_at')->nullable();
+        });
+
+        Schema::create('internal_users', function (Blueprint $table): void {
+            $table->unsignedBigInteger('id')->primary();
+            $table->string('username')->nullable();
+            $table->string('full_name')->nullable();
+            $table->string('telechatbot')->nullable();
+        });
+    }
+
+    private function enableTelegramIntegration(): void
+    {
+        $this->putJson('/api/v5/integrations/telegram', [
+            'enabled' => true,
+            'bot_username' => '@vnpt_notify_bot',
+            'bot_token' => '123456:ABC-DEF_test_token_001',
+        ])->assertOk();
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('integration_settings');
@@ -594,6 +1198,12 @@ class IntegrationSettingsExtractionTest extends TestCase
             $table->string('smtp_from_address')->nullable();
             $table->string('smtp_from_name')->nullable();
             $table->text('secret_access_key')->nullable();
+            $table->boolean('telegram_enabled')->default(false);
+            $table->string('telegram_bot_username')->nullable();
+            $table->text('telegram_bot_token_encrypted')->nullable();
+            $table->string('telegram_last_test_status')->nullable();
+            $table->string('telegram_last_test_message', 500)->nullable();
+            $table->timestamp('telegram_last_test_at')->nullable();
             $table->string('account_email')->nullable();
             $table->string('folder_id')->nullable();
             $table->string('scopes', 500)->nullable();

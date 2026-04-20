@@ -15,6 +15,7 @@ export interface Employee {
   phone?: string | null;
   phone_number?: string | null;
   mobile?: string | null;
+  telechatbot?: string | null;
   status: EmployeeStatus;
   position_code?: string | null;
   position_name?: string | null;

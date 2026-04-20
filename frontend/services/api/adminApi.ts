@@ -14,6 +14,10 @@ import type {
   GoogleDriveIntegrationSettingsUpdatePayload,
   Permission,
   Role,
+  TelegramIntegrationSettings,
+  TelegramIntegrationSettingsTestPayload,
+  TelegramIntegrationSettingsTestResult,
+  TelegramIntegrationSettingsUpdatePayload,
   UserAccessRecord,
   UserDeptHistory,
 } from '../../types/admin';
@@ -471,6 +475,60 @@ export const testEmailSmtpIntegrationSettings = async (
     tested_at?: string | null;
     persisted?: boolean;
   }>(res);
+};
+
+export const fetchTelegramIntegrationSettings = async (): Promise<TelegramIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/telegram', {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_TELEGRAM_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<TelegramIntegrationSettings>(res);
+};
+
+export const updateTelegramIntegrationSettings = async (
+  payload: TelegramIntegrationSettingsUpdatePayload
+): Promise<TelegramIntegrationSettings> => {
+  const res = await apiFetch('/api/v5/integrations/telegram', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      enabled: Boolean(payload.enabled),
+      bot_username: normalizeNullableText(payload.bot_username),
+      bot_token: normalizeNullableText(payload.bot_token),
+      clear_bot_token: Boolean(payload.clear_bot_token),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_TELEGRAM_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<TelegramIntegrationSettings>(res);
+};
+
+export const testTelegramIntegrationSettings = async (
+  payload?: TelegramIntegrationSettingsTestPayload
+): Promise<TelegramIntegrationSettingsTestResult> => {
+  const res = await apiFetch('/api/v5/integrations/telegram/test', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: payload ? JSON.stringify({
+      bot_token: normalizeNullableText(payload.bot_token),
+    }) : undefined,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'TEST_TELEGRAM_INTEGRATION_FAILED'));
+  }
+
+  return parseItemJson<TelegramIntegrationSettingsTestResult>(res);
 };
 
 export const fetchRoles = async (): Promise<Role[]> => fetchList<Role>('/api/v5/roles');

@@ -8,7 +8,9 @@ interface ReminderListProps {
   employees: Employee[];
   onOpenModal: (type: ModalType, item?: Reminder) => void;
   canSendReminderEmail: boolean;
+  canSendReminderTelegram: boolean;
   onSendReminderEmail: (item: Reminder, recipientEmail: string) => Promise<void>;
+  onSendReminderTelegram: (item: Reminder, recipientUserId: string | number) => Promise<void>;
 }
 
 type FilterType = 'ALL' | 'TODAY' | 'UPCOMING' | 'OVERDUE';
@@ -18,7 +20,9 @@ export const ReminderList: React.FC<ReminderListProps> = ({
   employees = [],
   onOpenModal,
   canSendReminderEmail,
+  canSendReminderTelegram,
   onSendReminderEmail,
+  onSendReminderTelegram,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +30,11 @@ export const ReminderList: React.FC<ReminderListProps> = ({
   const [recipientEmail, setRecipientEmail] = useState('');
   const [emailError, setEmailError] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const [selectedReminderForTelegram, setSelectedReminderForTelegram] = useState<Reminder | null>(null);
+  const [recipientTelegramUserId, setRecipientTelegramUserId] = useState('');
+  const [telegramError, setTelegramError] = useState('');
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
 
   const isGmailAddress = (email: string) => /@gmail\.com$/i.test(email.trim());
 
@@ -70,6 +79,51 @@ export const ReminderList: React.FC<ReminderListProps> = ({
       setEmailError(error instanceof Error ? error.message : 'Gửi email thất bại.');
     } finally {
       setIsSendingEmail(false);
+    }
+  };
+
+  const handleOpenSendTelegram = (item: Reminder) => {
+    setSelectedReminderForTelegram(item);
+    setRecipientTelegramUserId('');
+    setTelegramError('');
+  };
+
+  const handleCloseSendTelegram = () => {
+    if (isSendingTelegram) {
+      return;
+    }
+    setSelectedReminderForTelegram(null);
+    setRecipientTelegramUserId('');
+    setTelegramError('');
+  };
+
+  const telegramRecipients = useMemo(
+    () => (employees || []).filter((employee) => String(employee.telechatbot || '').trim() !== ''),
+    [employees]
+  );
+
+  const handleSubmitSendTelegram = async () => {
+    if (!selectedReminderForTelegram) {
+      return;
+    }
+
+    const recipientId = recipientTelegramUserId.trim();
+    if (!recipientId) {
+      setTelegramError('Vui lòng chọn người nhận Telegram.');
+      return;
+    }
+
+    try {
+      setIsSendingTelegram(true);
+      setTelegramError('');
+      await onSendReminderTelegram(selectedReminderForTelegram, recipientId);
+      setSelectedReminderForTelegram(null);
+      setRecipientTelegramUserId('');
+      setTelegramError('');
+    } catch (error) {
+      setTelegramError(error instanceof Error ? error.message : 'Gửi Telegram thất bại.');
+    } finally {
+      setIsSendingTelegram(false);
     }
   };
 
@@ -178,6 +232,16 @@ export const ReminderList: React.FC<ReminderListProps> = ({
                           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>mail</span>
                         </button>
                       )}
+                      {canSendReminderTelegram && (
+                        <button
+                          onClick={() => handleOpenSendTelegram(item)}
+                          className="p-1.5 text-neutral hover:text-secondary hover:bg-secondary/10 rounded-lg transition-all"
+                          title="Gửi tele"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>send</span>
+                        </button>
+                      )}
+
                       <button onClick={() => onOpenModal('EDIT_REMINDER', item)} className="p-1.5 text-neutral hover:text-primary hover:bg-surface-variant rounded-lg transition-all"><span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span></button>
                       <button onClick={() => onOpenModal('DELETE_REMINDER', item)} className="p-1.5 text-neutral hover:text-error hover:bg-error/10 rounded-lg transition-all"><span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span></button>
                     </div>
@@ -264,6 +328,67 @@ export const ReminderList: React.FC<ReminderListProps> = ({
           </div>
         </div>
       )}
+
+      {selectedReminderForTelegram && (
+        <div className="fixed inset-0 z-[120] bg-black/35 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl bg-white border border-slate-200 shadow-xl">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-on-surface">Gửi Telegram nhắc việc</h3>
+              <button
+                onClick={handleCloseSendTelegram}
+                disabled={isSendingTelegram}
+                className="p-1 text-neutral hover:text-on-surface rounded"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              <p className="text-xs text-on-surface-variant">
+                Nhắc việc: <span className="font-semibold text-on-surface">{selectedReminderForTelegram.title}</span>
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-on-surface mb-1">Người nhận Telegram</label>
+                <select
+                  value={recipientTelegramUserId}
+                  onChange={(e) => {
+                    setRecipientTelegramUserId(e.target.value);
+                    if (telegramError) {
+                      setTelegramError('');
+                    }
+                  }}
+                  className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-xs"
+                  disabled={isSendingTelegram}
+                >
+                  <option value="">Chọn người nhận</option>
+                  {telegramRecipients.map((employee) => (
+                    <option key={String(employee.id)} value={String(employee.id)}>
+                      {getEmployeeLabel(employee)}
+                    </option>
+                  ))}
+                </select>
+                {telegramError && <p className="mt-1 text-[11px] text-error">{telegramError}</p>}
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                onClick={handleCloseSendTelegram}
+                disabled={isSendingTelegram}
+                className="h-8 px-3 text-xs rounded-lg border border-slate-300 text-on-surface hover:bg-slate-50"
+              >
+                Huỷ
+              </button>
+              <button
+                onClick={handleSubmitSendTelegram}
+                disabled={isSendingTelegram}
+                className="h-8 px-3 text-xs rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {isSendingTelegram ? 'Đang gửi...' : 'Gửi tele'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

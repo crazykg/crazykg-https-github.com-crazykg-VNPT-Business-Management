@@ -10,16 +10,23 @@ import {
   EmailSmtpIntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettings,
   GoogleDriveIntegrationSettingsUpdatePayload,
+  Employee,
+  TelegramIntegrationSettings,
+  TelegramIntegrationSettingsTestPayload,
+  TelegramIntegrationSettingsTestResult,
+  TelegramIntegrationSettingsUpdatePayload,
 } from '../types';
 
-type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'EMAIL_SMTP' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
+type SettingsGroup = 'GOOGLE_DRIVE' | 'BACKBLAZE_B2' | 'EMAIL_SMTP' | 'TELEGRAM' | 'CONTRACT_EXPIRY_ALERT' | 'CONTRACT_PAYMENT_ALERT';
 
 interface IntegrationSettingsPanelProps {
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   settings: GoogleDriveIntegrationSettings | null;
   emailSmtpSettings: EmailSmtpIntegrationSettings | null;
+  telegramSettings: TelegramIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
+  employees: Employee[];
   isLoading: boolean;
   isSaving: boolean;
   isTesting: boolean;
@@ -27,12 +34,15 @@ interface IntegrationSettingsPanelProps {
   isTestingBackblazeB2: boolean;
   isSavingEmailSmtp: boolean;
   isTestingEmailSmtp: boolean;
+  isSavingTelegram: boolean;
+  isTestingTelegram: boolean;
   isSavingContractExpiryAlert: boolean;
   isSavingContractPaymentAlert: boolean;
   onRefresh: () => Promise<void>;
   onSaveBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   onSave: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
   onSaveEmailSmtp: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<void>;
+  onSaveTelegram: (payload: TelegramIntegrationSettingsUpdatePayload) => Promise<void>;
   onSaveContractExpiryAlert: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   onSaveContractPaymentAlert: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
   onTestBackblazeB2: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<{
@@ -54,6 +64,8 @@ interface IntegrationSettingsPanelProps {
     tested_at?: string | null;
     persisted?: boolean;
   }>;
+  onTestTelegram: (payload?: TelegramIntegrationSettingsTestPayload) => Promise<TelegramIntegrationSettingsTestResult>;
+  onSaveEmployeeTelegramChatId: (employee: Employee, telechatbot: string | null) => Promise<void>;
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -91,6 +103,7 @@ const NAV_ITEMS: Array<{ value: SettingsGroup; label: string; sub: string; icon:
   { value: 'GOOGLE_DRIVE',           label: 'Google Drive',       sub: 'Lưu trữ tài liệu',      icon: 'cloud',        iconColor: 'text-secondary' },
   { value: 'BACKBLAZE_B2',           label: 'Backblaze B2',       sub: 'Object Storage S3',      icon: 'cloud_upload', iconColor: 'text-secondary' },
   { value: 'EMAIL_SMTP',             label: 'Email SMTP',         sub: 'Gửi email qua SMTP',     icon: 'mail',         iconColor: 'text-primary' },
+  { value: 'TELEGRAM',               label: 'Telegram Bot',       sub: 'Bot & Chat ID nhân sự',  icon: 'send',         iconColor: 'text-sky-600' },
   { value: 'CONTRACT_EXPIRY_ALERT',  label: 'HĐ hết hiệu lực',   sub: 'Cảnh báo ngày hết HLực', icon: 'event_busy',   iconColor: 'text-tertiary'  },
   { value: 'CONTRACT_PAYMENT_ALERT', label: 'HĐ thanh toán',     sub: 'Cảnh báo kỳ thanh toán', icon: 'payments',     iconColor: 'text-tertiary'  },
 ];
@@ -151,8 +164,10 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   backblazeB2Settings,
   settings,
   emailSmtpSettings,
+  telegramSettings,
   contractExpiryAlertSettings,
   contractPaymentAlertSettings,
+  employees,
   isLoading,
   isSaving,
   isTesting,
@@ -160,17 +175,22 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   isTestingBackblazeB2,
   isSavingEmailSmtp,
   isTestingEmailSmtp,
+  isSavingTelegram,
+  isTestingTelegram,
   isSavingContractExpiryAlert,
   isSavingContractPaymentAlert,
   onRefresh,
   onSaveBackblazeB2,
   onSave,
   onSaveEmailSmtp,
+  onSaveTelegram,
   onSaveContractExpiryAlert,
   onSaveContractPaymentAlert,
   onTestBackblazeB2,
   onTest,
   onTestEmailSmtp,
+  onTestTelegram,
+  onSaveEmployeeTelegramChatId,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<SettingsGroup>('GOOGLE_DRIVE');
 
@@ -205,6 +225,17 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   const [smtpFromName,         setSmtpFromName]         = useState('VNPT Business');
   const [clearSmtpPassword,    setClearSmtpPassword]    = useState(false);
   const [recipientEmails,      setRecipientEmails]      = useState('');
+
+  // Telegram state
+  const [isTelegramEnabled, setIsTelegramEnabled] = useState(false);
+  const [telegramBotUsername, setTelegramBotUsername] = useState('');
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [clearTelegramBotToken, setClearTelegramBotToken] = useState(false);
+  const [telegramChatDrafts, setTelegramChatDrafts] = useState<Record<string, string>>({});
+  const [savingTelegramChatEmployeeId, setSavingTelegramChatEmployeeId] = useState<string | null>(null);
+  const [displayedTelegramTestStatus, setDisplayedTelegramTestStatus] = useState<TelegramIntegrationSettings['last_test_status']>(null);
+  const [displayedTelegramTestMessage, setDisplayedTelegramTestMessage] = useState('');
+  const [displayedTelegramTestedAt, setDisplayedTelegramTestedAt] = useState<string | null>(null);
 
   // Alert state
   const [expiryWarningDays,  setExpiryWarningDays]  = useState('30');
@@ -251,6 +282,27 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
   }, [settings]);
 
   useEffect(() => {
+    setIsTelegramEnabled(Boolean(telegramSettings?.enabled));
+    setTelegramBotUsername(telegramSettings?.bot_username || '');
+    setTelegramBotToken('');
+    setClearTelegramBotToken(false);
+  }, [telegramSettings]);
+
+  useEffect(() => {
+    setDisplayedTelegramTestStatus(telegramSettings?.last_test_status ?? null);
+    setDisplayedTelegramTestMessage(telegramSettings?.last_test_message || '');
+    setDisplayedTelegramTestedAt(telegramSettings?.last_test_at || null);
+  }, [telegramSettings?.last_test_message, telegramSettings?.last_test_status, telegramSettings?.last_test_at]);
+
+  useEffect(() => {
+    const nextDrafts: Record<string, string> = {};
+    employees.forEach((employee) => {
+      nextDrafts[String(employee.id)] = normalizeText(employee.telechatbot);
+    });
+    setTelegramChatDrafts(nextDrafts);
+  }, [employees]);
+
+  useEffect(() => {
     const value = Number(contractExpiryAlertSettings?.warning_days ?? 30);
     setExpiryWarningDays(Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '30');
   }, [contractExpiryAlertSettings]);
@@ -293,7 +345,30 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
-  const globalBusy = isLoading || isSavingBackblazeB2 || isTestingBackblazeB2 || isSaving || isTesting || isSavingEmailSmtp || isTestingEmailSmtp || isSavingContractExpiryAlert || isSavingContractPaymentAlert;
+  const globalBusy = isLoading || isSavingBackblazeB2 || isTestingBackblazeB2 || isSaving || isTesting || isSavingEmailSmtp || isTestingEmailSmtp || isSavingTelegram || isTestingTelegram || isSavingContractExpiryAlert || isSavingContractPaymentAlert;
+
+  const telegramEmployees = useMemo(
+    () => [...employees].sort((a, b) => String(a.full_name || a.username || '').localeCompare(String(b.full_name || b.username || ''))),
+    [employees],
+  );
+
+  const hasTelegramUnsavedChanges = useMemo(() => {
+    const usernameChanged = normalizeText(telegramBotUsername) !== normalizeText(telegramSettings?.bot_username);
+    const tokenChanged = normalizeText(telegramBotToken) !== '';
+    return isTelegramEnabled !== Boolean(telegramSettings?.enabled) || usernameChanged || clearTelegramBotToken || tokenChanged;
+  }, [isTelegramEnabled, telegramBotUsername, telegramSettings?.bot_username, telegramSettings?.enabled, telegramBotToken, clearTelegramBotToken]);
+
+  const telegramDirtyCount = useMemo(
+    () => telegramEmployees.reduce((count, employee) => {
+      const key = String(employee.id);
+      const currentValue = normalizeText(employee.telechatbot);
+      const draftValue = normalizeText(telegramChatDrafts[key]);
+      return draftValue !== currentValue ? count + 1 : count;
+    }, 0),
+    [telegramChatDrafts, telegramEmployees],
+  );
+
+  const telegramRowsBusy = savingTelegramChatEmployeeId !== null || isLoading;
 
   // ── Payload builders ──────────────────────────────────────────────────────────
 
@@ -325,6 +400,19 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       clear_service_account_json:  clearCredentials,
     };
     if (rawJson && !clearCredentials) payload.service_account_json = rawJson;
+    return payload;
+  };
+
+  const buildTelegramPayload = (): TelegramIntegrationSettingsUpdatePayload => {
+    const payload: TelegramIntegrationSettingsUpdatePayload = {
+      enabled: isTelegramEnabled,
+      bot_username: normalizeText(telegramBotUsername) || null,
+      clear_bot_token: clearTelegramBotToken,
+    };
+    const rawBotToken = normalizeText(telegramBotToken);
+    if (rawBotToken !== '' && !clearTelegramBotToken) {
+      payload.bot_token = rawBotToken;
+    }
     return payload;
   };
 
@@ -398,6 +486,57 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
     await onSaveContractPaymentAlert({ warning_days: Number.isFinite(parsed) ? Math.floor(parsed) : 0 });
   };
 
+  const handleSaveTelegram = async () => {
+    await onSaveTelegram(buildTelegramPayload());
+    setTelegramBotToken('');
+    setClearTelegramBotToken(false);
+  };
+
+  const handleTestTelegram = async () => {
+    try {
+      const rawToken = normalizeText(telegramBotToken);
+      const result = await onTestTelegram(rawToken !== '' ? { bot_token: rawToken } : undefined);
+      setDisplayedTelegramTestStatus(result.status || 'SUCCESS');
+      setDisplayedTelegramTestMessage(result.message || 'Kết nối thành công.');
+      setDisplayedTelegramTestedAt(result.tested_at || new Date().toISOString());
+    } catch (error) {
+      setDisplayedTelegramTestStatus('FAILED');
+      setDisplayedTelegramTestMessage(error instanceof Error ? error.message : 'Lỗi không xác định');
+      setDisplayedTelegramTestedAt(new Date().toISOString());
+    }
+  };
+
+  const handleTelegramChatDraftChange = (employeeId: string | number, value: string) => {
+    const key = String(employeeId);
+    setTelegramChatDrafts((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const handleSaveEmployeeTelegramChat = async (employee: Employee) => {
+    const key = String(employee.id);
+    const draftValue = normalizeText(telegramChatDrafts[key]);
+    const currentValue = normalizeText(employee.telechatbot);
+    if (draftValue === currentValue) {
+      return;
+    }
+    setSavingTelegramChatEmployeeId(key);
+    try {
+      await onSaveEmployeeTelegramChatId(employee, draftValue || null);
+    } finally {
+      setSavingTelegramChatEmployeeId(null);
+    }
+  };
+
+  const handleResetEmployeeTelegramChat = (employee: Employee) => {
+    const key = String(employee.id);
+    setTelegramChatDrafts((prev) => ({
+      ...prev,
+      [key]: normalizeText(employee.telechatbot),
+    }));
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -435,6 +574,8 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
             const isActive  = selectedGroup === item.value;
             const connStatus = item.value === 'GOOGLE_DRIVE'   ? displayedTestStatus
                              : item.value === 'BACKBLAZE_B2'   ? displayedBackblazeTestStatus
+                             : item.value === 'EMAIL_SMTP'     ? displayedSmtpTestStatus
+                             : item.value === 'TELEGRAM'       ? displayedTelegramTestStatus
                              : null;
             return (
               <button
@@ -883,6 +1024,174 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                 source={emailSmtpSettings?.source || 'DEFAULT'}
                 testedAt={displayedSmtpTestedAt}
                 message={displayedSmtpTestMessage}
+              />
+            </>
+          )}
+
+          {/* ════════ TELEGRAM ════════ */}
+          {selectedGroup === 'TELEGRAM' && (
+            <>
+              <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-sky-600" style={{ fontSize: 16 }}>send</span>
+                  <span className="text-xs font-bold text-slate-700">Telegram Bot</span>
+                  <ConnectionBadge status={displayedTelegramTestStatus} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void handleTestTelegram()}
+                    disabled={globalBusy}
+                    className={`${BTN_SM} border border-slate-200 bg-white text-slate-600 hover:bg-slate-50`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isTestingTelegram ? 'animate-spin' : ''}`}>
+                      {isTestingTelegram ? 'progress_activity' : 'verified'}
+                    </span>
+                    Kiểm tra
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveTelegram()}
+                    disabled={globalBusy || !hasTelegramUnsavedChanges}
+                    className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm`}
+                  >
+                    <span className={`material-symbols-outlined text-sm ${isSavingTelegram ? 'animate-spin' : ''}`}>
+                      {isSavingTelegram ? 'progress_activity' : 'save'}
+                    </span>
+                    Lưu cấu hình
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                <ToggleSwitch
+                  checked={isTelegramEnabled}
+                  onChange={() => setIsTelegramEnabled((prev) => !prev)}
+                  label={isTelegramEnabled ? 'Tích hợp Telegram đang bật' : 'Tích hợp Telegram đang tắt'}
+                />
+
+                <div>
+                  <label className={LABEL}>Bot username</label>
+                  <input
+                    type="text"
+                    value={telegramBotUsername}
+                    onChange={(event) => setTelegramBotUsername(event.target.value)}
+                    placeholder="vnpt_notify_bot"
+                    className={INPUT}
+                  />
+                </div>
+
+                <div>
+                  <label className={LABEL}>Token bot</label>
+                  <input
+                    type="password"
+                    value={telegramBotToken}
+                    onChange={(event) => {
+                      setTelegramBotToken(event.target.value);
+                      if (normalizeText(event.target.value)) {
+                        setClearTelegramBotToken(false);
+                      }
+                    }}
+                    placeholder="Dán token bot Telegram"
+                    className={INPUT}
+                  />
+                  <div className="flex items-center gap-4 mt-1">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 select-none cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={clearTelegramBotToken}
+                        onChange={(event) => {
+                          setClearTelegramBotToken(event.target.checked);
+                          if (event.target.checked) {
+                            setTelegramBotToken('');
+                          }
+                        }}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                      />
+                      Xóa token đã lưu
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      Trạng thái: <strong className="text-slate-600">{telegramSettings?.has_bot_token ? 'Đã cấu hình' : 'Chưa cấu hình'}</strong>
+                      {telegramSettings?.token_preview && (
+                        <span className="font-mono ml-1 text-slate-500">{telegramSettings.token_preview}</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-4 pb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-slate-700">Chat ID Telegram theo nhân sự</h3>
+                  <span className="text-[10px] text-slate-500">{telegramDirtyCount > 0 ? `${telegramDirtyCount} dòng chưa lưu` : 'Không có thay đổi'}</span>
+                </div>
+                <div className="rounded border border-slate-200 overflow-hidden">
+                  <div className="grid grid-cols-[1.3fr_1fr_1.7fr_auto] gap-px bg-slate-200 text-[11px] font-semibold text-slate-600">
+                    <div className="bg-slate-50 px-2.5 py-2">Nhân sự</div>
+                    <div className="bg-slate-50 px-2.5 py-2">Mã NV</div>
+                    <div className="bg-slate-50 px-2.5 py-2">Telegram chat ID</div>
+                    <div className="bg-slate-50 px-2.5 py-2 text-right">Thao tác</div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                    {telegramEmployees.length === 0 && (
+                      <div className="px-3 py-4 text-xs text-slate-500">Chưa có nhân sự để cấu hình chat ID.</div>
+                    )}
+                    {telegramEmployees.map((employee) => {
+                      const key = String(employee.id);
+                      const originalValue = normalizeText(employee.telechatbot);
+                      const draftValue = normalizeText(telegramChatDrafts[key]);
+                      const dirty = draftValue !== originalValue;
+                      const isSavingRow = savingTelegramChatEmployeeId === key;
+
+                      return (
+                        <div key={key} className="grid grid-cols-[1.3fr_1fr_1.7fr_auto] gap-2 items-center px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-700 truncate">{employee.full_name || employee.username}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{employee.username}</p>
+                          </div>
+                          <div className="text-xs text-slate-600">{employee.user_code || employee.employee_code || '--'}</div>
+                          <div>
+                            <input
+                              type="text"
+                              value={telegramChatDrafts[key] ?? ''}
+                              onChange={(event) => handleTelegramChatDraftChange(employee.id, event.target.value)}
+                              placeholder="Ví dụ: 123456789"
+                              className={`${INPUT} h-7 ${dirty ? 'border-amber-300 focus:border-amber-400 focus:ring-amber-200/60' : ''}`}
+                              disabled={telegramRowsBusy && !isSavingRow}
+                            />
+                          </div>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleResetEmployeeTelegramChat(employee)}
+                              disabled={!dirty || (telegramRowsBusy && !isSavingRow)}
+                              className={`${BTN_SM} border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 px-2 py-1`}
+                            >
+                              Đặt lại
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveEmployeeTelegramChat(employee)}
+                              disabled={!dirty || (telegramRowsBusy && !isSavingRow)}
+                              className={`${BTN_SM} bg-primary text-white hover:bg-deep-teal shadow-sm px-2 py-1`}
+                            >
+                              <span className={`material-symbols-outlined text-xs ${isSavingRow ? 'animate-spin' : ''}`}>
+                                {isSavingRow ? 'progress_activity' : 'save'}
+                              </span>
+                              Lưu
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <InfoFooter
+                source={telegramSettings?.source || 'DEFAULT'}
+                testedAt={displayedTelegramTestedAt}
+                message={displayedTelegramTestMessage}
               />
             </>
           )}

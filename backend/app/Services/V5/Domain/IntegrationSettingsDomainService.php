@@ -7,6 +7,7 @@ use App\Services\V5\IntegrationSettings\BackblazeB2IntegrationService;
 use App\Services\V5\IntegrationSettings\EmailSmtpIntegrationService;
 use App\Services\V5\IntegrationSettings\GoogleDriveIntegrationService;
 use App\Services\V5\IntegrationSettings\IntegrationSettingsOperationsService;
+use App\Services\V5\IntegrationSettings\TelegramIntegrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,6 +17,7 @@ class IntegrationSettingsDomainService
         private readonly BackblazeB2IntegrationService $backblaze,
         private readonly EmailSmtpIntegrationService $emailSmtp,
         private readonly GoogleDriveIntegrationService $googleDrive,
+        private readonly TelegramIntegrationService $telegram,
         private readonly IntegrationSettingsOperationsService $operations,
         private readonly ContractRenewalService $renewalService,
     ) {}
@@ -63,6 +65,26 @@ class IntegrationSettingsDomainService
     public function testEmailSmtpSettings(Request $request): JsonResponse
     {
         return $this->emailSmtp->testSettings($request);
+    }
+
+    public function telegramSettings(): JsonResponse
+    {
+        return $this->telegram->settings();
+    }
+
+    public function updateTelegramSettings(Request $request): JsonResponse
+    {
+        return $this->telegram->updateSettings($request);
+    }
+
+    public function testTelegramSettings(Request $request): JsonResponse
+    {
+        return $this->telegram->testSettings($request);
+    }
+
+    public function telegramWebhook(Request $request): JsonResponse
+    {
+        return $this->telegram->webhook($request);
     }
 
     public function contractExpiryAlertSettings(): JsonResponse
@@ -128,6 +150,11 @@ class IntegrationSettingsDomainService
     public function sendReminderEmail(Request $request, string $id): JsonResponse
     {
         return $this->operations->sendReminderEmail($request, $id);
+    }
+
+    public function sendReminderTelegram(Request $request, string $id): JsonResponse
+    {
+        return $this->operations->sendReminderTelegram($request, $id);
     }
 
     public function contractRenewalSettings(): JsonResponse

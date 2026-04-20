@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentList } from '../components/DocumentList';
 import { ReminderList } from '../components/ReminderList';
@@ -37,6 +37,18 @@ const employees: Employee[] = [
     full_name: 'Nguyễn Văn A',
     email: 'nva@vnpt.vn',
     status: 'ACTIVE',
+    telechatbot: '1994683418',
+    department_id: null,
+    position_id: null,
+  },
+  {
+    id: 2,
+    uuid: 'emp-2',
+    username: 'nvb',
+    full_name: 'Nguyễn Văn B',
+    email: 'nvb@vnpt.vn',
+    status: 'ACTIVE',
+    telechatbot: null,
     department_id: null,
     position_id: null,
   },
@@ -74,11 +86,77 @@ describe('Document and Reminder lists', () => {
         employees={employees}
         onOpenModal={vi.fn()}
         canSendReminderEmail={true}
+        canSendReminderTelegram={true}
         onSendReminderEmail={vi.fn().mockResolvedValue(undefined)}
+        onSendReminderTelegram={vi.fn().mockResolvedValue(undefined)}
       />
     );
 
     expect(screen.getByText('Nhắc gia hạn tài liệu')).toBeInTheDocument();
     expect(screen.getByText('VNPT000001 - Nguyễn Văn A')).toBeInTheDocument();
+  });
+
+  it('opens telegram modal and only lists employees with telechatbot', () => {
+    render(
+      <ReminderList
+        reminders={reminders}
+        employees={employees}
+        onOpenModal={vi.fn()}
+        canSendReminderEmail={true}
+        canSendReminderTelegram={true}
+        onSendReminderEmail={vi.fn().mockResolvedValue(undefined)}
+        onSendReminderTelegram={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Gửi tele'));
+
+    expect(screen.getByText('Gửi Telegram nhắc việc')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Nguyễn Văn A/i })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Nguyễn Văn B/i })).not.toBeInTheDocument();
+  });
+
+  it('submits telegram callback with selected recipient_user_id', async () => {
+    const onSendReminderTelegram = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ReminderList
+        reminders={reminders}
+        employees={employees}
+        onOpenModal={vi.fn()}
+        canSendReminderEmail={true}
+        canSendReminderTelegram={true}
+        onSendReminderEmail={vi.fn().mockResolvedValue(undefined)}
+        onSendReminderTelegram={onSendReminderTelegram}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Gửi tele'));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi tele' }));
+
+    expect(onSendReminderTelegram).toHaveBeenCalledWith(reminders[0], '1');
+  });
+
+  it('validates telegram recipient selection before submit', () => {
+    const onSendReminderTelegram = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ReminderList
+        reminders={reminders}
+        employees={employees}
+        onOpenModal={vi.fn()}
+        canSendReminderEmail={true}
+        canSendReminderTelegram={true}
+        onSendReminderEmail={vi.fn().mockResolvedValue(undefined)}
+        onSendReminderTelegram={onSendReminderTelegram}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle('Gửi tele'));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi tele' }));
+
+    expect(screen.getByText('Vui lòng chọn người nhận Telegram.')).toBeInTheDocument();
+    expect(onSendReminderTelegram).not.toHaveBeenCalled();
   });
 });

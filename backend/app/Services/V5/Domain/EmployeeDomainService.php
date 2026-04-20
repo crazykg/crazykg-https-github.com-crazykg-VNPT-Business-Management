@@ -123,6 +123,7 @@ class EmployeeDomainService
                 'phone',
                 'phone_number',
                 'mobile',
+                'telechatbot',
                 'email',
                 'status',
                 'department_id',
@@ -288,6 +289,7 @@ class EmployeeDomainService
             'leave_date' => ['nullable', 'date'],
             'phone_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:50'],
+            'telechatbot' => ['nullable', 'string', 'max:255'],
             'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['nullable', 'string', 'max:45'],
@@ -348,6 +350,14 @@ class EmployeeDomainService
         if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
             $normalizedPhone = $this->support->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
             $this->support->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
+        }
+        if (array_key_exists('telechatbot', $validated)) {
+            $this->support->setAttributeIfColumn(
+                $employee,
+                $employeeTable,
+                'telechatbot',
+                $this->support->normalizeNullableString($validated['telechatbot'])
+            );
         }
         $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $resolvedStatus);
         $this->support->setAttributeByColumns($employee, $employeeTable, ['department_id', 'dept_id'], $departmentId);
@@ -546,7 +556,7 @@ class EmployeeDomainService
     {
         $normalized = [];
 
-        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'leave_date', 'ip_address'] as $field) {
+        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'leave_date', 'ip_address', 'telechatbot'] as $field) {
             if (! array_key_exists($field, $payload)) {
                 continue;
             }
@@ -685,6 +695,7 @@ class EmployeeDomainService
             'leave_date' => ['sometimes', 'nullable', 'date'],
             'phone_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'telechatbot' => ['sometimes', 'nullable', 'string', 'max:255'],
             'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['sometimes', 'nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['sometimes', 'nullable', 'string', 'max:45'],
@@ -768,6 +779,14 @@ class EmployeeDomainService
         if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
             $normalizedPhone = $this->support->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
             $this->support->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
+        }
+        if (array_key_exists('telechatbot', $validated)) {
+            $this->support->setAttributeIfColumn(
+                $employee,
+                $employeeTable,
+                'telechatbot',
+                $this->support->normalizeNullableString($validated['telechatbot'])
+            );
         }
         if (array_key_exists('status', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'status', $resolvedStatus);

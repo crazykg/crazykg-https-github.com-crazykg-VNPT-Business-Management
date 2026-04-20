@@ -35,6 +35,9 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('exports:prune --hours=24')->hourly();
+        $schedule->command('telegram:poll-updates --limit=25 --timeout=0')
+            ->everyMinute()
+            ->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Illuminate\Validation\ValidationException $exception, $request) {

@@ -60,6 +60,8 @@ Route::get('/departments', function () {
 });
 
 Route::prefix('v5')->group(function (): void {
+    Route::post('/telegram/webhook', [IntegrationSettingsController::class, 'telegramWebhook']);
+
     Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:auth.login');
     Route::post('/auth/refresh', [AuthController::class, 'refresh'])
@@ -702,6 +704,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:authz.manage');
         Route::post('/integrations/email-smtp/test', [IntegrationSettingsController::class, 'testEmailSmtpSettings'])
             ->middleware('permission:authz.manage');
+        Route::get('/integrations/telegram', [IntegrationSettingsController::class, 'telegramSettings'])
+            ->middleware('permission:authz.manage');
+        Route::put('/integrations/telegram', [IntegrationSettingsController::class, 'updateTelegramSettings'])
+            ->middleware('permission:authz.manage');
+        Route::post('/integrations/telegram/test', [IntegrationSettingsController::class, 'testTelegramSettings'])
+            ->middleware('permission:authz.manage');
         Route::get('/utilities/contract-expiry-alert', [IntegrationSettingsController::class, 'contractExpiryAlertSettings'])
             ->middleware('permission:authz.manage');
         Route::put('/utilities/contract-expiry-alert', [IntegrationSettingsController::class, 'updateContractExpiryAlertSettings'])
@@ -725,6 +733,8 @@ Route::prefix('v5')->group(function (): void {
         Route::delete('/reminders/{id}', [IntegrationSettingsController::class, 'destroyReminder'])
             ->middleware('permission:reminders.delete');
         Route::post('/reminders/{id}/send-email', [IntegrationSettingsController::class, 'sendReminderEmail'])
+            ->middleware('permission:reminders.write');
+        Route::post('/reminders/{id}/send-telegram', [IntegrationSettingsController::class, 'sendReminderTelegram'])
             ->middleware('permission:reminders.write');
         Route::get('/user-dept-history', [IntegrationSettingsController::class, 'userDeptHistory'])
             ->middleware('permission:user_dept_history.read');

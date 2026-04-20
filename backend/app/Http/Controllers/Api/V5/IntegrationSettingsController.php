@@ -138,8 +138,33 @@ class IntegrationSettingsController extends V5BaseController
         return $this->service->testEmailSmtpSettings($request);
     }
 
+    public function telegramSettings(): JsonResponse
+    {
+        return $this->service->telegramSettings();
+    }
+
+    public function updateTelegramSettings(Request $request): JsonResponse
+    {
+        return $this->service->updateTelegramSettings($request);
+    }
+
+    public function testTelegramSettings(Request $request): JsonResponse
+    {
+        return $this->service->testTelegramSettings($request);
+    }
+
+    public function telegramWebhook(Request $request): JsonResponse
+    {
+        return $this->service->telegramWebhook($request);
+    }
+
     public function sendReminderEmail(Request $request, string $id): JsonResponse
     {
         return $this->service->sendReminderEmail($request, $id);
+    }
+
+    public function sendReminderTelegram(Request $request, string $id): JsonResponse
+    {
+        return $this->service->sendReminderTelegram($request, $id);
     }
 }

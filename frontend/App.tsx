@@ -30,7 +30,9 @@ import {
   ProductUnitMaster, ContractSignerMaster, SupportRequestStatusOption, SupportSlaConfigOption, AuthUser, EmployeeProvisioning, Role,
   Permission, UserAccessRecord, BackblazeB2IntegrationSettings, GoogleDriveIntegrationSettings,
   EmailSmtpIntegrationSettings, EmailSmtpIntegrationSettingsUpdatePayload,
-  SendReminderEmailResult,
+  SendReminderEmailResult, TelegramIntegrationSettings, TelegramIntegrationSettingsTestResult,
+  SendReminderTelegramResult,
+  TelegramIntegrationSettingsUpdatePayload,
   ContractExpiryAlertSettings, ContractPaymentAlertSettings, BackblazeB2IntegrationSettingsUpdatePayload,
   GoogleDriveIntegrationSettingsUpdatePayload, ContractExpiryAlertSettingsUpdatePayload,
   ContractPaymentAlertSettingsUpdatePayload, PaginatedQuery, PaginationMeta, WorklogActivityTypeOption,
@@ -46,11 +48,12 @@ import {
   fetchDepartments, fetchEmployees, fetchBusinesses, fetchVendors, fetchProducts, fetchCustomers,
   fetchProjects, fetchProjectItems, fetchContracts, fetchContractDetail, fetchPaymentSchedules,
   fetchDocuments, fetchReminders, fetchUserDeptHistory, fetchAuditLogs, fetchSupportServiceGroups,
-  createReminder, updateReminder, deleteReminder, sendReminderEmail,
+  createReminder, updateReminder, deleteReminder, sendReminderEmail, sendReminderTelegram,
   createUserDeptHistory, updateUserDeptHistory, deleteUserDeptHistory,
   fetchSupportContactPositions, fetchProductUnitMasters, fetchSupportRequestStatuses, fetchProjectTypes, fetchWorklogActivityTypes,
   fetchSupportSlaConfigs, fetchContractSignerMasters, fetchRoles, fetchPermissions, fetchUserAccess, fetchBackblazeB2IntegrationSettings,
-  fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
+  fetchGoogleDriveIntegrationSettings, fetchEmailSmtpIntegrationSettings, fetchTelegramIntegrationSettings,
+  fetchContractExpiryAlertSettings, fetchContractPaymentAlertSettings,
   fetchFeedbacksPage, fetchEmployeesPage, fetchCustomersPage, fetchProjectsPage,
   fetchContractsPage, fetchDocumentsPage, fetchAuditLogsPage, createFeedback, updateFeedback, deleteFeedback,
   createSupportServiceGroup, createSupportServiceGroupsBulk, updateSupportServiceGroup,
@@ -61,8 +64,9 @@ import {
   createSupportSlaConfig, updateSupportSlaConfig, updateUserAccessRoles, updateUserAccessPermissions,
   updateUserAccessDeptScopes, updateBackblazeB2IntegrationSettings, updateGoogleDriveIntegrationSettings,
   updateEmailSmtpIntegrationSettings,
-  updateContractExpiryAlertSettings, updateContractPaymentAlertSettings, testBackblazeB2IntegrationSettings,
-  testGoogleDriveIntegrationSettings, testEmailSmtpIntegrationSettings, generateContractPayments, updatePaymentSchedule, deletePaymentSchedule,
+  updateContractExpiryAlertSettings, updateContractPaymentAlertSettings, updateTelegramIntegrationSettings,
+  testBackblazeB2IntegrationSettings, testGoogleDriveIntegrationSettings, testEmailSmtpIntegrationSettings,
+  testTelegramIntegrationSettings, generateContractPayments, updatePaymentSchedule, deletePaymentSchedule,
   createContract, updateContract, deleteContract,
   createDepartment, updateDepartment, deleteDepartment, createEmployeeWithProvisioning, updateEmployee,
   deleteEmployee, resetEmployeePassword, createBusiness, updateBusiness, deleteBusiness,
@@ -223,6 +227,7 @@ const App: React.FC = () => {
   const [backblazeB2Settings, setBackblazeB2Settings] = useState<BackblazeB2IntegrationSettings | null>(null);
   const [googleDriveSettings, setGoogleDriveSettings] = useState<GoogleDriveIntegrationSettings | null>(null);
   const [emailSmtpSettings, setEmailSmtpSettings] = useState<EmailSmtpIntegrationSettings | null>(null);
+  const [telegramSettings, setTelegramSettings] = useState<TelegramIntegrationSettings | null>(null);
   const [contractExpiryAlertSettings, setContractExpiryAlertSettings] = useState<ContractExpiryAlertSettings | null>(null);
   const [contractPaymentAlertSettings, setContractPaymentAlertSettings] = useState<ContractPaymentAlertSettings | null>(null);
 
@@ -324,6 +329,9 @@ const App: React.FC = () => {
   const [isEmailSmtpSettingsLoading, setIsEmailSmtpSettingsLoading] = useState(false);
   const [isEmailSmtpSettingsSaving, setIsEmailSmtpSettingsSaving] = useState(false);
   const [isEmailSmtpSettingsTesting, setIsEmailSmtpSettingsTesting] = useState(false);
+  const [isTelegramSettingsLoading, setIsTelegramSettingsLoading] = useState(false);
+  const [isTelegramSettingsSaving, setIsTelegramSettingsSaving] = useState(false);
+  const [isTelegramSettingsTesting, setIsTelegramSettingsTesting] = useState(false);
   const [isContractExpiryAlertSettingsLoading, setIsContractExpiryAlertSettingsLoading] = useState(false);
   const [isContractExpiryAlertSettingsSaving, setIsContractExpiryAlertSettingsSaving] = useState(false);
   const [isContractPaymentAlertSettingsLoading, setIsContractPaymentAlertSettingsLoading] = useState(false);
@@ -2172,8 +2180,10 @@ const App: React.FC = () => {
             fetchBackblazeB2IntegrationSettings().then((data) => setBackblazeB2Settings(data)).catch(() => {}),
             fetchGoogleDriveIntegrationSettings().then((data) => setGoogleDriveSettings(data)).catch(() => {}),
             fetchEmailSmtpIntegrationSettings().then((data) => setEmailSmtpSettings(data)).catch(() => {}),
+            fetchTelegramIntegrationSettings().then((data) => setTelegramSettings(data)).catch(() => {}),
             fetchContractExpiryAlertSettings().then((data) => setContractExpiryAlertSettings(data)).catch(() => {}),
             fetchContractPaymentAlertSettings().then((data) => setContractPaymentAlertSettings(data)).catch(() => {}),
+            fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
           ]);
           break;
         case 'access_control':
@@ -2611,6 +2621,15 @@ const App: React.FC = () => {
               const result = await sendReminderEmail(String(reminderId), { recipient_email: recipientEmail });
               return result;
             }}
+            onSendReminderTelegram={async (
+              reminderId,
+              recipientUserId
+            ): Promise<SendReminderTelegramResult> => {
+              const result = await sendReminderTelegram(String(reminderId), {
+                recipient_user_id: recipientUserId,
+              });
+              return result;
+            }}
             exportProjectsByCurrentQuery={exportProjectsByCurrentQuery} exportProjectRaciByProjectIds={exportProjectRaciByProjectIds} exportContractsByCurrentQuery={exportContractsByCurrentQuery} exportPassContractsByCurrentQuery={exportPassContractsByCurrentQuery}
             handleCreateSupportServiceGroup={async (d) => { const c = await createSupportServiceGroup(d); setSupportServiceGroups((p) => [c, ...p]); return c; }}
             handleUpdateSupportServiceGroup={async (id, d) => { const u = await updateSupportServiceGroup(id, d); setSupportServiceGroups((p) => p.map((i) => (String(i.id) === String(u.id) ? u : i))); return u; }}
@@ -2636,21 +2655,53 @@ const App: React.FC = () => {
             handleBulkUpdateAccessScopes={async () => {}}
             handleUpdateAccessPermissions={async (uid, o) => { const u = await updateUserAccessPermissions(uid, o); setUserAccessRecords((p) => p.map((i) => (Number(i.user.id) === Number(u.user.id) ? u : i))); }}
             handleUpdateAccessScopes={async (uid, s) => { const u = await updateUserAccessDeptScopes(uid, s); setUserAccessRecords((p) => p.map((i) => (Number(i.user.id) === Number(u.user.id) ? u : i))); }}
-            backblazeB2Settings={backblazeB2Settings} googleDriveSettings={googleDriveSettings} emailSmtpSettings={emailSmtpSettings} contractExpiryAlertSettings={contractExpiryAlertSettings} contractPaymentAlertSettings={contractPaymentAlertSettings}
-            isBackblazeB2SettingsLoading={isBackblazeB2SettingsLoading} isGoogleDriveSettingsLoading={isGoogleDriveSettingsLoading} isEmailSmtpSettingsLoading={isEmailSmtpSettingsLoading} isContractExpiryAlertSettingsLoading={isContractExpiryAlertSettingsLoading}
+            backblazeB2Settings={backblazeB2Settings} googleDriveSettings={googleDriveSettings} emailSmtpSettings={emailSmtpSettings} telegramSettings={telegramSettings} contractExpiryAlertSettings={contractExpiryAlertSettings} contractPaymentAlertSettings={contractPaymentAlertSettings}
+            isBackblazeB2SettingsLoading={isBackblazeB2SettingsLoading} isGoogleDriveSettingsLoading={isGoogleDriveSettingsLoading} isEmailSmtpSettingsLoading={isEmailSmtpSettingsLoading} isTelegramSettingsLoading={isTelegramSettingsLoading} isContractExpiryAlertSettingsLoading={isContractExpiryAlertSettingsLoading}
             isContractPaymentAlertSettingsLoading={isContractPaymentAlertSettingsLoading} isGoogleDriveSettingsSaving={isGoogleDriveSettingsSaving} isGoogleDriveSettingsTesting={isGoogleDriveSettingsTesting}
-            isBackblazeB2SettingsSaving={isBackblazeB2SettingsSaving} isBackblazeB2SettingsTesting={isBackblazeB2SettingsTesting} isEmailSmtpSettingsSaving={isEmailSmtpSettingsSaving} isEmailSmtpSettingsTesting={isEmailSmtpSettingsTesting}
+            isBackblazeB2SettingsSaving={isBackblazeB2SettingsSaving} isBackblazeB2SettingsTesting={isBackblazeB2SettingsTesting} isEmailSmtpSettingsSaving={isEmailSmtpSettingsSaving} isEmailSmtpSettingsTesting={isEmailSmtpSettingsTesting} isTelegramSettingsSaving={isTelegramSettingsSaving} isTelegramSettingsTesting={isTelegramSettingsTesting}
             isContractExpiryAlertSettingsSaving={isContractExpiryAlertSettingsSaving}
             isContractPaymentAlertSettingsSaving={isContractPaymentAlertSettingsSaving}
-            refreshIntegrationSettings={async () => { const [b, g, e, ce, cp] = await Promise.all([fetchBackblazeB2IntegrationSettings(), fetchGoogleDriveIntegrationSettings(), fetchEmailSmtpIntegrationSettings(), fetchContractExpiryAlertSettings(), fetchContractPaymentAlertSettings()]); setBackblazeB2Settings(b); setGoogleDriveSettings(g); setEmailSmtpSettings(e); setContractExpiryAlertSettings(ce); setContractPaymentAlertSettings(cp); }}
+            refreshIntegrationSettings={async () => { const [b, g, e, t, ce, cp] = await Promise.all([fetchBackblazeB2IntegrationSettings(), fetchGoogleDriveIntegrationSettings(), fetchEmailSmtpIntegrationSettings(), fetchTelegramIntegrationSettings(), fetchContractExpiryAlertSettings(), fetchContractPaymentAlertSettings()]); setBackblazeB2Settings(b); setGoogleDriveSettings(g); setEmailSmtpSettings(e); setTelegramSettings(t); setContractExpiryAlertSettings(ce); setContractPaymentAlertSettings(cp); }}
             handleSaveBackblazeB2Settings={async (p) => { const u = await updateBackblazeB2IntegrationSettings(p); setBackblazeB2Settings(u); }}
             handleSaveGoogleDriveSettings={async (p) => { const u = await updateGoogleDriveIntegrationSettings(p); setGoogleDriveSettings(u); }}
             handleSaveEmailSmtpSettings={async (p) => { const u = await updateEmailSmtpIntegrationSettings(p); setEmailSmtpSettings(u); }}
+            handleSaveTelegramSettings={async (p) => {
+              if (isTelegramSettingsSaving) return;
+              setIsTelegramSettingsSaving(true);
+              try {
+                const u = await updateTelegramIntegrationSettings(p);
+                setTelegramSettings(u);
+              } finally {
+                setIsTelegramSettingsSaving(false);
+              }
+            }}
             handleSaveContractExpiryAlertSettings={async (p) => { const u = await updateContractExpiryAlertSettings(p); setContractExpiryAlertSettings(u); loadContractsPage(); }}
             handleSaveContractPaymentAlertSettings={async (p) => { const u = await updateContractPaymentAlertSettings(p); setContractPaymentAlertSettings(u); loadContractsPage(); }}
             handleTestBackblazeB2Integration={async (p) => { const r = await testBackblazeB2IntegrationSettings(p); addToast('success', 'Kết nối Backblaze B2', r.message || 'Kết nối thành công.'); return r; }}
             handleTestGoogleDriveIntegration={async (p) => { const r = await testGoogleDriveIntegrationSettings(p); addToast('success', 'Kết nối Google Drive', r.message || 'Kết nối thành công.'); return r; }}
             handleTestEmailSmtpIntegration={async (p) => { const r = await testEmailSmtpIntegrationSettings(p); addToast('success', 'Kết nối Email SMTP', r.message || 'Kết nối thành công.'); return r; }}
+            handleTestTelegramIntegration={async (p): Promise<TelegramIntegrationSettingsTestResult> => {
+              if (isTelegramSettingsTesting) {
+                return { message: 'Đang kiểm tra kết nối Telegram.', status: 'FAILED', tested_at: new Date().toISOString(), persisted: false };
+              }
+              setIsTelegramSettingsTesting(true);
+              try {
+                const r = await testTelegramIntegrationSettings(p);
+                addToast('success', 'Kết nối Telegram', r.message || 'Kết nối thành công.');
+                return r;
+              } finally {
+                setIsTelegramSettingsTesting(false);
+              }
+            }}
+            onSaveEmployeeTelegramChatId={async (employee, telechatbot) => {
+              const updated = await updateEmployee(employee.id, {
+                ...employee,
+                telechatbot,
+              });
+              setEmployees((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? updated : item)));
+              setEmployeesPageRows((prev) => prev.map((item) => (String(item.id) === String(updated.id) ? updated : item)));
+              addToast('success', 'Telegram chat ID', `Đã lưu chat ID cho ${updated.full_name || updated.username}.`);
+            }}
           />
         </Suspense>
       </main>

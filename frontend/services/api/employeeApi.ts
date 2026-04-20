@@ -64,6 +64,7 @@ const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unk
   const normalizedPhone = normalizeNullableText(
     payload.phone_number ?? payload.phone ?? payload.mobile ?? payload.phoneNumber
   );
+  const normalizedTelechatbot = normalizeNullableText(payload.telechatbot);
 
   return {
     ...(payload as Employee),
@@ -77,6 +78,7 @@ const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unk
     phone_number: normalizedPhone,
     phone: normalizedPhone,
     mobile: normalizedPhone,
+    telechatbot: normalizedTelechatbot,
     status: normalizeEmployeeStatus(payload.status),
     leave_date: normalizeNullableText(payload.leave_date),
     department_id: (payload.department_id ?? payload.department ?? null) as string | number | null,
@@ -135,6 +137,7 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
     gender: normalizeNullableText(payload.gender),
     vpn_status: normalizeNullableText(payload.vpn_status) || 'NO',
     ip_address: normalizeNullableText(payload.ip_address),
+    telechatbot: normalizeNullableText(payload.telechatbot),
     department_id: normalizeNullableNumber(payload.department_id),
     position_id: normalizePositionId(payload.position_id),
   };
@@ -220,6 +223,13 @@ const buildEmployeeBulkImportRequestPayload = (payload: Partial<Employee>) => {
     const ipAddress = normalizeNullableText(payload.ip_address);
     if (ipAddress) {
       requestPayload.ip_address = ipAddress;
+    }
+  }
+
+  if (hasOwn(payload, 'telechatbot')) {
+    const telechatbot = normalizeNullableText(payload.telechatbot);
+    if (telechatbot) {
+      requestPayload.telechatbot = telechatbot;
     }
   }
 
@@ -364,6 +374,7 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
       gender: normalizeNullableText(payload.gender),
       vpn_status: normalizeNullableText(payload.vpn_status),
       ip_address: normalizeNullableText(payload.ip_address),
+      telechatbot: normalizeNullableText(payload.telechatbot),
       department_id: normalizeNullableNumber(payload.department_id),
       position_id: normalizePositionId(payload.position_id),
     }),

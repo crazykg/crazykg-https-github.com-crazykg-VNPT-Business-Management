@@ -27,6 +27,7 @@ class EmployeeCrudTest extends TestCase
             'department_id' => 1,
             'position_id' => 1,
             'phone_number' => '0909000001',
+            'telechatbot' => '123456789',
             'status' => 'ACTIVE',
         ]);
 
@@ -38,6 +39,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.full_name', 'Nguyen Van A')
             ->assertJsonPath('data.status', 'ACTIVE')
             ->assertJsonPath('data.phone_number', '0909000001')
+            ->assertJsonPath('data.telechatbot', '123456789')
             ->assertJsonStructure([
                 'provisioning' => ['temporary_password', 'must_change_password', 'delivery'],
             ]);
@@ -53,6 +55,7 @@ class EmployeeCrudTest extends TestCase
         $updateResponse = $this->putJson('/api/v5/employees/1', [
             'full_name' => 'Nguyen Van B',
             'user_code' => 'VNPT000009',
+            'telechatbot' => '-10099887766',
             'status' => 'TRANSFERRED',
         ]);
 
@@ -61,6 +64,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.full_name', 'Nguyen Van B')
             ->assertJsonPath('data.user_code', 'VNPT000009')
             ->assertJsonPath('data.employee_code', 'VNPT000009')
+            ->assertJsonPath('data.telechatbot', '-10099887766')
             ->assertJsonPath('data.status', 'SUSPENDED');
 
         $resetResponse = $this->postJson('/api/v5/employees/1/reset-password');
@@ -375,6 +379,7 @@ class EmployeeCrudTest extends TestCase
             $table->string('phone_number', 50)->nullable();
             $table->string('phone', 50)->nullable();
             $table->string('mobile', 50)->nullable();
+            $table->string('telechatbot', 255)->nullable();
             $table->string('status', 20)->nullable();
             $table->string('gender', 20)->nullable();
             $table->string('vpn_status', 20)->nullable();

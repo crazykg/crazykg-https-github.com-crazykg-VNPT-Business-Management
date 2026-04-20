@@ -169,6 +169,43 @@ export interface EmailSmtpIntegrationSettingsUpdatePayload {
   test_recipient_email?: string | null;
 }
 
+export interface TelegramIntegrationSettings {
+  provider: 'TELEGRAM';
+  enabled: boolean;
+  bot_username?: string | null;
+  has_bot_token: boolean;
+  token_preview?: string | null;
+  source?: 'DB' | 'DEFAULT';
+  last_test_status?: 'SUCCESS' | 'FAILED' | null;
+  last_test_message?: string | null;
+  last_test_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface TelegramIntegrationSettingsUpdatePayload {
+  enabled: boolean;
+  bot_username?: string | null;
+  bot_token?: string | null;
+  clear_bot_token?: boolean;
+}
+
+export interface TelegramIntegrationSettingsTestPayload {
+  bot_token?: string | null;
+}
+
+export interface TelegramIntegrationSettingsTestResult {
+  message?: string;
+  status?: 'SUCCESS' | 'FAILED';
+  tested_at?: string | null;
+  persisted?: boolean;
+  bot?: {
+    id?: number | null;
+    username?: string | null;
+    first_name?: string | null;
+    is_bot?: boolean;
+  };
+}
+
 export type AuditEvent = 'INSERT' | 'UPDATE' | 'DELETE' | 'RESTORE';
 
 export interface AuditLog {
