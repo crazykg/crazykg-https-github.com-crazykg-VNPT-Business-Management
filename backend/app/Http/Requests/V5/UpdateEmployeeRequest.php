@@ -32,6 +32,7 @@ class UpdateEmployeeRequest extends V5FormRequest
             'leave_date' => ['sometimes', 'nullable', 'date'],
             'phone_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'telechatbot' => ['sometimes', 'nullable', 'string', 'max:255'],
             'gender' => ['sometimes', 'nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['sometimes', 'nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['sometimes', 'nullable', 'string', 'max:45'],

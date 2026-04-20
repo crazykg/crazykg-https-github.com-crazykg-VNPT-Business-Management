@@ -14,6 +14,24 @@ import {
   parseItemJson,
 } from './_infra';
 
+export interface SendReminderTelegramPayload {
+  recipient_user_id: string | number;
+}
+
+export interface SendReminderTelegramResult {
+  status: 'SENT';
+  message?: string;
+  recipient_user_id: string;
+  recipient_name?: string;
+  sent_at?: string | null;
+  reminder?: {
+    id: string;
+    title: string;
+    remindDate: string;
+  };
+}
+
+
 export const fetchDocuments = async (): Promise<Document[]> => fetchList<Document>('/api/v5/documents');
 
 export const fetchDocumentsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Document>> =>
@@ -94,6 +112,24 @@ export const sendReminderEmail = async (
   }
 
   return res.json() as Promise<SendReminderEmailResult>;
+};
+
+export const sendReminderTelegram = async (
+  reminderId: string,
+  payload: SendReminderTelegramPayload
+): Promise<SendReminderTelegramResult> => {
+  const res = await apiFetch(`/api/v5/reminders/${encodeURIComponent(reminderId)}/send-telegram`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ recipient_user_id: normalizeNullableNumber(payload.recipient_user_id) }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'SEND_REMINDER_TELEGRAM_FAILED'));
+  }
+
+  return res.json() as Promise<SendReminderTelegramResult>;
 };
 
 export const createDocument = async (payload: Partial<Document>): Promise<Document> => {

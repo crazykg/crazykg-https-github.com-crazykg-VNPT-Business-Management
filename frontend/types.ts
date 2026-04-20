@@ -5,7 +5,14 @@ export type { EmployeePartyProfile, EmployeePartyProfileQuality, EmployeePartyLi
 export type { ProductFeatureCatalogListPage } from './types/product';
 export type { RevenueSuggestionResponse, RevenueSuggestionPreview, RevenueSuggestionPreviewContractSource } from './types/revenue';
 export type { UpsellProductDetail } from './types/customer';
-export type { EmailSmtpIntegrationSettings, EmailSmtpIntegrationSettingsUpdatePayload } from './types/admin';
+export type {
+  EmailSmtpIntegrationSettings,
+  EmailSmtpIntegrationSettingsUpdatePayload,
+  TelegramIntegrationSettings,
+  TelegramIntegrationSettingsUpdatePayload,
+  TelegramIntegrationSettingsTestPayload,
+  TelegramIntegrationSettingsTestResult,
+} from './types/admin';
 export type { ContractSignerOption } from './types/contract';
 
 export interface UserDeptScope {
@@ -535,6 +542,7 @@ export interface Employee {
   phone?: string | null;
   phone_number?: string | null;
   mobile?: string | null;
+  telechatbot?: string | null;
   status: EmployeeStatus;
   position_code?: string | null;
   position_name?: string | null;

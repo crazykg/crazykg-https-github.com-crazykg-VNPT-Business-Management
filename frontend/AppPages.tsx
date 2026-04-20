@@ -21,6 +21,7 @@ import {
   Document,
   Reminder,
   SendReminderEmailResult,
+  SendReminderTelegramResult,
   SupportServiceGroup,
   SupportContactPosition,
   ProductUnitMaster,
@@ -40,6 +41,10 @@ import {
   ContractExpiryAlertSettings,
   ContractPaymentAlertSettings,
   ContractPaymentAlertSettingsUpdatePayload,
+  TelegramIntegrationSettings,
+  TelegramIntegrationSettingsTestPayload,
+  TelegramIntegrationSettingsTestResult,
+  TelegramIntegrationSettingsUpdatePayload,
   ContractAggregateKpis,
   CustomerAggregateKpis,
   PaginationMeta,
@@ -225,6 +230,10 @@ export interface AppPagesProps {
   handleCreateContractFromProject: (project: Project) => void;
   handleOpenProcedure: (project: Project) => void;
   onSendReminderEmail: (reminderId: string, recipientEmail: string) => Promise<SendReminderEmailResult>;
+  onSendReminderTelegram: (
+    reminderId: string,
+    recipientUserId: string | number
+  ) => Promise<SendReminderTelegramResult>;
   exportProjectsByCurrentQuery: () => Promise<Project[]>;
   exportProjectRaciByProjectIds: (projectIds: Array<string | number>) => Promise<ProjectRaciRow[]>;
   exportContractsByCurrentQuery: () => Promise<Contract[]>;
@@ -352,11 +361,13 @@ export interface AppPagesProps {
   backblazeB2Settings: BackblazeB2IntegrationSettings | null;
   googleDriveSettings: GoogleDriveIntegrationSettings | null;
   emailSmtpSettings: EmailSmtpIntegrationSettings | null;
+  telegramSettings: TelegramIntegrationSettings | null;
   contractExpiryAlertSettings: ContractExpiryAlertSettings | null;
   contractPaymentAlertSettings: ContractPaymentAlertSettings | null;
   isBackblazeB2SettingsLoading: boolean;
   isGoogleDriveSettingsLoading: boolean;
   isEmailSmtpSettingsLoading: boolean;
+  isTelegramSettingsLoading: boolean;
   isContractExpiryAlertSettingsLoading: boolean;
   isContractPaymentAlertSettingsLoading: boolean;
   isGoogleDriveSettingsSaving: boolean;
@@ -365,12 +376,15 @@ export interface AppPagesProps {
   isBackblazeB2SettingsTesting: boolean;
   isEmailSmtpSettingsSaving: boolean;
   isEmailSmtpSettingsTesting: boolean;
+  isTelegramSettingsSaving: boolean;
+  isTelegramSettingsTesting: boolean;
   isContractExpiryAlertSettingsSaving: boolean;
   isContractPaymentAlertSettingsSaving: boolean;
   refreshIntegrationSettings: () => Promise<void>;
   handleSaveBackblazeB2Settings: (payload: BackblazeB2IntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveGoogleDriveSettings: (payload: GoogleDriveIntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveEmailSmtpSettings: (payload: EmailSmtpIntegrationSettingsUpdatePayload) => Promise<void>;
+  handleSaveTelegramSettings: (payload: TelegramIntegrationSettingsUpdatePayload) => Promise<void>;
   handleSaveContractExpiryAlertSettings: (payload: ContractExpiryAlertSettingsUpdatePayload) => Promise<void>;
   handleSaveContractPaymentAlertSettings: (payload: ContractPaymentAlertSettingsUpdatePayload) => Promise<void>;
   handleTestBackblazeB2Integration: (
@@ -398,6 +412,10 @@ export interface AppPagesProps {
     tested_at?: string | null;
     persisted?: boolean;
   }>;
+  handleTestTelegramIntegration: (
+    payload?: TelegramIntegrationSettingsTestPayload
+  ) => Promise<TelegramIntegrationSettingsTestResult>;
+  onSaveEmployeeTelegramChatId: (employee: Employee, telechatbot: string | null) => Promise<void>;
 }
 
 export const AppPages: React.FC<AppPagesProps> = ({
@@ -477,6 +495,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
   handleCreateContractFromProject,
   handleOpenProcedure,
   onSendReminderEmail,
+  onSendReminderTelegram,
   exportProjectsByCurrentQuery,
   exportProjectRaciByProjectIds,
   exportContractsByCurrentQuery,
@@ -508,11 +527,13 @@ export const AppPages: React.FC<AppPagesProps> = ({
   backblazeB2Settings,
   googleDriveSettings,
   emailSmtpSettings,
+  telegramSettings,
   contractExpiryAlertSettings,
   contractPaymentAlertSettings,
   isBackblazeB2SettingsLoading,
   isGoogleDriveSettingsLoading,
   isEmailSmtpSettingsLoading,
+  isTelegramSettingsLoading,
   isContractExpiryAlertSettingsLoading,
   isContractPaymentAlertSettingsLoading,
   isGoogleDriveSettingsSaving,
@@ -521,17 +542,22 @@ export const AppPages: React.FC<AppPagesProps> = ({
   isBackblazeB2SettingsTesting,
   isEmailSmtpSettingsSaving,
   isEmailSmtpSettingsTesting,
+  isTelegramSettingsSaving,
+  isTelegramSettingsTesting,
   isContractExpiryAlertSettingsSaving,
   isContractPaymentAlertSettingsSaving,
   refreshIntegrationSettings,
   handleSaveBackblazeB2Settings,
   handleSaveGoogleDriveSettings,
   handleSaveEmailSmtpSettings,
+  handleSaveTelegramSettings,
   handleSaveContractExpiryAlertSettings,
   handleSaveContractPaymentAlertSettings,
   handleTestBackblazeB2Integration,
   handleTestGoogleDriveIntegration,
   handleTestEmailSmtpIntegration,
+  handleTestTelegramIntegration,
+  onSaveEmployeeTelegramChatId,
 }) => {
   const projectLinkedContracts = React.useMemo(
     () => (contracts || []).filter((contract) => isProjectLinkedContract(contract)),
@@ -737,9 +763,14 @@ export const AppPages: React.FC<AppPagesProps> = ({
           employees={employees}
           onOpenModal={handleOpenModal}
           canSendReminderEmail={hasPermission(authUser, 'reminders.write')}
+          canSendReminderTelegram={hasPermission(authUser, 'reminders.write')}
           onSendReminderEmail={async (item, recipientEmail) => {
             const result = await onSendReminderEmail(item.id, recipientEmail);
             addToast('success', 'Gửi mail nhắc việc', result.message || 'Đã gửi email thành công.');
+          }}
+          onSendReminderTelegram={async (item, recipientUserId) => {
+            const result = await onSendReminderTelegram(item.id, recipientUserId);
+            addToast('success', 'Gửi Telegram nhắc việc', result.message || 'Đã gửi Telegram thành công.');
           }}
         />
       )}
@@ -900,26 +931,33 @@ export const AppPages: React.FC<AppPagesProps> = ({
           backblazeB2Settings={backblazeB2Settings}
           settings={googleDriveSettings}
           emailSmtpSettings={emailSmtpSettings}
+          telegramSettings={telegramSettings}
           contractExpiryAlertSettings={contractExpiryAlertSettings}
           contractPaymentAlertSettings={contractPaymentAlertSettings}
-          isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isEmailSmtpSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
+          employees={employees}
+          isLoading={isBackblazeB2SettingsLoading || isGoogleDriveSettingsLoading || isEmailSmtpSettingsLoading || isTelegramSettingsLoading || isContractExpiryAlertSettingsLoading || isContractPaymentAlertSettingsLoading}
           isSaving={isGoogleDriveSettingsSaving}
           isTesting={isGoogleDriveSettingsTesting}
           isSavingBackblazeB2={isBackblazeB2SettingsSaving}
           isTestingBackblazeB2={isBackblazeB2SettingsTesting}
           isSavingEmailSmtp={isEmailSmtpSettingsSaving}
           isTestingEmailSmtp={isEmailSmtpSettingsTesting}
+          isSavingTelegram={isTelegramSettingsSaving}
+          isTestingTelegram={isTelegramSettingsTesting}
           isSavingContractExpiryAlert={isContractExpiryAlertSettingsSaving}
           isSavingContractPaymentAlert={isContractPaymentAlertSettingsSaving}
           onRefresh={refreshIntegrationSettings}
           onSaveBackblazeB2={handleSaveBackblazeB2Settings}
           onSave={handleSaveGoogleDriveSettings}
           onSaveEmailSmtp={handleSaveEmailSmtpSettings}
+          onSaveTelegram={handleSaveTelegramSettings}
           onSaveContractExpiryAlert={handleSaveContractExpiryAlertSettings}
           onSaveContractPaymentAlert={handleSaveContractPaymentAlertSettings}
           onTestBackblazeB2={handleTestBackblazeB2Integration}
           onTest={handleTestGoogleDriveIntegration}
           onTestEmailSmtp={handleTestEmailSmtpIntegration}
+          onTestTelegram={handleTestTelegramIntegration}
+          onSaveEmployeeTelegramChatId={onSaveEmployeeTelegramChatId}
         />
       )}
 

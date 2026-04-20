@@ -27,6 +27,7 @@ class InternalUser extends Authenticatable
         'job_title_raw',
         'date_of_birth',
         'leave_date',
+        'telechatbot',
         'gender',
         'vpn_status',
         'ip_address',

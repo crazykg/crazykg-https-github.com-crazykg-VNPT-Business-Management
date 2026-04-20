@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchUserAccess,
   updateGoogleDriveIntegrationSettings,
+  updateTelegramIntegrationSettings,
 } from '../services/api/adminApi';
 
 const fetchMock = vi.fn();
@@ -61,6 +62,32 @@ describe('adminApi module', () => {
       file_prefix: 'docs',
       service_account_json: '{"key":"x"}',
       clear_service_account_json: false,
+    });
+  });
+
+  it('normalizes Telegram settings fields before submit', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: { provider: 'TELEGRAM', enabled: true } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await updateTelegramIntegrationSettings({
+      enabled: true,
+      bot_username: ' vnpt_notify_bot ',
+      bot_token: ' 123:abc ',
+      clear_bot_token: false,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    const payload = JSON.parse(String(init.body));
+
+    expect(payload).toMatchObject({
+      enabled: true,
+      bot_username: 'vnpt_notify_bot',
+      bot_token: '123:abc',
+      clear_bot_token: false,
     });
   });
 });

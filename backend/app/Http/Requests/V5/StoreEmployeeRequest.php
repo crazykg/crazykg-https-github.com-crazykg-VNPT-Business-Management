@@ -31,6 +31,7 @@ class StoreEmployeeRequest extends V5FormRequest
             'leave_date' => ['nullable', 'date'],
             'phone_number' => ['nullable', 'string', 'max:50'],
             'phone' => ['nullable', 'string', 'max:50'],
+            'telechatbot' => ['nullable', 'string', 'max:255'],
             'gender' => ['nullable', Rule::in(['MALE', 'FEMALE', 'OTHER'])],
             'vpn_status' => ['nullable', Rule::in(['YES', 'NO'])],
             'ip_address' => ['nullable', 'string', 'max:45'],

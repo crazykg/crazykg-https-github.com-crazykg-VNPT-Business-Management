@@ -9,6 +9,8 @@ const fetchAuthBootstrapMock = vi.hoisted(() => vi.fn());
 const fetchBackblazeB2IntegrationSettingsMock = vi.hoisted(() => vi.fn());
 const fetchGoogleDriveIntegrationSettingsMock = vi.hoisted(() => vi.fn());
 const fetchEmailSmtpIntegrationSettingsMock = vi.hoisted(() => vi.fn());
+const fetchTelegramIntegrationSettingsMock = vi.hoisted(() => vi.fn());
+const fetchEmployeesMock = vi.hoisted(() => vi.fn());
 const fetchContractExpiryAlertSettingsMock = vi.hoisted(() => vi.fn());
 const fetchContractPaymentAlertSettingsMock = vi.hoisted(() => vi.fn());
 const registerTabEvictedHandlerMock = vi.hoisted(() => vi.fn());
@@ -67,6 +69,7 @@ vi.mock('../AppPages', () => ({
   AppPages: ({
     activeTab,
     emailSmtpSettings,
+    telegramSettings,
   }: {
     activeTab: string;
     emailSmtpSettings: {
@@ -74,12 +77,20 @@ vi.mock('../AppPages', () => ({
       source?: string | null;
       is_enabled?: boolean | null;
     } | null;
+    telegramSettings: {
+      bot_username?: string | null;
+      source?: string | null;
+      enabled?: boolean | null;
+    } | null;
   }) => (
     <div>
       <div data-testid="active-tab">{activeTab}</div>
       <div data-testid="smtp-username">{emailSmtpSettings?.smtp_username ?? '--'}</div>
       <div data-testid="smtp-source">{emailSmtpSettings?.source ?? '--'}</div>
       <div data-testid="smtp-enabled">{String(emailSmtpSettings?.is_enabled ?? false)}</div>
+      <div data-testid="telegram-username">{telegramSettings?.bot_username ?? '--'}</div>
+      <div data-testid="telegram-source">{telegramSettings?.source ?? '--'}</div>
+      <div data-testid="telegram-enabled">{String(telegramSettings?.enabled ?? false)}</div>
     </div>
   ),
 }));
@@ -93,6 +104,8 @@ vi.mock('../services/v5Api', async () => {
     fetchBackblazeB2IntegrationSettings: fetchBackblazeB2IntegrationSettingsMock,
     fetchGoogleDriveIntegrationSettings: fetchGoogleDriveIntegrationSettingsMock,
     fetchEmailSmtpIntegrationSettings: fetchEmailSmtpIntegrationSettingsMock,
+    fetchTelegramIntegrationSettings: fetchTelegramIntegrationSettingsMock,
+    fetchEmployees: fetchEmployeesMock,
     fetchContractExpiryAlertSettings: fetchContractExpiryAlertSettingsMock,
     fetchContractPaymentAlertSettings: fetchContractPaymentAlertSettingsMock,
     registerTabEvictedHandler: registerTabEvictedHandlerMock,
@@ -161,6 +174,14 @@ describe('Integration settings initial load', () => {
       source: 'DB',
     });
 
+    fetchTelegramIntegrationSettingsMock.mockResolvedValue({
+      provider: 'TELEGRAM',
+      enabled: true,
+      bot_username: 'vnpt_notify_bot',
+      has_bot_token: true,
+      source: 'DB',
+    });
+
     fetchContractExpiryAlertSettingsMock.mockResolvedValue({
       provider: 'CONTRACT_ALERT',
       warning_days: 30,
@@ -172,6 +193,8 @@ describe('Integration settings initial load', () => {
       warning_days: 15,
       source: 'DB',
     });
+
+    fetchEmployeesMock.mockResolvedValue([]);
   });
 
   it('loads Email SMTP settings immediately when opening the integration settings route', async () => {
@@ -183,12 +206,17 @@ describe('Integration settings initial load', () => {
 
     await waitFor(() => {
       expect(fetchEmailSmtpIntegrationSettingsMock).toHaveBeenCalledTimes(1);
+      expect(fetchTelegramIntegrationSettingsMock).toHaveBeenCalledTimes(1);
+      expect(fetchEmployeesMock).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
       expect(screen.getByTestId('smtp-username')).toHaveTextContent('smtp@vnpt.test');
       expect(screen.getByTestId('smtp-source')).toHaveTextContent('DB');
       expect(screen.getByTestId('smtp-enabled')).toHaveTextContent('true');
+      expect(screen.getByTestId('telegram-username')).toHaveTextContent('vnpt_notify_bot');
+      expect(screen.getByTestId('telegram-source')).toHaveTextContent('DB');
+      expect(screen.getByTestId('telegram-enabled')).toHaveTextContent('true');
     });
   });
 });
