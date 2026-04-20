@@ -272,7 +272,7 @@ export interface ProcedureStepAttachment {
 export const fetchProjects = async (): Promise<Project[]> => fetchList<Project>('/api/v5/projects');
 
 export const fetchProjectsPage = async (query: PaginatedQuery): Promise<PaginatedResult<Project>> =>
-  fetchPaginatedList<Project>('/api/v5/projects', query);
+  fetchPaginatedList<Project>('/api/v5/projects', { ...query, simple: false });
 
 export const fetchProjectDetail = async (id: string | number): Promise<Project> => {
   const res = await apiFetch(`/api/v5/projects/${id}`, {

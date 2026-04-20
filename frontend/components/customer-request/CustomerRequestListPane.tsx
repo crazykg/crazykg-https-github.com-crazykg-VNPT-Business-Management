@@ -540,7 +540,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   );
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       {showFilterToolbar ? (
         <div className="shrink-0">
           <div className="sticky top-0 z-[60] rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-2 shadow-[var(--ui-shadow-shell)] backdrop-blur-xl">
@@ -695,8 +695,8 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        <div className="min-h-0 flex flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex h-full flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {showCardList ? (
               <div className="space-y-2 py-1">
@@ -796,17 +796,15 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         </div>
       </div>
 
-      {totalPages > 1 ? (
-        <div className="shrink-0 overflow-hidden rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 shadow-xl shadow-slate-200/50">
-          <PaginationControls
-            currentPage={safePage}
-            totalItems={listMeta.total}
-            rowsPerPage={rowsPerPage}
-            onPageChange={onListPageChange}
-            onRowsPerPageChange={onRowsPerPageChange}
-          />
-        </div>
-      ) : null}
+      <div className="shrink-0 overflow-hidden rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 shadow-xl shadow-slate-200/50">
+        <PaginationControls
+          currentPage={safePage}
+          totalItems={listMeta.total}
+          rowsPerPage={rowsPerPage}
+          onPageChange={onListPageChange}
+          onRowsPerPageChange={onRowsPerPageChange}
+        />
+      </div>
     </div>
   );
 };

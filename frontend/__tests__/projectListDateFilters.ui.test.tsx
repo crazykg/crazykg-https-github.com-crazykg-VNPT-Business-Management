@@ -371,6 +371,44 @@ describe('ProjectList date filters', () => {
     }));
   });
 
+  it('keeps manual-search mode and allows paging in server mode before first search click', async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={{
+          ...DEFAULT_PAGINATION_META,
+          total: 25,
+          total_pages: 3,
+        }}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    expect(onQueryChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '2' }));
+
+    await waitFor(() => {
+      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        page: 2,
+      }));
+    });
+
+    fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
+    await waitFor(() => {
+      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        page: 1,
+      }));
+    });
+  });
+
   it('vertically centers every project row cell', () => {
     render(
       <ProjectList

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchProjectImplementationUnitOptions,
   fetchProjectItemsOptionsPage,
+  fetchProjectsPage,
   updateProject,
 } from '../services/api/projectApi';
 
@@ -36,6 +37,36 @@ describe('projectApi module', () => {
     expect(String(url)).toContain('sort_by=id');
     expect(String(url)).toContain('sort_dir=asc');
     expect(String(url)).toContain('q=his');
+  });
+
+  it('forces non-simple pagination for project list queries so total stays stable across pages', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data: [], meta: { page: 2, per_page: 10, total: 11, total_pages: 2 } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await fetchProjectsPage({
+      page: 2,
+      per_page: 10,
+      simple: true,
+      sort_by: 'id',
+      sort_dir: 'desc',
+      filters: {
+        department_id: 1,
+        start_date_from: '2026-01-01',
+        start_date_to: '2026-04-30',
+      },
+    });
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/v5/projects?');
+    expect(String(url)).toContain('page=2');
+    expect(String(url)).toContain('per_page=10');
+    expect(String(url)).toContain('simple=0');
+    expect(String(url)).toContain('sort_by=id');
+    expect(String(url)).toContain('sort_dir=desc');
   });
 
   it('normalizes project mutation payload fields before submit', async () => {

@@ -22,7 +22,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = React.memo(
   totalPages,
   onPageChange,
   onRowsPerPageChange,
-  rowsPerPageOptions = [20, 50, 100, 200],
+  rowsPerPageOptions = [10, 20, 50, 100, 200],
   hidePageSummary = false,
 }) {
   const [jumpInput, setJumpInput] = useState('');

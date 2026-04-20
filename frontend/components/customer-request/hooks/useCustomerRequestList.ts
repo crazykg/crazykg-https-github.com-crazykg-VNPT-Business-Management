@@ -70,16 +70,17 @@ export const useCustomerRequestList = ({
 
   const listRows: YeuCau[] = enabled ? (listQuery.data?.data ?? []) : [];
   const listMeta: PaginationMeta = enabled ? (listQuery.data?.meta ?? DEFAULT_PAGINATION_META) : DEFAULT_PAGINATION_META;
+  const hasResolvedMeta = enabled && Boolean(listQuery.data?.meta);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!hasResolvedMeta) {
       return;
     }
 
     if (listMeta.total_pages > 0 && listPage > listMeta.total_pages) {
       onPageOverflow(listMeta.total_pages);
     }
-  }, [enabled, listMeta.total_pages, listPage, onPageOverflow]);
+  }, [hasResolvedMeta, listMeta.total_pages, listPage, onPageOverflow]);
 
   return {
     listRows,

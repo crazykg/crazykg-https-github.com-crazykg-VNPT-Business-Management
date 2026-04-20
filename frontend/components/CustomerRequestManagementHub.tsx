@@ -4589,7 +4589,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         </div>
       ) : activeSurface === 'list' ? (
         <>
-          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} flex-1 overflow-hidden`}>
+          <div className={`${layoutMode === 'mobile' ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-240px)] md:h-[calc(100vh-200px)]'} min-h-0 flex flex-1 flex-col overflow-hidden`}>
             <CustomerRequestListPane {...listPaneProps} />
           </div>
         </>

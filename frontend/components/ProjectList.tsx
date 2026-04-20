@@ -541,7 +541,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   );
 
   const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) setCurrentPage(page);
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      if (serverMode) {
+        setSearchTrigger((previous) => (previous === 0 ? 1 : previous));
+      }
+    }
   };
 
   const handleSort = (key: keyof Project) => {
