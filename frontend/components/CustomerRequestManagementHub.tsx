@@ -1388,6 +1388,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     dataVersion,
     requestKeyword,
     filters: listFilters,
+    currentUserId,
     onError: handleListError,
     onPageOverflow: handlePageOverflow,
   });

@@ -62,7 +62,10 @@ describe('CustomerRequestListPane UI', () => {
     const onRequestPriorityFilterChange = vi.fn();
     const onRequestCustomerFilterChange = vi.fn();
     const rows = [
-      makeRequest(),
+      makeRequest({
+        to_user_id_name: 'Phan Văn Rở',
+        performer_name: 'Ngô Dev',
+      }),
       makeRequest({
         id: 33,
         ma_yc: 'CRC-202603-0033',
@@ -146,6 +149,7 @@ describe('CustomerRequestListPane UI', () => {
     expect(screen.queryByText(/Hạn:/)).not.toBeInTheDocument();
     const requestRow = screen.getByText('CRC-202603-0022').closest('tr');
     expect(requestRow).not.toBeNull();
+    expect(within(requestRow as HTMLTableRowElement).getByText('Phan Văn Rở')).toBeInTheDocument();
     expect(within(requestRow as HTMLTableRowElement).getAllByText(/Đang xử lý/i)).toHaveLength(1);
     expect(within(requestRow as HTMLTableRowElement).queryByText('20/03/2026 15:00')).not.toBeInTheDocument();
     expect(within(requestRow as HTMLTableRowElement).getByText('21/03/2026 15:30')).toBeInTheDocument();

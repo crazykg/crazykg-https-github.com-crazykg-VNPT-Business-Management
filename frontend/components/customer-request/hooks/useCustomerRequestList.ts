@@ -23,6 +23,7 @@ type UseCustomerRequestListOptions = {
     over_estimate?: 1 | undefined;
     sla_risk?: 1 | undefined;
   };
+  currentUserId?: string | number | null;
   onError: (message: string) => void;
   onPageOverflow: (page: number) => void;
 };
@@ -36,6 +37,7 @@ export const useCustomerRequestList = ({
   dataVersion,
   requestKeyword,
   filters,
+  currentUserId,
   onError,
   onPageOverflow,
 }: UseCustomerRequestListOptions) => {
@@ -45,10 +47,11 @@ export const useCustomerRequestList = ({
     {
       page: listPage,
       per_page: pageSize,
-      sort_by: 'updated_at',
-      sort_dir: 'desc',
+      sort_by: 'to_user_id_name',
+      sort_dir: 'asc',
       process_code: activeProcessCode || undefined,
       q: requestKeyword,
+      prioritize_my_cases: currentUserId ? 1 : undefined,
       filters,
     },
     { enabled }

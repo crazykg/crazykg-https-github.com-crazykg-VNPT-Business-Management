@@ -13,7 +13,6 @@ import { useImportProducts } from './hooks/useImportProducts';
 import { useImportProductPackages } from './hooks/useImportProductPackages';
 import { useCustomerPersonnel } from './hooks/useCustomerPersonnel';
 import { useToastQueue } from './hooks/useToastQueue';
-import { useTabSession } from './hooks/useTabSession';
 import type { InternalUserSubTab } from './components/InternalUserModuleTabs';
 import type {
   ImportPayload,
@@ -73,7 +72,7 @@ import {
   createVendor, updateVendor, deleteVendor, createProduct, updateProduct, deleteProduct,
   createCustomer, updateCustomer, deleteCustomer, createProject, updateProject, deleteProject, fetchProjectDetail,
   fetchProjectRaciAssignments, createDocument, updateDocument, deleteDocument,
-  isRequestCanceledError, isTabEvictedMessage, registerTabEvictedHandler, unregisterTabEvictedHandler,
+  isRequestCanceledError, isTabEvictedMessage,
 } from './services/v5Api';
 import { fetchFeedbackDetail } from './services/api/adminApi';
 import {
@@ -526,13 +525,6 @@ const App: React.FC = () => {
     setLoginError('');
     setLoginInfoMessage('Tài khoản đã được đăng nhập trên một cửa sổ/tab khác. Vui lòng đăng nhập lại để tiếp tục.');
   }, [clearToasts]);
-
-  React.useEffect(() => {
-    registerTabEvictedHandler(handleTabEvicted);
-    return () => unregisterTabEvictedHandler();
-  }, [handleTabEvicted]);
-
-  useTabSession({ isAuthenticated: authUser !== null, onEvicted: handleTabEvicted });
 
   // Auth handlers
   const handleLogin = async (payload: { username: string; password: string }) => {

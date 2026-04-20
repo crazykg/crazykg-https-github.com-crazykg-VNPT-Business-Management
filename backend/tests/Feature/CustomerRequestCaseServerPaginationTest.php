@@ -71,4 +71,95 @@ class CustomerRequestCaseServerPaginationTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', $firstCaseId);
     }
+
+    public function test_simple_pagination_total_remains_consistent_across_per_page_values(): void
+    {
+        for ($i = 1; $i <= 12; $i++) {
+            $response = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+                'master_payload' => [
+                    'summary' => "Yêu cầu phân trang {$i}",
+                ],
+            ]))->assertCreated();
+
+            DB::table('customer_request_cases')
+                ->where('id', (int) $response->json('data.request_case.id'))
+                ->update([
+                    'dispatcher_user_id' => 2,
+                    'performer_user_id' => 3,
+                    'updated_at' => sprintf('2026-04-%02d 08:00:00', min($i, 28)),
+                ]);
+        }
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=2&my_role=dispatcher&page=1&per_page=20&simple=1')
+            ->assertOk()
+            ->assertJsonPath('meta.page', 1)
+            ->assertJsonPath('meta.per_page', 20)
+            ->assertJsonPath('meta.total', 12)
+            ->assertJsonPath('meta.total_pages', 1)
+            ->assertJsonCount(12, 'data');
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=2&my_role=dispatcher&page=1&per_page=10&simple=1')
+            ->assertOk()
+            ->assertJsonPath('meta.page', 1)
+            ->assertJsonPath('meta.per_page', 10)
+            ->assertJsonPath('meta.total', 12)
+            ->assertJsonPath('meta.total_pages', 2)
+            ->assertJsonCount(10, 'data');
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=2&my_role=dispatcher&page=2&per_page=10&simple=1')
+            ->assertOk()
+            ->assertJsonPath('meta.page', 2)
+            ->assertJsonPath('meta.per_page', 10)
+            ->assertJsonPath('meta.total', 12)
+            ->assertJsonPath('meta.total_pages', 2)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_index_can_sort_by_handler_name_and_prioritize_current_user_cases(): void
+    {
+        $alphaResponse = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'summary' => 'Yêu cầu Alpha',
+            ],
+        ]))->assertCreated();
+        $alphaCaseId = (int) $alphaResponse->json('data.request_case.id');
+
+        $betaResponse = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'summary' => 'Yêu cầu Beta',
+            ],
+        ]))->assertCreated();
+        $betaCaseId = (int) $betaResponse->json('data.request_case.id');
+
+        DB::table('customer_request_cases')
+            ->where('id', $alphaCaseId)
+            ->update([
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 1,
+                'nguoi_xu_ly_id' => 1,
+                'updated_at' => '2026-04-21 09:00:00',
+            ]);
+
+        DB::table('customer_request_cases')
+            ->where('id', $betaCaseId)
+            ->update([
+                'dispatcher_user_id' => 2,
+                'performer_user_id' => 3,
+                'nguoi_xu_ly_id' => 3,
+                'updated_at' => '2026-04-21 10:00:00',
+            ]);
+
+        DB::table('internal_users')->where('id', 1)->update(['full_name' => 'An']);
+        DB::table('internal_users')->where('id', 3)->update(['full_name' => 'Bình']);
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=3&sort_by=to_user_id_name&sort_dir=asc')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $betaCaseId)
+            ->assertJsonPath('data.1.id', $alphaCaseId);
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=3&sort_by=to_user_id_name&sort_dir=asc&prioritize_my_cases=0')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $alphaCaseId)
+            ->assertJsonPath('data.1.id', $betaCaseId);
+    }
 }

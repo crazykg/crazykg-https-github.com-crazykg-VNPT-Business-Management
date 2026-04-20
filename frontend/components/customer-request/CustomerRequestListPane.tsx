@@ -85,6 +85,7 @@ const resolveCompletedLabel = (row: YeuCau): string =>
 
 const resolveHandlerSummaryMeta = (row: YeuCau): { label: string; hint: string } => {
   const handler =
+    row.to_user_id_name ||
     row.nguoi_xu_ly_name ||
     row.performer_name ||
     row.receiver_name ||

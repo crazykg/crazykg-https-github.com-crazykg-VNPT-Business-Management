@@ -360,6 +360,10 @@ class TelegramIntegrationService
         }
 
         $offset = $this->readPollingOffset();
+        if ($offset > 1_000_000_000) {
+            $offset = 0;
+            $this->writePollingOffset(0);
+        }
 
         try {
             $response = Http::acceptJson()
@@ -483,7 +487,9 @@ class TelegramIntegrationService
     {
         $normalized = strtolower(trim($text));
 
-        return $normalized === '/start' || str_starts_with($normalized, '/start ');
+        return $normalized === '/start'
+            || str_starts_with($normalized, '/start ')
+            || str_starts_with($normalized, '/start@');
     }
 
     private function resolveRuntimeToken(mixed $runtimeToken = null, ?array $settingsRow = null): ?string
