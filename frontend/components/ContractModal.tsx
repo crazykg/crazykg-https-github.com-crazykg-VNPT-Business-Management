@@ -787,6 +787,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     [contractSignerOptions, formData.signer_user_id]
   );
 
+  const selectedProjectItems = useMemo(
+    () => (projectItems || []).filter((item) => String(item.project_id || '') === String(formData.project_id || '')),
+    [projectItems, formData.project_id]
+  );
+
   const productSelectOptions = useMemo(
     () => {
       const options: Array<{
@@ -795,24 +800,77 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         searchText: string;
       }> = [];
       const seen = new Set<string>();
+      const selectedProjectId = String(formData.project_id || '').trim();
 
-      (productPackages || []).forEach((productPackage) => {
-        const optionValue = buildContractPackageCatalogValue(productPackage.id);
-        if (!optionValue || seen.has(optionValue)) {
+      const pushOption = (value: string, label: string, searchParts: Array<unknown>) => {
+        if (!value || seen.has(value)) {
           return;
         }
 
-        const parentProduct = productById.get(String(productPackage.product_id ?? '').trim()) || null;
-        const packageName = String(productPackage.package_name || '').trim();
-        const fallbackName = String(productPackage.product_name || '').trim()
-          || String(parentProduct?.product_name || '').trim();
-        const label = packageName || fallbackName || String(productPackage.package_code || '').trim() || `Gói cước #${productPackage.id}`;
-        const resolvedUnit = String(productPackage.unit || '').trim() || String(parentProduct?.unit || '').trim();
-
         options.push({
-          value: optionValue,
+          value,
           label,
-          searchText: [
+          searchText: searchParts.filter(Boolean).join(' '),
+        });
+        seen.add(value);
+      };
+
+      if (selectedProjectId) {
+        selectedProjectItems.forEach((projectItem) => {
+          const packageId = String(projectItem.product_package_id ?? '').trim();
+          const productId = String(projectItem.product_id ?? '').trim();
+          const productPackage = packageId ? (packageById.get(packageId) || null) : null;
+          const product = productId ? (productById.get(productId) || null) : null;
+          const optionValue = packageId
+            ? buildContractPackageCatalogValue(packageId)
+            : buildContractProductCatalogValue(productId);
+
+          if (!optionValue) {
+            return;
+          }
+
+          const projectItemDisplayName = String(projectItem.display_name || '').trim();
+          const projectItemCode = String(projectItem.product_code || '').trim()
+            || String(productPackage?.package_code || '').trim()
+            || String(product?.product_code || '').trim();
+          const projectItemName = projectItemDisplayName
+            || String(projectItem.product_name || '').trim()
+            || String(productPackage?.package_name || '').trim()
+            || String(productPackage?.product_name || '').trim()
+            || String(product?.product_name || '').trim();
+          const label = projectItemDisplayName
+            || (
+              projectItemCode && projectItemName
+                ? `${projectItemCode} - ${projectItemName}`
+                : projectItemName || projectItemCode || (packageId ? `Gói cước #${packageId}` : `Sản phẩm #${productId}`)
+            );
+          const resolvedUnit = String(projectItem.unit || '').trim()
+            || String(productPackage?.unit || '').trim()
+            || String(product?.unit || '').trim();
+
+          pushOption(optionValue, label, [
+            projectItem.display_name,
+            projectItem.product_code,
+            projectItem.product_name,
+            productPackage?.package_code,
+            productPackage?.package_name,
+            productPackage?.product_name,
+            product?.product_code,
+            product?.product_name,
+            resolvedUnit,
+          ]);
+        });
+      } else {
+        (productPackages || []).forEach((productPackage) => {
+          const optionValue = buildContractPackageCatalogValue(productPackage.id);
+          const parentProduct = productById.get(String(productPackage.product_id ?? '').trim()) || null;
+          const packageName = String(productPackage.package_name || '').trim();
+          const fallbackName = String(productPackage.product_name || '').trim()
+            || String(parentProduct?.product_name || '').trim();
+          const label = packageName || fallbackName || String(productPackage.package_code || '').trim() || `Gói cước #${productPackage.id}`;
+          const resolvedUnit = String(productPackage.unit || '').trim() || String(parentProduct?.unit || '').trim();
+
+          pushOption(optionValue, label, [
             productPackage.package_code,
             productPackage.package_name,
             productPackage.product_name,
@@ -820,16 +878,36 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             parentProduct?.product_code,
             parentProduct?.product_name,
             resolvedUnit,
-          ]
-            .filter(Boolean)
-            .join(' '),
+          ]);
         });
-        seen.add(optionValue);
-      });
+      }
 
       draftItems.forEach((item) => {
         const packageId = String(item.productPackageId ?? item.product_package_id ?? '').trim();
         if (packageId) {
+          const productPackage = packageById.get(packageId) || null;
+          const productId = String(productPackage?.product_id ?? item.product_id ?? '').trim();
+          const product = productById.get(productId) || null;
+          const label = String(item.product_name || '').trim()
+            || String(productPackage?.package_name || '').trim()
+            || String(product?.product_name || '').trim()
+            || String(productPackage?.package_code || '').trim()
+            || String(product?.product_code || '').trim()
+            || `Gói cước #${packageId}`;
+          const resolvedUnit = String(item.unit || '').trim()
+            || String(productPackage?.unit || '').trim()
+            || String(product?.unit || '').trim();
+
+          pushOption(buildContractPackageCatalogValue(packageId), label, [
+            item.product_code,
+            item.product_name,
+            productPackage?.package_code,
+            productPackage?.package_name,
+            productPackage?.product_name,
+            product?.product_code,
+            product?.product_name,
+            resolvedUnit,
+          ]);
           return;
         }
 
@@ -843,30 +921,22 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           return;
         }
 
-        const optionValue = buildContractProductCatalogValue(product.id);
-        if (!optionValue || seen.has(optionValue)) {
-          return;
-        }
-
-        options.push({
-          value: optionValue,
-          label: String(item.product_name || '').trim() || product.product_name || product.product_code || `Sản phẩm #${product.id}`,
-          searchText: [
+        pushOption(
+          buildContractProductCatalogValue(product.id),
+          String(item.product_name || '').trim() || product.product_name || product.product_code || `Sản phẩm #${product.id}`,
+          [
             product.product_code,
             product.product_name,
             item.product_name,
             product.unit,
             item.unit,
           ]
-            .filter(Boolean)
-            .join(' '),
-        });
-        seen.add(optionValue);
+        );
       });
 
       return options;
     },
-    [draftItems, productById, productPackages]
+    [draftItems, formData.project_id, packageById, productById, productPackages, selectedProjectItems]
   );
 
   const selectedProjectCustomer = useMemo(
@@ -879,10 +949,6 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     [projectTotals, formData.project_id]
   );
 
-  const selectedProjectItems = useMemo(
-    () => (projectItems || []).filter((item) => String(item.project_id || '') === String(formData.project_id || '')),
-    [projectItems, formData.project_id]
-  );
   const currentContractMode = contractSourceMode;
   const isProjectSelectionLoading = isProjectsLoading && projects.length === 0;
   const isInitialCustomerSelectionLoading = isCustomersLoading && customers.length === 0;

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PaginatedQuery } from '../../types';
+import { DateRangePresets } from '../../utils/dateRangePresets';
 
 export type FilterTabKey =
   | 'employeesPage'
@@ -18,17 +19,25 @@ const cloneQuery = (query: PaginatedQuery): PaginatedQuery => ({
   filters: query.filters ? { ...query.filters } : {},
 });
 
-const formatDateForFilter = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-export const getProjectsPageDefaultDateFilters = (): { start_date_from: string; start_date_to: string } => ({
-  start_date_from: '',
-  start_date_to: '',
+const mergeQueryWithFilters = (
+  baseQuery: PaginatedQuery,
+  incomingQuery?: Partial<PaginatedQuery> | PaginatedQuery
+): PaginatedQuery => ({
+  ...baseQuery,
+  ...(incomingQuery ?? {}),
+  filters: incomingQuery?.filters
+    ? { ...(baseQuery.filters || {}), ...incomingQuery.filters }
+    : { ...(baseQuery.filters || {}) },
 });
+
+export const getProjectsPageDefaultDateFilters = (): { start_date_from: string; start_date_to: string } => {
+  const dateRange = DateRangePresets.currentYearStartToCurrentMonthEnd();
+
+  return {
+    start_date_from: dateRange.from,
+    start_date_to: dateRange.to,
+  };
+};
 
 export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
   employeesPage: { page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} },
@@ -50,17 +59,29 @@ export const FILTER_DEFAULTS: Record<FilterTabKey, PaginatedQuery> = {
   feedbacksPage: { page: 1, per_page: 20, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} },
 };
 
+export const getDefaultTabFilter = (tab: FilterTabKey): PaginatedQuery => {
+  const baseQuery = FILTER_DEFAULTS[tab];
+
+  if (tab !== 'projectsPage') {
+    return cloneQuery(baseQuery);
+  }
+
+  return cloneQuery(mergeQueryWithFilters(baseQuery, {
+    filters: getProjectsPageDefaultDateFilters(),
+  }));
+};
+
 const buildInitialFilters = (): Record<FilterTabKey, PaginatedQuery> => ({
-  employeesPage: cloneQuery(FILTER_DEFAULTS.employeesPage),
-  partyProfilesPage: cloneQuery(FILTER_DEFAULTS.partyProfilesPage),
-  customersPage: cloneQuery(FILTER_DEFAULTS.customersPage),
-  projectsPage: cloneQuery(FILTER_DEFAULTS.projectsPage),
-  productsPage: cloneQuery(FILTER_DEFAULTS.productsPage),
-  contractsPage: cloneQuery(FILTER_DEFAULTS.contractsPage),
-  passContractsPage: cloneQuery(FILTER_DEFAULTS.passContractsPage),
-  documentsPage: cloneQuery(FILTER_DEFAULTS.documentsPage),
-  auditLogsPage: cloneQuery(FILTER_DEFAULTS.auditLogsPage),
-  feedbacksPage: cloneQuery(FILTER_DEFAULTS.feedbacksPage),
+  employeesPage: getDefaultTabFilter('employeesPage'),
+  partyProfilesPage: getDefaultTabFilter('partyProfilesPage'),
+  customersPage: getDefaultTabFilter('customersPage'),
+  projectsPage: getDefaultTabFilter('projectsPage'),
+  productsPage: getDefaultTabFilter('productsPage'),
+  contractsPage: getDefaultTabFilter('contractsPage'),
+  passContractsPage: getDefaultTabFilter('passContractsPage'),
+  documentsPage: getDefaultTabFilter('documentsPage'),
+  auditLogsPage: getDefaultTabFilter('auditLogsPage'),
+  feedbacksPage: getDefaultTabFilter('feedbacksPage'),
 });
 
 interface FilterState {
@@ -75,32 +96,32 @@ export const useFilterStore = create<FilterState>((set, get) => ({
   tabFilters: buildInitialFilters(),
 
   setTabFilter: (tab, query) =>
-    set((state) => ({
-      tabFilters: {
-        ...state.tabFilters,
-        [tab]: {
-          ...cloneQuery(state.tabFilters[tab] ?? FILTER_DEFAULTS[tab]),
-          ...query,
-          filters: query.filters ? { ...query.filters } : state.tabFilters[tab]?.filters ?? {},
+    set((state) => {
+      const currentQuery = mergeQueryWithFilters(getDefaultTabFilter(tab), state.tabFilters[tab]);
+
+      return {
+        tabFilters: {
+          ...state.tabFilters,
+          [tab]: cloneQuery(mergeQueryWithFilters(currentQuery, query)),
         },
-      },
-    })),
+      };
+    }),
 
   replaceTabFilter: (tab, query) =>
     set((state) => ({
       tabFilters: {
         ...state.tabFilters,
-        [tab]: cloneQuery(query),
+        [tab]: cloneQuery(mergeQueryWithFilters(getDefaultTabFilter(tab), query)),
       },
     })),
 
-  getTabFilter: (tab) => cloneQuery(get().tabFilters[tab] ?? FILTER_DEFAULTS[tab]),
+  getTabFilter: (tab) => cloneQuery(mergeQueryWithFilters(getDefaultTabFilter(tab), get().tabFilters[tab])),
 
   resetTabFilter: (tab) =>
     set((state) => ({
       tabFilters: {
         ...state.tabFilters,
-        [tab]: cloneQuery(FILTER_DEFAULTS[tab]),
+        [tab]: getDefaultTabFilter(tab),
       },
     })),
 }));

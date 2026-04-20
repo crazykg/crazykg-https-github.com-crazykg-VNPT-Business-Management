@@ -9,7 +9,7 @@ import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { exportCsv, exportPdfTable, isoDateStamp } from '../utils/exportUtils';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 import { formatCurrencyVnd } from '../utils/revenueDisplay';
-import { FILTER_DEFAULTS, useFilterStore } from '../shared/stores/filterStore';
+import { getProjectsPageDefaultDateFilters, useFilterStore } from '../shared/stores/filterStore';
 import { resolveProjectDefaultDepartmentFilterId } from '../utils/projectDepartmentOwnership';
 
 interface ProjectListQuery extends PaginatedQuery {
@@ -42,7 +42,7 @@ interface ProjectListProps {
 
 const getDefaultProjectDateFilter = (
   key: 'start_date_from' | 'start_date_to'
-): string => String(FILTER_DEFAULTS.projectsPage.filters?.[key] ?? '').trim();
+): string => String(getProjectsPageDefaultDateFilters()[key] ?? '').trim();
 
 const resolveInitialProjectDateFilter = (
   key: 'start_date_from' | 'start_date_to'
@@ -50,6 +50,13 @@ const resolveInitialProjectDateFilter = (
   const storedQuery = useFilterStore.getState().getTabFilter('projectsPage') as ProjectListQuery;
   const storedValue = String(storedQuery.filters?.[key] ?? '').trim();
   return storedValue || getDefaultProjectDateFilter(key);
+};
+
+const normalizeProjectDateFilterValue = (value: unknown): string => {
+  const normalized = String(value ?? '').trim();
+  const matchedIsoDate = normalized.match(/^\d{4}-\d{2}-\d{2}/);
+
+  return matchedIsoDate?.[0] ?? '';
 };
 
 const normalizeDepartmentToken = (value: unknown): string =>
@@ -281,8 +288,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       const matchesDepartment = departmentFilter
         ? String(proj.department_id ?? '') === departmentFilter
         : true;
+      const projectStartDate = normalizeProjectDateFilterValue(proj.start_date);
+      const matchesStartDateFrom = startDateFrom
+        ? projectStartDate !== '' && projectStartDate >= startDateFrom
+        : true;
+      const matchesStartDateTo = startDateTo
+        ? projectStartDate !== '' && projectStartDate <= startDateTo
+        : true;
 
-      return matchesSearch && matchesStatus && matchesDepartment;
+      return matchesSearch && matchesStatus && matchesDepartment && matchesStartDateFrom && matchesStartDateTo;
     });
 
     if (sortConfig !== null) {
@@ -321,7 +335,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }
 
     return result;
-  }, [serverMode, projects, searchTerm, statusFilter, departmentFilter, sortConfig, customers, projectItemsTotalByProjectId]);
+  }, [serverMode, projects, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig, customers, projectItemsTotalByProjectId]);
 
   const statusFilterOptions = useMemo(
     () => [
@@ -563,16 +577,18 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   };
 
   const handleResetFilters = () => {
+    const defaultDateFilters = getProjectsPageDefaultDateFilters();
+
     setPendingSearchTerm('');
     setPendingStatusFilter('');
     setPendingDepartmentFilter(initialDepartmentFilter);
-    setPendingStartDateFrom('');
-    setPendingStartDateTo('');
+    setPendingStartDateFrom(defaultDateFilters.start_date_from);
+    setPendingStartDateTo(defaultDateFilters.start_date_to);
     setSearchTerm('');
     setStatusFilter('');
     setDepartmentFilter(initialDepartmentFilter);
-    setStartDateFrom('');
-    setStartDateTo('');
+    setStartDateFrom(defaultDateFilters.start_date_from);
+    setStartDateTo(defaultDateFilters.start_date_to);
     setCurrentPage(1);
     setSearchTrigger((prev) => prev + 1);
   };
@@ -758,6 +774,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }
   };
 
+  const defaultDateFilters = getProjectsPageDefaultDateFilters();
+  const shouldShowDateReset = pendingStartDateFrom !== defaultDateFilters.start_date_from
+    || pendingStartDateTo !== defaultDateFilters.start_date_to;
+
   return (
     <div className="p-3 pb-6">
       {/* ── Page header ── */}
@@ -882,64 +902,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       {/* ── Table section ── */}
       <div>
         <div className="bg-white px-3 py-2 rounded-t-lg border border-slate-200 border-b-0 flex flex-col gap-2">
-          <div className="flex flex-col md:flex-row gap-2 items-center">
-            <div className="w-full md:flex-1 flex items-center gap-1.5">
-              <div className="relative flex-1">
-                <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={pendingSearchTerm}
-                  onChange={(e) => setPendingSearchTerm(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleManualSearch();
-                    }
-                  }}
-                  placeholder="Tìm theo tên dự án, mã DA..."
-                  className="w-full h-8 pl-8 pr-8 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
-                />
-                {pendingSearchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setPendingSearchTerm('')}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
-                    title="Xóa tìm kiếm"
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleManualSearch}
-                className="inline-flex items-center gap-1 rounded border border-primary bg-primary text-white px-3 py-1.5 text-xs font-semibold hover:bg-deep-teal transition-colors shrink-0"
-                title="Tìm kiếm (Enter)"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>search</span>
-                Tìm kiếm
-              </button>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors shrink-0"
-                title="Làm mới / Xóa tất cả bộ lọc"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
-                Làm mới
-              </button>
-            </div>
+          <div className="grid gap-2 lg:grid-cols-[240px_176px_minmax(0,1fr)_auto_auto] lg:items-center">
             <SearchableSelect
-              className="w-full md:w-44"
-              value={pendingStatusFilter}
-              onChange={(val) => setPendingStatusFilter(val)}
-              options={statusFilterOptions}
-              placeholder="Tất cả trạng thái"
-              triggerClassName="w-full h-8 text-xs text-slate-600"
-            />
-            <SearchableSelect
-              className="w-full md:w-52"
+              className="w-full lg:w-[240px]"
               value={pendingDepartmentFilter}
               onChange={(val) => {
                 hasUserAdjustedDepartmentFilterRef.current = true;
@@ -949,6 +914,59 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               placeholder="Tất cả phòng ban"
               triggerClassName="w-full h-8 text-xs text-slate-600"
             />
+            <SearchableSelect
+              className="w-full lg:w-44"
+              value={pendingStatusFilter}
+              onChange={(val) => setPendingStatusFilter(val)}
+              options={statusFilterOptions}
+              placeholder="Tất cả trạng thái"
+              triggerClassName="w-full h-8 text-xs text-slate-600"
+            />
+            <div className="relative min-w-0">
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={pendingSearchTerm}
+                onChange={(e) => setPendingSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleManualSearch();
+                  }
+                }}
+                placeholder="Tìm theo tên dự án, mã DA..."
+                className="w-full h-8 pl-8 pr-8 bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-primary/30 focus:border-primary text-xs placeholder:text-slate-400 outline-none"
+              />
+              {pendingSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setPendingSearchTerm('')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
+                  title="Xóa tìm kiếm"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>close</span>
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleManualSearch}
+              className="inline-flex w-full items-center justify-center gap-1 rounded border border-primary bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal lg:w-auto"
+              title="Tìm kiếm (Enter)"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>search</span>
+              Tìm kiếm
+            </button>
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="inline-flex w-full items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-primary lg:w-auto"
+              title="Làm mới / Xóa tất cả bộ lọc"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+              Làm mới
+            </button>
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -974,10 +992,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   className="h-8 w-full sm:w-36 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none"
                   title="Đến ngày"
                 />
-                {(pendingStartDateFrom || pendingStartDateTo) && (
+                {shouldShowDateReset && (
                   <button
                     type="button"
-                    onClick={() => { setPendingStartDateFrom(''); setPendingStartDateTo(''); }}
+                    onClick={() => {
+                      setPendingStartDateFrom(defaultDateFilters.start_date_from);
+                      setPendingStartDateTo(defaultDateFilters.start_date_to);
+                    }}
                     className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50 transition-colors shrink-0"
                     title="Xóa lọc ngày"
                   >
@@ -1005,17 +1026,17 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
         <div className="bg-white rounded-b-lg border border-slate-200 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed text-left border-collapse min-w-[1160px]">
+            <table className="w-full table-fixed text-left border-collapse min-w-[1200px]">
               <thead className="bg-slate-50 border-y border-slate-200">
                 <tr>
                   {[
-                    { label: 'Mã DA', sortKey: 'project_code', widthClassName: 'w-[96px]', responsiveClassName: 'hidden sm:table-cell', headerClassName: '', headerContentClassName: '' },
-                    { label: 'Tên dự án', sortKey: 'project_name', widthClassName: 'w-[240px]', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
-                    { label: 'Khách hàng', sortKey: 'customer_id', widthClassName: 'w-[200px]', responsiveClassName: 'hidden md:table-cell', headerClassName: '', headerContentClassName: '' },
-                    { label: 'Ngày BĐ', sortKey: 'start_date', widthClassName: 'w-[104px]', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
-                    { label: 'Ngày KT', sortKey: 'expected_end_date', widthClassName: 'w-[104px]', responsiveClassName: 'hidden xl:table-cell', headerClassName: '', headerContentClassName: '' },
-                    { label: 'Thành tiền', sortKey: 'estimated_value', widthClassName: 'w-[148px]', responsiveClassName: '', headerClassName: 'text-right', headerContentClassName: 'justify-end' },
-                    { label: 'Trạng thái', sortKey: 'status', widthClassName: 'w-[168px]', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Mã DA', sortKey: 'project_code', widthClassName: 'w-[112px]', responsiveClassName: 'hidden sm:table-cell', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Tên dự án', sortKey: 'project_name', widthClassName: '', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Khách hàng', sortKey: 'customer_id', widthClassName: '', responsiveClassName: 'hidden md:table-cell', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Ngày BĐ', sortKey: 'start_date', widthClassName: 'w-[112px]', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Ngày KT', sortKey: 'expected_end_date', widthClassName: 'w-[112px]', responsiveClassName: 'hidden xl:table-cell', headerClassName: '', headerContentClassName: '' },
+                    { label: 'Thành tiền', sortKey: 'estimated_value', widthClassName: 'w-[160px]', responsiveClassName: '', headerClassName: 'text-right', headerContentClassName: 'justify-end' },
+                    { label: 'Trạng thái', sortKey: 'status', widthClassName: 'w-[128px]', responsiveClassName: '', headerClassName: '', headerContentClassName: '' },
                   ].map((col) => (
                     <th
                       key={col.label}

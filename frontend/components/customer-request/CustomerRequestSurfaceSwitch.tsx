@@ -21,15 +21,15 @@ const SURFACE_META: Array<{
     label: 'Bảng theo dõi',
     icon: 'notifications_active',
     activeClass:
-      'border-primary/25 bg-[linear-gradient(135deg,rgba(0,68,129,0.08),rgba(0,91,170,0.16))] text-primary shadow-sm shadow-primary/10',
-    activeIconClass: 'bg-primary text-white',
+      'border-[var(--ui-primary)] bg-[var(--ui-accent-soft)] text-[color:var(--ui-primary)] shadow-[var(--ui-shadow-shell)]',
+    activeIconClass: 'bg-[var(--ui-primary)] text-white',
   },
   {
     key: 'list',
     label: 'Danh sách',
     icon: 'table_rows',
     activeClass:
-      'border-slate-300 bg-[linear-gradient(135deg,rgba(241,245,249,0.96),rgba(255,255,255,1))] text-slate-800 shadow-sm',
+      'border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)]',
     activeIconClass: 'bg-slate-700 text-white',
   },
   {
@@ -37,8 +37,8 @@ const SURFACE_META: Array<{
     label: 'Phân tích',
     icon: 'monitoring',
     activeClass:
-      'border-violet-200 bg-[linear-gradient(135deg,rgba(245,243,255,1),rgba(237,233,254,0.72))] text-violet-700 shadow-sm shadow-violet-100',
-    activeIconClass: 'bg-violet-600 text-white',
+      'border-[var(--ui-accent)] bg-[var(--ui-accent-soft)] text-[color:var(--ui-primary)] shadow-[var(--ui-shadow-shell)]',
+    activeIconClass: 'bg-[var(--ui-accent)] text-white',
   },
 ];
 
@@ -48,23 +48,18 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
   iconOnlyOnCompact = false,
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
-  const isMobile = layoutMode === 'mobile';
   const isCompact = layoutMode === 'mobile' || layoutMode === 'tablet';
-  const isDesktop = layoutMode === 'desktopCompact' || layoutMode === 'desktopWide';
   const useIconOnly = iconOnlyOnCompact && isCompact;
 
   return (
-    <div
-      className={`items-stretch gap-2 ${
-        useIconOnly
-          ? 'grid w-full grid-cols-3'
-          : isDesktop
-            ? 'grid min-w-0 w-full grid-cols-3'
-            : 'flex min-w-max'
-      }`}
-    >
+    <div className="grid w-full grid-cols-3 items-stretch gap-2">
       {SURFACE_META.map((surface) => {
         const isActive = activeSurface === surface.key;
+        const compactButtonClass = useIconOnly
+          ? 'h-11 w-full justify-center rounded-[var(--ui-control-radius)] border'
+          : 'min-h-11 w-full flex-col justify-center rounded-[var(--ui-control-radius)] border px-2 py-2 text-center';
+        const desktopButtonClass =
+          'h-10 min-w-0 w-full gap-2 rounded-[var(--ui-control-radius)] border px-3 py-2 text-left';
 
         return (
           <button
@@ -74,20 +69,16 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             aria-pressed={isActive}
             onClick={() => onSurfaceChange(surface.key)}
             className={`group inline-flex shrink-0 items-center transition-all duration-200 ${
-              useIconOnly
-                ? 'h-10 w-10 justify-center rounded-2xl border'
-                : isDesktop
-                  ? 'min-w-0 w-full gap-2.5 rounded-2xl border px-3 py-2.5 text-left'
-                  : 'w-[148px] gap-2 rounded-2xl border px-2.5 py-2 text-left sm:w-[156px]'
+              isCompact ? compactButtonClass : desktopButtonClass
             } ${
               isActive
                 ? surface.activeClass
-                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                : 'border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] hover:border-slate-300 hover:bg-[var(--ui-surface-subtle)]'
             }`}
           >
             <span
               className={`flex shrink-0 items-center justify-center transition-colors ${
-                useIconOnly ? 'h-8 w-8 rounded-xl' : 'h-8 w-8 rounded-2xl'
+                useIconOnly ? 'h-8 w-8 rounded-[var(--ui-control-radius)]' : 'h-8 w-8 rounded-[var(--ui-control-radius)]'
               } ${
                 isActive
                   ? surface.activeIconClass
@@ -102,9 +93,11 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             {useIconOnly ? (
               <span className="sr-only">{surface.label}</span>
             ) : (
-              <span className="min-w-0 flex-1">
+              <span className={`min-w-0 flex-1 ${isCompact ? 'text-center' : ''}`}>
                 <span
-                  className={`block truncate font-semibold ${isMobile ? 'text-[11px]' : 'text-[12px]'} leading-4`}
+                  className={`block font-semibold leading-4 ${
+                    isCompact ? 'text-[10px] md:text-[11px]' : 'truncate text-xs'
+                  }`}
                 >
                   {surface.label}
                 </span>

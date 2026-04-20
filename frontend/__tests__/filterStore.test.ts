@@ -1,27 +1,40 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFilterStore } from '../shared/stores';
-import { FILTER_DEFAULTS, getProjectsPageDefaultDateFilters } from '../shared/stores/filterStore';
+import { FILTER_DEFAULTS, getDefaultTabFilter, getProjectsPageDefaultDateFilters } from '../shared/stores/filterStore';
+
+const cloneDefaultTabFilter = (tab: keyof typeof FILTER_DEFAULTS) => getDefaultTabFilter(tab);
 
 describe('useFilterStore', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-19T09:00:00+07:00'));
     useFilterStore.setState({
       tabFilters: {
-        employeesPage: { ...FILTER_DEFAULTS.employeesPage, filters: { ...FILTER_DEFAULTS.employeesPage.filters } },
-        partyProfilesPage: { ...FILTER_DEFAULTS.partyProfilesPage, filters: { ...FILTER_DEFAULTS.partyProfilesPage.filters } },
-        customersPage: { ...FILTER_DEFAULTS.customersPage, filters: { ...FILTER_DEFAULTS.customersPage.filters } },
-        projectsPage: { ...FILTER_DEFAULTS.projectsPage, filters: { ...FILTER_DEFAULTS.projectsPage.filters } },
-        productsPage: { ...FILTER_DEFAULTS.productsPage, filters: { ...FILTER_DEFAULTS.productsPage.filters } },
-        contractsPage: { ...FILTER_DEFAULTS.contractsPage, filters: { ...FILTER_DEFAULTS.contractsPage.filters } },
-        passContractsPage: { ...FILTER_DEFAULTS.passContractsPage, filters: { ...FILTER_DEFAULTS.passContractsPage.filters } },
-        documentsPage: { ...FILTER_DEFAULTS.documentsPage, filters: { ...FILTER_DEFAULTS.documentsPage.filters } },
-        auditLogsPage: { ...FILTER_DEFAULTS.auditLogsPage, filters: { ...FILTER_DEFAULTS.auditLogsPage.filters } },
-        feedbacksPage: { ...FILTER_DEFAULTS.feedbacksPage, filters: { ...FILTER_DEFAULTS.feedbacksPage.filters } },
+        employeesPage: cloneDefaultTabFilter('employeesPage'),
+        partyProfilesPage: cloneDefaultTabFilter('partyProfilesPage'),
+        customersPage: cloneDefaultTabFilter('customersPage'),
+        projectsPage: cloneDefaultTabFilter('projectsPage'),
+        productsPage: cloneDefaultTabFilter('productsPage'),
+        contractsPage: cloneDefaultTabFilter('contractsPage'),
+        passContractsPage: cloneDefaultTabFilter('passContractsPage'),
+        documentsPage: cloneDefaultTabFilter('documentsPage'),
+        auditLogsPage: cloneDefaultTabFilter('auditLogsPage'),
+        feedbacksPage: cloneDefaultTabFilter('feedbacksPage'),
       },
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('returns repo-native defaults for each page key', () => {
     const projectDefaultDates = getProjectsPageDefaultDateFilters();
+
+    expect(projectDefaultDates).toEqual({
+      start_date_from: '2026-01-01',
+      start_date_to: '2026-04-30',
+    });
 
     expect(useFilterStore.getState().getTabFilter('employeesPage')).toMatchObject({
       page: 1,
@@ -89,6 +102,8 @@ describe('useFilterStore', () => {
       q: 'demo',
       sort_by: 'project_code',
       filters: {
+        start_date_from: projectDefaultDates.start_date_from,
+        start_date_to: projectDefaultDates.start_date_to,
         status: 'CHUAN_BI',
       },
     });

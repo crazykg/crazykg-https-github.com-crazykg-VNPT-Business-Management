@@ -154,12 +154,12 @@ describe('CustomerRequestListPane UI', () => {
     expect(emptyDateRow).not.toBeNull();
     expect(within(emptyDateRow as HTMLTableRowElement).getAllByText('--')).toHaveLength(2);
     expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-9');
-    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('bg-slate-50/60');
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-10');
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('bg-[var(--ui-surface-subtle)]');
     expect(screen.getByDisplayValue('2026-01-01')).toBeInTheDocument();
     expect(screen.getByDisplayValue('2026-03-31')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Xóa lọc' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Bộ lọc/i }).className).toContain('h-9');
+    expect(screen.getByRole('button', { name: /Bộ lọc/i }).className).toContain('h-10');
     expect(screen.getByDisplayValue('2026-01-01').closest('div.grid')?.className).toContain(
       'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
     );
@@ -257,9 +257,9 @@ describe('CustomerRequestListPane UI', () => {
 
     expect(screen.queryByText('Yêu cầu')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-9');
-    expect(screen.getByDisplayValue('2026-01-01').className).toContain('h-9');
-    expect(screen.getByDisplayValue('2026-03-31').className).toContain('h-9');
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...').className).toContain('h-11');
+    expect(screen.getByDisplayValue('2026-01-01').className).toContain('h-11');
+    expect(screen.getByDisplayValue('2026-03-31').className).toContain('h-11');
     expect(
       screen.getByDisplayValue('2026-01-01').compareDocumentPosition(
         screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')

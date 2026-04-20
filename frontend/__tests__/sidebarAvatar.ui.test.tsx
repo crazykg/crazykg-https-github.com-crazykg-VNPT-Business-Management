@@ -125,4 +125,39 @@ describe('Sidebar avatar handling', () => {
     await user.click(quoteButton);
     expect(setActiveTab).toHaveBeenCalledWith('product_quotes');
   });
+
+  it('shows the Hợp đồng đầu kỳ menu only when pass_contract is visible and opens that tab', async () => {
+    const user = userEvent.setup();
+    const setActiveTab = vi.fn();
+    const { rerender } = render(
+      <Sidebar
+        activeTab="dashboard"
+        setActiveTab={setActiveTab}
+        isOpen
+        onClose={vi.fn()}
+        currentUser={buildUser()}
+        visibleTabIds={new Set(['dashboard', 'contracts', 'documents'])}
+        onLogout={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: /Hợp đồng đầu kỳ/i })).not.toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        activeTab="dashboard"
+        setActiveTab={setActiveTab}
+        isOpen
+        onClose={vi.fn()}
+        currentUser={buildUser()}
+        visibleTabIds={new Set(['dashboard', 'contracts', 'pass_contract', 'documents'])}
+        onLogout={vi.fn()}
+      />
+    );
+
+    const passContractButton = screen.getByRole('button', { name: /Hợp đồng đầu kỳ/i });
+
+    await user.click(passContractButton);
+    expect(setActiveTab).toHaveBeenCalledWith('pass_contract');
+  });
 });

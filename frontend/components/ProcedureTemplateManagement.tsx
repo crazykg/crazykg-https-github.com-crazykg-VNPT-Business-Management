@@ -10,8 +10,12 @@ import {
   deleteProcedureTemplateSteps,
   updateProcedureTemplateStep,
   deleteProcedureTemplateStep,
+  importProcedureTemplateSteps,
 } from '../services/api/projectApi';
+import { ImportModal, type ImportPayload } from './modals';
 import { useToastStore } from '../shared/stores/toastStore';
+import { downloadExcelWorkbook } from '../utils/excelTemplate';
+import { normalizeImportNumber, normalizeImportToken } from '../utils/importUtils';
 
 type FormMode = 'ADD' | 'EDIT';
 
@@ -33,6 +37,175 @@ const defaultStepForm = () => ({
   parent_step_id: '' as string,
 });
 
+const PROCEDURE_TEMPLATE_IMPORT_MODULE_KEY = 'procedure_template_steps';
+const PROCEDURE_TEMPLATE_IMPORT_HEADERS = [
+  'STT',
+  'Giai đoạn',
+  'Trình tự công việc',
+  'Chi tiết bước',
+  'Đơn vị chủ trì',
+  'Đơn vị phối hợp',
+  'Kết quả mong đợi',
+  'Số ngày mặc định',
+];
+
+type ProcedureTemplateImportStep = {
+  step_key: string;
+  parent_key?: string | null;
+  step_number: number;
+  phase?: string | null;
+  step_name: string;
+  step_detail?: string | null;
+  lead_unit?: string | null;
+  support_unit?: string | null;
+  expected_result?: string | null;
+  default_duration_days?: number | null;
+  sort_order: number;
+};
+
+const normalizeProcedureTemplateCell = (value: unknown): string => String(value ?? '').trim();
+
+const resolveProcedureTemplateImportColumns = (headers: string[]) => {
+  const headerMap = new Map(headers.map((header, index) => [normalizeImportToken(header), index]));
+  const pickColumn = (...tokens: string[]) => {
+    for (const token of tokens) {
+      const columnIndex = headerMap.get(token);
+      if (columnIndex !== undefined) {
+        return columnIndex;
+      }
+    }
+    return -1;
+  };
+
+  return {
+    stepOrder: pickColumn('stt', 'sothutu', 'stepnumber'),
+    phase: pickColumn('giaidoan', 'phase'),
+    stepName: pickColumn('trinhtucongviec', 'tenbuoc', 'congviec', 'stepname'),
+    stepDetail: pickColumn('chitietbuoc', 'motabuoc', 'stepdetail', 'mota', 'ghichu'),
+    leadUnit: pickColumn('donvichutri', 'leadunit', 'donvichinh'),
+    supportUnit: pickColumn('donviphoihop', 'supportunit', 'donvihotro'),
+    expectedResult: pickColumn('ketquamongdoi', 'expectedresult', 'ketqua'),
+    defaultDurationDays: pickColumn('songaymacdinh', 'defaultdurationdays', 'thoigianmacdinh', 'songay'),
+  };
+};
+
+const parseProcedureTemplateImportPayload = (payload: ImportPayload): ProcedureTemplateImportStep[] => {
+  const headers = payload.headers || [];
+  const rows = payload.rows || [];
+  const columns = resolveProcedureTemplateImportColumns(headers);
+
+  if (columns.stepOrder < 0) {
+    throw new Error('Thiếu cột STT trong file import.');
+  }
+
+  const rootPhases = new Map<string, string | null>();
+  const importedSteps: ProcedureTemplateImportStep[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    const hasAnyContent = (row || []).some((cell) => normalizeProcedureTemplateCell(cell).length > 0);
+    if (!hasAnyContent) {
+      return;
+    }
+
+    const excelRowNumber = rowIndex + 2;
+    const stepOrderText = normalizeProcedureTemplateCell(row[columns.stepOrder]);
+
+    if (!stepOrderText) {
+      throw new Error(`Dòng ${excelRowNumber} thiếu STT.`);
+    }
+
+    const stepOrderMatch = stepOrderText.replace(/,/g, '.').match(/^(\d+)(?:\.(\d+))?$/);
+    if (!stepOrderMatch) {
+      throw new Error(`Dòng ${excelRowNumber} có STT không hợp lệ: "${stepOrderText}".`);
+    }
+
+    const rootKey = String(Number(stepOrderMatch[1]));
+    const childKey = stepOrderMatch[2] ? `${rootKey}.${String(Number(stepOrderMatch[2]))}` : rootKey;
+    const isChildRow = Boolean(stepOrderMatch[2]);
+    const phaseText = columns.phase >= 0 ? normalizeProcedureTemplateCell(row[columns.phase]) : '';
+    const stepNameText = columns.stepName >= 0 ? normalizeProcedureTemplateCell(row[columns.stepName]) : '';
+    const resolvedStepName = (stepNameText || phaseText).trim();
+
+    if (!resolvedStepName) {
+      throw new Error(`Dòng ${excelRowNumber} thiếu tên bước hoặc giai đoạn.`);
+    }
+
+    if (isChildRow && !rootPhases.has(rootKey)) {
+      throw new Error(`Dòng ${excelRowNumber} tham chiếu bước cha ${rootKey} nhưng chưa có dòng cha phía trên.`);
+    }
+
+    const resolvedPhase = isChildRow
+      ? (phaseText || rootPhases.get(rootKey) || null)
+      : (phaseText || null);
+
+    const durationText = columns.defaultDurationDays >= 0
+      ? normalizeProcedureTemplateCell(row[columns.defaultDurationDays])
+      : '';
+    const normalizedDuration = durationText ? normalizeImportNumber(durationText) : null;
+
+    if (durationText && (normalizedDuration === null || normalizedDuration < 0 || !Number.isInteger(normalizedDuration))) {
+      throw new Error(`Dòng ${excelRowNumber} có Số ngày mặc định không hợp lệ.`);
+    }
+
+    if (!isChildRow) {
+      if (rootPhases.has(rootKey)) {
+        throw new Error(`Dòng ${excelRowNumber} bị trùng STT bước cha ${rootKey}.`);
+      }
+      rootPhases.set(rootKey, resolvedPhase);
+    }
+
+    importedSteps.push({
+      step_key: childKey,
+      parent_key: isChildRow ? rootKey : null,
+      step_number: Number(rootKey),
+      phase: resolvedPhase,
+      step_name: resolvedStepName,
+      step_detail: columns.stepDetail >= 0 ? normalizeProcedureTemplateCell(row[columns.stepDetail]) || null : null,
+      lead_unit: columns.leadUnit >= 0 ? normalizeProcedureTemplateCell(row[columns.leadUnit]) || null : null,
+      support_unit: columns.supportUnit >= 0 ? normalizeProcedureTemplateCell(row[columns.supportUnit]) || null : null,
+      expected_result: columns.expectedResult >= 0 ? normalizeProcedureTemplateCell(row[columns.expectedResult]) || null : null,
+      default_duration_days: normalizedDuration === null ? null : normalizedDuration,
+      sort_order: (importedSteps.length + 1) * 10,
+    });
+  });
+
+  if (importedSteps.length === 0) {
+    throw new Error('File import không có dòng dữ liệu hợp lệ.');
+  }
+
+  return importedSteps;
+};
+
+const buildProcedureTemplateExportRows = (
+  tree: Array<ProcedureTemplateStep & { children?: ProcedureTemplateStep[] }>
+) =>
+  tree.flatMap((step) => {
+    const parentPhase = step.phase || step.step_name;
+    const parentRow = [
+      step.step_number,
+      parentPhase,
+      step.step_name,
+      step.step_detail || '',
+      step.lead_unit || '',
+      step.support_unit || '',
+      step.expected_result || '',
+      step.default_duration_days ?? '',
+    ];
+
+    const childRows = (step.children || []).map((child, index) => [
+      `${step.step_number}.${index + 1}`,
+      '',
+      child.step_name,
+      child.step_detail || '',
+      child.lead_unit || '',
+      child.support_unit || '',
+      child.expected_result || '',
+      child.default_duration_days ?? '',
+    ]);
+
+    return [parentRow, ...childRows];
+  });
+
 export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementProps> = ({
   canWrite = true,
   canRead = true,
@@ -49,7 +222,11 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
   const [deletingSelectedSteps, setDeletingSelectedSteps] = useState(false);
   const [deletingSingleStepId, setDeletingSingleStepId] = useState<string | null>(null);
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const selectAllStepsRef = useRef<HTMLInputElement | null>(null);
+  const addToast = useToastStore((state) => state.addToast);
 
   // Template form
   const [editingTemplate, setEditingTemplate] = useState<ProcedureTemplate | null>(null);
@@ -121,6 +298,10 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
 
   useEffect(() => {
     setSelectedStepIds([]);
+  }, [selectedTemplateId]);
+
+  useEffect(() => {
+    setShowImportMenu(false);
   }, [selectedTemplateId]);
 
   useEffect(() => {
@@ -227,10 +408,16 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
     return Array.from(map.entries()).sort((a, b) => (minStep.get(a[0]) ?? 0) - (minStep.get(b[0]) ?? 0));
   }, [steps]);
 
+  const procedureTemplateExportRows = useMemo(
+    () => buildProcedureTemplateExportRows(stepsTree),
+    [stepsTree],
+  );
+
   const templateStepsCount = selectedTemplate?.steps_count ?? steps.length;
   const templateProceduresCount = selectedTemplate?.procedures_count ?? 0;
   const canDeleteSelectedTemplate = Boolean(selectedTemplate)
     && (selectedTemplate?.can_delete ?? (templateStepsCount === 0 && templateProceduresCount === 0));
+  const canImportSelectedTemplate = Boolean(selectedTemplate) && templateProceduresCount === 0;
   const deletingAnySteps = deletingSelectedSteps || deletingSingleStepId !== null;
 
   const handleDeleteSelectedSteps = useCallback(async () => {
@@ -255,6 +442,103 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
       setDeletingSelectedSteps(false);
     }
   }, [deletingAnySteps, loadSteps, selectedStepIds, selectedTemplate]);
+
+  const handleOpenImportModal = useCallback(() => {
+    if (!selectedTemplate) {
+      const message = 'Chọn mẫu thủ tục trước khi nhập dữ liệu.';
+      setError(message);
+      addToast('warning', 'Nhập dữ liệu', message);
+      return;
+    }
+
+    if (!canImportSelectedTemplate) {
+      const message = 'Không thể import vì mẫu đã được áp dụng cho dự án. Hãy tạo mẫu mới hoặc đồng bộ lại thủ tục liên quan trước.';
+      setError(message);
+      addToast('warning', 'Nhập dữ liệu', message);
+      return;
+    }
+
+    setError('');
+    setShowImportModal(true);
+  }, [addToast, canImportSelectedTemplate, selectedTemplate]);
+
+  const handleDownloadTemplate = useCallback(() => {
+    if (!selectedTemplate) {
+      const message = 'Chọn mẫu thủ tục trước khi tải file mẫu.';
+      setError(message);
+      addToast('warning', 'Tải file mẫu', message);
+      return;
+    }
+
+    const fileKey = String(selectedTemplate.template_code || 'thu_tuc_du_an')
+      .trim()
+      .toLowerCase();
+
+    downloadExcelWorkbook(`mau_nhap_${fileKey}`, [
+      {
+        name: 'ThuTuc',
+        headers: PROCEDURE_TEMPLATE_IMPORT_HEADERS,
+        rows: procedureTemplateExportRows,
+        columns: [72, 220, 320, 280, 220, 220, 260, 120],
+      },
+      {
+        name: 'HuongDan',
+        headers: ['Mục', 'Nội dung'],
+        rows: [
+          ['Template', `${selectedTemplate.template_code} - ${selectedTemplate.template_name}`],
+          ['Mô tả', selectedTemplate.description || ''],
+          ['Số bước hiện tại', templateStepsCount],
+          ['Quy tắc 1', 'Dòng có STT nguyên là bước cha / giai đoạn của thủ tục.'],
+          ['Quy tắc 2', 'Dòng có STT dạng 1.1, 1.2... là bước con của dòng cha cùng số nguyên phía trước.'],
+          ['Quy tắc 3', 'Có thể chỉnh các cột Chi tiết bước, Đơn vị chủ trì, Đơn vị phối hợp, Kết quả mong đợi, Số ngày mặc định trước khi import lại.'],
+          ['Lưu ý', 'Import sẽ ghi đè toàn bộ bước hiện có của mẫu đang chọn nếu mẫu chưa được áp dụng cho dự án.'],
+        ],
+        columns: [180, 780],
+      },
+    ]);
+  }, [addToast, procedureTemplateExportRows, selectedTemplate, templateStepsCount]);
+
+  const handleSaveImportedSteps = useCallback(async (payload: ImportPayload) => {
+    if (!selectedTemplate) {
+      const message = 'Chọn mẫu thủ tục trước khi nhập dữ liệu.';
+      setError(message);
+      addToast('warning', 'Nhập dữ liệu', message);
+      return;
+    }
+
+    setIsImporting(true);
+    setError('');
+
+    try {
+      const importedSteps = parseProcedureTemplateImportPayload(payload);
+
+      if (
+        steps.length > 0
+        && !window.confirm(
+          `Mẫu "${selectedTemplate.template_name}" hiện có ${steps.length} bước. Import sẽ ghi đè toàn bộ dữ liệu bước, bạn có muốn tiếp tục không?`
+        )
+      ) {
+        return;
+      }
+
+      const result = await importProcedureTemplateSteps(selectedTemplate.id, importedSteps);
+      await Promise.all([loadSteps(selectedTemplate.id), loadTemplates()]);
+      setSearchTerm('');
+      setSelectedStepIds([]);
+      setShowImportModal(false);
+      addToast(
+        'success',
+        'Nhập dữ liệu',
+        `Đã nạp ${result.imported_count ?? importedSteps.length} bước vào mẫu ${selectedTemplate.template_name}.`,
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Không thể nhập dữ liệu bước thủ tục.';
+      setError(message);
+      addToast('error', 'Import thất bại', message);
+    } finally {
+      setIsImporting(false);
+    }
+  }, [addToast, loadSteps, loadTemplates, selectedTemplate, steps.length]);
 
   // ─── Render ───────────────────────────────────────────────────
   if (!canRead) {
@@ -327,6 +611,54 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
 
           {selectedTemplate && canWrite && (
             <>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={showImportMenu}
+                  onClick={() => setShowImportMenu((previous) => !previous)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded border border-slate-300 bg-white text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>upload</span>
+                  Nhập
+                  <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
+                </button>
+                {showImportMenu ? (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full z-20 mt-2 flex min-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!canImportSelectedTemplate}
+                        onClick={() => {
+                          setShowImportMenu(false);
+                          handleOpenImportModal();
+                        }}
+                        className="flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white disabled:hover:text-slate-300"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">upload_file</span>
+                        Nhập dữ liệu
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowImportMenu(false);
+                          handleDownloadTemplate();
+                        }}
+                        className="flex items-center gap-3 border-t border-slate-100 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">download</span>
+                        Tải file mẫu
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -684,6 +1016,21 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
           </>
         )}
       </div>
+
+      {showImportModal ? (
+        <ImportModal
+          title={`Nhập dữ liệu bước thủ tục${selectedTemplate ? ` - ${selectedTemplate.template_name}` : ''}`}
+          moduleKey={PROCEDURE_TEMPLATE_IMPORT_MODULE_KEY}
+          onClose={() => {
+            if (!isImporting) {
+              setShowImportModal(false);
+            }
+          }}
+          onSave={handleSaveImportedSteps}
+          isLoading={isImporting}
+          loadingText="Đang nhập bước thủ tục..."
+        />
+      ) : null}
 
       {/* ── Template edit modal ──────────────────────────────────────── */}
       {editingTemplate !== null && (

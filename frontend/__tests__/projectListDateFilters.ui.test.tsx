@@ -5,20 +5,20 @@ import userEvent from '@testing-library/user-event';
 import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
 import { ProjectList } from '../components/ProjectList';
 import { useFilterStore } from '../shared/stores';
-import { FILTER_DEFAULTS, getProjectsPageDefaultDateFilters } from '../shared/stores/filterStore';
+import { getDefaultTabFilter, getProjectsPageDefaultDateFilters } from '../shared/stores/filterStore';
 import type { AuthUser, Customer, Department, Project, ProjectItemMaster } from '../types';
 
 const cloneDefaults = () => ({
-  employeesPage: { ...FILTER_DEFAULTS.employeesPage, filters: { ...(FILTER_DEFAULTS.employeesPage.filters || {}) } },
-  partyProfilesPage: { ...FILTER_DEFAULTS.partyProfilesPage, filters: { ...(FILTER_DEFAULTS.partyProfilesPage.filters || {}) } },
-  customersPage: { ...FILTER_DEFAULTS.customersPage, filters: { ...(FILTER_DEFAULTS.customersPage.filters || {}) } },
-  projectsPage: { ...FILTER_DEFAULTS.projectsPage, filters: { ...(FILTER_DEFAULTS.projectsPage.filters || {}) } },
-  productsPage: { ...FILTER_DEFAULTS.productsPage, filters: { ...(FILTER_DEFAULTS.productsPage.filters || {}) } },
-  contractsPage: { ...FILTER_DEFAULTS.contractsPage, filters: { ...(FILTER_DEFAULTS.contractsPage.filters || {}) } },
-  passContractsPage: { ...FILTER_DEFAULTS.passContractsPage, filters: { ...(FILTER_DEFAULTS.passContractsPage.filters || {}) } },
-  documentsPage: { ...FILTER_DEFAULTS.documentsPage, filters: { ...(FILTER_DEFAULTS.documentsPage.filters || {}) } },
-  auditLogsPage: { ...FILTER_DEFAULTS.auditLogsPage, filters: { ...(FILTER_DEFAULTS.auditLogsPage.filters || {}) } },
-  feedbacksPage: { ...FILTER_DEFAULTS.feedbacksPage, filters: { ...(FILTER_DEFAULTS.feedbacksPage.filters || {}) } },
+  employeesPage: getDefaultTabFilter('employeesPage'),
+  partyProfilesPage: getDefaultTabFilter('partyProfilesPage'),
+  customersPage: getDefaultTabFilter('customersPage'),
+  projectsPage: getDefaultTabFilter('projectsPage'),
+  productsPage: getDefaultTabFilter('productsPage'),
+  contractsPage: getDefaultTabFilter('contractsPage'),
+  passContractsPage: getDefaultTabFilter('passContractsPage'),
+  documentsPage: getDefaultTabFilter('documentsPage'),
+  auditLogsPage: getDefaultTabFilter('auditLogsPage'),
+  feedbacksPage: getDefaultTabFilter('feedbacksPage'),
 });
 
 const customers: Customer[] = [
@@ -42,6 +42,20 @@ const projects: Project[] = [
     start_date: '2026-03-15',
     expected_end_date: '2026-12-31',
     estimated_value: 1500000,
+  } as Project,
+];
+
+const projectsWithDifferentStartDates: Project[] = [
+  projects[0],
+  {
+    id: 2,
+    project_code: 'DA002',
+    project_name: 'Dự án ngoài khoảng ngày',
+    customer_id: 1,
+    status: 'CHUAN_BI',
+    start_date: '2026-05-10',
+    expected_end_date: '2026-12-31',
+    estimated_value: 2000000,
   } as Project,
 ];
 
@@ -154,6 +168,8 @@ describe('ProjectList date filters', () => {
     expect(screen.getByTitle('Từ ngày')).toHaveValue(defaultDateFilters.start_date_from);
     expect(screen.getByTitle('Đến ngày')).toHaveValue(defaultDateFilters.start_date_to);
 
+    fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
     await waitFor(() => {
       expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
         filters: expect.objectContaining({
@@ -172,7 +188,6 @@ describe('ProjectList date filters', () => {
 
   it('resets the project date filters back to the default window instead of blank', async () => {
     const defaultDateFilters = getProjectsPageDefaultDateFilters();
-    const onQueryChange = vi.fn();
 
     render(
       <ProjectList
@@ -180,7 +195,7 @@ describe('ProjectList date filters', () => {
         customers={customers}
         onOpenModal={vi.fn()}
         paginationMeta={DEFAULT_PAGINATION_META}
-        onQueryChange={onQueryChange}
+        onQueryChange={vi.fn()}
       />
     );
 
@@ -197,15 +212,32 @@ describe('ProjectList date filters', () => {
 
     expect(fromInput).toHaveValue(defaultDateFilters.start_date_from);
     expect(toInput).toHaveValue(defaultDateFilters.start_date_to);
+  });
 
-    await waitFor(() => {
-      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
-        filters: expect.objectContaining({
-          start_date_from: defaultDateFilters.start_date_from,
-          start_date_to: defaultDateFilters.start_date_to,
-        }),
-      }));
+  it('filters the local project list by start_date within the selected date range', () => {
+    useFilterStore.setState({
+      tabFilters: {
+        ...cloneDefaults(),
+        projectsPage: {
+          ...getDefaultTabFilter('projectsPage'),
+          filters: {
+            start_date_from: '2026-01-01',
+            start_date_to: '2026-04-30',
+          },
+        },
+      },
     });
+
+    render(
+      <ProjectList
+        projects={projectsWithDifferentStartDates}
+        customers={customers}
+        onOpenModal={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Dự án mặc định ngày')).toBeInTheDocument();
+    expect(screen.queryByText('Dự án ngoài khoảng ngày')).not.toBeInTheDocument();
   });
 
   it('defaults the project department filter to the solution center parent for solution-child users', async () => {
@@ -225,8 +257,10 @@ describe('ProjectList date filters', () => {
 
     expect(screen.getByRole('button', { name: 'Tất cả phòng ban' })).toHaveTextContent('Trung tâm Kinh doanh Giải pháp');
 
+    fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
     await waitFor(() => {
-      expect(onQueryChange).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
         filters: expect.objectContaining({
           department_id: '1',
         }),
@@ -251,8 +285,10 @@ describe('ProjectList date filters', () => {
 
     expect(screen.getByRole('button', { name: 'Tất cả phòng ban' })).toHaveTextContent('VNPT Cái Răng');
 
+    fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
     await waitFor(() => {
-      expect(onQueryChange).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
         filters: expect.objectContaining({
           department_id: '8',
         }),
@@ -267,9 +303,9 @@ describe('ProjectList date filters', () => {
       tabFilters: {
         ...cloneDefaults(),
         projectsPage: {
-          ...FILTER_DEFAULTS.projectsPage,
+          ...getDefaultTabFilter('projectsPage'),
           filters: {
-            ...(FILTER_DEFAULTS.projectsPage.filters || {}),
+            ...getProjectsPageDefaultDateFilters(),
             department_id: '8',
           },
         },
@@ -290,8 +326,10 @@ describe('ProjectList date filters', () => {
 
     expect(screen.getByRole('button', { name: 'Tất cả phòng ban' })).toHaveTextContent('VNPT Cái Răng');
 
+    fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
     await waitFor(() => {
-      expect(onQueryChange).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
         filters: expect.objectContaining({
           department_id: '8',
         }),

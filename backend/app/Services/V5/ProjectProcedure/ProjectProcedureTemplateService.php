@@ -309,6 +309,135 @@ class ProjectProcedureTemplateService
         ], 200);
     }
 
+    public function importTemplateSteps(Request $request, int $templateId): JsonResponse
+    {
+        $template = ProjectProcedureTemplate::withCount(['procedures'])->find($templateId);
+
+        if (! $template) {
+            return response()->json(['message' => 'Template not found.'], 404);
+        }
+
+        if ((int) ($template->procedures_count ?? 0) > 0) {
+            return response()->json([
+                'message' => 'Không thể import vì mẫu đã được áp dụng cho dự án. Hãy tạo mẫu mới hoặc đồng bộ lại các thủ tục liên quan trước.',
+            ], 409);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'steps' => 'required|array|min:1',
+            'steps.*.step_key' => 'required|string|max:50|distinct',
+            'steps.*.parent_key' => 'nullable|string|max:50',
+            'steps.*.step_number' => 'required|integer|min:1',
+            'steps.*.phase' => 'nullable|string|max:100',
+            'steps.*.step_name' => 'required|string|max:500',
+            'steps.*.step_detail' => 'nullable|string|max:1000',
+            'steps.*.lead_unit' => 'nullable|string|max:200',
+            'steps.*.support_unit' => 'nullable|string|max:200',
+            'steps.*.expected_result' => 'nullable|string|max:500',
+            'steps.*.default_duration_days' => 'nullable|integer|min:0',
+            'steps.*.sort_order' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        $normalizedSteps = collect($request->input('steps', []))
+            ->map(static function (array $step): array {
+                $normalizeText = static fn ($value): ?string => is_string($value)
+                    ? (trim($value) !== '' ? trim($value) : null)
+                    : null;
+
+                return [
+                    'step_key' => trim((string) $step['step_key']),
+                    'parent_key' => $normalizeText($step['parent_key'] ?? null),
+                    'step_number' => (int) $step['step_number'],
+                    'phase' => $normalizeText($step['phase'] ?? null),
+                    'step_name' => trim((string) $step['step_name']),
+                    'step_detail' => $normalizeText($step['step_detail'] ?? null),
+                    'lead_unit' => $normalizeText($step['lead_unit'] ?? null),
+                    'support_unit' => $normalizeText($step['support_unit'] ?? null),
+                    'expected_result' => $normalizeText($step['expected_result'] ?? null),
+                    'default_duration_days' => array_key_exists('default_duration_days', $step) && $step['default_duration_days'] !== null
+                        ? (int) $step['default_duration_days']
+                        : null,
+                    'sort_order' => (int) $step['sort_order'],
+                ];
+            })
+            ->sortBy('sort_order')
+            ->values();
+
+        $knownRootKeys = [];
+        foreach ($normalizedSteps as $index => $step) {
+            $label = 'Dòng import #' . ($index + 1);
+
+            if ($step['parent_key'] === null) {
+                $knownRootKeys[$step['step_key']] = true;
+                continue;
+            }
+
+            if (! isset($knownRootKeys[$step['parent_key']])) {
+                return response()->json([
+                    'message' => "Validation failed. {$label} tham chiếu bước cha không hợp lệ hoặc bước cha chưa xuất hiện phía trên.",
+                ], 422);
+            }
+        }
+
+        $existingStepIds = ProjectProcedureTemplateStep::where('template_id', $templateId)
+            ->pluck('id')
+            ->map(static fn ($stepId) => (int) $stepId)
+            ->values()
+            ->all();
+
+        if ($existingStepIds !== [] && Schema::hasTable('project_procedure_steps')) {
+            $usedCount = ProjectProcedureStep::whereIn('template_step_id', $existingStepIds)->count();
+            if ($usedCount > 0) {
+                return response()->json([
+                    'message' => "Một số bước hiện tại đã được áp dụng cho {$usedCount} dự án và không thể ghi đè bằng import.",
+                ], 409);
+            }
+        }
+
+        DB::transaction(function () use ($templateId, $normalizedSteps): void {
+            ProjectProcedureTemplateStep::where('template_id', $templateId)->delete();
+
+            $parentIdByKey = [];
+
+            foreach ($normalizedSteps as $step) {
+                $parentId = null;
+                if ($step['parent_key'] !== null) {
+                    $parentId = $parentIdByKey[$step['parent_key']] ?? null;
+                }
+
+                $createdStep = ProjectProcedureTemplateStep::create([
+                    'template_id' => $templateId,
+                    'step_number' => $step['step_number'],
+                    'parent_step_id' => $parentId,
+                    'phase' => $step['phase'],
+                    'step_name' => $step['step_name'],
+                    'step_detail' => $step['step_detail'],
+                    'lead_unit' => $step['lead_unit'],
+                    'support_unit' => $step['support_unit'],
+                    'expected_result' => $step['expected_result'],
+                    'default_duration_days' => $step['default_duration_days'],
+                    'sort_order' => $step['sort_order'],
+                ]);
+
+                if ($step['parent_key'] === null) {
+                    $parentIdByKey[$step['step_key']] = $createdStep->id;
+                }
+            }
+        });
+
+        return response()->json([
+            'message' => 'Imported.',
+            'data' => [
+                'imported_count' => $normalizedSteps->count(),
+                'root_count' => $normalizedSteps->where('parent_key', null)->count(),
+            ],
+        ], 200);
+    }
+
     /**
      * @param  array<int, int|string>  $rootStepIds
      * @return array<int, int>

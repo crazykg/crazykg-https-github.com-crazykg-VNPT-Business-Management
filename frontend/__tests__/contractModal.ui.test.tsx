@@ -753,7 +753,7 @@ describe('ContractModal contract source modes', () => {
     expect(screen.queryByText(/Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án/)).not.toBeInTheDocument();
   });
 
-  it('uses package options for manual contract items and hydrates unit from the selected package', async () => {
+  it('uses linked project items for manual contract items and hydrates unit from the selected project item package', async () => {
     const user = userEvent.setup();
 
     renderModal({
@@ -771,10 +771,14 @@ describe('ContractModal contract source modes', () => {
     });
 
     await user.click(screen.getByText('Thêm hạng mục'));
-    await user.click(screen.getByRole('button', { name: 'Chọn gói cước' }));
-    await user.click(screen.getByRole('button', { name: 'Thuê Hệ thống thông tin quản lý y tế Trạm phụ' }));
+    await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
+    expect(screen.getByText('PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'PKG001-B - Thuê Hệ thống thông tin quản lý y tế Trạm chính' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Dịch vụ EMR' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sản phẩm #/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ' }));
 
-    expect(screen.getByText('Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
+    expect(screen.getByText('PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
     expect(screen.getByText('Trạm Y tế, PKĐK/ Tháng')).toBeInTheDocument();
     expect(screen.getByDisplayValue('600.000')).toBeInTheDocument();
   });

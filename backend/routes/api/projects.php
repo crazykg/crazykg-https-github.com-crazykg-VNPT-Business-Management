@@ -42,6 +42,8 @@ Route::get('/project-procedure-templates/{templateId}/steps', [ProjectProcedureC
     ->middleware('permission:projects.read');
 Route::delete('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'deleteTemplateSteps'])
     ->middleware('permission:projects.write');
+Route::post('/project-procedure-templates/{templateId}/steps/import', [ProjectProcedureController::class, 'importTemplateSteps'])
+    ->middleware('permission:projects.write');
 Route::post('/project-procedure-templates/{templateId}/steps', [ProjectProcedureController::class, 'storeTemplateStep'])
     ->middleware('permission:projects.write');
 Route::put('/project-procedure-templates/{templateId}/steps/{stepId}', [ProjectProcedureController::class, 'updateTemplateStep'])

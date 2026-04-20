@@ -84,7 +84,7 @@ import { normalizeQuerySignature } from './utils/queryUtils';
 import { canOpenModal, hasPermission, isImportSupportedModule } from './utils/authorization';
 import { fetchEmployeePartyProfilesPage, upsertEmployeePartyProfile } from './services/api/employeeApi';
 import { useContractStore } from './shared/stores';
-import { FILTER_DEFAULTS } from './shared/stores/filterStore';
+import { getDefaultTabFilter } from './shared/stores/filterStore';
 
 // Lazy components
 const ProjectProcedureModal = lazy(() => import('./components/ProjectProcedureModal').then((m) => ({ default: m.ProjectProcedureModal })));
@@ -340,10 +340,7 @@ const App: React.FC = () => {
   const employeesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const partyProfilesPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'user_code', sort_dir: 'asc', q: '', filters: {} });
   const customersPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'customer_code', sort_dir: 'asc', q: '', filters: {} });
-  const projectsPageQueryRef = React.useRef<PaginatedQuery>({
-    ...FILTER_DEFAULTS.projectsPage,
-    filters: { ...(FILTER_DEFAULTS.projectsPage.filters || {}) },
-  });
+  const projectsPageQueryRef = React.useRef<PaginatedQuery>(getDefaultTabFilter('projectsPage'));
   const contractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const passContractsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 10, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
   const documentsPageQueryRef = React.useRef<PaginatedQuery>({ page: 1, per_page: 7, sort_by: 'id', sort_dir: 'desc', q: '', filters: {} });
@@ -2361,7 +2358,7 @@ const App: React.FC = () => {
 
   // Main render
   return (
-    <div className="flex h-screen bg-bg-light overflow-hidden flex-col lg:flex-row">
+    <div className="flex h-[100dvh] min-h-screen min-h-[100dvh] min-h-0 bg-bg-light overflow-hidden flex-col lg:flex-row">
       <div className="lg:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-30">
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600 p-1"><span className="material-symbols-outlined">menu</span></button>
@@ -2370,7 +2367,7 @@ const App: React.FC = () => {
         </div>
       </div>
       <Sidebar activeTab={activeTab} setActiveTab={handleNavigateTab} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} currentUser={authUser} visibleTabIds={visibleTabIds} onLogout={handleLogout} onPrefetchTab={prefetchTabModules} />
-      <main className="min-w-0 flex-1 overflow-y-auto bg-bg-light w-full">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages
             activeTab={activeTab} authUser={authUser} activeInternalUserSubTab={activeInternalUserSubTab} setInternalUserSubTab={setInternalUserSubTab}

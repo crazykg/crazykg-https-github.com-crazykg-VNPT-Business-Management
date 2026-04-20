@@ -97,9 +97,13 @@ const NAV_ITEMS: Array<{ value: SettingsGroup; label: string; sub: string; icon:
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
 
-const INPUT  = 'w-full h-8 rounded border border-slate-300 px-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-400';
+const CONTROL_RADIUS = 'rounded-[var(--ui-control-radius)]';
+const SHELL_RADIUS = 'rounded-[var(--ui-shell-radius)]';
+const PILL_RADIUS = 'rounded-[var(--ui-pill-radius)]';
+
+const INPUT  = `w-full h-8 ${CONTROL_RADIUS} border border-slate-300 px-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-400`;
 const LABEL  = 'block text-xs font-semibold text-neutral mb-1';
-const BTN_SM = 'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors disabled:opacity-50';
+const BTN_SM = `inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 ${CONTROL_RADIUS} transition-colors disabled:opacity-50`;
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -110,23 +114,23 @@ const ToggleSwitch: React.FC<{ checked: boolean; onChange: () => void; label: st
       role="switch"
       aria-checked={checked}
       onClick={onChange}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-secondary/40 ${checked ? 'bg-secondary' : 'bg-slate-300'}`}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center ${PILL_RADIUS} transition-colors focus:outline-none focus:ring-2 focus:ring-secondary/40 ${checked ? 'bg-secondary' : 'bg-slate-300'}`}
     >
-      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+      <span className={`inline-block h-3.5 w-3.5 ${PILL_RADIUS} bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
     </button>
     <span className={`text-xs font-semibold ${checked ? 'text-secondary' : 'text-neutral'}`}>{label}</span>
   </div>
 );
 
 const ConnectionBadge: React.FC<{ status: string | null | undefined }> = ({ status }) => {
-  if (status === 'SUCCESS') return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Kết nối thành công</span>;
-  if (status === 'FAILED')  return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">● Kết nối lỗi</span>;
-  return <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">○ Chưa kiểm tra</span>;
+  if (status === 'SUCCESS') return <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 ${PILL_RADIUS} bg-emerald-100 text-emerald-700`}>● Kết nối thành công</span>;
+  if (status === 'FAILED')  return <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 ${PILL_RADIUS} bg-red-100 text-red-700`}>● Kết nối lỗi</span>;
+  return <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 ${PILL_RADIUS} bg-slate-200 text-slate-500`}>○ Chưa kiểm tra</span>;
 };
 
 const InfoFooter: React.FC<{ source: string; testedAt: string | null; message: string }> = ({ source, testedAt, message }) => (
   <div className="px-4 pb-3 mt-auto shrink-0">
-    <div className="grid grid-cols-3 gap-px rounded overflow-hidden border border-slate-200 text-xs">
+    <div className={`grid grid-cols-3 gap-px ${CONTROL_RADIUS} overflow-hidden border border-slate-200 text-xs`}>
       {[
         { label: 'Nguồn cấu hình', value: source },
         { label: 'Kiểm tra gần nhất', value: formatTestTime(testedAt) },
@@ -402,7 +406,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       {/* ── Page header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
+          <div className={`w-7 h-7 ${CONTROL_RADIUS} bg-secondary/15 flex items-center justify-center shrink-0`}>
             <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>tune</span>
           </div>
           <div>
@@ -422,7 +426,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
       </div>
 
       {/* ── Two-pane card ────────────────────────────────────────────────────── */}
-      <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden" style={{ minHeight: 460 }}>
+      <div className={`flex ${SHELL_RADIUS} border border-slate-200 bg-white shadow-sm overflow-hidden`} style={{ minHeight: 460 }}>
 
         {/* Left navigation */}
         <nav className="w-44 shrink-0 border-r border-slate-200 py-1 bg-slate-50/60">
@@ -455,7 +459,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">{item.sub}</div>
                   {connStatus !== null && (
-                    <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-tight ${
+                    <span className={`inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 ${PILL_RADIUS} leading-tight ${
                       connStatus === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700'
                       : connStatus === 'FAILED' ? 'bg-red-100 text-red-700'
                       : 'bg-slate-200 text-slate-500'
@@ -540,7 +544,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
 
                 <div className="col-span-2">
                   <label className={LABEL}>Endpoint (tự suy từ Region)</label>
-                  <div className="h-8 flex items-center px-2.5 rounded border border-slate-200 bg-slate-50 text-xs font-mono text-slate-500 truncate">
+                  <div className={`h-8 flex items-center px-2.5 ${CONTROL_RADIUS} border border-slate-200 bg-slate-50 text-xs font-mono text-slate-500 truncate`}>
                     {backblazeDerivedEndpoint || <span className="text-slate-400 italic">Nhập Region để hệ thống tự suy endpoint</span>}
                   </div>
                 </div>
@@ -562,7 +566,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                     }}
                     rows={3}
                     placeholder="Dán Application Key vào đây (để trống nếu giữ nguyên)"
-                    className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none"
+                    className={`w-full ${CONTROL_RADIUS} border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none`}
                   />
                   <div className="flex items-center gap-4 mt-1">
                     <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 select-none cursor-pointer">
@@ -572,7 +576,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                           setClearBackblazeSecret(e.target.checked);
                           if (e.target.checked) setBackblazeSecretAccessKey('');
                         }}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        className={`w-3.5 h-3.5 ${CONTROL_RADIUS} border-slate-300 text-primary focus:ring-primary/30`}
                       />
                       Xóa key đang lưu
                     </label>
@@ -684,7 +688,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                     }}
                     rows={4}
                     placeholder="Dán nội dung JSON service account vào đây (để trống nếu giữ nguyên cấu hình hiện tại)"
-                    className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none"
+                    className={`w-full ${CONTROL_RADIUS} border border-slate-300 px-2.5 py-1.5 text-xs font-mono focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none resize-none`}
                   />
                   <div className="flex items-center gap-4 mt-1">
                     <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 select-none cursor-pointer">
@@ -694,7 +698,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                           setClearCredentials(e.target.checked);
                           if (e.target.checked) setServiceAccountJson('');
                         }}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        className={`w-3.5 h-3.5 ${CONTROL_RADIUS} border-slate-300 text-primary focus:ring-primary/30`}
                       />
                       Xóa JSON đang lưu
                     </label>
@@ -823,7 +827,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                           setClearSmtpPassword(e.target.checked);
                           if (e.target.checked) setSmtpPassword('');
                         }}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
+                        className={`w-3.5 h-3.5 ${CONTROL_RADIUS} border-slate-300 text-primary focus:ring-primary/30`}
                       />
                       Xóa mật khẩu đang lưu
                     </label>
@@ -916,7 +920,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                   </p>
                 </div>
 
-                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <div className={`${CONTROL_RADIUS} border border-slate-200 bg-slate-50 px-3 py-2.5`}>
                   <p className="text-xs font-semibold text-slate-600 mb-2">Cấu hình đang lưu</p>
                   <dl className="space-y-1.5 text-xs">
                     <div className="flex justify-between gap-2">
@@ -970,7 +974,7 @@ export const IntegrationSettingsPanel: React.FC<IntegrationSettingsPanelProps> =
                   </p>
                 </div>
 
-                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <div className={`${CONTROL_RADIUS} border border-slate-200 bg-slate-50 px-3 py-2.5`}>
                   <p className="text-xs font-semibold text-slate-600 mb-2">Cấu hình đang lưu</p>
                   <dl className="space-y-1.5 text-xs">
                     <div className="flex justify-between gap-2">

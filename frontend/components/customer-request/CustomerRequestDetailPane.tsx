@@ -243,9 +243,20 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const [showDispatcherActionModal, setShowDispatcherActionModal] = useState(false);
   const [showPerformerActionModal, setShowPerformerActionModal] = useState(false);
   const isFullModalPresentation = presentation === 'full_modal';
+  const isFullModalUpdateLayout = isFullModalPresentation && !isCreateMode;
   const visibleDetailTabs = useMemo(
-    () => (isCreateMode ? DETAIL_TABS.filter((tab) => tab.key === 'tasks') : DETAIL_TABS),
-    [isCreateMode]
+    () => {
+      if (isCreateMode) {
+        return DETAIL_TABS.filter((tab) => tab.key === 'tasks');
+      }
+
+      if (isFullModalUpdateLayout) {
+        return DETAIL_TABS.filter((tab) => tab.key !== 'files' && tab.key !== 'tasks');
+      }
+
+      return DETAIL_TABS;
+    },
+    [isCreateMode, isFullModalUpdateLayout]
   );
 
   useEffect(() => {
@@ -285,6 +296,10 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const actionFlags = processDetail?.available_actions ?? {};
   const latestWorklogs = caseWorklogs.slice(0, 5);
+  const hoursByActivity = currentHoursReport?.by_activity ?? [];
+  const hoursByPerformer = currentHoursReport?.by_performer ?? [];
+  const showHoursSideSummaries = !isFullModalPresentation
+    && (hoursByActivity.length > 0 || hoursByPerformer.length > 0);
   const transitionCtaLabel = 'Chuyển →';
   const rawDetailStatus = processDetail?.current_detail_status;
   // Map Vietnamese status values to English equivalents
@@ -334,6 +349,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     (item) => item.label !== 'Mã yêu cầu' && item.label !== 'Khách hàng'
   );
   const showSummaryBar = !isFullModalPresentation || isCreateMode;
+  const formRailClassName = isFullModalPresentation ? 'mx-auto w-full max-w-[1080px]' : 'w-full';
+  const operationRailClassName = isFullModalPresentation ? 'mx-auto w-full max-w-[1180px]' : 'w-full';
   const summaryBarItems = isCreateMode
     ? [
         {
@@ -380,17 +397,32 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     },
   ];
 
+  const compactSectionCardClass = 'rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-3.5';
   const compactSectionTitleClass = 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500';
   const compactSectionIconBoxClass = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md';
+  const compactSectionHeaderClass = 'mb-2 flex items-center gap-2 border-b border-slate-100 pb-2';
 
-  const renderTaskManager = () => (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-slate-400">deployed_code</span>
-          <h4 className={compactSectionTitleClass}>Task liên quan</h4>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+  const renderTaskManager = (layout: 'tab' | 'rail' = 'tab') => {
+    const isRailLayout = layout === 'rail';
+
+    return (
+      <section
+        className={isRailLayout
+          ? compactSectionCardClass
+          : 'space-y-4'}
+      >
+        <div className={`flex flex-col gap-2.5 ${isRailLayout ? 'mb-2 border-b border-slate-100 pb-2 sm:flex-row sm:items-center sm:justify-between' : 'xl:flex-row xl:items-center xl:justify-between'}`}>
+          <div className="flex items-center gap-2">
+            {isRailLayout ? (
+              <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>deployed_code</span>
+              </div>
+            ) : (
+              <span className="material-symbols-outlined text-[16px] text-slate-400">deployed_code</span>
+            )}
+            <h4 className={compactSectionTitleClass}>Task liên quan</h4>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => onActiveTaskTabChange('IT360')}
@@ -459,15 +491,15 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </>
           ) : null}
         </div>
-      </div>
+        </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white/80 p-3 shadow-inner">
+        <div className={`rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white/80 shadow-inner ${isRailLayout ? 'mt-0 p-2.5' : 'p-3'}`}>
         {activeTaskTab === 'IT360' ? (
           <div className="space-y-2">
             {formIt360Tasks.map((task, index) => (
               <div
                 key={task.local_id}
-                className="group grid gap-2.5 rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/50 p-3 shadow-sm transition-shadow hover:shadow-md md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]"
+                className={`group rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/50 shadow-sm transition-shadow hover:shadow-md ${isRailLayout ? 'space-y-2.5 p-2.5' : 'grid gap-2.5 p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]'}`}
               >
                 <div className="space-y-1.5">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Task IT360 #{index + 1}</p>
@@ -504,7 +536,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   />
                 </div>
 
-                <div className="flex items-end justify-end">
+                <div className={`flex items-end ${isRailLayout ? 'justify-start' : 'justify-end'}`}>
                   {canEditActiveForm ? (
                     <button
                       type="button"
@@ -524,7 +556,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             {formReferenceTasks.map((task, index) => (
               <div
                 key={task.local_id}
-                className="grid gap-2 rounded-xl border border-slate-200 bg-white p-2.5 md:grid-cols-[minmax(0,1fr)_auto]"
+                className={`grid gap-2 rounded-xl border border-slate-200 bg-white p-2.5 ${isRailLayout ? '' : 'md:grid-cols-[minmax(0,1fr)_auto]'}`}
               >
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -569,44 +601,62 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
         )}
       </div>
-    </div>
-  );
+      </section>
+    );
+  };
 
-  const renderFileManager = () => (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className={compactSectionTitleClass}>Tệp đính kèm</h4>
-        {canEditActiveForm && onSaveAttachmentsOnly ? (
-          <button
-            type="button"
-            onClick={() => void onSaveAttachmentsOnly()}
-            disabled={isSaving}
-            className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[15px]">save</span>
-            {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
-          </button>
-        ) : null}
-      </div>
-      <AttachmentManager
-        attachments={formAttachments}
-        onUpload={onUploadAttachment}
-        onDelete={onDeleteAttachment}
-        isUploading={isUploadingAttachment}
-        disabled={!canEditActiveForm || isSaving}
-        emptyStateDescription="Chưa có file đính kèm nào. Kéo thả hoặc Ctrl+V để dán ảnh."
-        enableClipboardPaste
-        clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
-      />
+  const renderFileManager = (layout: 'tab' | 'rail' = 'tab') => {
+    const isRailLayout = layout === 'rail';
 
-      {attachmentError ? <p className="text-sm text-rose-600">{attachmentError}</p> : null}
-      {!attachmentError && attachmentNotice ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-          {attachmentNotice}
+    return (
+      <section
+        className={isRailLayout
+          ? compactSectionCardClass
+          : 'space-y-3'}
+      >
+        <div className={isRailLayout ? `${compactSectionHeaderClass} justify-between` : 'flex items-center justify-between gap-3'}>
+          <div className="flex items-center gap-2">
+            {isRailLayout ? (
+              <div className={`${compactSectionIconBoxClass} bg-amber-50 text-amber-700`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>attach_file</span>
+              </div>
+            ) : null}
+            <h4 className={compactSectionTitleClass}>Tệp đính kèm</h4>
+          </div>
+          {canEditActiveForm && onSaveAttachmentsOnly ? (
+            <button
+              type="button"
+              onClick={() => void onSaveAttachmentsOnly()}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[15px]">save</span>
+              {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+            </button>
+          ) : null}
         </div>
-      ) : null}
-    </div>
-  );
+        <div className={isRailLayout ? 'mt-2' : ''}>
+          <AttachmentManager
+            attachments={formAttachments}
+            onUpload={onUploadAttachment}
+            onDelete={onDeleteAttachment}
+            isUploading={isUploadingAttachment}
+            disabled={!canEditActiveForm || isSaving}
+            emptyStateDescription="Chưa có file đính kèm nào. Kéo thả hoặc Ctrl+V để dán ảnh."
+            enableClipboardPaste
+            clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
+          />
+        </div>
+
+        {attachmentError ? <p className="text-sm text-rose-600">{attachmentError}</p> : null}
+        {!attachmentError && attachmentNotice ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+            {attachmentNotice}
+          </div>
+        ) : null}
+      </section>
+    );
+  };
 
   const renderTimelineTab = () => {
     if (isCreateMode) {
@@ -663,23 +713,26 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
       return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh nhật ký công việc." />;
     }
 
+    const isCompactHoursTab = isFullModalPresentation;
+
     return (
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_336px]">
-        <div className="space-y-3">
+      <div className={`grid min-w-0 ${isCompactHoursTab ? 'gap-3' : 'gap-4'} ${showHoursSideSummaries ? 'xl:grid-cols-[minmax(0,1fr)_336px]' : ''}`}>
+        <div className={isCompactHoursTab ? 'space-y-2.5' : 'space-y-3'}>
           <CustomerRequestHoursPanel
             request={processDetail.yeu_cau}
             hoursReport={currentHoursReport}
             canAddWorklog={canOpenWorklogModal}
             onAddWorklog={onOpenWorklogModal}
             isActionDisabled={isSaving || isSubmittingWorklog}
+            compact={isCompactHoursTab}
           />
 
-          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
-            <div className="mb-3 flex items-center gap-2">
+          <div className={`rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-md shadow-slate-200/40 ${isCompactHoursTab ? 'p-3' : 'p-3.5'}`}>
+            <div className={`flex items-center gap-2 ${isCompactHoursTab ? 'mb-2.5' : 'mb-3'}`}>
               <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
-              <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Nhật ký công việc gần nhất</h4>
+              <h4 className={`${isCompactHoursTab ? 'text-xs tracking-[0.14em]' : 'text-sm tracking-[0.18em]'} font-bold uppercase text-slate-500`}>Nhật ký công việc gần nhất</h4>
             </div>
-            <div className="space-y-2.5">
+            <div className={isCompactHoursTab ? 'space-y-2' : 'space-y-2.5'}>
               {latestWorklogs.length === 0 ? (
                 <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
               ) : (
@@ -693,17 +746,17 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       type="button"
                       onClick={() => onEditWorklog(worklog)}
                       disabled={isSaving || isSubmittingWorklog}
-                      className="group w-full rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 px-3 py-2.5 text-left shadow-sm transition-shadow hover:shadow-md disabled:opacity-50"
+                      className={`group w-full rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 text-left shadow-sm transition-shadow hover:shadow-md disabled:opacity-50 ${isCompactHoursTab ? 'px-2.5 py-2' : 'px-3 py-2.5'}`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className={`${isCompactHoursTab ? 'text-[13px] leading-5' : 'text-sm'} font-semibold text-slate-900`}>
                           {worklog.performed_by_name || 'Chưa xác định'}
                         </p>
                         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
                           {formatHoursValue(worklog.hours_spent)}
                         </span>
                       </div>
-                      <p className="mt-1.5 text-xs text-slate-500">
+                      <p className={`${isCompactHoursTab ? 'mt-1 text-[11px] leading-4' : 'mt-1.5 text-xs'} text-slate-500`}>
                         {[
                           worklog.activity_type_code,
                           mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
@@ -713,8 +766,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                           .filter(Boolean)
                           .join(' · ')}
                       </p>
-                      {worklog.work_content ? <p className="mt-2 rounded-lg border border-slate-100 bg-white/60 px-2.5 py-1.5 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                      {worklog.difficulty_note ? <p className="mt-2 rounded-lg border border-red-100 bg-red-50/60 px-2.5 py-1.5 text-sm font-medium text-red-700"><span className="font-semibold">Khó khăn:</span> {worklog.difficulty_note}</p> : null}
+                      {worklog.work_content ? <p className={`rounded-lg border border-slate-100 bg-white/60 px-2.5 py-1.5 text-slate-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}>{worklog.work_content}</p> : null}
+                      {worklog.difficulty_note ? <p className={`rounded-lg border border-red-100 bg-red-50/60 px-2.5 py-1.5 font-medium text-red-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}><span className="font-semibold">Khó khăn:</span> {worklog.difficulty_note}</p> : null}
                     </button>
                   );
                 })
@@ -723,53 +776,55 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
         </div>
 
-        <div className="space-y-3">
-          {(currentHoursReport?.by_activity ?? []).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
-                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
-              </div>
-              <div className="space-y-2">
-                {(currentHoursReport?.by_activity ?? []).map((activity) => (
-                  <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold text-slate-800">
-                        {activity.activity_type_code || 'Chưa phân loại'}
-                      </span>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
-                        {formatHoursValue(activity.hours_spent)}
-                      </span>
+        {showHoursSideSummaries ? (
+          <div className="space-y-3">
+            {hoursByActivity.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
+                  <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
+                </div>
+                <div className="space-y-2">
+                  {hoursByActivity.map((activity) => (
+                    <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold text-slate-800">
+                          {activity.activity_type_code || 'Chưa phân loại'}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                          {formatHoursValue(activity.hours_spent)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {(currentHoursReport?.by_performer ?? []).length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
-                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
-              </div>
-              <div className="space-y-2">
-                {(currentHoursReport?.by_performer ?? []).map((person) => (
-                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
-                        {formatHoursValue(person.hours_spent)}
-                      </span>
+            {hoursByPerformer.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
+                  <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
+                </div>
+                <div className="space-y-2">
+                  {hoursByPerformer.map((person) => (
+                    <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                          {formatHoursValue(person.hours_spent)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -887,276 +942,585 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     }
   };
 
-  return (
-    <div className={`min-w-0 ${isFullModalPresentation ? 'space-y-3' : 'space-y-5'}`}>
-      {showSummaryBar ? (
-        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6">
-            {summaryBarItems.map((item) => (
-              <div key={item.label} className={`rounded-2xl border border-slate-100 px-2.5 py-2.5 ${item.label === 'Ngữ cảnh' ? 'sm:col-span-2 xl:col-span-2 bg-slate-50' : 'bg-slate-50/80'}`}>
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{item.value}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {!isCreateMode ? (
-        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-          <div className="flex flex-col gap-2 border-b border-slate-100 pb-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync_alt</span>
-                </div>
-                <h4 className={compactSectionTitleClass}>Trạng thái xử lý</h4>
-                {(() => {
-                  const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
-                  return (
-                    <span className={`inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold ${meta.cls}`}>
-                      <span className="text-[10px] leading-none">●</span>
-                      {meta.label}
-                    </span>
-                  );
-                })()}
-              </div>
-
-              {canEditActiveForm && !isCreateMode && onSaveRequest ? (
-                <button
-                  type="button"
-                  onClick={() => void onSaveRequest()}
-                  disabled={isSaving}
-                  className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50 sm:w-auto"
-                >
-                  <span className="material-symbols-outlined text-[15px]">save</span>
-                  {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
-                </button>
-              ) : null}
+const renderStatusSection = () => (
+    <section className={compactSectionCardClass}>
+      <div className="flex flex-col gap-2 border-b border-slate-100 pb-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync_alt</span>
             </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-            {canOpenWorklogModal ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
-                  disabled={isSaving || isSubmittingWorklog}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
-                    isDetailInProgress
-                      ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[15px]">play_circle</span>
-                  Đang thực hiện
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenDetailStatusWorklogModal('paused')}
-                  disabled={isSaving || isSubmittingWorklog}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
-                    isDetailPaused
-                      ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[15px]">pause_circle</span>
-                  Tạm ngưng
-                </button>
-              </>
-            ) : null}
-
-            {canTransitionActiveRequest ? (
-              <>
-                {!isDetailOpen && (
-                  <button
-                    type="button"
-                    onClick={onOpenTransitionModal}
-                    disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                    className="inline-flex h-8 items-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
-                  >
-                    <span className="material-symbols-outlined text-[15px]">arrow_right_alt</span>
-                    Hoàn thành
-                  </button>
-                )}
-                {!isDetailOpen && (
-                  <select
-                    value={transitionStatusCode}
-                    onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
-                    disabled={isSaving || !canTransitionActiveRequest}
-                    className="h-8 min-w-[168px] rounded border border-slate-200 bg-white px-3 text-xs text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-                  >
-                    {transitionOptions.length > 0 ? (
-                      transitionOptions.map((option) => {
-                        const meta = resolveTransitionStatusMeta(option);
-                        return (
-                          <option key={option.process_code} value={option.process_code}>
-                            {meta.label}
-                          </option>
-                        );
-                      })
-                    ) : (
-                      <option value="">-- Không có bước tiếp theo --</option>
-                    )}
-                  </select>
-                )}
-              </>
-            ) : null}
-
-            {canTransitionActiveRequest && transitionOptions.length === 0 ? (
-              <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
-            ) : null}
+            <h4 className={compactSectionTitleClass}>Trạng thái xử lý</h4>
+            {(() => {
+              const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
+              return (
+                <span className={`inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold ${meta.cls}`}>
+                  <span className="text-[10px] leading-none">●</span>
+                  {meta.label}
+                </span>
+              );
+            })()}
           </div>
-          </div>
-        </section>
-      ) : null}
-
-      <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-          <div className={`${compactSectionIconBoxClass} bg-emerald-50 text-emerald-700`}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
-          </div>
-          <h4 className={compactSectionTitleClass}>Thông tin yêu cầu</h4>
         </div>
 
-        <div className="mt-2 grid gap-3 lg:grid-cols-2">
-          {masterFields.map((field) => {
-            if (
-              field.type === 'hidden'
-              || field.type === 'customer_select'
-              || field.name === 'customer_id'
-            ) {
-              return null;
-            }
-
-            return (
-              <div
-                key={field.name}
-                className={
-                  field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
-                    ? 'lg:col-span-2'
-                    : undefined
-                }
+        <div className="flex flex-wrap items-center gap-1.5">
+          {canOpenWorklogModal ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
+                disabled={isSaving || isSubmittingWorklog}
+                className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                  isDetailInProgress
+                    ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
               >
-                <ProcessFieldInput
-                  field={field}
-                  value={masterDraft[field.name]}
-                  customers={customers}
-                  employees={employees}
-                  customerPersonnel={customerPersonnel}
-                  supportServiceGroups={supportServiceGroups}
-                  projectItems={availableProjectItems}
-                  selectedCustomerId={selectedCustomerId}
-                  disabled={!canEditActiveForm || isSaving}
-                  density="compact"
-                  onChange={onMasterFieldChange}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </section>
+                <span className="material-symbols-outlined text-[15px]">play_circle</span>
+                Đang thực hiện
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenDetailStatusWorklogModal('paused')}
+                disabled={isSaving || isSubmittingWorklog}
+                className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                  isDetailPaused
+                    ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[15px]">pause_circle</span>
+                Tạm ngưng
+              </button>
+            </>
+          ) : null}
 
-      <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-          <div className={`${compactSectionIconBoxClass} bg-violet-50 text-violet-700`}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sell</span>
-          </div>
-          <h4 className={compactSectionTitleClass}>Thẻ</h4>
-        </div>
-        <div className="mt-2">
-          <TagInput
-            value={formTags}
-            onChange={onFormTagsChange}
-            disabled={!canEditActiveForm || isSaving}
-            placeholder="Thêm tag cho yêu cầu..."
-          />
-        </div>
-      </section>
+          {canTransitionActiveRequest ? (
+            <>
+              {!isDetailOpen && (
+                <button
+                  type="button"
+                  onClick={onOpenTransitionModal}
+                  disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                  className="inline-flex h-8 items-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[15px]">arrow_right_alt</span>
+                  Hoàn thành
+                </button>
+              )}
+              {!isDetailOpen && (
+                <select
+                  value={transitionStatusCode}
+                  onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                  disabled={isSaving || !canTransitionActiveRequest}
+                  className="h-8 min-w-[168px] rounded border border-slate-200 bg-white px-3 text-xs text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                >
+                  {transitionOptions.length > 0 ? (
+                    transitionOptions.map((option) => {
+                      const meta = resolveTransitionStatusMeta(option);
+                      return (
+                        <option key={option.process_code} value={option.process_code}>
+                          {meta.label}
+                        </option>
+                      );
+                    })
+                  ) : (
+                    <option value="">-- Không có bước tiếp theo --</option>
+                  )}
+                </select>
+              )}
+            </>
+          ) : null}
 
-      {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
-        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>flowchart</span>
-              </div>
-              <h4 className={compactSectionTitleClass}>{editorProcessMeta.process_label}</h4>
-            </div>
-            <button
-              type="button"
-              onClick={onSaveStatusDetail}
-              disabled={!canEditActiveForm || isSaving}
-              className="inline-flex w-full items-center justify-center rounded bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+          {canTransitionActiveRequest && transitionOptions.length === 0 ? (
+            <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+
+const renderInfoSection = () => (
+    <section className={compactSectionCardClass}>
+      <div className={compactSectionHeaderClass}>
+        <div className={`${compactSectionIconBoxClass} bg-emerald-50 text-emerald-700`}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+        </div>
+        <h4 className={compactSectionTitleClass}>Thông tin yêu cầu</h4>
+      </div>
+
+      <div className="mt-2 grid gap-3 lg:grid-cols-2">
+        {masterFields.map((field) => {
+          if (
+            field.type === 'hidden'
+            || field.type === 'customer_select'
+            || field.name === 'customer_id'
+          ) {
+            return null;
+          }
+
+          return (
+            <div
+              key={field.name}
+              className={
+                field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
+                  ? 'lg:col-span-2'
+                  : undefined
+              }
             >
-              {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
-            </button>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {([
-              { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
-              { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
-              { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
-              { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
-              { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
-              { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
-              { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
-            ] satisfies YeuCauProcessField[]).map((field) => (
               <ProcessFieldInput
-                key={field.name}
                 field={field}
-                value={processDraft[field.name]}
+                value={masterDraft[field.name]}
                 customers={customers}
                 employees={employees}
                 customerPersonnel={customerPersonnel}
                 supportServiceGroups={supportServiceGroups}
                 projectItems={availableProjectItems}
-                selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                selectedCustomerId={selectedCustomerId}
+                disabled={!canEditActiveForm || isSaving}
                 density="compact"
-                onChange={onProcessDraftChange}
+                onChange={onMasterFieldChange}
               />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {isCreateMode ? (
-        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-          {renderFileManager()}
-        </section>
-      ) : null}
-
-      <div className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
-        <div className="flex flex-col gap-2 border-b border-slate-100 pb-2 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>tune</span>
             </div>
-            <h4 className={compactSectionTitleClass}>Vận hành yêu cầu</h4>
-          </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            {visibleDetailTabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveDetailTab(tab.key)}
-                className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
-                  activeDetailTab === tab.key
-                    ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[17px] transition-transform group-hover:scale-110">{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
+const renderTagSection = () => (
+    <section className={compactSectionCardClass}>
+      <div className={compactSectionHeaderClass}>
+        <div className={`${compactSectionIconBoxClass} bg-violet-50 text-violet-700`}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sell</span>
+        </div>
+        <h4 className={compactSectionTitleClass}>Thẻ</h4>
+      </div>
+      <div className="mt-2">
+        <TagInput
+          value={formTags}
+          onChange={onFormTagsChange}
+          disabled={!canEditActiveForm || isSaving}
+          placeholder="Thêm tag cho yêu cầu..."
+        />
+      </div>
+    </section>
+  );
+
+  const renderProcessDetailSection = () => {
+    if (shouldHideInitialIntakeSection || !editorProcessMeta || editorProcessMeta.form_fields.length === 0) {
+      return null;
+    }
+
+    return (
+      <section className={compactSectionCardClass}>
+        <div className={compactSectionHeaderClass}>
+          <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>flowchart</span>
+          </div>
+          <h4 className={compactSectionTitleClass}>{editorProcessMeta.process_label}</h4>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {([
+            { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
+            { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
+            { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
+            { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
+            { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+            { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+            { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
+          ] satisfies YeuCauProcessField[]).map((field) => (
+            <ProcessFieldInput
+              key={field.name}
+              field={field}
+              value={processDraft[field.name]}
+              customers={customers}
+              employees={employees}
+              customerPersonnel={customerPersonnel}
+              supportServiceGroups={supportServiceGroups}
+              projectItems={availableProjectItems}
+              selectedCustomerId={normalizeText(masterDraft.customer_id)}
+              disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+              density="compact"
+              onChange={onProcessDraftChange}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  };
+
+const renderOperationSection = () => (
+    <div className={compactSectionCardClass}>
+      <div className="mb-2 flex flex-col gap-2 border-b border-slate-100 pb-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>tune</span>
+          </div>
+          <h4 className={compactSectionTitleClass}>Vận hành yêu cầu</h4>
+        </div>
+
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {visibleDetailTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveDetailTab(tab.key)}
+              className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                activeDetailTab === tab.key
+                  ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[17px] transition-transform group-hover:scale-110">{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-2">{renderActiveTab()}</div>
+    </div>
+  );
+
+  if (isFullModalUpdateLayout) {
+    return (
+      <div className="space-y-4">
+        <div className="mx-auto w-full max-w-[1180px]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+            <div className="min-w-0 space-y-3">
+              {renderStatusSection()}
+              {renderInfoSection()}
+              {renderProcessDetailSection()}
+            </div>
+
+            <aside className="min-w-0 space-y-3 xl:sticky xl:top-0 xl:self-start">
+              {renderTagSection()}
+              {renderTaskManager('rail')}
+              {renderFileManager('rail')}
+            </aside>
           </div>
         </div>
 
-        <div className="mt-2">{renderActiveTab()}</div>
+        <div className="mx-auto w-full max-w-[1180px]">
+          {renderOperationSection()}
+        </div>
+
+        <CustomerRequestQuickActionModal
+          open={showDispatcherActionModal}
+          eyebrow="Popup điều phối"
+          title="Chọn nhánh xử lý"
+          requestCode={processDetail?.yeu_cau?.ma_yc}
+          requestSummary={processDetail?.yeu_cau?.tieu_de || processDetail?.yeu_cau?.summary}
+          actions={dispatcherQuickActions}
+          onClose={() => setShowDispatcherActionModal(false)}
+          onSelectAction={(action) => {
+            setShowDispatcherActionModal(false);
+            onRunDispatcherAction(action);
+          }}
+        />
+
+        <CustomerRequestQuickActionModal
+          open={showPerformerActionModal}
+          eyebrow="Popup performer"
+          title="Chọn thao tác thực hiện"
+          requestCode={processDetail?.yeu_cau?.ma_yc}
+          requestSummary={processDetail?.yeu_cau?.tieu_de || processDetail?.yeu_cau?.summary}
+          actions={performerQuickActions}
+          onClose={() => setShowPerformerActionModal(false)}
+          onSelectAction={(action) => {
+            setShowPerformerActionModal(false);
+            onRunPerformerAction(action);
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`min-w-0 ${isFullModalPresentation ? 'space-y-3' : 'space-y-5'}`}>
+      {showSummaryBar ? (
+        <div className={formRailClassName}>
+          <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6">
+              {summaryBarItems.map((item) => (
+                <div key={item.label} className={`rounded-2xl border border-slate-100 px-2.5 py-2.5 ${item.label === 'Ngữ cảnh' ? 'sm:col-span-2 xl:col-span-2 bg-slate-50' : 'bg-slate-50/80'}`}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {!isCreateMode ? (
+        <div className={formRailClassName}>
+          <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+            <div className="flex flex-col gap-2 border-b border-slate-100 pb-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync_alt</span>
+                  </div>
+                  <h4 className={compactSectionTitleClass}>Trạng thái xử lý</h4>
+                  {(() => {
+                    const meta = resolveRequestStatusMeta(processDetail?.yeu_cau ?? {});
+                    return (
+                      <span className={`inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold ${meta.cls}`}>
+                        <span className="text-[10px] leading-none">●</span>
+                        {meta.label}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {canEditActiveForm && !isCreateMode && onSaveRequest ? (
+                  <button
+                    type="button"
+                    onClick={() => void onSaveRequest()}
+                    disabled={isSaving}
+                    className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50 sm:w-auto"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">save</span>
+                    {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+              {canOpenWorklogModal ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
+                    disabled={isSaving || isSubmittingWorklog}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                      isDetailInProgress
+                        ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">play_circle</span>
+                    Đang thực hiện
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDetailStatusWorklogModal('paused')}
+                    disabled={isSaving || isSubmittingWorklog}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                      isDetailPaused
+                        ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">pause_circle</span>
+                    Tạm ngưng
+                  </button>
+                </>
+              ) : null}
+
+              {canTransitionActiveRequest ? (
+                <>
+                  {!isDetailOpen && (
+                    <button
+                      type="button"
+                      onClick={onOpenTransitionModal}
+                      disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
+                      className="inline-flex h-8 items-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">arrow_right_alt</span>
+                      Hoàn thành
+                    </button>
+                  )}
+                  {!isDetailOpen && (
+                    <select
+                      value={transitionStatusCode}
+                      onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
+                      disabled={isSaving || !canTransitionActiveRequest}
+                      className="h-8 min-w-[168px] rounded border border-slate-200 bg-white px-3 text-xs text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    >
+                      {transitionOptions.length > 0 ? (
+                        transitionOptions.map((option) => {
+                          const meta = resolveTransitionStatusMeta(option);
+                          return (
+                            <option key={option.process_code} value={option.process_code}>
+                              {meta.label}
+                            </option>
+                          );
+                        })
+                      ) : (
+                        <option value="">-- Không có bước tiếp theo --</option>
+                      )}
+                    </select>
+                  )}
+                </>
+              ) : null}
+
+              {canTransitionActiveRequest && transitionOptions.length === 0 ? (
+                <span className="text-xs font-medium text-slate-400">Không có trạng thái đích hợp lệ từ bước hiện tại.</span>
+              ) : null}
+            </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      <div className={formRailClassName}>
+        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+            <div className={`${compactSectionIconBoxClass} bg-emerald-50 text-emerald-700`}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+            </div>
+            <h4 className={compactSectionTitleClass}>Thông tin yêu cầu</h4>
+          </div>
+
+          <div className="mt-2 grid gap-3 lg:grid-cols-2">
+            {masterFields.map((field) => {
+              if (
+                field.type === 'hidden'
+                || field.type === 'customer_select'
+                || field.name === 'customer_id'
+              ) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={field.name}
+                  className={
+                    field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
+                      ? 'lg:col-span-2'
+                      : undefined
+                  }
+                >
+                  <ProcessFieldInput
+                    field={field}
+                    value={masterDraft[field.name]}
+                    customers={customers}
+                    employees={employees}
+                    customerPersonnel={customerPersonnel}
+                    supportServiceGroups={supportServiceGroups}
+                    projectItems={availableProjectItems}
+                    selectedCustomerId={selectedCustomerId}
+                    disabled={!canEditActiveForm || isSaving}
+                    density="compact"
+                    onChange={onMasterFieldChange}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      <div className={formRailClassName}>
+        <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+            <div className={`${compactSectionIconBoxClass} bg-violet-50 text-violet-700`}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sell</span>
+            </div>
+            <h4 className={compactSectionTitleClass}>Thẻ</h4>
+          </div>
+          <div className="mt-2">
+            <TagInput
+              value={formTags}
+              onChange={onFormTagsChange}
+              disabled={!canEditActiveForm || isSaving}
+              placeholder="Thêm tag cho yêu cầu..."
+            />
+          </div>
+        </section>
+      </div>
+
+      {!shouldHideInitialIntakeSection && editorProcessMeta && editorProcessMeta.form_fields.length > 0 ? (
+        <div className={formRailClassName}>
+          <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>flowchart</span>
+                </div>
+                <h4 className={compactSectionTitleClass}>{editorProcessMeta.process_label}</h4>
+              </div>
+              <button
+                type="button"
+                onClick={onSaveStatusDetail}
+                disabled={!canEditActiveForm || isSaving}
+                className="inline-flex w-full items-center justify-center rounded bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+              >
+                {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
+              </button>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {([
+                { name: 'received_at', label: 'Ngày bắt đầu', type: 'datetime', required: false },
+                { name: 'completed_at', label: 'Ngày kết thúc', type: 'datetime', required: false },
+                { name: 'extended_at', label: 'Ngày gia hạn', type: 'datetime', required: false },
+                { name: 'progress_percent', label: 'Tiến độ phần trăm', type: 'number', required: false },
+                { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+                { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+                { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
+              ] satisfies YeuCauProcessField[]).map((field) => (
+                <ProcessFieldInput
+                  key={field.name}
+                  field={field}
+                  value={processDraft[field.name]}
+                  customers={customers}
+                  employees={employees}
+                  customerPersonnel={customerPersonnel}
+                  supportServiceGroups={supportServiceGroups}
+                  projectItems={availableProjectItems}
+                  selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                  disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                  density="compact"
+                  onChange={onProcessDraftChange}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isCreateMode ? (
+        <div className={formRailClassName}>
+          <section className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+            {renderFileManager()}
+          </section>
+        </div>
+      ) : null}
+
+      <div className={operationRailClassName}>
+        <div className={`rounded-[28px] border border-slate-200 bg-white shadow-sm ${isFullModalPresentation ? 'p-3.5 sm:p-4' : 'p-4'}`}>
+          <div className="flex flex-col gap-2 border-b border-slate-100 pb-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>tune</span>
+              </div>
+              <h4 className={compactSectionTitleClass}>Vận hành yêu cầu</h4>
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {visibleDetailTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveDetailTab(tab.key)}
+                  className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                    activeDetailTab === tab.key
+                      ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[17px] transition-transform group-hover:scale-110">{tab.icon}</span>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-2">{renderActiveTab()}</div>
+        </div>
       </div>
 
       <CustomerRequestQuickActionModal

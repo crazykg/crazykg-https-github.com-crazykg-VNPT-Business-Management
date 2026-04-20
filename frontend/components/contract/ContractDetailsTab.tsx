@@ -575,19 +575,6 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                         const amountWithVat = computedRow?.amountWithVat ?? amountBeforeVat;
                         const hasStoredVatAmount = Number.isFinite(Number(item.vat_amount));
                         const rowCatalogValue = resolveContractItemCatalogValue(item);
-                        const rowProductOptions = productSelectOptions.map((option) => ({
-                          ...option,
-                          label:
-                            String(option.value) === String(rowCatalogValue)
-                            && String(item.product_name || '').trim() !== ''
-                              ? String(item.product_name || '').trim()
-                              : option.label,
-                          searchText:
-                            String(option.value) === String(rowCatalogValue)
-                            && String(item.product_name || '').trim() !== ''
-                              ? `${String(item.product_name || '').trim()} ${option.searchText ?? option.label}`
-                              : option.searchText,
-                        }));
 
                         return (
                           <tr key={`contract-item-${String(item.id)}`} className="hover:bg-slate-50">
@@ -597,8 +584,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                 <SearchableSelect
                                   value={rowCatalogValue}
                                   onChange={(value) => onDraftProductChange(index, value)}
-                                  options={rowProductOptions}
-                                  placeholder={isContractProductOptionsLoading ? 'Đang tải gói cước...' : 'Chọn gói cước'}
+                                  options={productSelectOptions}
+                                  placeholder={isContractProductOptionsLoading ? 'Đang tải sản phẩm/DV...' : 'Chọn sản phẩm/DV'}
                                   compact
                                   usePortal
                                   disabled={isContractProductOptionsLoading}

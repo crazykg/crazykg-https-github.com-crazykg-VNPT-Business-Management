@@ -110,12 +110,12 @@ const SummaryCell: React.FC<{
   hint?: string;
   valueCls?: string;
 }> = ({ label, value, hint, valueCls = 'text-slate-800' }) => (
-  <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-50/80 to-slate-100/80 px-3 py-2 shadow-sm transition-shadow hover:shadow-md">
+  <div className="group relative overflow-hidden rounded-[var(--ui-control-radius)] bg-[linear-gradient(135deg,var(--ui-surface-subtle),rgba(255,255,255,0.96))] px-3 py-2 shadow-[var(--ui-shadow-shell)] transition-shadow hover:shadow-md">
     <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-    <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+    <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--ui-text-subtle)]">{label}</p>
     <p className={`relative mt-1 line-clamp-1 text-[13px] font-semibold leading-4 ${valueCls}`}>{value}</p>
     {hint ? (
-      <p className="relative mt-0.5 line-clamp-1 text-[10px] leading-4 text-slate-400">{hint}</p>
+      <p className="relative mt-0.5 line-clamp-1 text-[10px] leading-4 text-[color:var(--ui-text-subtle)]">{hint}</p>
     ) : null}
   </div>
 );
@@ -176,22 +176,19 @@ const RequestCardRow: React.FC<{
   const completedLabel = resolveCompletedLabel(row);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelectRow(row)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelectRow(row);
-        }
-      }}
-      className={`group w-full cursor-pointer rounded-[24px] border px-4 py-3.5 text-left shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${
+    <article
+      className={`group relative w-full overflow-hidden rounded-[var(--ui-shell-radius)] border px-4 py-3.5 text-left shadow-[var(--ui-shadow-shell)] transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${
         isActive
           ? 'border-primary/40 bg-gradient-to-br from-primary/[0.10] to-primary/[0.06] ring-1 ring-primary/10'
-          : 'border-slate-200 bg-gradient-to-br from-white to-slate-50/50 hover:border-primary/30 hover:from-white hover:to-slate-100/50'
+          : 'border-[var(--ui-border)] bg-gradient-to-br from-white to-slate-50/50 hover:border-primary/30 hover:from-white hover:to-slate-100/50'
       }`}
     >
+      <button
+        type="button"
+        onClick={() => onSelectRow(row)}
+        className="absolute inset-0 z-10 rounded-[var(--ui-shell-radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        aria-label={`Mở chi tiết ${row.ma_yc ?? row.request_code ?? 'yêu cầu'}`}
+      />
       <div className="space-y-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -201,7 +198,7 @@ const RequestCardRow: React.FC<{
                 event.stopPropagation();
                 onTogglePinRequest?.(row);
               }}
-              className={`inline-flex rounded-full p-1.5 transition-all duration-200 ${
+              className={`relative z-20 inline-flex rounded-full p-1.5 transition-all duration-200 ${
                 isPinned
                   ? 'bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-md'
                   : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
@@ -212,7 +209,7 @@ const RequestCardRow: React.FC<{
                 {isPinned ? 'star' : 'star_outline'}
               </span>
             </button>
-            <span className="rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 px-3 py-1.5 text-xs font-bold tracking-wide text-slate-700 shadow-sm">
+            <span className="rounded-[var(--ui-control-radius)] bg-gradient-to-br from-slate-100 to-slate-200 px-3 py-1.5 text-xs font-bold tracking-wide text-slate-700 shadow-sm">
               {row.ma_yc ?? row.request_code ?? '--'}
             </span>
           </div>
@@ -240,7 +237,7 @@ const RequestCardRow: React.FC<{
 
         <div>{renderHealthChips(layoutMode, row, { includePrimary: false })}</div>
       </div>
-    </div>
+    </article>
   );
 };
 
@@ -385,6 +382,18 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
     presentation === 'table' ||
     (presentation === 'responsive' &&
       (layoutMode === 'desktopCompact' || layoutMode === 'desktopWide'));
+  const toolbarFieldClass = `${
+    isMobile ? 'h-11' : 'h-10'
+  } w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
+  const toolbarSearchClass = `${
+    isMobile ? 'h-11' : 'h-10'
+  } w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] pl-9 pr-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
+  const toolbarSelectTriggerClass = `${
+    isMobile ? 'h-11' : 'h-10'
+  } rounded-[var(--ui-control-radius)] border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] focus:bg-white`;
+  const toolbarButtonClass = `${
+    isMobile ? 'h-11' : 'h-10'
+  } inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
   const activeFilterCount = useMemo(
     () =>
       [
@@ -428,6 +437,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
       <SearchableSelect
         value={requestCustomerFilter}
@@ -439,6 +449,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
       <SearchableSelect
         value={requestSupportGroupFilter}
@@ -457,6 +468,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
       <SearchableSelect
         value={requestPriorityFilter}
@@ -468,6 +480,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
     </div>
   );
@@ -490,6 +503,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
       <SearchableSelect
         value={requestSupportGroupFilter}
@@ -508,6 +522,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
       <SearchableSelect
         value={requestPriorityFilter}
@@ -519,6 +534,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         compact
         usePortal
         portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
       />
     </div>
   );
@@ -527,7 +543,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
     <div className="flex h-full flex-col gap-3">
       {showFilterToolbar ? (
         <div className="shrink-0">
-          <div className="sticky top-0 z-[60] rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-xl">
+          <div className="sticky top-0 z-[60] rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-2 shadow-[var(--ui-shadow-shell)] backdrop-blur-xl">
             <div className="space-y-2">
               {isMobile ? (
                 <div className="space-y-3">
@@ -540,7 +556,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         type="date"
                         value={requestCreatedFrom}
                         onChange={(event) => onRequestCreatedFromChange(event.target.value)}
-                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        className={toolbarFieldClass}
                       />
                     </label>
                     <label className="min-w-0">
@@ -551,7 +567,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         type="date"
                         value={requestCreatedTo}
                         onChange={(event) => onRequestCreatedToChange(event.target.value)}
-                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        className={toolbarFieldClass}
                       />
                     </label>
                   </div>
@@ -566,13 +582,13 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         value={requestKeyword}
                         onChange={(event) => onRequestKeywordChange(event.target.value)}
                         placeholder="Tìm mã YC, tên yêu cầu..."
-                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8.5 pr-3 text-[13px] font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        className={toolbarSearchClass}
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => setShowMobileFilters((value) => !value)}
-                      className="group inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/70 px-2.5 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
+                      className={`${toolbarButtonClass} group shrink-0 gap-1.5 px-2.5 shadow-[var(--ui-shadow-shell)]`}
                     >
                       <span className="material-symbols-outlined text-[17px] transition-transform group-hover:rotate-12">tune</span>
                       <span className="hidden lg:inline">Bộ lọc</span>
@@ -585,7 +601,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                   </div>
 
                   {showMobileFilters ? (
-                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
+                    <div className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] p-3 shadow-inner">
                       {filterControlsNode}
                     </div>
                   ) : null}
@@ -599,7 +615,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         type="date"
                         value={requestCreatedFrom}
                         onChange={(event) => onRequestCreatedFromChange(event.target.value)}
-                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        className={toolbarFieldClass}
                       />
                     </label>
                     <label className="min-w-0">
@@ -608,7 +624,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         type="date"
                         value={requestCreatedTo}
                         onChange={(event) => onRequestCreatedToChange(event.target.value)}
-                        className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-sm font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                        className={toolbarFieldClass}
                       />
                     </label>
                     <div className="hidden lg:block" aria-hidden="true" />
@@ -616,7 +632,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                       <button
                         type="button"
                         onClick={onClearFilters}
-                        className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-[12px] font-semibold text-primary transition hover:bg-primary/5 hover:text-primary"
+                        className={`${toolbarButtonClass} text-primary hover:bg-primary/5 hover:text-primary`}
                       >
                         Xóa lọc
                       </button>
@@ -634,7 +650,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                           value={requestKeyword}
                           onChange={(event) => onRequestKeywordChange(event.target.value)}
                           placeholder="Tìm mã YC, tên yêu cầu..."
-                          className="h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50/60 pl-8.5 pr-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12"
+                          className={toolbarSearchClass}
                         />
                       </div>
                       <SearchableSelect
@@ -647,14 +663,14 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         compact
                         usePortal
                         portalZIndex={60}
-                        triggerClassName="h-9 rounded-xl border-slate-200/90 bg-slate-50/60 px-3.5 text-sm font-medium text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] focus:bg-white"
+                        triggerClassName={toolbarSelectTriggerClass}
                       />
                     </div>
                     <div className="flex shrink-0 items-center gap-2 lg:justify-end">
                       <button
                         type="button"
                         onClick={() => setIsFilterExpanded((value) => !value)}
-                        className="group inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-slate-50/60 px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-white"
+                        className={`${toolbarButtonClass} group gap-1.5 shadow-[var(--ui-shadow-shell)]`}
                       >
                         <span className="material-symbols-outlined text-[17px]">tune</span>
                         <span>Bộ lọc</span>
@@ -668,7 +684,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                   </div>
 
                   {isFilterExpanded ? (
-                    <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/90 to-white/80 p-3 shadow-inner">
+                    <div className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] p-3 shadow-inner">
                       {desktopExpandedFiltersNode}
                     </div>
                   ) : null}
@@ -711,7 +727,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
             ) : null}
 
             {showTable ? (
-              <div className="h-full overflow-auto rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-xl shadow-slate-200/50">
+              <div className="h-full overflow-auto rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-gradient-to-br from-white to-slate-50/50 shadow-xl shadow-slate-200/50">
                 <table className="min-w-[1120px] w-full table-fixed text-sm">
                   <colgroup>
                     <col className="w-[56px]" />

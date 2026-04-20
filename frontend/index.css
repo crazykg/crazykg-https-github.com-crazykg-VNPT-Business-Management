@@ -10,6 +10,47 @@
     system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial;
   --dashboard-bg: #F9F9FF;
+  --ui-font-family: var(--dashboard-font);
+  --ui-page-bg: var(--dashboard-bg);
+  --ui-surface-bg: #FFFFFF;
+  --ui-surface-subtle: #F8FAFC;
+  --ui-surface-subtle-tint: rgba(248, 250, 252, 0.60);
+  --ui-border: #E2E8F0;
+  --ui-border-soft: #F1F5F9;
+  --ui-text-title: #003F7A;
+  --ui-text-default: #334155;
+  --ui-text-muted: #64748B;
+  --ui-text-subtle: #94A3B8;
+  --ui-accent: #00AEEF;
+  --ui-accent-soft: rgba(0, 174, 239, 0.10);
+  --ui-primary: #004481;
+  --ui-primary-hover: #003F7A;
+  --ui-success-bg: #D1FAE5;
+  --ui-success-fg: #047857;
+  --ui-danger-bg: #FEE2E2;
+  --ui-danger-fg: #B91C1C;
+  --ui-neutral-badge-bg: #E2E8F0;
+  --ui-neutral-badge-fg: #64748B;
+  --ui-page-padding: 12px;
+  --ui-page-padding-bottom: 24px;
+  --ui-shell-radius: 8px;
+  --ui-control-radius: 6px;
+  --ui-pill-radius: 9999px;
+  --ui-nav-rail-width: 176px;
+  --ui-toolbar-padding-x: 16px;
+  --ui-toolbar-padding-y: 8px;
+  --ui-section-padding: 16px;
+  --ui-grid-gap-x: 16px;
+  --ui-grid-gap-y: 12px;
+  --ui-shell-min-height: 460px;
+  --ui-shadow-shell: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --ui-modal-backdrop: rgba(15, 23, 42, 0.45);
+  --ui-modal-max-height: min(90vh, calc(100dvh - 32px));
+  --ui-modal-radius: 16px;
+  --ui-modal-header-min-height: 48px;
+  --ui-modal-footer-min-height: 56px;
+  --ui-modal-footer-gap: 8px;
+  --ui-modal-mobile-radius: 20px;
   font-synthesis: none;
 
   /* Base font size — mobile first (điện thoại) */
@@ -44,12 +85,21 @@
 }
 
 @layer base {
+  html {
+    height: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: var(--ui-page-bg);
+  }
+
   body {
     margin: 0;
+    height: 100%;
     min-height: 100vh;
-    font-family: var(--dashboard-font);
-    background-color: var(--dashboard-bg);
-    color: #191C21;
+    min-height: 100dvh;
+    font-family: var(--ui-font-family);
+    background-color: var(--ui-page-bg);
+    color: var(--ui-text-default);
     /* Tối ưu rendering chữ trên màn hình retina (mobile/tablet) */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -57,8 +107,10 @@
   }
 
   #root {
+    height: 100%;
     min-height: 100vh;
-    font-family: var(--dashboard-font);
+    min-height: 100dvh;
+    font-family: var(--ui-font-family);
   }
 
   .material-symbols-outlined {
