@@ -482,16 +482,17 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       icon="add_circle"
       zIndexClassName="z-[120]"
       contentClassName="min-h-0 flex flex-1 flex-col bg-white"
-      width="max-w-[1200px]"
-      heightClass="h-[calc(100dvh-16px)] sm:h-[calc(100dvh-48px)]"
+      width="max-w-none"
+      heightClass="h-[calc(100dvh-32px)] sm:h-[calc(100dvh-48px)]"
       maxHeightClass=""
+      panelClassName="rounded-none sm:rounded-3xl"
       disableClose={isSaving}
       headerClassName="bg-white px-3 py-2 sm:px-4 lg:px-4 xl:px-5"
       onClose={onClose}
     >
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto custom-scrollbar">
-          <div className="min-w-0 w-full space-y-4 p-3 sm:px-5 sm:py-4">
+          <div className="min-w-0 w-full space-y-4 px-3 py-2 sm:px-5 sm:py-4">
             {masterFields.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400">
                 <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">

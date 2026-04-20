@@ -94,6 +94,16 @@ describe('CustomerRequestTransitionModal UI', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveClass('z-[130]');
+    expect(dialog).toHaveClass('p-0');
+
+    const modalShell = dialog.querySelector('div.relative');
+    expect(modalShell).not.toBeNull();
+    expect(modalShell?.className).toContain('h-[90dvh]');
+    expect(modalShell?.className).toContain('max-w-none');
+    expect(modalShell?.className).toContain('rounded-none');
+    expect(modalShell?.className).not.toContain('sm:h-[calc(100dvh-48px)]');
+    expect(modalShell?.className).not.toContain('sm:max-w-[1480px]');
+    expect(modalShell?.className).not.toContain('sm:rounded-3xl');
     expect(screen.queryByText('Thông tin cho trạng thái mới')).not.toBeInTheDocument();
     expect(screen.getByText('Nội dung khách hàng phản hồi')).toBeInTheDocument();
     expect(document.body.querySelectorAll('input[type="date"]')).toHaveLength(3);

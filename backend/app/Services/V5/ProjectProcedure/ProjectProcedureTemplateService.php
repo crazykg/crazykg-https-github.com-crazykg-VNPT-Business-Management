@@ -317,12 +317,6 @@ class ProjectProcedureTemplateService
             return response()->json(['message' => 'Template not found.'], 404);
         }
 
-        if ((int) ($template->procedures_count ?? 0) > 0) {
-            return response()->json([
-                'message' => 'Không thể import vì mẫu đã được áp dụng cho dự án. Hãy tạo mẫu mới hoặc đồng bộ lại các thủ tục liên quan trước.',
-            ], 409);
-        }
-
         $validator = Validator::make($request->all(), [
             'steps' => 'required|array|min:1',
             'steps.*.step_key' => 'required|string|max:50|distinct',
@@ -388,15 +382,6 @@ class ProjectProcedureTemplateService
             ->map(static fn ($stepId) => (int) $stepId)
             ->values()
             ->all();
-
-        if ($existingStepIds !== [] && Schema::hasTable('project_procedure_steps')) {
-            $usedCount = ProjectProcedureStep::whereIn('template_step_id', $existingStepIds)->count();
-            if ($usedCount > 0) {
-                return response()->json([
-                    'message' => "Một số bước hiện tại đã được áp dụng cho {$usedCount} dự án và không thể ghi đè bằng import.",
-                ], 409);
-            }
-        }
 
         DB::transaction(function () use ($templateId, $normalizedSteps): void {
             ProjectProcedureTemplateStep::where('template_id', $templateId)->delete();

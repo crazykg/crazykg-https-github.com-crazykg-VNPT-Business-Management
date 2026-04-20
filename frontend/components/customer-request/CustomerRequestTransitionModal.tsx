@@ -162,15 +162,15 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
       role="dialog"
       aria-modal="true"
       aria-label={`Chuyển trạng thái ${targetStatusMeta.label}`}
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4 lg:p-6"
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-0 backdrop-blur-sm sm:p-4 lg:p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget && !isTransitioning) {
           onClose();
         }
       }}
     >
-      <div className="relative flex max-h-[94vh] w-full max-w-[1480px] flex-col rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+      <div className="relative flex h-[90dvh] w-full max-w-none flex-col rounded-none bg-white shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-3">
             <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${currentStatusMeta.cls}`}>
               {currentStatusMeta.label}
@@ -191,7 +191,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
         </div>
 
         <div className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
-          <div className="min-w-0 space-y-6 overflow-y-auto px-6 py-5">
+          <div className="min-w-0 space-y-6 overflow-y-auto px-4 py-3 sm:px-6 sm:py-5">
             {transitionRenderableFields.length > 0 ? (
               <div>
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -442,7 +442,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
 
           </div>
 
-          <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-5 py-5 xl:border-l xl:border-t-0">
+          <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-5 xl:border-l xl:border-t-0">
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">📋 Thông tin yêu cầu</p>
               <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3 text-xs">
@@ -526,7 +526,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
           <button
             type="button"
             onClick={onClose}

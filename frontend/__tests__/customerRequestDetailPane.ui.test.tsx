@@ -352,6 +352,10 @@ describe('CustomerRequestDetailPane UI', () => {
       typeof node.className === 'string'
       && node.className.includes('xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]')
     );
+    const fullWidthContainers = Array.from(container.querySelectorAll('div')).filter((node) =>
+      typeof node.className === 'string'
+      && node.className === 'w-full'
+    );
 
     expect(screen.queryByText('Kết quả')).not.toBeInTheDocument();
     expect(screen.queryByText('Người tiếp nhận')).not.toBeInTheDocument();
@@ -365,6 +369,7 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(screen.queryByRole('button', { name: /^Task\/Ref$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Tệp$/i })).not.toBeInTheDocument();
     expect(topLayout).toBeTruthy();
+    expect(fullWidthContainers.length).toBeGreaterThanOrEqual(2);
   });
 
   it('removes activity and performer summary cards from the hours tab in full modal presentation', () => {
@@ -665,5 +670,171 @@ describe('CustomerRequestDetailPane UI', () => {
     await user.click(estimateTabButton!);
     await user.click(screen.getByRole('button', { name: /Cập nhật ước lượng/i }));
     expect(onOpenEstimateModal).toHaveBeenCalledTimes(1);
+  });
+
+  it('joins difficulty note, proposal and difficulty status into one line in latest worklogs', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestDetailPane
+        isDetailLoading={false}
+        isListLoading={false}
+        isCreateMode={false}
+        presentation="full_modal"
+        processDetail={{
+          yeu_cau: {
+            id: 9,
+            ma_yc: 'CRC-202603-0009',
+            request_code: 'CRC-202603-0009',
+            tieu_de: 'Hỗ trợ HIS',
+            summary: 'Hỗ trợ HIS',
+            trang_thai: 'in_progress',
+            current_status_name_vi: 'Đang xử lý',
+            customer_name: 'Bệnh viện Sản',
+            khach_hang_name: 'Bệnh viện Sản',
+            project_name: 'HIS Core',
+          },
+          process: {
+            process_code: 'in_progress',
+            process_label: 'Đang xử lý',
+            group_code: 'processing',
+            group_label: 'Xử lý',
+            table_name: 'customer_request_in_progress',
+            default_status: 'in_progress',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          allowed_next_processes: [],
+          transition_allowed: false,
+          can_write: true,
+          available_actions: {
+            can_write: true,
+            can_add_worklog: true,
+          },
+          estimates: [],
+          hours_report: {
+            request_case_id: 9,
+            estimated_hours: 10,
+            total_hours_spent: 4,
+            remaining_hours: 6,
+            hours_usage_pct: 40,
+          },
+        } as never}
+        canTransitionActiveRequest={false}
+        transitionOptions={[]}
+        transitionStatusCode=""
+        onTransitionStatusCodeChange={vi.fn()}
+        onOpenTransitionModal={vi.fn()}
+        isSaving={false}
+        canEditActiveForm={true}
+        masterFields={[]}
+        masterDraft={{}}
+        onMasterFieldChange={vi.fn()}
+        editorProcessMeta={null}
+        processDraft={{}}
+        onProcessDraftChange={vi.fn()}
+        customers={[]}
+        employees={employees}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        availableProjectItems={[selectedProjectItem]}
+        selectedProjectItem={selectedProjectItem}
+        selectedCustomerId="20"
+        activeTaskTab="IT360"
+        onActiveTaskTabChange={vi.fn()}
+        onAddTaskRow={vi.fn()}
+        formIt360Tasks={[]}
+        onUpdateIt360TaskRow={vi.fn()}
+        onRemoveIt360TaskRow={vi.fn()}
+        formReferenceTasks={[]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
+        taskReferenceOptions={[]}
+        onUpdateReferenceTaskRow={vi.fn()}
+        onTaskReferenceSearchTermChange={vi.fn()}
+        taskReferenceSearchTerm=""
+        taskReferenceSearchError=""
+        isTaskReferenceSearchLoading={false}
+        onRemoveReferenceTaskRow={vi.fn()}
+        formAttachments={[]}
+        onUploadAttachment={async () => undefined}
+        onDeleteAttachment={async () => undefined}
+        isUploadingAttachment={false}
+        attachmentError=""
+        attachmentNotice=""
+        relatedSummaryItems={[]}
+        currentHoursReport={{
+          request_case_id: 9,
+          estimated_hours: 10,
+          total_hours_spent: 4,
+          remaining_hours: 6,
+          hours_usage_pct: 40,
+        }}
+        estimateHistory={[]}
+        timeline={[]}
+        caseWorklogs={[
+          {
+            id: 1001,
+            performed_by_name: 'Phan Văn Rở',
+            hours_spent: 2,
+            activity_type_code: 'Khảo sát',
+            work_date: '2026-04-20',
+            work_started_at: '2026-04-20 08:00:00',
+            work_content: 'asdfasdf',
+            difficulty_status: 'resolved',
+            difficulty_note: 'asdfasdf',
+            proposal_note: 'asdfasdf',
+            detail_status_action: 'in_progress',
+            status_name_vi: 'Đang thực hiện',
+          },
+        ] as never}
+        canOpenCreatorFeedbackModal={false}
+        onOpenCreatorFeedbackModal={vi.fn()}
+        canOpenNotifyCustomerModal={false}
+        onOpenNotifyCustomerModal={vi.fn()}
+        canOpenWorklogModal={true}
+        onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
+        isSubmittingWorklog={false}
+        canOpenEstimateModal={false}
+        onOpenEstimateModal={vi.fn()}
+        isSubmittingEstimate={false}
+        dispatcherQuickActions={[]}
+        onRunDispatcherAction={vi.fn()}
+        performerQuickActions={[]}
+        onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
+      />
+    );
+
+    const hoursTabButton = screen
+      .getAllByRole('button')
+      .find((button) => button.textContent?.includes('Giờ công'));
+    expect(hoursTabButton).toBeDefined();
+    await user.click(hoursTabButton!);
+
+    const expected = 'Khó khăn: asdfasdf - Đề xuất: asdfasdf - Trạng thái xử lý khó khăn: Đã giải quyết';
+    expect(screen.getAllByText(expected).length).toBeGreaterThanOrEqual(1);
+
+    const prefixedStatusLines = screen.queryAllByText((_, element) => {
+      const text = element?.textContent?.trim() ?? '';
+      return text === 'Trạng thái xử lý khó khăn:';
+    });
+    const prefixedDifficultyLines = screen.queryAllByText((_, element) => {
+      const text = element?.textContent?.trim() ?? '';
+      return text === 'Khó khăn:';
+    });
+    const prefixedProposalLines = screen.queryAllByText((_, element) => {
+      const text = element?.textContent?.trim() ?? '';
+      return text === 'Đề xuất:';
+    });
+
+    expect(prefixedStatusLines).toHaveLength(0);
+    expect(prefixedDifficultyLines).toHaveLength(0);
+    expect(prefixedProposalLines).toHaveLength(0);
   });
 });

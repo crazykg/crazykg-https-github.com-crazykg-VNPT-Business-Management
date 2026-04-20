@@ -25,6 +25,8 @@ interface SidebarProps {
   visibleTabIds: Set<string>;
   onLogout: () => void;
   onPrefetchTab?: (tab: string) => void;
+  isCollapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }
 
 const resolveUserInitials = (user: AuthUser | null): string => {
@@ -52,8 +54,29 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
   visibleTabIds,
   onLogout,
   onPrefetchTab,
+  isCollapsed: isCollapsedProp,
+  onCollapsedChange,
 }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [internalIsCollapsed, setInternalIsCollapsed] = useState(false);
+  const isCollapsed = isCollapsedProp ?? internalIsCollapsed;
+
+  useEffect(() => {
+    if (isCollapsedProp === undefined) {
+      return;
+    }
+    setInternalIsCollapsed(isCollapsedProp);
+  }, [isCollapsedProp]);
+
+  const setIsCollapsed = (value: boolean) => {
+    if (isCollapsedProp === undefined) {
+      setInternalIsCollapsed(value);
+    }
+    onCollapsedChange?.(value);
+  };
+
+  const toggleCollapsed = () => {
+    setIsCollapsed(!isCollapsed);
+  };
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['org', 'cat', 'crm', 'core', 'legal', 'finance', 'util']);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarStatusMessage, setAvatarStatusMessage] = useState('');
@@ -252,8 +275,8 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
               </div>
             )}
           </div>
-          <button 
-            onClick={() => window.innerWidth < 1024 ? onClose() : setIsCollapsed(!isCollapsed)}
+          <button
+            onClick={() => window.innerWidth < 1024 ? onClose() : toggleCollapsed()}
             className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
           >
             <span className="material-symbols-outlined">

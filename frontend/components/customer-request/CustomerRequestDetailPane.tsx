@@ -164,6 +164,39 @@ const resolveWorklogMainStatusLabel = (worklog: YeuCauWorklog): string | null =>
   || null
 );
 
+const resolveDifficultyStatusLabel = (difficultyStatus: string | null | undefined): string | null => {
+  const normalized = normalizeText(difficultyStatus).toLowerCase();
+  if (!normalized || normalized === 'none') {
+    return null;
+  }
+  if (normalized === 'has_issue') {
+    return 'Có';
+  }
+  if (normalized === 'resolved') {
+    return 'Đã giải quyết';
+  }
+  return normalized;
+};
+
+const buildDifficultySummaryLine = (worklog: YeuCauWorklog, difficultyStatusLabel: string | null): string | null => {
+  const parts: string[] = [];
+
+  const difficultyNote = normalizeText(worklog.difficulty_note);
+  const proposalNote = normalizeText(worklog.proposal_note);
+
+  if (difficultyNote) {
+    parts.push(`Khó khăn: ${difficultyNote}`);
+  }
+  if (proposalNote) {
+    parts.push(`Đề xuất: ${proposalNote}`);
+  }
+  if (difficultyStatusLabel) {
+    parts.push(`Trạng thái xử lý khó khăn: ${difficultyStatusLabel}`);
+  }
+
+  return parts.length > 0 ? parts.join(' - ') : null;
+};
+
 export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps> = ({
   isDetailLoading,
   isListLoading,
@@ -349,8 +382,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     (item) => item.label !== 'Mã yêu cầu' && item.label !== 'Khách hàng'
   );
   const showSummaryBar = !isFullModalPresentation || isCreateMode;
-  const formRailClassName = isFullModalPresentation ? 'mx-auto w-full max-w-[1080px]' : 'w-full';
-  const operationRailClassName = isFullModalPresentation ? 'mx-auto w-full max-w-[1180px]' : 'w-full';
+  const formRailClassName = isFullModalPresentation ? 'w-full' : 'w-full';
+  const operationRailClassName = isFullModalPresentation ? 'w-full' : 'w-full';
   const summaryBarItems = isCreateMode
     ? [
         {
@@ -739,6 +772,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                 latestWorklogs.map((worklog) => {
                   const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
                   const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+                  const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
+                  const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
 
                   return (
                     <button
@@ -767,7 +802,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                           .join(' · ')}
                       </p>
                       {worklog.work_content ? <p className={`rounded-lg border border-slate-100 bg-white/60 px-2.5 py-1.5 text-slate-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}>{worklog.work_content}</p> : null}
-                      {worklog.difficulty_note ? <p className={`rounded-lg border border-red-100 bg-red-50/60 px-2.5 py-1.5 font-medium text-red-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}><span className="font-semibold">Khó khăn:</span> {worklog.difficulty_note}</p> : null}
+                      {difficultySummaryLine ? (
+                        <p className={`rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 font-medium text-amber-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}>
+                          {difficultySummaryLine}
+                        </p>
+                      ) : null}
                     </button>
                   );
                 })
@@ -893,6 +932,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
               latestWorklogs.map((worklog) => {
                 const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
                 const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+                const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
+                const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
 
                 return (
                   <button
@@ -915,6 +956,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                       ].filter(Boolean).join(' · ')}
                     </p>
                     {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+                    {difficultySummaryLine ? (
+                      <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 text-sm font-medium text-amber-700">
+                        {difficultySummaryLine}
+                      </p>
+                    ) : null}
                   </button>
                 );
               })
@@ -1186,7 +1232,7 @@ const renderOperationSection = () => (
   if (isFullModalUpdateLayout) {
     return (
       <div className="space-y-4">
-        <div className="mx-auto w-full max-w-[1180px]">
+        <div className="w-full">
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
             <div className="min-w-0 space-y-3">
               {renderStatusSection()}
@@ -1202,7 +1248,7 @@ const renderOperationSection = () => (
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-[1180px]">
+        <div className="w-full">
           {renderOperationSection()}
         </div>
 

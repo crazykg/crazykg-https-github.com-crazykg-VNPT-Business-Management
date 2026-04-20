@@ -183,9 +183,6 @@ const applyFixedDefaultsFromCurrentCase = (
     payload.from_user_id = actor || currentOwnerUserId || normalizeText(request.updated_by ?? request.receiver_user_id);
   }
 
-  if (!hasValue(payload.to_user_id) && isTargetUserRequired(normalizeText(toStatusCode))) {
-    payload.to_user_id = currentOwnerUserId;
-  }
 
   if (!hasValue(payload.received_at)) {
     payload.received_at = normalizeText(request.ngay_tiep_nhan ?? request.received_at);

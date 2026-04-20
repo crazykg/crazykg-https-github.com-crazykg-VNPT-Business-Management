@@ -36,9 +36,14 @@ describe('CustomerRequestDetailFrame UI', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
-    expect(dialog.className).toContain('lg:max-w-[1120px]');
-    expect(dialog.className).toContain('xl:max-w-[1240px]');
-    expect(dialog.className).toContain('2xl:max-w-[1280px]');
+    expect(dialog.className).toContain('h-[90dvh]');
+    expect(dialog.className).toContain('max-w-none');
+    expect(dialog.className).toContain('rounded-none');
+    expect(dialog.className).not.toContain('sm:h-[calc(100dvh-48px)]');
+    expect(dialog.className).not.toContain('sm:rounded-xl');
+    expect(dialog.className).not.toContain('lg:max-w-[1120px]');
+    expect(dialog.className).not.toContain('xl:max-w-[1240px]');
+    expect(dialog.className).not.toContain('2xl:max-w-[1280px]');
     expect(screen.getByText('Chi tiết modal')).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0001')).toBeInTheDocument();
     expect(screen.getAllByText('Cập nhật yêu cầu')).toHaveLength(2);

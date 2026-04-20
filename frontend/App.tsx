@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { LoginPage } from './components/LoginPage';
@@ -178,6 +178,24 @@ const withAsyncTimeout = async <T,>(
   }
 };
 
+type BrowserFullscreenDocument = globalThis.Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type BrowserFullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+const isFullscreenActive = (): boolean => {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  const fullscreenDocument = document as unknown as BrowserFullscreenDocument;
+  return Boolean(fullscreenDocument.fullscreenElement || fullscreenDocument.webkitFullscreenElement);
+};
+
 const App: React.FC = () => {
   // Auth state
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -194,6 +212,8 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [internalUserSubTab, setInternalUserSubTab] = useState<InternalUserSubTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isAppFullscreen, setIsAppFullscreen] = useState(false);
 
   // Entity state
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -409,6 +429,51 @@ const App: React.FC = () => {
     recentToastByKeyRef.current.forEach((timestamp, key) => { if (now - timestamp > 30000) recentToastByKeyRef.current.delete(key); });
     enqueueToast(type, title, message);
   }, [enqueueToast]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsAppFullscreen(isFullscreenActive());
+    };
+
+    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreenState);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+    };
+  }, []);
+
+  const handleToggleAppFullscreen = React.useCallback(async () => {
+    try {
+      const fullscreenDocument = document as unknown as BrowserFullscreenDocument;
+      if (isFullscreenActive()) {
+        if (fullscreenDocument.exitFullscreen) {
+          await fullscreenDocument.exitFullscreen();
+          return;
+        }
+        if (fullscreenDocument.webkitExitFullscreen) {
+          await fullscreenDocument.webkitExitFullscreen();
+          return;
+        }
+      }
+
+      const rootElement = document.documentElement as BrowserFullscreenElement;
+      if (rootElement.requestFullscreen) {
+        await rootElement.requestFullscreen();
+      } else if (rootElement.webkitRequestFullscreen) {
+        await rootElement.webkitRequestFullscreen();
+      }
+
+      setIsSidebarCollapsed(true);
+      if (window.innerWidth < 1024) {
+        setIsSidebarOpen(false);
+      }
+    } catch {
+      addToast('error', 'Toàn màn hình', 'Thiết bị hoặc trình duyệt không hỗ trợ bật toàn màn hình.');
+    }
+  }, [addToast]);
   const {
     customerPersonnel: cusPersonnel,
     loadCustomerPersonnel,
@@ -2364,11 +2429,33 @@ const App: React.FC = () => {
       <div className="lg:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-30">
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600 p-1"><span className="material-symbols-outlined">menu</span></button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleToggleAppFullscreen();
+            }}
+            className="text-slate-600 p-1 rounded-md hover:bg-slate-100 transition-colors"
+            aria-label={isAppFullscreen ? 'Thoát toàn màn hình' : 'Bật toàn màn hình'}
+            title={isAppFullscreen ? 'Thoát toàn màn hình' : 'Bật toàn màn hình'}
+          >
+            <span className="material-symbols-outlined">{isAppFullscreen ? 'fullscreen_exit' : 'fullscreen'}</span>
+          </button>
           <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-primary"><span className="material-symbols-outlined text-lg">business</span></div>
           <h1 className="text-sm font-bold text-slate-900">VNPT Business</h1>
         </div>
       </div>
-      <Sidebar activeTab={activeTab} setActiveTab={handleNavigateTab} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} currentUser={authUser} visibleTabIds={visibleTabIds} onLogout={handleLogout} onPrefetchTab={prefetchTabModules} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={handleNavigateTab}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        currentUser={authUser}
+        visibleTabIds={visibleTabIds}
+        onLogout={handleLogout}
+        onPrefetchTab={prefetchTabModules}
+        isCollapsed={isSidebarCollapsed}
+        onCollapsedChange={setIsSidebarCollapsed}
+      />
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-bg-light w-full">
         <Suspense fallback={<LazyModuleFallback />}>
           <AppPages

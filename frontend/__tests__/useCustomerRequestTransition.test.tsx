@@ -118,4 +118,36 @@ describe('useCustomerRequestTransition', () => {
       extended_at: '',
     });
   });
+
+  it('keeps to_user_id empty by default even when current owner exists', async () => {
+    const { result } = renderHook(() =>
+      useCustomerRequestTransition({
+        currentUserId: 9,
+        selectedRequestId: null,
+        transitionStatusCode: 'in_progress',
+        transitionProcessMeta: null,
+        processDetail: makeProcessDetail({
+          current_owner_user_id: 21,
+        }),
+        people: [],
+        defaultProcessor: null,
+        taskReferenceLookup: new Map(),
+        onNotify: vi.fn(),
+        onTransitionSuccess: vi.fn(),
+        bumpDataVersion: vi.fn(),
+        caseContextIt360Tasks: [],
+        caseContextReferenceTasks: [],
+      }),
+    );
+
+    await act(async () => {
+      result.current.openTransitionModal();
+      await Promise.resolve();
+    });
+
+    expect(result.current.modalStatusPayload).toMatchObject({
+      from_user_id: '9',
+      to_user_id: '',
+    });
+  });
 });

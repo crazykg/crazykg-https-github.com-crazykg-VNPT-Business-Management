@@ -128,7 +128,11 @@ describe('CustomerRequestCreateModal UI', () => {
     expect(footer.className).toContain('px-3');
     expect(footer.className).toContain('py-2');
 
-    const modalPanel = container.querySelector('.max-w-\\[1200px\\]');
+    const modalPanel = container.querySelector('.max-w-none');
     expect(modalPanel).not.toBeNull();
+    expect(modalPanel?.className).toContain('h-[calc(100dvh-32px)]');
+    expect(modalPanel?.className).toContain('sm:h-[calc(100dvh-48px)]');
+    expect(modalPanel?.className).toContain('rounded-none');
+    expect(modalPanel?.className).toContain('sm:rounded-3xl');
   });
 });
