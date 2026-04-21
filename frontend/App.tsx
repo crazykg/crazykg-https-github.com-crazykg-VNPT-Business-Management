@@ -466,9 +466,11 @@ const App: React.FC = () => {
         await rootElement.webkitRequestFullscreen();
       }
 
-      setIsSidebarCollapsed(true);
       if (window.innerWidth < 1024) {
+        setIsSidebarCollapsed(false);
         setIsSidebarOpen(false);
+      } else {
+        setIsSidebarCollapsed(true);
       }
     } catch {
       addToast('error', 'Toàn màn hình', 'Thiết bị hoặc trình duyệt không hỗ trợ bật toàn màn hình.');

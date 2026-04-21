@@ -228,9 +228,17 @@ class CustomerRequestCaseDashboardService
     {
         $query = $this->readQuery->baseCaseQuery($actorId);
 
-        $statusCode = $this->readQuery->normalizeNullableString($request->query('status_code'));
-        if ($statusCode !== null) {
-            $query->where('crc.current_status_code', $statusCode);
+        $statusValuesRaw = $request->query('status_code');
+        $statusValues = is_array($statusValuesRaw) ? $statusValuesRaw : [$statusValuesRaw];
+        $normalizedStatusValues = array_values(array_filter(
+            array_map(fn ($value): ?string => $this->readQuery->normalizeNullableString($value), $statusValues),
+            fn (?string $value): bool => $value !== null
+        ));
+
+        if (count($normalizedStatusValues) === 1) {
+            $query->where('crc.current_status_code', $normalizedStatusValues[0]);
+        } elseif (count($normalizedStatusValues) > 1) {
+            $query->whereIn('crc.current_status_code', $normalizedStatusValues);
         }
 
         foreach ([
@@ -244,10 +252,31 @@ class CustomerRequestCaseDashboardService
             'received_by_user_id',
             'priority',
         ] as $column) {
-            $value = $request->query($column);
-            if ($value !== null && $value !== '') {
-                $query->where("crc.{$column}", $value);
+            $rawValues = $request->query($column);
+            $normalizedValues = is_array($rawValues) ? $rawValues : [$rawValues];
+            $values = [];
+
+            foreach ($normalizedValues as $rawValue) {
+                $parsed = $column === 'priority'
+                    ? $this->readQuery->normalizeNullableString($rawValue)
+                    : $this->parseNullableInt($rawValue);
+                if ($parsed !== null) {
+                    $values[] = $parsed;
+                }
             }
+
+            $values = array_values(array_unique($values));
+
+            if ($values === []) {
+                continue;
+            }
+
+            if (count($values) === 1) {
+                $query->where("crc.{$column}", $values[0]);
+                continue;
+            }
+
+            $query->whereIn("crc.{$column}", $values);
         }
 
         if ($actorId !== null && $role !== null) {

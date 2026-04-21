@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import type { PaginationMeta } from '../../types/common';
-import type { SupportServiceGroup } from '../../types/support';
 import type { YeuCau } from '../../types/customerRequest';
 import { PaginationControls } from '../PaginationControls';
-import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
+import { type SearchableSelectOption } from '../SearchableSelect';
+import { SearchableMultiSelect } from '../SearchableMultiSelect';
 import {
   buildRequestContextCaption,
   resolveHealthSummaryMeta,
@@ -18,23 +18,25 @@ import {
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 
 type CustomerRequestListPaneProps = {
-  activeProcessCode: string;
+  activeProcessCodes: string[];
   processOptions: SearchableSelectOption[];
-  onProcessCodeChange: (value: string) => void;
+  onProcessCodesChange: (values: string[]) => void;
   requestKeyword: string;
   onRequestKeywordChange: (value: string) => void;
-  requestCustomerFilter: string;
-  onRequestCustomerFilterChange: (value: string) => void;
-  requestSupportGroupFilter: string;
-  onRequestSupportGroupFilterChange: (value: string) => void;
-  requestPriorityFilter: string;
-  onRequestPriorityFilterChange: (value: string) => void;
+  onSubmitKeywordSearch: () => void;
+  requestEntityFilter: string[];
+  onRequestEntityFilterChange: (values: string[]) => void;
+  requestPriorityFilter: string[];
+  onRequestPriorityFilterChange: (values: string[]) => void;
   requestCreatedFrom: string;
   onRequestCreatedFromChange: (value: string) => void;
   requestCreatedTo: string;
   onRequestCreatedToChange: (value: string) => void;
   customerOptions: SearchableSelectOption[];
-  supportServiceGroups: SupportServiceGroup[];
+  projectItemOptions: SearchableSelectOption[];
+  tagFilterOptions: SearchableSelectOption[];
+  requestTagFilter: string[];
+  onRequestTagFilterChange: (values: string[]) => void;
   requestMissingEstimateFilter: boolean;
   onToggleMissingEstimate: () => void;
   requestOverEstimateFilter: boolean;
@@ -67,11 +69,10 @@ type CustomerRequestListPaneProps = {
 };
 
 const PRIORITY_OPTIONS: SearchableSelectOption[] = [
-  { value: '', label: 'Tất cả ưu tiên' },
-  { value: 1, label: 'Thấp' },
-  { value: 2, label: 'Trung bình' },
-  { value: 3, label: 'Cao' },
-  { value: 4, label: 'Khẩn' },
+  { value: '1', label: 'Thấp' },
+  { value: '2', label: 'Trung bình' },
+  { value: '3', label: 'Cao' },
+  { value: '4', label: 'Khẩn' },
 ];
 
 const resolveCreatedLabel = (row: YeuCau): string =>
@@ -84,8 +85,9 @@ const resolveCompletedLabel = (row: YeuCau): string =>
   row.completed_at ? formatDateTimeDdMmYyyy(row.completed_at).slice(0, 16) : '--';
 
 const resolveHandlerSummaryMeta = (row: YeuCau): { label: string; hint: string } => {
+  const raw = row as unknown as Record<string, unknown>;
   const handler =
-    row.to_user_id_name ||
+    String(raw.to_user_id_name || '') ||
     row.nguoi_xu_ly_name ||
     row.performer_name ||
     row.receiver_name ||
@@ -333,15 +335,14 @@ const RequestTableRow: React.FC<{
 };
 
 export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = ({
-  activeProcessCode,
+  activeProcessCodes,
   processOptions,
-  onProcessCodeChange,
+  onProcessCodesChange,
   requestKeyword,
   onRequestKeywordChange,
-  requestCustomerFilter,
-  onRequestCustomerFilterChange,
-  requestSupportGroupFilter,
-  onRequestSupportGroupFilterChange,
+  onSubmitKeywordSearch,
+  requestEntityFilter,
+  onRequestEntityFilterChange,
   requestPriorityFilter,
   onRequestPriorityFilterChange,
   requestCreatedFrom,
@@ -349,7 +350,10 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   requestCreatedTo,
   onRequestCreatedToChange,
   customerOptions,
-  supportServiceGroups,
+  projectItemOptions,
+  tagFilterOptions,
+  requestTagFilter,
+  onRequestTagFilterChange,
   requestMissingEstimateFilter,
   requestOverEstimateFilter,
   requestSlaRiskFilter,
@@ -376,6 +380,10 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   const totalPages = Math.max(1, listMeta.total_pages || 1);
   const safePage = Math.min(listPage, totalPages);
   const isMobile = layoutMode === 'mobile';
+  const safeRowsPerPage = Number.isFinite(rowsPerPage) && rowsPerPage > 0 ? rowsPerPage : 20;
+  const totalItems = Math.max(0, Number(listMeta.total ?? rows.length));
+  const pageFrom = totalItems === 0 ? 0 : (safePage - 1) * safeRowsPerPage + 1;
+  const pageTo = totalItems === 0 ? 0 : Math.min(safePage * safeRowsPerPage, totalItems);
   const showCardList =
     presentation === 'cards' ||
     (presentation === 'responsive' && (layoutMode === 'mobile' || layoutMode === 'tablet'));
@@ -398,24 +406,32 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   const activeFilterCount = useMemo(
     () =>
       [
-        Boolean(activeProcessCode),
-        Boolean(requestCustomerFilter),
-        Boolean(requestSupportGroupFilter),
-        Boolean(requestPriorityFilter),
+        activeProcessCodes.length > 0,
+        requestEntityFilter.length > 0,
+        requestTagFilter.length > 0,
+        requestPriorityFilter.length > 0,
         requestMissingEstimateFilter,
         requestOverEstimateFilter,
         requestSlaRiskFilter,
       ].filter(Boolean).length,
     [
-      activeProcessCode,
-      requestCustomerFilter,
+      activeProcessCodes,
+      requestEntityFilter,
+      requestTagFilter,
       requestMissingEstimateFilter,
       requestOverEstimateFilter,
       requestPriorityFilter,
       requestSlaRiskFilter,
-      requestSupportGroupFilter,
     ]
   );
+  const entityFilterOptions = useMemo<SearchableSelectOption[]>(
+    () => [
+      ...customerOptions,
+      ...projectItemOptions,
+    ],
+    [customerOptions, projectItemOptions]
+  );
+
   const filterControlsNode = (
     <div
       className={`grid gap-2.5 ${
@@ -424,121 +440,64 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
           : layoutMode === 'tablet'
           ? 'md:grid-cols-2'
           : layoutMode === 'desktopCompact'
-          ? 'xl:grid-cols-3'
-          : '2xl:grid-cols-[190px_minmax(0,1fr)_190px_150px]'
+          ? 'xl:grid-cols-2'
+          : '2xl:grid-cols-[minmax(0,1fr)_190px]'
       }`}
     >
-      <SearchableSelect
-        value={activeProcessCode}
-        options={processOptions}
-        onChange={onProcessCodeChange}
+      {isMobile ? (
+        <SearchableMultiSelect
+          values={activeProcessCodes}
+          options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+          onChange={onProcessCodesChange}
+          label=""
+          placeholder="Tiến trình"
+          searchPlaceholder="Tìm tiến trình..."
+          usePortal
+          portalZIndex={60}
+          triggerClassName={toolbarSelectTriggerClass}
+          showSelectedChips={false}
+        />
+      ) : null}
+      <SearchableMultiSelect
+        values={requestEntityFilter}
+        options={entityFilterOptions}
+        onChange={onRequestEntityFilterChange}
         label=""
-        placeholder="Tiến trình"
-        searchPlaceholder="Tìm tiến trình..."
-        compact
+        placeholder="Khách hàng | Dự án | Sản phẩm"
+        searchPlaceholder="Tìm khách hàng, dự án, sản phẩm..."
         usePortal
         portalZIndex={60}
         triggerClassName={toolbarSelectTriggerClass}
+        showSelectedChips={false}
       />
-      <SearchableSelect
-        value={requestCustomerFilter}
-        options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-        onChange={onRequestCustomerFilterChange}
+      <SearchableMultiSelect
+        values={requestTagFilter}
+        options={tagFilterOptions}
+        onChange={onRequestTagFilterChange}
         label=""
-        placeholder="Khách hàng"
-        searchPlaceholder="Tìm khách hàng..."
-        compact
+        placeholder="Tags"
+        searchPlaceholder="Tìm tags..."
         usePortal
         portalZIndex={60}
         triggerClassName={toolbarSelectTriggerClass}
+        showSelectedChips={false}
       />
-      <SearchableSelect
-        value={requestSupportGroupFilter}
-        options={[
-          { value: '', label: 'Tất cả kênh' },
-          ...supportServiceGroups.map((group) => ({
-            value: String(group.id),
-            label: group.group_name,
-            searchText: `${group.group_name} ${group.group_code ?? ''} ${group.customer_name ?? ''}`,
-          })),
-        ]}
-        onChange={onRequestSupportGroupFilterChange}
-        label=""
-        placeholder="Kênh tiếp nhận"
-        searchPlaceholder="Tìm kênh..."
-        compact
-        usePortal
-        portalZIndex={60}
-        triggerClassName={toolbarSelectTriggerClass}
-      />
-      <SearchableSelect
-        value={requestPriorityFilter}
+      <SearchableMultiSelect
+        values={requestPriorityFilter}
         options={PRIORITY_OPTIONS}
         onChange={onRequestPriorityFilterChange}
         label=""
         placeholder="Ưu tiên"
         searchPlaceholder="Tìm ưu tiên..."
-        compact
         usePortal
         portalZIndex={60}
         triggerClassName={toolbarSelectTriggerClass}
+        showSelectedChips={false}
       />
     </div>
   );
 
-  const desktopExpandedFiltersNode = (
-    <div
-      className={`grid gap-2.5 ${
-        layoutMode === 'desktopCompact'
-          ? 'xl:grid-cols-3'
-          : '2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_160px]'
-      }`}
-    >
-      <SearchableSelect
-        value={requestCustomerFilter}
-        options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-        onChange={onRequestCustomerFilterChange}
-        label=""
-        placeholder="Khách hàng"
-        searchPlaceholder="Tìm khách hàng..."
-        compact
-        usePortal
-        portalZIndex={60}
-        triggerClassName={toolbarSelectTriggerClass}
-      />
-      <SearchableSelect
-        value={requestSupportGroupFilter}
-        options={[
-          { value: '', label: 'Tất cả kênh' },
-          ...supportServiceGroups.map((group) => ({
-            value: String(group.id),
-            label: group.group_name,
-            searchText: `${group.group_name} ${group.group_code ?? ''} ${group.customer_name ?? ''}`,
-          })),
-        ]}
-        onChange={onRequestSupportGroupFilterChange}
-        label=""
-        placeholder="Kênh tiếp nhận"
-        searchPlaceholder="Tìm kênh..."
-        compact
-        usePortal
-        portalZIndex={60}
-        triggerClassName={toolbarSelectTriggerClass}
-      />
-      <SearchableSelect
-        value={requestPriorityFilter}
-        options={PRIORITY_OPTIONS}
-        onChange={onRequestPriorityFilterChange}
-        label=""
-        placeholder="Ưu tiên"
-        searchPlaceholder="Tìm ưu tiên..."
-        compact
-        usePortal
-        portalZIndex={60}
-        triggerClassName={toolbarSelectTriggerClass}
-      />
-    </div>
-  );
+  const desktopExpandedFiltersNode = filterControlsNode;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -582,10 +541,24 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         type="text"
                         value={requestKeyword}
                         onChange={(event) => onRequestKeywordChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            onSubmitKeywordSearch();
+                          }
+                        }}
                         placeholder="Tìm mã YC, tên yêu cầu..."
                         className={toolbarSearchClass}
                       />
                     </div>
+                    <button
+                      type="button"
+                      onClick={onSubmitKeywordSearch}
+                      className={`${toolbarButtonClass} gap-1.5 px-2.5 text-primary hover:bg-primary/5`}
+                    >
+                      <span className="material-symbols-outlined text-[17px]">search</span>
+                      <span>Tìm kiếm</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setShowMobileFilters((value) => !value)}
@@ -650,21 +623,35 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                           type="text"
                           value={requestKeyword}
                           onChange={(event) => onRequestKeywordChange(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              onSubmitKeywordSearch();
+                            }
+                          }}
                           placeholder="Tìm mã YC, tên yêu cầu..."
                           className={toolbarSearchClass}
                         />
                       </div>
-                      <SearchableSelect
-                        value={activeProcessCode}
-                        options={processOptions}
-                        onChange={onProcessCodeChange}
+                      <button
+                        type="button"
+                        onClick={onSubmitKeywordSearch}
+                        className={`${toolbarButtonClass} gap-1.5 px-2.5 text-primary hover:bg-primary/5`}
+                      >
+                        <span className="material-symbols-outlined text-[17px]">search</span>
+                        <span>Tìm kiếm</span>
+                      </button>
+                      <SearchableMultiSelect
+                        values={activeProcessCodes}
+                        options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+                        onChange={onProcessCodesChange}
                         label=""
                         placeholder="Tiến trình"
                         searchPlaceholder="Tìm tiến trình..."
-                        compact
                         usePortal
                         portalZIndex={60}
                         triggerClassName={toolbarSelectTriggerClass}
+                        showSelectedChips={false}
                       />
                     </div>
                     <div className="flex shrink-0 items-center gap-2 lg:justify-end">
@@ -798,13 +785,42 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
       </div>
 
       <div className="shrink-0 overflow-hidden rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 shadow-xl shadow-slate-200/50">
-        <PaginationControls
-          currentPage={safePage}
-          totalItems={listMeta.total}
-          rowsPerPage={rowsPerPage}
-          onPageChange={onListPageChange}
-          onRowsPerPageChange={onRowsPerPageChange}
-        />
+        {isMobile ? (
+          <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2.5">
+            <button
+              type="button"
+              onClick={() => onListPageChange(Math.max(1, safePage - 1))}
+              disabled={safePage <= 1}
+              className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40"
+            >
+              <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+              Trước
+            </button>
+
+            <div className="min-w-0 text-center">
+              <p className="text-[11px] font-semibold text-slate-700">Trang {safePage}/{totalPages}</p>
+              <p className="text-[10px] text-slate-500">{pageFrom.toLocaleString('vi-VN')}–{pageTo.toLocaleString('vi-VN')} / {totalItems.toLocaleString('vi-VN')}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onListPageChange(Math.min(totalPages, safePage + 1))}
+              disabled={safePage >= totalPages}
+              className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-40"
+            >
+              Sau
+              <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+            </button>
+          </div>
+        ) : (
+          <PaginationControls
+            currentPage={safePage}
+            totalItems={listMeta.total}
+            rowsPerPage={rowsPerPage}
+            onPageChange={onListPageChange}
+            onRowsPerPageChange={onRowsPerPageChange}
+          />
+        )}
       </div>
     </div>
   );

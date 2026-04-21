@@ -59,9 +59,17 @@ class CustomerRequestCaseReadQueryService
     public function applyCaseFilters(QueryBuilder $query, Request $request, ?int $actorId, bool $skipStatusFilter): void
     {
         if (! $skipStatusFilter) {
-            $statusCode = $this->normalizeNullableString($request->query('status_code'));
-            if ($statusCode !== null) {
-                $query->where('crc.current_status_code', $statusCode);
+            $statusValuesRaw = $request->query('status_code');
+            $statusValues = is_array($statusValuesRaw) ? $statusValuesRaw : [$statusValuesRaw];
+            $normalizedStatusValues = array_values(array_filter(
+                array_map(fn ($value): ?string => $this->normalizeNullableString($value), $statusValues),
+                fn (?string $value): bool => $value !== null
+            ));
+
+            if (count($normalizedStatusValues) === 1) {
+                $query->where('crc.current_status_code', $normalizedStatusValues[0]);
+            } elseif (count($normalizedStatusValues) > 1) {
+                $query->whereIn('crc.current_status_code', $normalizedStatusValues);
             }
         }
 
@@ -76,10 +84,29 @@ class CustomerRequestCaseReadQueryService
             'received_by_user_id',
             'priority',
         ] as $column) {
-            $value = $this->support->parseNullableInt($request->query($column));
-            if ($value !== null) {
-                $query->where("crc.{$column}", $value);
+            $rawValues = $request->query($column);
+            $normalizedValues = is_array($rawValues) ? $rawValues : [$rawValues];
+            $values = [];
+
+            foreach ($normalizedValues as $rawValue) {
+                $parsed = $this->support->parseNullableInt($rawValue);
+                if ($parsed !== null) {
+                    $values[] = $parsed;
+                }
             }
+
+            $values = array_values(array_unique($values));
+
+            if ($values === []) {
+                continue;
+            }
+
+            if (count($values) === 1) {
+                $query->where("crc.{$column}", $values[0]);
+                continue;
+            }
+
+            $query->whereIn("crc.{$column}", $values);
         }
 
         $keyword = $this->normalizeNullableString($request->query('q', $request->query('search')));

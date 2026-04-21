@@ -142,6 +142,49 @@ class CustomerRequestCaseDashboardApiTest extends TestCase
             ->assertJsonFragment(['customer_name' => 'Bệnh viện Số 2']);
     }
 
+    public function test_dashboard_filters_by_multiple_status_codes(): void
+    {
+        $newIntake = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'summary' => 'Dashboard case new intake',
+            ],
+        ]))->assertCreated();
+        $newIntakeId = (int) $newIntake->json('data.request_case.id');
+
+        $inProgress = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'summary' => 'Dashboard case in progress',
+            ],
+        ]))->assertCreated();
+        $inProgressId = (int) $inProgress->json('data.request_case.id');
+
+        $completed = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'summary' => 'Dashboard case completed',
+            ],
+        ]))->assertCreated();
+        $completedId = (int) $completed->json('data.request_case.id');
+
+        DB::table('customer_request_cases')->where('id', $newIntakeId)->update([
+            'current_status_code' => 'new_intake',
+            'updated_at' => '2026-04-22 09:00:00',
+        ]);
+
+        DB::table('customer_request_cases')->where('id', $inProgressId)->update([
+            'current_status_code' => 'analysis',
+            'updated_at' => '2026-04-22 09:01:00',
+        ]);
+
+        DB::table('customer_request_cases')->where('id', $completedId)->update([
+            'current_status_code' => 'completed',
+            'updated_at' => '2026-04-22 09:02:00',
+        ]);
+
+        $this->getJson('/api/v5/customer-request-cases/dashboard/overview?status_code[]=new_intake&status_code[]=analysis')
+            ->assertOk()
+            ->assertJsonPath('data.summary.total_cases', 2);
+    }
+
     public function test_dashboard_overview_returns_operational_kpis_units_backlog_and_top_performers(): void
     {
         Schema::dropIfExists('departments');

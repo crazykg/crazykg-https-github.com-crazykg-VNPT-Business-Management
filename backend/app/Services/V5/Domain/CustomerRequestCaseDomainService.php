@@ -190,11 +190,22 @@ class CustomerRequestCaseDomainService
             return $missing;
         }
 
-        $statusCode = $this->normalizeNullableString(
-            $request->query('status_code', $request->query('process_code'))
-        );
-        if ($statusCode !== null) {
-            return $this->indexByStatus($request, $statusCode);
+        $statusValuesRaw = $request->query('status_code');
+        $statusValues = is_array($statusValuesRaw) ? $statusValuesRaw : [$statusValuesRaw];
+        $normalizedStatusValues = array_values(array_filter(
+            array_map(fn ($value): ?string => $this->normalizeNullableString($value), $statusValues),
+            fn (?string $value): bool => $value !== null
+        ));
+
+        if (count($normalizedStatusValues) === 1) {
+            return $this->indexByStatus($request, $normalizedStatusValues[0]);
+        }
+
+        if (count($normalizedStatusValues) === 0) {
+            $processCode = $this->normalizeNullableString($request->query('process_code'));
+            if ($processCode !== null) {
+                return $this->indexByStatus($request, $processCode);
+            }
         }
 
         [$page, $perPage] = $this->support->resolvePaginationParams($request, 20, 100);

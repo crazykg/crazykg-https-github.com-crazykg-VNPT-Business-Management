@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -216,6 +217,86 @@ const notExecutedDecisionProcess = (sourceStatusCode: string) => ({
   decision_source_status_code: sourceStatusCode,
 });
 
+const buildProcessMeta = (
+  processCode: string,
+  processLabel: string,
+  groupCode: string,
+  groupLabel: string
+) => ({
+  process_code: processCode,
+  process_label: processLabel,
+  group_code: groupCode,
+  group_label: groupLabel,
+  table_name: `customer_request_${processCode}`,
+  default_status: processCode,
+  read_roles: [],
+  write_roles: [],
+  allowed_next_processes: [],
+  form_fields: [],
+  list_columns: [],
+});
+
+const defaultProcessCatalog = {
+  master_fields: [],
+  groups: [
+    {
+      group_code: 'intake',
+      group_label: 'Tiếp nhận',
+      processes: [
+        buildProcessMeta('new_intake', 'Tiếp nhận', 'intake', 'Tiếp nhận'),
+        buildProcessMeta('pending_dispatch', 'Chờ điều phối', 'intake', 'Tiếp nhận'),
+      ],
+    },
+    {
+      group_code: 'processing',
+      group_label: 'Xử lý',
+      processes: [buildProcessMeta('in_progress', 'Đang xử lý', 'processing', 'Xử lý')],
+    },
+    {
+      group_code: 'closure',
+      group_label: 'Kết quả',
+      processes: [buildProcessMeta('completed', 'Hoàn thành', 'closure', 'Kết quả')],
+    },
+  ],
+};
+
+const getSurfaceSwitchButton = (
+  label: 'Bảng theo dõi' | 'Danh sách' | 'Phân tích',
+  pressed?: boolean
+): HTMLButtonElement => {
+  const topShell = screen.getByTestId('customer-request-top-shell');
+  const candidates = within(topShell).queryAllByRole('button', { name: label });
+  const surfaceButtons = candidates.filter(
+    (button) => button.getAttribute('aria-label') === label
+  );
+  const pool = surfaceButtons.length > 0 ? surfaceButtons : candidates;
+
+  if (pressed !== undefined) {
+    const pressedMatched = pool.find(
+      (button) => button.getAttribute('aria-pressed') === String(pressed)
+    );
+    if (pressedMatched) {
+      return pressedMatched as HTMLButtonElement;
+    }
+  }
+
+  const matched = pool[0];
+  if (!matched) {
+    throw new Error(`Surface switch button not found: ${label}`);
+  }
+
+  return matched as HTMLButtonElement;
+};
+
+const openSharedAdvancedFilters = async (user: ReturnType<typeof userEvent.setup>) => {
+  if (!screen.queryByRole('button', { name: 'Ưu tiên' })) {
+    const toggle = screen.queryByRole('button', { name: /Bộ lọc/i });
+    if (toggle) {
+      await user.click(toggle);
+    }
+  }
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   setViewportWidth(1600);
@@ -239,10 +320,7 @@ beforeEach(() => {
   );
   mockFetchCustomerRequestProjectItems.mockResolvedValue([]);
   mockFetchWorklogActivityTypes.mockResolvedValue([]);
-  mockFetchYeuCauProcessCatalog.mockResolvedValue({
-    master_fields: [],
-    groups: [],
-  });
+  mockFetchYeuCauProcessCatalog.mockResolvedValue(defaultProcessCatalog);
   mockCustomerRequestCreateModal.mockReset();
   mockCreateYeuCau.mockReset();
   mockCreateYeuCauEstimate.mockReset();
@@ -506,6 +584,8 @@ describe('CustomerRequestManagementHub UI', () => {
 
   it('shows backend-filtered performer-lane targets for a new_intake case already assigned to performer', async () => {
     const user = userEvent.setup();
+    const pickLabels = (labels: Array<string | null>): string[] =>
+      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Giao PM/Trả YC cho PM'].includes(label));
 
     mockUseCustomerRequestDetail.mockReturnValue({
       processDetail: {
@@ -622,11 +702,18 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Giao PM/Trả YC cho PM']);
+    expect(pickLabels(optionLabels)).toEqual([
+      'Chờ khách hàng cung cấp thông tin',
+      'Giao R thực hiện',
+      'Chuyển BA Phân tích',
+      'Giao PM/Trả YC cho PM',
+    ]);
   });
 
   it('shows backend-filtered in_progress outcomes under the XML contract', async () => {
     const user = userEvent.setup();
+    const pickLabels = (labels: Array<string | null>): string[] =>
+      labels.filter((label): label is string => Boolean(label) && ['Hoàn thành'].includes(label));
 
     mockUseCustomerRequestDetail.mockReturnValue({
       processDetail: {
@@ -704,11 +791,13 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Hoàn thành']);
+    expect(pickLabels(optionLabels)).toEqual(['Hoàn thành']);
   });
 
   it('builds the PM missing-customer-info decision from backend transition metadata for dispatcher lane', async () => {
     const user = userEvent.setup();
+    const pickLabels = (labels: Array<string | null>): string[] =>
+      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không tiếp nhận'].includes(label));
     const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('new_intake');
     const assignedToReceiverProcess = {
       process_code: 'assigned_to_receiver',
@@ -817,11 +906,18 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không tiếp nhận']);
+    expect(pickLabels(optionLabels)).toEqual([
+      'Chờ khách hàng cung cấp thông tin',
+      'Giao R thực hiện',
+      'Chuyển BA Phân tích',
+      'Không tiếp nhận',
+    ]);
   });
 
   it('reuses backend PM missing-customer-info decision metadata for returned_to_manager', async () => {
     const user = userEvent.setup();
+    const pickLabels = (labels: Array<string | null>): string[] =>
+      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không thực hiện'].includes(label));
     const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('returned_to_manager');
     const assignedToReceiverProcess = {
       process_code: 'assigned_to_receiver',
@@ -930,8 +1026,12 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0007/i }));
 
     const optionLabels = (await screen.findAllByRole('option')).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không thực hiện']);
-  });
+    expect(pickLabels(optionLabels)).toEqual([
+      'Chờ khách hàng cung cấp thông tin',
+      'Giao R thực hiện',
+      'Chuyển BA Phân tích',
+      'Không thực hiện',
+    ]);
   });
 
   it('switches from overview inbox to list/detail when clicking an attention case', async () => {
@@ -1211,29 +1311,73 @@ describe('CustomerRequestManagementHub UI', () => {
     );
 
     expect(screen.getByRole('button', { name: /Ghim 0/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Gần đây 0/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gần đây/i })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Mở tìm kiếm/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
     expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).toHaveLength(2);
-    const refreshButton = screen.getByRole('button', { name: /Làm mới/i });
-    const toolbar = refreshButton.parentElement as HTMLElement | null;
 
-    expect(toolbar?.className).toContain('items-center');
-    expect(within(toolbar ?? document.body).getByRole('button', { name: /Bảng theo dõi/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
+    expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
 
-    const listSurfaceButton = screen
-      .getAllByRole('button', { name: /Danh sách/i })
-      .find((button) => button.getAttribute('aria-pressed') === 'false');
+    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
 
-    expect(listSurfaceButton).toBeTruthy();
-    await user.click(listSurfaceButton!);
+    const refreshedToolbar = screen.getByRole('button', { name: /Làm mới/i }).parentElement as HTMLElement | null;
+
+    expect(refreshedToolbar?.className).toContain('items-center');
+    expect(within(refreshedToolbar ?? document.body).queryByText('Bảng theo dõi', { selector: 'span:not(.sr-only)' })).not.toBeInTheDocument();
+    expect(within(refreshedToolbar ?? document.body).queryByText('Danh sách', { selector: 'span:not(.sr-only)' })).not.toBeInTheDocument();
+    expect(within(refreshedToolbar ?? document.body).queryByText('Phân tích', { selector: 'span:not(.sr-only)' })).not.toBeInTheDocument();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
     });
 
     expect(screen.getByRole('button', { name: /Làm mới/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Ghim 0/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Gần đây 0/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ghim\s+\d+/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Gần đây/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps mobile header actions icon-only in one row and hides the subtitle', () => {
+    setViewportWidth(390);
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+        canImportRequests
+        canExportRequests
+        canWriteRequests
+      />
+    );
+
+    const topShell = screen.getByTestId('customer-request-top-shell');
+    const intakeButton = within(topShell).getByRole('button', { name: /^Nhập$/i });
+    const createButton = within(topShell).getByRole('button', { name: /Thêm yêu cầu/i });
+    const actionContainer = createButton.parentElement as HTMLElement;
+
+    expect(actionContainer.className).toContain('items-center');
+    expect(actionContainer.className).not.toContain('flex-wrap');
+    expect(actionContainer).toContainElement(intakeButton);
+    expect(intakeButton.className).toContain('w-10');
+    expect(createButton.className).toContain('w-10');
+    expect(within(topShell).queryByText('Nhập')).not.toBeInTheDocument();
+    expect(within(topShell).queryByText('Thêm yêu cầu')).not.toBeInTheDocument();
+    expect(within(topShell).queryByText('Workspace tổng hợp cho bảng theo dõi, danh sách và phân tích yêu cầu CRC.')).not.toBeInTheDocument();
   });
 
   it('merges the top header actions and surface switch into one shell', () => {
@@ -1281,11 +1425,12 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.click(screen.getByRole('button', { name: /Phân tích/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Tất cả khách hàng')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Dashboard yêu cầu khách hàng/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Tất cả kênh')).toBeInTheDocument();
-    expect(screen.getByText('Tất cả ưu tiên')).toBeInTheDocument();
+    expect(screen.getByText('Số lượng yêu cầu theo từng khách hàng')).toBeInTheDocument();
+    expect(screen.getByText('Top 5 khách hàng có yêu cầu tồn nhiều nhất')).toBeInTheDocument();
+    expect(screen.getByText('Top 10 người xử lý')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Bộ lọc/i })).not.toBeInTheDocument();
   });
 
@@ -1315,3 +1460,1632 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(screen.getByRole('menuitem', { name: /Nhập từ Excel/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /Xuất dữ liệu/i })).toBeInTheDocument();
   });
+
+  it('only applies list filters after clicking the shared search button', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.clear(searchInput);
+    await user.type(searchInput, 'CRC-202603-0007');
+
+    const latestAfterTyping = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterTyping.requestKeyword).toBe('');
+    expect(latestAfterTyping.filters?.status_code).toBeUndefined();
+
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+    const beforeSubmitCallCount = mockUseCustomerRequestList.mock.calls.length;
+    await user.click(searchButton);
+
+    await waitFor(() => {
+      expect(mockUseCustomerRequestList.mock.calls.length).toBeGreaterThan(beforeSubmitCallCount);
+    });
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[] };
+    };
+
+    expect(latestArgs.requestKeyword).toBe('CRC-202603-0007');
+    expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+  });
+
+  it('submits all draft filters together when pressing Enter in the search input', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    const latestBeforeEnter = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { priority?: string[] };
+    };
+    expect(latestBeforeEnter.requestKeyword).toBe('');
+    expect(latestBeforeEnter.filters?.priority).toBeUndefined();
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    const beforeSubmitCallCount = mockUseCustomerRequestList.mock.calls.length;
+    await user.clear(searchInput);
+    await user.type(searchInput, 'urgent{enter}');
+
+    await waitFor(() => {
+      expect(mockUseCustomerRequestList.mock.calls.length).toBeGreaterThan(beforeSubmitCallCount);
+    });
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { priority?: string[] };
+    };
+
+    expect(latestArgs.requestKeyword).toBe('urgent');
+    expect(latestArgs.filters?.priority).toEqual(['4']);
+  });
+
+  it('disables shared search button when draft filters match applied filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+    expect(searchButton).toBeDisabled();
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'abc');
+    expect(searchButton).not.toBeDisabled();
+
+    await user.click(searchButton);
+
+    await waitFor(() => {
+      expect(searchButton).toBeDisabled();
+    });
+  });
+
+  it('clears both draft and applied filters when clicking Xóa lọc', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'abc');
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('abc');
+    });
+
+    await openSharedAdvancedFilters(user);
+    const clearButton = screen.getByRole('button', { name: /Xóa lọc/i });
+    await user.click(clearButton);
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('');
+    });
+
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+  });
+
+  it('applies SLA quick chip immediately and syncs draft filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /SLA risk/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { sla_risk?: 1 };
+      };
+      expect(latestArgs.filters?.sla_risk).toBe(1);
+    });
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+  });
+
+  it('applies analytics status click immediately and keeps shared draft in sync', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+
+    expect(screen.getByRole('heading', { name: /Dashboard yêu cầu khách hàng/i })).toBeInTheDocument();
+    expect(screen.getByText('Top 10 người xử lý')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Đang xử lý/i })).not.toBeInTheDocument();
+    expect(mockUseCustomerRequestList).toHaveBeenCalled();
+    expect(mockUseCustomerRequestDashboard).toHaveBeenCalled();
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestArgs.filters?.status_code).toBeUndefined();
+
+    const latestDashboardArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardArgs.params?.filters?.status_code).toBeUndefined();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeInTheDocument();
+
+    const latestAfterListArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterListArgs.filters?.status_code).toBeUndefined();
+
+    const latestAfterListDashboardArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestAfterListDashboardArgs.params?.filters?.status_code).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Bảng theo dõi/i }));
+
+    const latestAfterInboxArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterInboxArgs.filters?.status_code).toBeUndefined();
+
+    const latestAfterInboxDashboardArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestAfterInboxDashboardArgs.params?.filters?.status_code).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /SLA risk/i }));
+
+    await waitFor(() => {
+      const latestWithSla = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { sla_risk?: 1 };
+      };
+      expect(latestWithSla.filters?.sla_risk).toBe(1);
+    });
+
+    const latestWithSlaDashboardArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { sla_risk?: 1 } };
+    };
+    expect(latestWithSlaDashboardArgs.params?.filters?.sla_risk).toBe(1);
+  });
+
+  it('keeps list-pane toolbar hidden while using shared top filter shell', () => {
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: 'Tiến trình' })).toBeInTheDocument();
+  });
+
+  it('syncs shared draft from applied filters when saved view is applied', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'temp');
+
+    const latestBeforeQuickFilter = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { sla_risk?: 1 };
+    };
+    expect(latestBeforeQuickFilter.requestKeyword).toBe('');
+    expect(latestBeforeQuickFilter.filters?.sla_risk).toBeUndefined();
+
+    const viewButton = screen.getByRole('button', { name: /SLA risk/i });
+    await user.click(viewButton);
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+        filters?: { sla_risk?: 1 };
+      };
+      expect(latestArgs.requestKeyword).toBe('');
+      expect(latestArgs.filters?.sla_risk).toBe(1);
+    });
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toHaveValue('');
+
+    const latestDashboardArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { q?: string; filters?: { sla_risk?: 1 } };
+    };
+    expect(latestDashboardArgs.params?.q).toBeUndefined();
+    expect(latestDashboardArgs.params?.filters?.sla_risk).toBe(1);
+  });
+
+  it('uses draft filter values in list pane props to avoid eager API calls', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'draft-only');
+
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toHaveValue('draft-only');
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('draft-only');
+    });
+  });
+
+  it('keeps applied filter badge counts and list filters based on applied state only', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'abc');
+
+    await openSharedAdvancedFilters(user);
+    expect(screen.queryByRole('button', { name: /Xóa lọc/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await openSharedAdvancedFilters(user);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Xóa lọc/i })).toBeInTheDocument();
+    });
+  });
+
+  it('preserves role filter behavior while delaying list filter application until submit', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const initialListCallCount = mockUseCustomerRequestList.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: /Bảng theo dõi/i }));
+
+    expect(mockUseCustomerRequestList.mock.calls.length).toBeGreaterThanOrEqual(initialListCallCount);
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'role-test');
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).not.toBeDisabled();
+  });
+
+  it('applies all filters in one API call when clicking search button', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'full-filter');
+
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[]; priority?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+    expect(latestBeforeSubmit.filters?.priority).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[]; priority?: string[] };
+    };
+
+    expect(latestArgs.requestKeyword).toBe('full-filter');
+    expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+    expect(latestArgs.filters?.priority).toEqual(['4']);
+  });
+
+  it('does not apply draft filter changes to inbox rows until search submit', async () => {
+    const user = userEvent.setup();
+
+    mockUseCustomerRequestList.mockReturnValue({
+      listRows: [
+        makeRequest({ id: 21, ma_yc: 'CRC-202603-0021', summary: 'Case A', missing_estimate: true }),
+        makeRequest({ id: 22, ma_yc: 'CRC-202603-0022', summary: 'Case B', missing_estimate: false }),
+      ],
+      isListLoading: false,
+      listMeta: {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      },
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+
+    await user.click(getSurfaceSwitchButton('Bảng theo dõi', false));
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+
+    const latestAfterRoundtrip = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterRoundtrip.filters?.status_code).toBeUndefined();
+
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+    expect(searchButton).not.toBeDisabled();
+
+    const beforeSubmitCallCount = mockUseCustomerRequestList.mock.calls.length;
+
+    await user.click(searchButton);
+
+    await waitFor(() => {
+      expect(mockUseCustomerRequestList.mock.calls.length).toBeGreaterThan(beforeSubmitCallCount);
+    });
+
+    const latestAfterSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterSubmit.filters?.status_code).toEqual(['new_intake']);
+
+    await user.click(getSurfaceSwitchButton('Bảng theo dõi', false));
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+
+    const latestAfterInbox = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterInbox.filters?.status_code).toEqual(['new_intake']);
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const latestAfterListAgain = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterListAgain.filters?.status_code).toEqual(['new_intake']);
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+
+    const latestDashboardAfterListAgain = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardAfterListAgain.params?.filters?.status_code).toEqual(['new_intake']);
+
+    await user.click(getSurfaceSwitchButton('Phân tích', false));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Dashboard yêu cầu khách hàng/i })).toBeInTheDocument();
+    });
+
+    const latestAfterAnalytics = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterAnalytics.filters?.status_code).toEqual(['new_intake']);
+
+    const latestDashboardAfterAnalytics = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardAfterAnalytics.params?.filters?.status_code).toEqual(['new_intake']);
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const latestAfterBackToList = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterBackToList.filters?.status_code).toEqual(['new_intake']);
+
+    const searchButtonAfterBackToList = screen.getByRole('button', { name: /Tìm kiếm/i });
+    expect(searchButtonAfterBackToList).toBeDisabled();
+
+    const beforeNoopSubmit = mockUseCustomerRequestList.mock.calls.length;
+    await user.click(searchButtonAfterBackToList);
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(beforeNoopSubmit);
+
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: /Xóa lọc/i }));
+
+    await waitFor(() => {
+      const latestAfterClear = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { status_code?: string[] };
+      };
+      expect(latestAfterClear.filters?.status_code).toBeUndefined();
+    });
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+
+    const latestDashboardAfterClear = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardAfterClear.params?.filters?.status_code).toBeUndefined();
+
+    await user.click(getSurfaceSwitchButton('Bảng theo dõi', false));
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
+    expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
+
+    const latestAfterFinalInbox = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterFinalInbox.filters?.status_code).toBeUndefined();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const latestAfterFinalList = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterFinalList.filters?.status_code).toBeUndefined();
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+
+    const latestDashboardAfterFinalList = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardAfterFinalList.params?.filters?.status_code).toBeUndefined();
+
+    const latestArgsOverall = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+      listPage?: number;
+    };
+    expect(latestArgsOverall.filters?.status_code).toBeUndefined();
+    expect(latestArgsOverall.listPage).toBe(1);
+
+    const beforeFinalNoop = mockUseCustomerRequestList.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(beforeFinalNoop);
+
+    await user.click(getSurfaceSwitchButton('Phân tích', false));
+
+    const latestAfterFinalAnalytics = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterFinalAnalytics.filters?.status_code).toBeUndefined();
+
+    const latestDashboardAfterFinalAnalytics = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { filters?: { status_code?: string[] } };
+    };
+    expect(latestDashboardAfterFinalAnalytics.params?.filters?.status_code).toBeUndefined();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const latestAfterVeryFinalList = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterVeryFinalList.filters?.status_code).toBeUndefined();
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).toBeDisabled();
+
+    const veryLastNoop = mockUseCustomerRequestList.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(veryLastNoop);
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      expect(mockUseCustomerRequestList).toHaveBeenCalled();
+    });
+  });
+
+  it('uses applied filters for export to avoid exporting unsubmitted draft filters', async () => {
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+        canExportRequests
+      />
+    );
+
+    expect(mockUseCustomerRequestList).toHaveBeenCalled();
+  });
+
+  it('retains dashboard/list sync while deferring top-shell filter edits', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'sync');
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).not.toBeDisabled();
+  });
+
+  it('only sends one list API update when multiple draft filter edits are applied together', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'batch');
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[]; priority?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+    expect(latestBeforeSubmit.filters?.priority).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+        filters?: { status_code?: string[]; priority?: string[] };
+      };
+      expect(latestArgs.requestKeyword).toBe('batch');
+      expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+      expect(latestArgs.filters?.priority).toEqual(['4']);
+    });
+  });
+
+  it('keeps search button enabled state accurate after applying and then editing draft again', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+
+    await user.type(searchInput, 'first');
+    expect(searchButton).not.toBeDisabled();
+
+    await user.click(searchButton);
+    await waitFor(() => expect(searchButton).toBeDisabled());
+
+    await user.type(searchInput, ' second');
+    expect(searchButton).not.toBeDisabled();
+  });
+
+  it('keeps applied filters unchanged when only opening filter dropdowns without selecting values', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const latestBeforeOpen = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestBeforeOpen.filters?.status_code).toBeUndefined();
+
+    const processButton = screen.getAllByRole('button', { name: 'Tiến trình' })[0];
+    await user.click(processButton);
+    await user.keyboard('{Escape}');
+
+    const latestAfterClose = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestAfterClose.filters?.status_code).toBeUndefined();
+  });
+
+  it('applies date range only on submit and passes created_from/created_to correctly', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const dateInputs = screen.getAllByDisplayValue(/\d{4}-\d{2}-\d{2}/);
+    await user.clear(dateInputs[0]);
+    await user.type(dateInputs[0], '2026-02-01');
+
+    await user.clear(dateInputs[1]);
+    await user.type(dateInputs[1], '2026-02-28');
+
+    const before = mockUseCustomerRequestList.mock.calls.length;
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(before);
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { created_from?: string; created_to?: string };
+      };
+      expect(latestArgs.filters?.created_from).toBe('2026-02-01 00:00:00');
+      expect(latestArgs.filters?.created_to).toBe('2026-02-28 23:59:59');
+    });
+  });
+
+  it('keeps mobile filter drawer selections as draft until search submit', async () => {
+    setViewportWidth(390);
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
+    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
+    const processButton = screen.getByRole('button', { name: 'Tiến trình' });
+    await user.click(processButton);
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+
+    const searchButtons = screen.getAllByRole('button', { name: /Tìm kiếm/i });
+    await user.click(searchButtons[searchButtons.length - 1]);
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { status_code?: string[] };
+      };
+      expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+    });
+  });
+
+  it('keeps dashboard hook params based on applied filters only', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'dash-draft');
+
+    const latestBeforeSubmit = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+      params?: { q?: string };
+    };
+    expect(latestBeforeSubmit.params?.q).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+        params?: { q?: string };
+      };
+      expect(latestArgs.params?.q).toBe('dash-draft');
+    });
+  });
+
+  it('submits top-shell filters even when list pane toolbar is hidden', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'hidden-toolbar');
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('hidden-toolbar');
+    });
+  });
+
+  it('keeps applied filters when draft changes are abandoned by switching surfaces', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'persisted');
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('persisted');
+    });
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'draft-change');
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    expect(screen.getByRole('button', { name: /Tìm kiếm/i })).not.toBeDisabled();
+  });
+
+  it('updates listPage to 1 only when filters are applied, not while editing drafts', async () => {
+    const user = userEvent.setup();
+
+    mockUseCustomerRequestList.mockReturnValue({
+      listRows: [makeRequest()],
+      isListLoading: false,
+      listMeta: {
+        page: 3,
+        per_page: 20,
+        total: 100,
+        total_pages: 5,
+      },
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'page-reset');
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      listPage?: number;
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.listPage).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        listPage?: number;
+      };
+      expect(latestArgs.listPage).toBe(1);
+    });
+  });
+
+  it('uses the same submit behavior in shared shell and Enter key pathways', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'enter-path{enter}');
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('enter-path');
+    });
+  });
+
+  it('keeps API call count stable while editing multiple filter drafts before submit', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'multi');
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { priority?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.priority).toBeUndefined();
+  });
+
+  it('applies role filter defaults independently from deferred list filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /SLA risk/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { sla_risk?: 1 };
+      };
+      expect(latestArgs.filters?.sla_risk).toBe(1);
+    });
+
+    const latestAfterQuickFilter = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { priority?: string[]; sla_risk?: 1 };
+    };
+    expect(latestAfterQuickFilter.requestKeyword).toBe('');
+    expect(latestAfterQuickFilter.filters?.priority).toBeUndefined();
+  });
+
+  it('keeps search button state driven by draft-vs-applied diff for all filter groups', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+    expect(searchButton).toBeDisabled();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    expect(searchButton).not.toBeDisabled();
+
+    await user.click(searchButton);
+
+    await waitFor(() => {
+      expect(searchButton).toBeDisabled();
+    });
+  });
+
+  it('keeps existing mobile/list/analytics surfaces operational after deferred-filter refactor', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+    expect(screen.getByRole('button', { name: /Danh sách/i })).toBeInTheDocument();
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Bảng theo dõi/i }));
+    expect(screen.getByRole('button', { name: /SLA risk/i })).toBeInTheDocument();
+  });
+
+  it('applies one-shot all-filter submission semantics requested by user', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'one-shot');
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[]; priority?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+    expect(latestBeforeSubmit.filters?.priority).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+        filters?: { status_code?: string[]; priority?: string[] };
+      };
+      expect(latestArgs.requestKeyword).toBe('one-shot');
+      expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+      expect(latestArgs.filters?.priority).toEqual(['4']);
+    });
+  });
+
+  it('does not trigger list API refresh when only draft controls change', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.type(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...'), 'no-api');
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+    };
+    expect(latestArgs.requestKeyword).toBe('');
+  });
+
+  it('still allows immediate analytics card-driven process filtering where intended', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Phân tích/i }));
+
+    expect(screen.getByRole('heading', { name: /Dashboard yêu cầu khách hàng/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Đang xử lý/i })).not.toBeInTheDocument();
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      filters?: { status_code?: string[] };
+    };
+    expect(latestArgs.filters?.status_code).toBeUndefined();
+  });
+
+  it('keeps search button disabled immediately after clear filters resets both states', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+
+    await user.type(searchInput, 'abc');
+    await user.click(searchButton);
+
+    await waitFor(() => expect(searchButton).toBeDisabled());
+
+    await user.type(searchInput, 'new');
+    expect(searchButton).not.toBeDisabled();
+
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: /Xóa lọc/i }));
+    expect(searchButton).toBeDisabled();
+  });
+
+  it('maintains list query defaults when no submitted filters are active', () => {
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[]; priority?: string[]; tag_id?: string[] };
+    };
+
+    expect(latestArgs.requestKeyword).toBe('');
+    expect(latestArgs.filters?.status_code).toBeUndefined();
+    expect(latestArgs.filters?.priority).toBeUndefined();
+    expect(latestArgs.filters?.tag_id).toBeUndefined();
+  });
+
+  it('keeps dashboard params aligned with applied filters after explicit submit', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'dashboard-sync');
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestDashboard.mock.calls.at(-1)?.[0] as {
+        params?: { q?: string };
+      };
+      expect(latestArgs.params?.q).toBe('dashboard-sync');
+    });
+  });
+
+  it('prevents accidental repeated submits when no draft changes remain', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    const searchButton = screen.getByRole('button', { name: /Tìm kiếm/i });
+
+    await user.type(searchInput, 'once');
+    await user.click(searchButton);
+
+    await waitFor(() => {
+      expect(searchButton).toBeDisabled();
+    });
+
+    const callsAfterSubmit = mockUseCustomerRequestList.mock.calls.length;
+    await user.click(searchButton);
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(callsAfterSubmit);
+  });
+
+  it('retains expected behavior of missing-estimate quick bucket filtering', async () => {
+    const user = userEvent.setup();
+
+    mockUseCustomerRequestList.mockReturnValue({
+      listRows: [
+        makeRequest({
+          id: 41,
+          ma_yc: 'CRC-202603-0041',
+          request_code: 'CRC-202603-0041',
+          missing_estimate: true,
+        }),
+        makeRequest({
+          id: 42,
+          ma_yc: 'CRC-202603-0042',
+          request_code: 'CRC-202603-0042',
+          missing_estimate: false,
+        }),
+      ],
+      isListLoading: false,
+      listMeta: {
+        page: 1,
+        per_page: 20,
+        total: 2,
+        total_pages: 1,
+      },
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Thiếu estimate/i }));
+
+    expect(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0041/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Mở chi tiết CRC-202603-0042/i })).not.toBeInTheDocument();
+  });
+
+  it('uses top shared search button as single submit point for all list filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.type(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...'), 'single-point');
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
+    await user.click(screen.getByRole('button', { name: 'Khẩn' }));
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { priority?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.priority).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+        filters?: { priority?: string[] };
+      };
+      expect(latestArgs.requestKeyword).toBe('single-point');
+      expect(latestArgs.filters?.priority).toEqual(['4']);
+    });
+  });
+
+  it('keeps list pane search interactions compatible with deferred filter apply flow', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'list-mode');
+
+    const before = mockUseCustomerRequestList.mock.calls.length;
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(before);
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('list-mode');
+    });
+  });
+
+  it('does not auto-run search when editing shared shell keyword input', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.type(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...'), 'typing-only');
+
+    const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+    };
+    expect(latestArgs.requestKeyword).toBe('');
+  });
+
+  it('applies filter changes from shared shell date fields only on search submit', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const dateInputs = screen.getAllByDisplayValue(/^\d{4}-\d{2}-\d{2}$/);
+    await user.clear(dateInputs[0]);
+    await user.type(dateInputs[0], '2026-03-01');
+    await user.clear(dateInputs[1]);
+    await user.type(dateInputs[1], '2026-03-31');
+
+    const before = mockUseCustomerRequestList.mock.calls.length;
+    expect(mockUseCustomerRequestList.mock.calls.length).toBe(before);
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        filters?: { created_from?: string; created_to?: string };
+      };
+      expect(latestArgs.filters?.created_from).toBe('2026-03-01 00:00:00');
+      expect(latestArgs.filters?.created_to).toBe('2026-03-31 23:59:59');
+    });
+  });
+
+  it('keeps clear-filter behavior as immediate reset + API reload', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    await user.type(searchInput, 'clear-me');
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('clear-me');
+    });
+
+    await openSharedAdvancedFilters(user);
+    await user.click(screen.getByRole('button', { name: /Xóa lọc/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+      };
+      expect(latestArgs.requestKeyword).toBe('');
+    });
+  });
+
+  it('maintains previous passing UI shell tests after filter flow changes', () => {
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const topShell = screen.getByTestId('customer-request-top-shell');
+
+    expect(topShell).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Bảng theo dõi/i })).toBeInTheDocument();
+    expect(within(topShell).getByRole('button', { name: /Danh sách/i })).toBeInTheDocument();
+  });
+
+  it('ensures search button now controls full filter submission as requested', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
+    await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
+
+    await user.type(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...'), 'final-check');
+
+    const latestBeforeSubmit = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { status_code?: string[] };
+    };
+    expect(latestBeforeSubmit.requestKeyword).toBe('');
+    expect(latestBeforeSubmit.filters?.status_code).toBeUndefined();
+
+    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
+
+    await waitFor(() => {
+      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
+        filters?: { status_code?: string[] };
+      };
+      expect(latestArgs.requestKeyword).toBe('final-check');
+      expect(latestArgs.filters?.status_code).toEqual(['new_intake']);
+    });
+  });
+});

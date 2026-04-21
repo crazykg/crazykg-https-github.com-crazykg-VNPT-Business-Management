@@ -65,7 +65,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
           mode === 'inline'
             ? 'rounded-3xl border border-slate-200/80 bg-white shadow-sm'
             : mode === 'modal'
-            ? 'h-[90dvh] w-full max-w-none rounded-none border border-slate-200 bg-white shadow-xl'
+            ? 'h-[100dvh] w-full max-w-none rounded-none border border-slate-200 bg-white shadow-xl sm:h-[90dvh]'
             : 'h-full w-full max-w-[920px] border border-slate-200/90 bg-white shadow-[0_28px_72px_rgba(15,23,42,0.18)]'
         }`}
       >
@@ -132,7 +132,7 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
         </div>
       </div>
 
-      <div className={isModalMode ? 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:px-5 sm:py-4' : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4'}>{children}</div>
+      <div className={isModalMode ? 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3 sm:px-5 sm:py-4' : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4'}>{children}</div>
       {isModalMode && footer ? (
         <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-100 bg-white">
           {footer}
@@ -153,9 +153,9 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
     }
 
     return createPortal(
-      <div className="fixed inset-0 z-[120] overflow-y-auto p-0 sm:p-6">
+      <div className="fixed inset-0 z-[120] overflow-y-auto overscroll-none p-0 sm:p-6">
         <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
-        <div className="relative flex min-h-full items-start justify-center sm:items-center">
+        <div className="relative flex min-h-full items-start justify-center overscroll-none sm:items-center">
           {shell}
         </div>
       </div>,

@@ -13,10 +13,15 @@ export type CustomerRequestWorkspaceKey =
 
 export type CustomerRequestQuickFilters = {
   processCode?: string;
+  processCodes?: string[];
   keyword?: string;
   customerId?: string;
+  customerIds?: string[];
   supportGroupId?: string;
+  supportGroupIds?: string[];
   priority?: string;
+  priorities?: string[];
+  tagIds?: string[];
   roleFilter?: CustomerRequestRoleFilter;
   missingEstimate?: boolean;
   overEstimate?: boolean;

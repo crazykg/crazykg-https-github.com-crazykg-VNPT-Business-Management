@@ -169,16 +169,19 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
         }
       }}
     >
-      <div className="relative flex h-[90dvh] w-full max-w-none flex-col rounded-none bg-white shadow-2xl">
+      <div className="relative flex h-[100dvh] w-full max-w-none flex-col rounded-none bg-white shadow-2xl sm:h-[90dvh]">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
-          <div className="flex items-center gap-3">
-            <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${currentStatusMeta.cls}`}>
-              {currentStatusMeta.label}
-            </span>
-            <span className="material-symbols-outlined text-[18px] text-slate-400">arrow_forward</span>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${targetStatusMeta.cls}`}>
-              {targetStatusMeta.label}
-            </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Form chuyển trạng thái</p>
+            <div className="mt-1 flex items-center gap-3">
+              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${currentStatusMeta.cls}`}>
+                {currentStatusMeta.label}
+              </span>
+              <span className="material-symbols-outlined text-[18px] text-slate-400">arrow_forward</span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${targetStatusMeta.cls}`}>
+                {targetStatusMeta.label}
+              </span>
+            </div>
           </div>
           <button
             type="button"
@@ -190,8 +193,8 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
-          <div className="min-w-0 space-y-6 overflow-y-auto px-4 py-3 sm:px-6 sm:py-5">
+        <div className="grid min-h-0 flex-1 overflow-y-auto xl:overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+          <div className="min-w-0 space-y-6 px-4 py-3 sm:px-6 sm:py-5 xl:overflow-y-auto">
             {transitionRenderableFields.length > 0 ? (
               <div>
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -442,7 +445,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
 
           </div>
 
-          <div className="min-w-0 space-y-4 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-5 xl:border-l xl:border-t-0">
+          <div className="min-w-0 space-y-4 border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5 sm:py-5 xl:overflow-y-auto xl:border-l xl:border-t-0">
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">📋 Thông tin yêu cầu</p>
               <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-white p-3 text-xs">

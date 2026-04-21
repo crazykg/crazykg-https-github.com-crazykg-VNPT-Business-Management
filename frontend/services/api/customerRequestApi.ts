@@ -445,7 +445,26 @@ const buildYeuCauCaseQueryParams = (
       if (value === undefined || value === null || value === '') {
         return;
       }
-      params.set(key, String(value));
+
+      if (Array.isArray(value)) {
+        const normalizedValues = value
+          .map((item) => String(item ?? '').trim())
+          .filter((item) => item.length > 0);
+
+        if (normalizedValues.length === 0) {
+          return;
+        }
+
+        normalizedValues.forEach((item) => params.append(`${key}[]`, item));
+        return;
+      }
+
+      const normalizedValue = String(value).trim();
+      if (normalizedValue === '') {
+        return;
+      }
+
+      params.set(key, normalizedValue);
     });
   }
 
@@ -988,7 +1007,9 @@ export const fetchYeuCauDashboard = async (
   const params = buildYeuCauCaseQueryParams(query);
   if (query?.process_code && query.process_code.trim()) {
     params.delete('process_code');
-    params.set('status_code', query.process_code.trim());
+    if (!params.has('status_code')) {
+      params.set('status_code', query.process_code.trim());
+    }
   }
   params.delete('page');
   params.delete('per_page');

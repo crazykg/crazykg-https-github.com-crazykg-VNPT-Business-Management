@@ -331,8 +331,6 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const latestWorklogs = caseWorklogs.slice(0, 5);
   const hoursByActivity = currentHoursReport?.by_activity ?? [];
   const hoursByPerformer = currentHoursReport?.by_performer ?? [];
-  const showHoursSideSummaries = !isFullModalPresentation
-    && (hoursByActivity.length > 0 || hoursByPerformer.length > 0);
   const transitionCtaLabel = 'Chuyển →';
   const rawDetailStatus = processDetail?.current_detail_status;
   // Map Vietnamese status values to English equivalents
@@ -747,19 +745,20 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     }
 
     const isCompactHoursTab = isFullModalPresentation;
+    const hoursPanelNode = (
+      <CustomerRequestHoursPanel
+        request={processDetail.yeu_cau}
+        hoursReport={currentHoursReport}
+        canAddWorklog={canOpenWorklogModal}
+        onAddWorklog={onOpenWorklogModal}
+        isActionDisabled={isSaving || isSubmittingWorklog}
+        compact={isCompactHoursTab}
+      />
+    );
 
     return (
-      <div className={`grid min-w-0 ${isCompactHoursTab ? 'gap-3' : 'gap-4'} ${showHoursSideSummaries ? 'xl:grid-cols-[minmax(0,1fr)_336px]' : ''}`}>
+      <div className={`grid min-w-0 ${isCompactHoursTab ? 'gap-3' : 'gap-4'} lg:grid-cols-[minmax(0,1fr)_336px]`}>
         <div className={isCompactHoursTab ? 'space-y-2.5' : 'space-y-3'}>
-          <CustomerRequestHoursPanel
-            request={processDetail.yeu_cau}
-            hoursReport={currentHoursReport}
-            canAddWorklog={canOpenWorklogModal}
-            onAddWorklog={onOpenWorklogModal}
-            isActionDisabled={isSaving || isSubmittingWorklog}
-            compact={isCompactHoursTab}
-          />
-
           <div className={`rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-md shadow-slate-200/40 ${isCompactHoursTab ? 'p-3' : 'p-3.5'}`}>
             <div className={`flex items-center gap-2 ${isCompactHoursTab ? 'mb-2.5' : 'mb-3'}`}>
               <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
@@ -815,55 +814,55 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           </div>
         </div>
 
-        {showHoursSideSummaries ? (
-          <div className="space-y-3">
-            {hoursByActivity.length > 0 ? (
-              <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
-                  <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
-                </div>
-                <div className="space-y-2">
-                  {hoursByActivity.map((activity) => (
-                    <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-semibold text-slate-800">
-                          {activity.activity_type_code || 'Chưa phân loại'}
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
-                          {formatHoursValue(activity.hours_spent)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+        <div className={isCompactHoursTab ? 'space-y-2.5' : 'space-y-3'}>
+          {hoursPanelNode}
 
-            {hoursByPerformer.length > 0 ? (
-              <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
-                  <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
-                </div>
-                <div className="space-y-2">
-                  {hoursByPerformer.map((person) => (
-                    <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
-                          {formatHoursValue(person.hours_spent)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
-                    </div>
-                  ))}
-                </div>
+          {hoursByActivity.length > 0 ? (
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
+                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
               </div>
-            ) : null}
-          </div>
-        ) : null}
+              <div className="space-y-2">
+                {hoursByActivity.map((activity) => (
+                  <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-slate-800">
+                        {activity.activity_type_code || 'Chưa phân loại'}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {formatHoursValue(activity.hours_spent)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{activity.worklog_count ?? 0} nhật ký</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {hoursByPerformer.length > 0 ? (
+            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
+                <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
+              </div>
+              <div className="space-y-2">
+                {hoursByPerformer.map((person) => (
+                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                        {formatHoursValue(person.hours_spent)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{person.worklog_count ?? 0} nhật ký</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   };

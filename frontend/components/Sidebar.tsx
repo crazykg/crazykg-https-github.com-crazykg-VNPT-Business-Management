@@ -249,16 +249,16 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
   return (
     <>
       {/* Mobile Overlay */}
-      <div 
-        className={`fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300 ${
+      <div
+        className={`fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] lg:hidden transition-opacity duration-300 ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
       />
 
       {/* Sidebar Content */}
-      <aside 
-        className={`fixed top-0 bottom-0 left-0 z-50 bg-white border-r border-slate-200 flex flex-col transition-all duration-300 lg:translate-x-0 lg:static ${
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-[120] bg-white border-r border-slate-200 flex flex-col transition-all duration-300 lg:translate-x-0 lg:static ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } ${isCollapsed ? 'w-20' : 'w-64 xl:w-72'}`}
       >

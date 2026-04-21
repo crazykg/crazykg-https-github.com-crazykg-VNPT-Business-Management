@@ -328,42 +328,6 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[minmax(0,302px)_minmax(0,1fr)]">
-            <div>
-              <label htmlFor="crc-worklog-difficulty-status" className={fieldLabelClassName}>Trạng thái xử lý khó khăn</label>
-              <select
-                id="crc-worklog-difficulty-status"
-                value={difficultyStatus}
-                onChange={(event) => setDifficultyStatus(event.target.value as 'none' | 'has_issue' | 'resolved')}
-                disabled={isSubmitting}
-                className={fieldInputClassName}
-              >
-                <option value="none">Không</option>
-                <option value="has_issue">Có</option>
-                <option value="resolved">Đã giải quyết</option>
-              </select>
-            </div>
-
-            <div>
-              <p aria-hidden="true" className={`hidden md:block ${fieldLabelClassName} select-none opacity-0`}>
-                Tính vào giờ tính phí
-              </p>
-              <label className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3">
-                <input
-                  type="checkbox"
-                  checked={isBillable}
-                  onChange={(event) => setIsBillable(event.target.checked)}
-                  disabled={isSubmitting}
-                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                />
-                <span className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-700">
-                  Tính vào giờ tính phí
-                  {selectedActivity ? ` · ${selectedActivity.name}` : ''}
-                </span>
-              </label>
-            </div>
-          </div>
-
           <div>
             <label htmlFor="crc-worklog-content" className={fieldLabelClassName}>Nội dung công việc</label>
             <textarea
@@ -375,6 +339,40 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
               placeholder="Mô tả ngắn gọn phần việc đã thực hiện."
               className={fieldTextareaClassName}
             />
+          </div>
+
+          <div>
+            <p aria-hidden="true" className={`hidden md:block ${fieldLabelClassName} select-none opacity-0`}>
+              Tính vào giờ tính phí
+            </p>
+            <label className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3">
+              <input
+                type="checkbox"
+                checked={isBillable}
+                onChange={(event) => setIsBillable(event.target.checked)}
+                disabled={isSubmitting}
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              <span className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-700">
+                Tính vào giờ tính phí
+                {selectedActivity ? ` · ${selectedActivity.name}` : ''}
+              </span>
+            </label>
+          </div>
+
+          <div>
+            <label htmlFor="crc-worklog-difficulty-status" className={fieldLabelClassName}>Trạng thái xử lý khó khăn</label>
+            <select
+              id="crc-worklog-difficulty-status"
+              value={difficultyStatus}
+              onChange={(event) => setDifficultyStatus(event.target.value as 'none' | 'has_issue' | 'resolved')}
+              disabled={isSubmitting}
+              className={fieldInputClassName}
+            >
+              <option value="none">Không</option>
+              <option value="has_issue">Có</option>
+              <option value="resolved">Đã giải quyết</option>
+            </select>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">

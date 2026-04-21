@@ -432,7 +432,7 @@ export interface PaginatedQuery {
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
   simple?: boolean;
-  filters?: Record<string, string | number | boolean | null | undefined>;
+  filters?: Record<string, string | number | boolean | Array<string | number> | null | undefined>;
   [key: string]: unknown;
 }
 

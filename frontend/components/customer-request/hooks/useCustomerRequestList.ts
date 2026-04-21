@@ -6,16 +6,17 @@ import type { YeuCau } from '../../../types/customerRequest';
 
 type UseCustomerRequestListOptions = {
   canReadRequests: boolean;
-  activeProcessCode: string;
   isCreateMode: boolean;
   listPage: number;
   pageSize: number;
   dataVersion: number;
   requestKeyword: string;
   filters: {
-    customer_id?: string;
-    support_service_group_id?: string;
-    priority?: string;
+    customer_id?: string | string[];
+    support_service_group_id?: string | string[];
+    priority?: string | string[];
+    status_code?: string | string[];
+    tag_id?: string | string[];
     my_role?: string;
     created_from?: string;
     created_to?: string;
@@ -30,7 +31,6 @@ type UseCustomerRequestListOptions = {
 
 export const useCustomerRequestList = ({
   canReadRequests,
-  activeProcessCode,
   isCreateMode,
   listPage,
   pageSize,
@@ -49,7 +49,6 @@ export const useCustomerRequestList = ({
       per_page: pageSize,
       sort_by: 'to_user_id_name',
       sort_dir: 'asc',
-      process_code: activeProcessCode || undefined,
       q: requestKeyword,
       prioritize_my_cases: currentUserId ? 1 : undefined,
       filters,

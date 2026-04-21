@@ -115,7 +115,9 @@ import {
   exportImportFailureFile,
   getImportCell,
 } from '../utils/importValidation';
-import { SearchableSelect, type SearchableSelectOption } from './SearchableSelect';
+import { type SearchableSelectOption } from './SearchableSelect';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { apiFetch } from '../shared/api/apiFetch';
 import type { CustomerRequestIntakeImportResult } from '../services/api/customerRequestApi';
 import { normalizeImportToken } from '../utils/importUtils';
 
@@ -167,7 +169,6 @@ const buildCreatedToFilterValue = (value: string): string | undefined =>
   value ? `${value} 23:59:59` : undefined;
 
 const SHARED_PRIORITY_OPTIONS: SearchableSelectOption[] = [
-  { value: '', label: 'Tất cả ưu tiên' },
   { value: '1', label: 'Thấp' },
   { value: '2', label: 'Trung bình' },
   { value: '3', label: 'Cao' },
@@ -175,11 +176,11 @@ const SHARED_PRIORITY_OPTIONS: SearchableSelectOption[] = [
 ];
 
 type SharedSurfaceFilterState = {
-  activeProcessCode: string;
+  activeProcessCodes: string[];
   requestKeyword: string;
-  requestCustomerFilter: string;
-  requestSupportGroupFilter: string;
-  requestPriorityFilter: string;
+  requestEntityFilter: string[];
+  requestTagFilter: string[];
+  requestPriorityFilter: string[];
   requestCreatedFrom: string;
   requestCreatedTo: string;
   requestMissingEstimateFilter: boolean;
@@ -189,6 +190,19 @@ type SharedSurfaceFilterState = {
 
 const normalizeCustomerRequestFilterToken = (value: unknown): string =>
   String(value ?? '').trim().toLowerCase();
+
+const normalizeFilterValues = (values?: Array<string | number | null | undefined>): string[] =>
+  Array.from(
+    new Set(
+      (values ?? [])
+        .map((value) => String(value ?? '').trim())
+        .filter((value) => value.length > 0)
+    )
+  );
+
+const buildNormalizedFilterCompareKey = (
+  values?: Array<string | number | null | undefined> | ReadonlyArray<string | number | null | undefined>
+): string => normalizeFilterValues(values ? Array.from(values) : undefined).slice().sort().join('|');
 
 const parseCustomerRequestFilterTime = (value?: string | null): number | null => {
   if (!value) {
@@ -223,9 +237,12 @@ const matchesSharedSurfaceFilters = (
       row.trang_thai
   );
 
+  const normalizedProcessFilters = normalizeFilterValues(filters.activeProcessCodes).map(
+    normalizeCustomerRequestFilterToken
+  );
   if (
-    filters.activeProcessCode &&
-    processCode !== normalizeCustomerRequestFilterToken(filters.activeProcessCode)
+    normalizedProcessFilters.length > 0
+    && !normalizedProcessFilters.includes(processCode)
   ) {
     return false;
   }
@@ -242,6 +259,7 @@ const matchesSharedSurfaceFilters = (
         raw.customer_name,
         raw.customer_code,
         row.project_name,
+        row.product_name,
         row.support_service_group_name,
       ]
         .filter(Boolean)
@@ -253,29 +271,57 @@ const matchesSharedSurfaceFilters = (
     }
   }
 
-  const customerId =
+  const customerId = String(
     raw.customer_id ??
     raw.khach_hang_id ??
     raw.customerId ??
-    raw.customerID;
-  if (filters.requestCustomerFilter && String(customerId ?? '') !== filters.requestCustomerFilter) {
-    return false;
-  }
-
-  const supportGroupId =
+    raw.customerID ??
+    ''
+  );
+  const projectItemId = String(raw.project_item_id ?? raw.projectItemId ?? '');
+  const productId = String(raw.product_id ?? raw.productId ?? '');
+  const supportGroupId = String(
     raw.support_service_group_id ??
     raw.supportGroupId ??
     raw.group_id ??
-    raw.support_group_id;
+    raw.support_group_id ??
+    ''
+  );
+
+  const normalizedEntityFilters = normalizeFilterValues(filters.requestEntityFilter);
+  if (normalizedEntityFilters.length > 0) {
+    const entityTokens = [
+      customerId,
+      projectItemId,
+      productId,
+      supportGroupId,
+    ].filter((token) => token !== '');
+
+    if (!normalizedEntityFilters.some((token) => entityTokens.includes(token))) {
+      return false;
+    }
+  }
+
+  const rowTags = (raw as { tags?: Array<{ id?: string | number | null }> }).tags;
+  const rowTagIds = Array.isArray(rowTags)
+    ? rowTags
+      .map((tag: { id?: string | number | null }) => String(tag.id ?? ''))
+      .filter((value: string) => value !== '')
+    : [];
+  const normalizedTagFilters = normalizeFilterValues(filters.requestTagFilter);
   if (
-    filters.requestSupportGroupFilter &&
-    String(supportGroupId ?? '') !== filters.requestSupportGroupFilter
+    normalizedTagFilters.length > 0
+    && !normalizedTagFilters.some((tagId) => rowTagIds.includes(tagId))
   ) {
     return false;
   }
 
-  const priorityValue = raw.do_uu_tien ?? raw.priority ?? row.do_uu_tien;
-  if (filters.requestPriorityFilter && String(priorityValue ?? '') !== filters.requestPriorityFilter) {
+  const priorityValue = String(raw.do_uu_tien ?? raw.priority ?? row.do_uu_tien ?? '');
+  const normalizedPriorityFilters = normalizeFilterValues(filters.requestPriorityFilter);
+  if (
+    normalizedPriorityFilters.length > 0
+    && !normalizedPriorityFilters.includes(priorityValue)
+  ) {
     return false;
   }
 
@@ -1121,17 +1167,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   } | null>(null);
 
   // List / filter state
-  const [activeProcessCode, setActiveProcessCode] = useState('');
+  const [activeProcessCodes, setActiveProcessCodes] = useState<string[]>([]);
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState(20);
   const [requestKeyword, setRequestKeyword] = useState('');
-  const [requestCustomerFilter, setRequestCustomerFilter] = useState('');
-  const [requestSupportGroupFilter, setRequestSupportGroupFilter] = useState('');
-  const [requestPriorityFilter, setRequestPriorityFilter] = useState('');
+  const [requestEntityFilter, setRequestEntityFilter] = useState<string[]>([]);
+  const [requestTagFilter, setRequestTagFilter] = useState<string[]>([]);
+  const [requestPriorityFilter, setRequestPriorityFilter] = useState<string[]>([]);
   const [requestRoleFilter, setRequestRoleFilter] = useState<CustomerRequestRoleFilter>('');
   const [defaultCreatedRange] = useState(() => buildDefaultCustomerRequestCreatedRange());
   const [requestCreatedFrom, setRequestCreatedFrom] = useState(() => defaultCreatedRange.from);
   const [requestCreatedTo, setRequestCreatedTo] = useState(() => defaultCreatedRange.to);
+  const [requestMissingEstimateFilter, setRequestMissingEstimateFilter] = useState(false);
+  const [requestOverEstimateFilter, setRequestOverEstimateFilter] = useState(false);
+  const [requestSlaRiskFilter, setRequestSlaRiskFilter] = useState(false);
+
+  const [draftActiveProcessCodes, setDraftActiveProcessCodes] = useState<string[]>([]);
+  const [draftRequestKeywordInput, setDraftRequestKeywordInput] = useState('');
+  const [draftRequestEntityFilter, setDraftRequestEntityFilter] = useState<string[]>([]);
+  const [draftRequestTagFilter, setDraftRequestTagFilter] = useState<string[]>([]);
+  const [draftRequestPriorityFilter, setDraftRequestPriorityFilter] = useState<string[]>([]);
+  const [draftRequestCreatedFrom, setDraftRequestCreatedFrom] = useState(() => defaultCreatedRange.from);
+  const [draftRequestCreatedTo, setDraftRequestCreatedTo] = useState(() => defaultCreatedRange.to);
+  const [draftRequestMissingEstimateFilter, setDraftRequestMissingEstimateFilter] = useState(false);
+  const [draftRequestOverEstimateFilter, setDraftRequestOverEstimateFilter] = useState(false);
+  const [draftRequestSlaRiskFilter, setDraftRequestSlaRiskFilter] = useState(false);
+
   /** Kiểm soát workspace nào hiển thị — độc lập với requestRoleFilter (lọc list) */
   const [activeWorkspaceTab, setActiveWorkspaceTab] =
     useState<WorkspaceTabKey>('overview');
@@ -1139,10 +1200,38 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [activeInboxBucket, setActiveInboxBucket] = useState<InboxBucketKey>('hot');
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
   const [isIntakeMenuOpen, setIsIntakeMenuOpen] = useState(false);
-  const [requestMissingEstimateFilter, setRequestMissingEstimateFilter] = useState(false);
-  const [requestOverEstimateFilter, setRequestOverEstimateFilter] = useState(false);
-  const [requestSlaRiskFilter, setRequestSlaRiskFilter] = useState(false);
   const [isSharedFilterExpanded, setIsSharedFilterExpanded] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+
+  const applyDraftFilters = useCallback(() => {
+    setActiveProcessCodes(draftActiveProcessCodes);
+    const normalizedKeyword = draftRequestKeywordInput.trim();
+    setRequestKeyword(normalizedKeyword);
+    setRequestEntityFilter(draftRequestEntityFilter);
+    setRequestTagFilter(draftRequestTagFilter);
+    setRequestPriorityFilter(draftRequestPriorityFilter);
+    setRequestCreatedFrom(draftRequestCreatedFrom);
+    setRequestCreatedTo(draftRequestCreatedTo);
+    setRequestMissingEstimateFilter(draftRequestMissingEstimateFilter);
+    setRequestOverEstimateFilter(draftRequestOverEstimateFilter);
+    setRequestSlaRiskFilter(draftRequestSlaRiskFilter);
+    setListPage(1);
+  }, [
+    draftActiveProcessCodes,
+    draftRequestCreatedFrom,
+    draftRequestCreatedTo,
+    draftRequestEntityFilter,
+    draftRequestKeywordInput,
+    draftRequestMissingEstimateFilter,
+    draftRequestOverEstimateFilter,
+    draftRequestPriorityFilter,
+    draftRequestSlaRiskFilter,
+    draftRequestTagFilter,
+  ]);
+
+  const handleSubmitKeywordSearch = useCallback(() => {
+    applyDraftFilters();
+  }, [applyDraftFilters]);
 
   // Transition state
   const [transitionStatusCode, setTransitionStatusCode] = useState('');
@@ -1325,63 +1414,67 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   // -------------------------------------------------------------------------
   // 6. List hook
   // -------------------------------------------------------------------------
-  const listFilters = useMemo(
-    () => ({
-      customer_id: requestCustomerFilter || undefined,
-      support_service_group_id: requestSupportGroupFilter || undefined,
-      priority: requestPriorityFilter || undefined,
+  const listFilters = useMemo(() => {
+    const normalizedEntityFilters = normalizeFilterValues(requestEntityFilter);
+
+    return {
+      customer_id: normalizedEntityFilters.length > 0 ? normalizedEntityFilters : undefined,
+      priority: requestPriorityFilter.length > 0 ? requestPriorityFilter : undefined,
+      status_code: activeProcessCodes.length > 0 ? activeProcessCodes : undefined,
+      tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
       my_role: requestRoleFilter || undefined,
       created_from: buildCreatedFromFilterValue(requestCreatedFrom),
       created_to: buildCreatedToFilterValue(requestCreatedTo),
       missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
       over_estimate: requestOverEstimateFilter ? (1 as const) : undefined,
       sla_risk: requestSlaRiskFilter ? (1 as const) : undefined,
-    }),
-    [
-      requestCustomerFilter,
-      requestSupportGroupFilter,
-      requestPriorityFilter,
-      requestRoleFilter,
-      requestCreatedFrom,
-      requestCreatedTo,
-      requestMissingEstimateFilter,
-      requestOverEstimateFilter,
-      requestSlaRiskFilter,
-    ]
-  );
+    };
+  }, [
+    activeProcessCodes,
+    requestEntityFilter,
+    requestTagFilter,
+    requestPriorityFilter,
+    requestRoleFilter,
+    requestCreatedFrom,
+    requestCreatedTo,
+    requestMissingEstimateFilter,
+    requestOverEstimateFilter,
+    requestSlaRiskFilter,
+  ]);
 
-  const dashboardFilters = useMemo(
-    () => ({
+  const dashboardFilters = useMemo(() => {
+    const normalizedEntityFilters = normalizeFilterValues(requestEntityFilter);
+
+    return {
       q: requestKeyword || undefined,
-      process_code: activeProcessCode || undefined,
+      process_code: activeProcessCodes[0] || undefined,
       filters: {
-        customer_id: requestCustomerFilter || undefined,
-        support_service_group_id: requestSupportGroupFilter || undefined,
-        priority: requestPriorityFilter || undefined,
+        customer_id: normalizedEntityFilters.length > 0 ? normalizedEntityFilters : undefined,
+        priority: requestPriorityFilter.length > 0 ? requestPriorityFilter : undefined,
+        status_code: activeProcessCodes.length > 0 ? activeProcessCodes : undefined,
+        tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
         created_from: buildCreatedFromFilterValue(requestCreatedFrom),
         created_to: buildCreatedToFilterValue(requestCreatedTo),
         missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
         over_estimate: requestOverEstimateFilter ? (1 as const) : undefined,
         sla_risk: requestSlaRiskFilter ? (1 as const) : undefined,
       },
-    }),
-    [
-      activeProcessCode,
-      requestKeyword,
-      requestCustomerFilter,
-      requestSupportGroupFilter,
-      requestPriorityFilter,
-      requestCreatedFrom,
-      requestCreatedTo,
-      requestMissingEstimateFilter,
-      requestOverEstimateFilter,
-      requestSlaRiskFilter,
-    ]
-  );
+    };
+  }, [
+    activeProcessCodes,
+    requestKeyword,
+    requestEntityFilter,
+    requestTagFilter,
+    requestPriorityFilter,
+    requestCreatedFrom,
+    requestCreatedTo,
+    requestMissingEstimateFilter,
+    requestOverEstimateFilter,
+    requestSlaRiskFilter,
+  ]);
 
   const { listRows, isListLoading, listMeta } = useCustomerRequestList({
     canReadRequests,
-    activeProcessCode,
     isCreateMode,
     listPage,
     pageSize: listPageSize,
@@ -2284,15 +2377,51 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     } else {
       setActiveInboxBucket('sla_risk');
       setRequestSlaRiskFilter(true);
+      setRequestEntityFilter([]);
+      setRequestTagFilter([]);
+      setRequestPriorityFilter([]);
+      setActiveProcessCodes([]);
+      setRequestKeyword('');
+      setRequestCreatedFrom(defaultCreatedRange.from);
+      setRequestCreatedTo(defaultCreatedRange.to);
+      setRequestMissingEstimateFilter(false);
+      setRequestOverEstimateFilter(false);
+
+      setDraftRequestSlaRiskFilter(true);
+      setDraftRequestEntityFilter([]);
+      setDraftRequestTagFilter([]);
+      setDraftRequestPriorityFilter([]);
+      setDraftActiveProcessCodes([]);
+      setDraftRequestKeywordInput('');
+      setDraftRequestCreatedFrom(defaultCreatedRange.from);
+      setDraftRequestCreatedTo(defaultCreatedRange.to);
+      setDraftRequestMissingEstimateFilter(false);
+      setDraftRequestOverEstimateFilter(false);
     }
 
     setListPage(1);
     setActiveSavedViewId(null);
     setProcessDetail(null);
-  }, [activeWorkspaceTab, setProcessDetail]);
+  }, [activeWorkspaceTab, defaultCreatedRange.from, defaultCreatedRange.to, setProcessDetail]);
 
   const handleApplySavedView = useCallback((view: CustomerRequestSavedView) => {
     const filters = view.filters ?? {};
+
+    const nextProcessCodes = normalizeFilterValues(filters.processCodes ?? [filters.processCode]);
+    const nextKeyword = filters.keyword ?? '';
+    const nextEntityFilters = normalizeFilterValues([
+      ...(filters.customerIds ?? []),
+      ...(filters.supportGroupIds ?? []),
+      ...(filters.customerId ? [filters.customerId] : []),
+      ...(filters.supportGroupId ? [filters.supportGroupId] : []),
+    ]);
+    const nextTagFilters = normalizeFilterValues(filters.tagIds);
+    const nextPriorityFilters = normalizeFilterValues(filters.priorities ?? [filters.priority]);
+    const nextCreatedFrom = defaultCreatedRange.from;
+    const nextCreatedTo = defaultCreatedRange.to;
+    const nextMissingEstimate = Boolean(filters.missingEstimate);
+    const nextOverEstimate = Boolean(filters.overEstimate);
+    const nextSlaRisk = Boolean(filters.slaRisk);
 
     setActiveWorkspaceTab(view.workspaceTab);
     setActiveSurface(view.surface);
@@ -2300,19 +2429,31 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setIsCreateMode(false);
     setTransitionStatusCode('');
     setActiveSavedViewId(view.id);
-    setActiveProcessCode(filters.processCode ?? '');
-    setRequestKeyword(filters.keyword ?? '');
-    setRequestCustomerFilter(filters.customerId ?? '');
-    setRequestSupportGroupFilter(filters.supportGroupId ?? '');
-    setRequestPriorityFilter(filters.priority ?? '');
-    setRequestCreatedFrom(defaultCreatedRange.from);
-    setRequestCreatedTo(defaultCreatedRange.to);
+
+    setDraftActiveProcessCodes(nextProcessCodes);
+    setDraftRequestKeywordInput(nextKeyword);
+    setDraftRequestEntityFilter(nextEntityFilters);
+    setDraftRequestTagFilter(nextTagFilters);
+    setDraftRequestPriorityFilter(nextPriorityFilters);
+    setDraftRequestCreatedFrom(nextCreatedFrom);
+    setDraftRequestCreatedTo(nextCreatedTo);
+    setDraftRequestMissingEstimateFilter(nextMissingEstimate);
+    setDraftRequestOverEstimateFilter(nextOverEstimate);
+    setDraftRequestSlaRiskFilter(nextSlaRisk);
+
+    setActiveProcessCodes(nextProcessCodes);
+    setRequestKeyword(nextKeyword);
+    setRequestEntityFilter(nextEntityFilters);
+    setRequestTagFilter(nextTagFilters);
+    setRequestPriorityFilter(nextPriorityFilters);
+    setRequestCreatedFrom(nextCreatedFrom);
+    setRequestCreatedTo(nextCreatedTo);
     setRequestRoleFilter(
       filters.roleFilter ?? workspaceTabToRoleFilter(view.workspaceTab)
     );
-    setRequestMissingEstimateFilter(Boolean(filters.missingEstimate));
-    setRequestOverEstimateFilter(Boolean(filters.overEstimate));
-    setRequestSlaRiskFilter(Boolean(filters.slaRisk));
+    setRequestMissingEstimateFilter(nextMissingEstimate);
+    setRequestOverEstimateFilter(nextOverEstimate);
+    setRequestSlaRiskFilter(nextSlaRisk);
     setListPage(1);
   }, [defaultCreatedRange.from, defaultCreatedRange.to]);
 
@@ -2981,16 +3122,109 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [customers]
   );
 
-  const supportGroupOptions = useMemo<SearchableSelectOption[]>(
+  const projectItemOptions = useMemo<SearchableSelectOption[]>(() => {
+    const dedup = new Map<string, SearchableSelectOption>();
+
+    effectiveProjectItems.forEach((item) => {
+      const raw = item as unknown as Record<string, unknown>;
+      const value = String(item.id ?? raw.project_item_id ?? raw.projectItemId ?? '').trim();
+      if (!value) {
+        return;
+      }
+
+      const code = String(
+        raw.project_item_code
+          || raw.projectItemCode
+          || raw.item_code
+          || raw.itemCode
+          || raw.external_code
+          || raw.externalCode
+          || raw.code
+          || ''
+      ).trim();
+      const name = String(
+        raw.item_name
+          || raw.itemName
+          || raw.project_item_name
+          || raw.projectItemName
+          || raw.display_name
+          || raw.displayName
+          || raw.name
+          || `Dự án/Sản phẩm #${value}`
+      ).trim();
+      const label = code ? `${code} - ${name}` : name;
+
+      dedup.set(value, {
+        value,
+        label,
+        searchText: `${code} ${name}`.trim(),
+      });
+    });
+
+    return Array.from(dedup.values());
+  }, [effectiveProjectItems]);
+
+  const [tagFilterOptions, setTagFilterOptions] = useState<SearchableSelectOption[]>([]);
+
+  useEffect(() => {
+    if (!canReadRequests) {
+      setTagFilterOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchTagOptions = async () => {
+      try {
+        const response = await apiFetch('/api/v5/tags/suggestions?per_page=100', {
+          headers: { Accept: 'application/json' },
+          cancelKey: 'tags:suggestions:filter',
+        });
+
+        if (!response.ok) {
+          throw new Error('Không thể tải danh sách tags.');
+        }
+
+        const payload = (await response.json()) as { tags?: Tag[]; data?: Tag[] };
+        const source = Array.isArray(payload.tags)
+          ? payload.tags
+          : Array.isArray(payload.data)
+            ? payload.data
+            : [];
+
+        const options = source.map((tag) => ({
+          value: String(tag.id),
+          label: tag.name,
+          searchText: `${tag.name} ${tag.color ?? ''}`,
+        }));
+
+        if (!cancelled) {
+          setTagFilterOptions(options);
+        }
+      } catch (error: unknown) {
+        if (!cancelled && !isRequestCanceledError(error)) {
+          notify(
+            'error',
+            'Tải tags thất bại',
+            error instanceof Error ? error.message : 'Không thể tải danh sách tags.'
+          );
+        }
+      }
+    };
+
+    void fetchTagOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canReadRequests, notify]);
+
+  const entityFilterOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: '', label: 'Tất cả kênh' },
-      ...supportServiceGroups.map((group) => ({
-        value: String(group.id),
-        label: group.group_name,
-        searchText: `${group.group_name} ${group.group_code ?? ''} ${group.customer_name ?? ''}`,
-      })),
+      ...customerOptions,
+      ...projectItemOptions,
     ],
-    [supportServiceGroups]
+    [customerOptions, projectItemOptions]
   );
 
   const pinnedRequestIds = useMemo(
@@ -3027,14 +3261,38 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     selectedRequestPreview,
   ]);
 
+  useEffect(() => {
+    setDraftActiveProcessCodes(activeProcessCodes);
+    setDraftRequestKeywordInput(requestKeyword);
+    setDraftRequestEntityFilter(requestEntityFilter);
+    setDraftRequestTagFilter(requestTagFilter);
+    setDraftRequestPriorityFilter(requestPriorityFilter);
+    setDraftRequestCreatedFrom(requestCreatedFrom);
+    setDraftRequestCreatedTo(requestCreatedTo);
+    setDraftRequestMissingEstimateFilter(requestMissingEstimateFilter);
+    setDraftRequestOverEstimateFilter(requestOverEstimateFilter);
+    setDraftRequestSlaRiskFilter(requestSlaRiskFilter);
+  }, [
+    activeProcessCodes,
+    requestKeyword,
+    requestEntityFilter,
+    requestTagFilter,
+    requestPriorityFilter,
+    requestCreatedFrom,
+    requestCreatedTo,
+    requestMissingEstimateFilter,
+    requestOverEstimateFilter,
+    requestSlaRiskFilter,
+  ]);
+
   const dashboardRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
 
   const sharedSurfaceFilters = useMemo<SharedSurfaceFilterState>(
     () => ({
-      activeProcessCode,
+      activeProcessCodes,
       requestKeyword,
-      requestCustomerFilter,
-      requestSupportGroupFilter,
+      requestEntityFilter,
+      requestTagFilter,
       requestPriorityFilter,
       requestCreatedFrom,
       requestCreatedTo,
@@ -3043,10 +3301,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       requestSlaRiskFilter,
     }),
     [
-      activeProcessCode,
+      activeProcessCodes,
       requestKeyword,
-      requestCustomerFilter,
-      requestSupportGroupFilter,
+      requestEntityFilter,
+      requestTagFilter,
       requestPriorityFilter,
       requestCreatedFrom,
       requestCreatedTo,
@@ -3059,49 +3317,75 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const sharedAdvancedFilterCount = useMemo(
     () =>
       [
-        Boolean(requestCustomerFilter),
-        Boolean(requestSupportGroupFilter),
-        Boolean(requestPriorityFilter),
-        requestMissingEstimateFilter,
-        requestOverEstimateFilter,
-        requestSlaRiskFilter,
+        draftRequestEntityFilter.length > 0,
+        draftRequestTagFilter.length > 0,
+        draftRequestPriorityFilter.length > 0,
+        draftRequestMissingEstimateFilter,
+        draftRequestOverEstimateFilter,
+        draftRequestSlaRiskFilter,
       ].filter(Boolean).length,
     [
-      requestCustomerFilter,
-      requestSupportGroupFilter,
-      requestPriorityFilter,
-      requestMissingEstimateFilter,
-      requestOverEstimateFilter,
-      requestSlaRiskFilter,
+      draftRequestEntityFilter,
+      draftRequestTagFilter,
+      draftRequestPriorityFilter,
+      draftRequestMissingEstimateFilter,
+      draftRequestOverEstimateFilter,
+      draftRequestSlaRiskFilter,
     ]
   );
 
   const hasListFilters =
     !!(
-      activeProcessCode ||
+      activeProcessCodes.length > 0 ||
       requestKeyword ||
-      requestCustomerFilter ||
-      requestSupportGroupFilter ||
-      requestPriorityFilter ||
+      requestEntityFilter.length > 0 ||
+      requestTagFilter.length > 0 ||
+      requestPriorityFilter.length > 0 ||
       requestCreatedFrom !== defaultCreatedRange.from ||
       requestCreatedTo !== defaultCreatedRange.to ||
       (requestRoleFilter &&
-        requestRoleFilter !==
-          (activeSurface === 'analytics'
-            ? workspaceTabToRoleFilter(activeWorkspaceTab)
-            : workspaceTabToRoleFilter(activeWorkspaceTab))) ||
+        requestRoleFilter !== workspaceTabToRoleFilter(activeWorkspaceTab)) ||
       requestMissingEstimateFilter ||
       requestOverEstimateFilter ||
       requestSlaRiskFilter
     );
 
+  const hasDraftFilterChanges =
+    requestKeyword !== draftRequestKeywordInput.trim() ||
+    requestCreatedFrom !== draftRequestCreatedFrom ||
+    requestCreatedTo !== draftRequestCreatedTo ||
+    requestMissingEstimateFilter !== draftRequestMissingEstimateFilter ||
+    requestOverEstimateFilter !== draftRequestOverEstimateFilter ||
+    requestSlaRiskFilter !== draftRequestSlaRiskFilter ||
+    buildNormalizedFilterCompareKey(activeProcessCodes) !==
+      buildNormalizedFilterCompareKey(draftActiveProcessCodes) ||
+    buildNormalizedFilterCompareKey(requestEntityFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestEntityFilter) ||
+    buildNormalizedFilterCompareKey(requestTagFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestTagFilter) ||
+    buildNormalizedFilterCompareKey(requestPriorityFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestPriorityFilter);
+
+  const canSubmitFilters = hasDraftFilterChanges;
+
   const handleClearFilters = useCallback(() => {
     const defaultRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
-    setActiveProcessCode('');
+    setDraftActiveProcessCodes([]);
+    setDraftRequestKeywordInput('');
+    setDraftRequestEntityFilter([]);
+    setDraftRequestTagFilter([]);
+    setDraftRequestPriorityFilter([]);
+    setDraftRequestCreatedFrom(defaultCreatedRange.from);
+    setDraftRequestCreatedTo(defaultCreatedRange.to);
+    setDraftRequestMissingEstimateFilter(false);
+    setDraftRequestOverEstimateFilter(false);
+    setDraftRequestSlaRiskFilter(false);
+
+    setActiveProcessCodes([]);
     setRequestKeyword('');
-    setRequestCustomerFilter('');
-    setRequestSupportGroupFilter('');
-    setRequestPriorityFilter('');
+    setRequestEntityFilter([]);
+    setRequestTagFilter([]);
+    setRequestPriorityFilter([]);
     setRequestCreatedFrom(defaultCreatedRange.from);
     setRequestCreatedTo(defaultCreatedRange.to);
     setRequestRoleFilter(defaultRoleFilter);
@@ -3135,36 +3419,50 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     }
 
     const filters = activeView.filters ?? {};
+    const expectedProcessCodes = normalizeFilterValues(filters.processCodes ?? [filters.processCode]);
+    const expectedEntityFilters = normalizeFilterValues([
+      ...(filters.customerIds ?? []),
+      ...(filters.supportGroupIds ?? []),
+      ...(filters.customerId ? [filters.customerId] : []),
+      ...(filters.supportGroupId ? [filters.supportGroupId] : []),
+    ]);
+    const expectedTagFilters = normalizeFilterValues(filters.tagIds);
+    const expectedPriorityFilters = normalizeFilterValues(filters.priorities ?? [filters.priority]);
+
     const matches =
       activeWorkspaceTab === activeView.workspaceTab &&
       activeSurface === activeView.surface &&
-      activeProcessCode === (filters.processCode ?? '') &&
       requestKeyword === (filters.keyword ?? '') &&
-      requestCustomerFilter === (filters.customerId ?? '') &&
-      requestSupportGroupFilter === (filters.supportGroupId ?? '') &&
-      requestPriorityFilter === (filters.priority ?? '') &&
       requestRoleFilter ===
         (filters.roleFilter ?? workspaceTabToRoleFilter(activeView.workspaceTab)) &&
       requestMissingEstimateFilter === Boolean(filters.missingEstimate) &&
       requestOverEstimateFilter === Boolean(filters.overEstimate) &&
-      requestSlaRiskFilter === Boolean(filters.slaRisk);
+      requestSlaRiskFilter === Boolean(filters.slaRisk) &&
+      expectedProcessCodes.length === normalizeFilterValues(activeProcessCodes).length &&
+      expectedProcessCodes.every((code) => normalizeFilterValues(activeProcessCodes).includes(code)) &&
+      expectedEntityFilters.length === normalizeFilterValues(requestEntityFilter).length &&
+      expectedEntityFilters.every((value) => normalizeFilterValues(requestEntityFilter).includes(value)) &&
+      expectedTagFilters.length === normalizeFilterValues(requestTagFilter).length &&
+      expectedTagFilters.every((value) => normalizeFilterValues(requestTagFilter).includes(value)) &&
+      expectedPriorityFilters.length === normalizeFilterValues(requestPriorityFilter).length &&
+      expectedPriorityFilters.every((value) => normalizeFilterValues(requestPriorityFilter).includes(value));
 
     if (!matches) {
       setActiveSavedViewId(null);
     }
   }, [
-    activeProcessCode,
+    activeProcessCodes,
     activeSavedViewId,
     activeSurface,
     activeWorkspaceTab,
-    requestCustomerFilter,
+    requestEntityFilter,
     requestKeyword,
     requestMissingEstimateFilter,
     requestOverEstimateFilter,
     requestPriorityFilter,
     requestRoleFilter,
     requestSlaRiskFilter,
-    requestSupportGroupFilter,
+    requestTagFilter,
   ]);
 
   // Creator workspace name
@@ -3626,7 +3924,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     try {
       const exported = await exportCustomerRequestIntake({
         q: requestKeyword || undefined,
-        status_code: activeProcessCode || undefined,
+        status_code: activeProcessCodes[0] || undefined,
       });
       triggerBrowserDownload(exported.blob, exported.filename || 'customer_request_intake.csv');
       notify('success', 'Export intake', 'Đã xuất danh sách CRC intake.');
@@ -3641,7 +3939,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     } finally {
       setIsExportingIntake(false);
     }
-  }, [activeProcessCode, canExportRequests, isRequestCanceledError, notify, requestKeyword]);
+  }, [activeProcessCodes, canExportRequests, isRequestCanceledError, notify, requestKeyword]);
 
   const handleImportIntake = useCallback(async (payload: ImportPayload) => {
     setIsImportingIntake(true);
@@ -3738,29 +4036,51 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   /* Shared ListPane props */
   const listPaneProps = {
-    activeProcessCode,
+    activeProcessCodes: draftActiveProcessCodes,
     processOptions,
-    onProcessCodeChange: (v: string) => { setActiveProcessCode(v); setListPage(1); },
-    requestKeyword,
-    onRequestKeywordChange: (v: string) => { setRequestKeyword(v); setListPage(1); },
-    requestCustomerFilter,
-    onRequestCustomerFilterChange: (v: string) => { setRequestCustomerFilter(v); setListPage(1); },
-    requestSupportGroupFilter,
-    onRequestSupportGroupFilterChange: (v: string) => { setRequestSupportGroupFilter(v); setListPage(1); },
-    requestPriorityFilter,
-    onRequestPriorityFilterChange: (v: string) => { setRequestPriorityFilter(v); setListPage(1); },
-    requestCreatedFrom,
-    onRequestCreatedFromChange: (v: string) => { setRequestCreatedFrom(v); setListPage(1); },
-    requestCreatedTo,
-    onRequestCreatedToChange: (v: string) => { setRequestCreatedTo(v); setListPage(1); },
+    onProcessCodesChange: (values: string[]) => {
+      setDraftActiveProcessCodes(values);
+    },
+    requestKeyword: draftRequestKeywordInput,
+    onRequestKeywordChange: (v: string) => {
+      setDraftRequestKeywordInput(v);
+    },
+    onSubmitKeywordSearch: handleSubmitKeywordSearch,
+    requestEntityFilter: draftRequestEntityFilter,
+    onRequestEntityFilterChange: (values: string[]) => {
+      setDraftRequestEntityFilter(values);
+    },
+    requestPriorityFilter: draftRequestPriorityFilter,
+    onRequestPriorityFilterChange: (values: string[]) => {
+      setDraftRequestPriorityFilter(values);
+    },
+    requestCreatedFrom: draftRequestCreatedFrom,
+    onRequestCreatedFromChange: (v: string) => {
+      setDraftRequestCreatedFrom(v);
+    },
+    requestCreatedTo: draftRequestCreatedTo,
+    onRequestCreatedToChange: (v: string) => {
+      setDraftRequestCreatedTo(v);
+    },
     customerOptions,
-    supportServiceGroups,
-    requestMissingEstimateFilter,
-    onToggleMissingEstimate: () => { setRequestMissingEstimateFilter((x) => !x); setListPage(1); },
-    requestOverEstimateFilter,
-    onToggleOverEstimate: () => { setRequestOverEstimateFilter((x) => !x); setListPage(1); },
-    requestSlaRiskFilter,
-    onToggleSlaRisk: () => { setRequestSlaRiskFilter((x) => !x); setListPage(1); },
+    projectItemOptions,
+    tagFilterOptions,
+    requestTagFilter: draftRequestTagFilter,
+    onRequestTagFilterChange: (values: string[]) => {
+      setDraftRequestTagFilter(values);
+    },
+    requestMissingEstimateFilter: draftRequestMissingEstimateFilter,
+    onToggleMissingEstimate: () => {
+      setDraftRequestMissingEstimateFilter((x) => !x);
+    },
+    requestOverEstimateFilter: draftRequestOverEstimateFilter,
+    onToggleOverEstimate: () => {
+      setDraftRequestOverEstimateFilter((x) => !x);
+    },
+    requestSlaRiskFilter: draftRequestSlaRiskFilter,
+    onToggleSlaRisk: () => {
+      setDraftRequestSlaRiskFilter((x) => !x);
+    },
     alertCounts,
     isDashboardLoading,
     rows: patchedListRows,
@@ -3988,21 +4308,23 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
   const sharedPrimaryButtonClass =
     `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] bg-primary px-3 text-xs font-semibold text-white shadow-[var(--ui-shadow-shell)] transition hover:bg-deep-teal disabled:opacity-50`;
-  const renderTopShellActions = () => (
+  const renderTopShellActions = (isCompactLayout = false) => (
     <>
       {hasIntakeMenuActions ? (
-        <div className="relative w-full sm:w-auto">
+        <div className={`relative ${isCompactLayout ? '' : 'w-full sm:w-auto'}`}>
           <button
             type="button"
             onClick={() => setIsIntakeMenuOpen((value) => !value)}
             aria-label="Nhập"
-            className={`${sharedSecondaryButtonClass} w-full gap-1.5 sm:w-auto`}
+            className={`${sharedSecondaryButtonClass} ${isCompactLayout ? 'w-10 px-0' : 'w-full gap-1.5 sm:w-auto'}`}
             aria-expanded={isIntakeMenuOpen}
             aria-haspopup="menu"
           >
             <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>move_to_inbox</span>
-            Nhập
-            <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 15 }}>expand_more</span>
+            {!isCompactLayout ? 'Nhập' : null}
+            {!isCompactLayout ? (
+              <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 15 }}>expand_more</span>
+            ) : null}
           </button>
 
           {isIntakeMenuOpen ? (
@@ -4064,10 +4386,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           type="button"
           onClick={handleCreateRequest}
           aria-label="Thêm yêu cầu"
-          className={`${sharedPrimaryButtonClass} w-full gap-1.5 sm:w-auto`}
+          className={`${sharedPrimaryButtonClass} ${isCompactLayout ? 'w-10 px-0' : 'w-full gap-1.5 sm:w-auto'}`}
         >
           <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-          Thêm yêu cầu
+          {!isCompactLayout ? 'Thêm yêu cầu' : null}
         </button>
       )}
     </>
@@ -4075,90 +4397,199 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const sharedSurfaceFilterNode = showsSharedSurfaceFilters ? (
     <div className={`${workspaceShellClass} p-3`}>
       <div className="space-y-2.5">
-        <div
-          className={`grid gap-2 ${
-            isCompactTopShell
-              ? 'grid-cols-1'
-              : 'xl:grid-cols-[156px_156px_minmax(0,1fr)_180px_auto]'
-          }`}
-        >
-          <label>
-            <span className="sr-only">Từ ngày tạo</span>
-            <input
-              type="date"
-              value={requestCreatedFrom}
-              onChange={(event) => {
-                setRequestCreatedFrom(event.target.value);
-                setListPage(1);
-              }}
-              className={`w-full ${sharedFilterFieldClass}`}
-            />
-          </label>
+        {isCompactTopShell ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMobileSearchOpen((value) => !value)}
+                className={`${sharedSecondaryButtonClass} gap-1.5`}
+                aria-expanded={isMobileSearchOpen}
+                aria-label="Mở tìm kiếm"
+              >
+                <span className="material-symbols-outlined text-[17px]">search</span>
+                <span>Tìm kiếm</span>
+              </button>
+              {!isAnalyticsSurface ? (
+                <button
+                  type="button"
+                  onClick={() => setIsSharedFilterExpanded((value) => !value)}
+                  className={`${sharedSecondaryButtonClass} gap-1.5`}
+                >
+                  <span className="material-symbols-outlined text-[17px]">tune</span>
+                  <span>Bộ lọc</span>
+                  {sharedAdvancedFilterCount > 0 ? (
+                    <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {sharedAdvancedFilterCount}
+                    </span>
+                  ) : null}
+                </button>
+              ) : (
+                <div aria-hidden="true" />
+              )}
+            </div>
 
-          <label>
-            <span className="sr-only">Đến ngày tạo</span>
-            <input
-              type="date"
-              value={requestCreatedTo}
-              onChange={(event) => {
-                setRequestCreatedTo(event.target.value);
-                setListPage(1);
-              }}
-              className={`w-full ${sharedFilterFieldClass}`}
-            />
-          </label>
+            {isMobileSearchOpen ? (
+              <div className="grid grid-cols-1 gap-2">
+                <label>
+                  <span className="sr-only">Từ ngày tạo</span>
+                  <input
+                    type="date"
+                    value={draftRequestCreatedFrom}
+                    onChange={(event) => {
+                      setDraftRequestCreatedFrom(event.target.value);
+                    }}
+                    className={`w-full ${sharedFilterFieldClass}`}
+                  />
+                </label>
 
-          <label className="relative min-w-0">
-            <span className="sr-only">Tìm kiếm yêu cầu</span>
-            <span
-              className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              style={{ fontSize: 16 }}
-            >
-              search
-            </span>
-            <input
-              value={requestKeyword}
-              onChange={(event) => {
-                setRequestKeyword(event.target.value);
-                setListPage(1);
-              }}
-              placeholder="Tìm mã YC, tên yêu cầu..."
-              className={sharedSearchFieldClass}
-            />
-          </label>
+                <label>
+                  <span className="sr-only">Đến ngày tạo</span>
+                  <input
+                    type="date"
+                    value={draftRequestCreatedTo}
+                    onChange={(event) => {
+                      setDraftRequestCreatedTo(event.target.value);
+                    }}
+                    className={`w-full ${sharedFilterFieldClass}`}
+                  />
+                </label>
 
-          <SearchableSelect
-            value={activeProcessCode}
-            options={processOptions}
-            onChange={(value) => {
-              setActiveProcessCode(String(value ?? ''));
-              setListPage(1);
-            }}
-            label=""
-            placeholder="Tiến trình"
-            searchPlaceholder="Tìm tiến trình..."
-            compact
-            usePortal
-            portalZIndex={70}
-            triggerClassName={sharedSelectTriggerClass}
-          />
+                <label className="relative min-w-0">
+                  <span className="sr-only">Tìm kiếm yêu cầu</span>
+                  <span
+                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    style={{ fontSize: 16 }}
+                  >
+                    search
+                  </span>
+                  <input
+                    value={draftRequestKeywordInput}
+                    onChange={(event) => {
+                      setDraftRequestKeywordInput(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        if (canSubmitFilters) {
+                          handleSubmitKeywordSearch();
+                        }
+                      }
+                    }}
+                    placeholder="Tìm mã YC, tên yêu cầu..."
+                    className={sharedSearchFieldClass}
+                  />
+                </label>
 
-          {!isAnalyticsSurface ? (
+                <button
+                  type="button"
+                  onClick={handleSubmitKeywordSearch}
+                  disabled={!canSubmitFilters}
+                  className={`${sharedSecondaryButtonClass} gap-1.5 text-primary hover:bg-primary/5 disabled:opacity-50`}
+                >
+                  <span className="material-symbols-outlined text-[17px]">search</span>
+                  <span>Tìm kiếm</span>
+                </button>
+
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div
+            className="grid gap-2 xl:grid-cols-[156px_156px_minmax(0,1fr)_150px_180px_auto]"
+          >
+            <label>
+              <span className="sr-only">Từ ngày tạo</span>
+              <input
+                type="date"
+                value={draftRequestCreatedFrom}
+                onChange={(event) => {
+                  setDraftRequestCreatedFrom(event.target.value);
+                }}
+                className={`w-full ${sharedFilterFieldClass}`}
+              />
+            </label>
+
+            <label>
+              <span className="sr-only">Đến ngày tạo</span>
+              <input
+                type="date"
+                value={draftRequestCreatedTo}
+                onChange={(event) => {
+                  setDraftRequestCreatedTo(event.target.value);
+                }}
+                className={`w-full ${sharedFilterFieldClass}`}
+              />
+            </label>
+
+            <label className="relative min-w-0">
+              <span className="sr-only">Tìm kiếm yêu cầu</span>
+              <span
+                className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                style={{ fontSize: 16 }}
+              >
+                search
+              </span>
+              <input
+                value={draftRequestKeywordInput}
+                onChange={(event) => {
+                  setDraftRequestKeywordInput(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (canSubmitFilters) {
+                      handleSubmitKeywordSearch();
+                    }
+                  }
+                }}
+                placeholder="Tìm mã YC, tên yêu cầu..."
+                className={sharedSearchFieldClass}
+              />
+            </label>
+
             <button
               type="button"
-              onClick={() => setIsSharedFilterExpanded((value) => !value)}
-              className={`${sharedSecondaryButtonClass} gap-1.5`}
+              onClick={handleSubmitKeywordSearch}
+              disabled={!canSubmitFilters}
+              className={`${sharedSecondaryButtonClass} gap-1.5 text-primary hover:bg-primary/5 disabled:opacity-50`}
             >
-              <span className="material-symbols-outlined text-[17px]">tune</span>
-              <span>Bộ lọc</span>
-              {sharedAdvancedFilterCount > 0 ? (
-                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  {sharedAdvancedFilterCount}
-                </span>
-              ) : null}
+              <span className="material-symbols-outlined text-[17px]">search</span>
+              <span>Tìm kiếm</span>
             </button>
-          ) : null}
-        </div>
+
+            <SearchableMultiSelect
+              values={draftActiveProcessCodes}
+              options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+              onChange={(values) => {
+                setDraftActiveProcessCodes(values);
+              }}
+              label=""
+              placeholder="Tiến trình"
+              searchPlaceholder="Tìm tiến trình..."
+              usePortal
+              portalZIndex={70}
+              triggerClassName={sharedSelectTriggerClass}
+              showSelectedChips={false}
+            />
+
+            {!isAnalyticsSurface ? (
+              <button
+                type="button"
+                onClick={() => setIsSharedFilterExpanded((value) => !value)}
+                className={`${sharedSecondaryButtonClass} gap-1.5`}
+              >
+                <span className="material-symbols-outlined text-[17px]">tune</span>
+                <span>Bộ lọc</span>
+                {sharedAdvancedFilterCount > 0 ? (
+                  <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {sharedAdvancedFilterCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+          </div>
+        )}
 
         {(isAnalyticsSurface || isSharedFilterExpanded) ? (
           <div
@@ -4168,50 +4599,63 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]'
             }`}
           >
-            <SearchableSelect
-              value={requestCustomerFilter}
-              options={[{ value: '', label: 'Tất cả khách hàng' }, ...customerOptions]}
-              onChange={(value) => {
-                setRequestCustomerFilter(String(value ?? ''));
-                setListPage(1);
+            {isCompactTopShell ? (
+              <SearchableMultiSelect
+                values={draftActiveProcessCodes}
+                options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+                onChange={(values) => {
+                  setDraftActiveProcessCodes(values);
+                }}
+                label=""
+                placeholder="Tiến trình"
+                searchPlaceholder="Tìm tiến trình..."
+                usePortal
+                portalZIndex={70}
+                triggerClassName={sharedSelectTriggerClass}
+                showSelectedChips={false}
+              />
+            ) : null}
+            <SearchableMultiSelect
+              values={draftRequestEntityFilter}
+              options={entityFilterOptions}
+              onChange={(values) => {
+                setDraftRequestEntityFilter(values);
               }}
               label=""
-              placeholder="Khách hàng"
-              searchPlaceholder="Tìm khách hàng..."
-              compact
+              placeholder="Khách hàng | Dự án | Sản phẩm"
+              searchPlaceholder="Tìm khách hàng, dự án, sản phẩm..."
               usePortal
               portalZIndex={70}
               triggerClassName={sharedSelectTriggerClass}
+              showSelectedChips={false}
             />
-            <SearchableSelect
-              value={requestSupportGroupFilter}
-              options={supportGroupOptions}
-              onChange={(value) => {
-                setRequestSupportGroupFilter(String(value ?? ''));
-                setListPage(1);
+            <SearchableMultiSelect
+              values={draftRequestTagFilter}
+              options={tagFilterOptions}
+              onChange={(values) => {
+                setDraftRequestTagFilter(values);
               }}
               label=""
-              placeholder="Kênh tiếp nhận"
-              searchPlaceholder="Tìm kênh..."
-              compact
+              placeholder="Tags"
+              searchPlaceholder="Tìm tags..."
               usePortal
               portalZIndex={70}
               triggerClassName={sharedSelectTriggerClass}
+              showSelectedChips={false}
             />
-            <SearchableSelect
-              value={requestPriorityFilter}
+            <SearchableMultiSelect
+              values={draftRequestPriorityFilter}
               options={SHARED_PRIORITY_OPTIONS}
-              onChange={(value) => {
-                setRequestPriorityFilter(String(value ?? ''));
-                setListPage(1);
+              onChange={(values) => {
+                setDraftRequestPriorityFilter(values);
               }}
               label=""
               placeholder="Ưu tiên"
               searchPlaceholder="Tìm ưu tiên..."
-              compact
               usePortal
               portalZIndex={70}
               triggerClassName={sharedSelectTriggerClass}
+              showSelectedChips={false}
             />
             {hasListFilters ? (
               <button
@@ -4251,16 +4695,18 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     <div className="flex flex-wrap items-center gap-1.5">
                       <h2 className="text-sm font-bold leading-tight text-[color:var(--ui-text-title)]">Quản lý yêu cầu khách hàng</h2>
                     </div>
-                    <p className="mt-1 text-[11px] leading-4 text-[color:var(--ui-text-muted)]">
-                      Workspace tổng hợp cho bảng theo dõi, danh sách và phân tích yêu cầu CRC.
-                    </p>
+                    {!isCompactTopShell ? (
+                      <p className="mt-1 text-[11px] leading-4 text-[color:var(--ui-text-muted)]">
+                        Workspace tổng hợp cho bảng theo dõi, danh sách và phân tích yêu cầu CRC.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
               {isCompactTopShell && (hasIntakeMenuActions || canWriteRequests) ? (
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  {renderTopShellActions()}
+                <div className="flex items-center justify-end gap-2">
+                  {renderTopShellActions(true)}
                 </div>
                 ) : null}
             </div>
@@ -4284,7 +4730,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                         onSurfaceChange={(surface) => {
                           setActiveSurface(surface);
                           setActiveSavedViewId(null);
+                          if (isCompactTopShell) {
+                            setIsMobileSearchOpen(false);
+                          }
                         }}
+                        iconOnlyOnCompact
                       />
                     </div>
                     <button
@@ -4582,8 +5032,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           overviewDashboard={patchedOverviewDashboard}
           roleDashboards={patchedRoleDashboards}
           isDashboardLoading={isDashboardLoading}
-          activeProcessCode={activeProcessCode}
-          onProcessCodeChange={(statusCode) => { setActiveProcessCode(statusCode); setListPage(1); }}
+          activeProcessCode={activeProcessCodes[0] || ''}
+          onProcessCodeChange={(statusCode) => {
+            const nextProcessCodes = normalizeFilterValues([statusCode]);
+            setDraftActiveProcessCodes(nextProcessCodes);
+            setActiveProcessCodes(nextProcessCodes);
+            setListPage(1);
+          }}
           getStatusCount={getStatusCount}
           onSelectAttentionCase={handleOpenRequest}
         />

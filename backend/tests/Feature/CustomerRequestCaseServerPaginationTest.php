@@ -162,4 +162,44 @@ class CustomerRequestCaseServerPaginationTest extends TestCase
             ->assertJsonPath('data.0.id', $alphaCaseId)
             ->assertJsonPath('data.1.id', $betaCaseId);
     }
+
+    public function test_index_filters_by_multiple_status_codes(): void
+    {
+        $newIntake = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => ['summary' => 'Case new intake'],
+        ]))->assertCreated();
+        $newIntakeId = (int) $newIntake->json('data.request_case.id');
+
+        $inProgress = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => ['summary' => 'Case in progress'],
+        ]))->assertCreated();
+        $inProgressId = (int) $inProgress->json('data.request_case.id');
+
+        $completed = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => ['summary' => 'Case completed'],
+        ]))->assertCreated();
+        $completedId = (int) $completed->json('data.request_case.id');
+
+        DB::table('customer_request_cases')->where('id', $newIntakeId)->update([
+            'current_status_code' => 'new_intake',
+            'updated_at' => '2026-04-22 09:00:00',
+        ]);
+
+        DB::table('customer_request_cases')->where('id', $inProgressId)->update([
+            'current_status_code' => 'in_progress',
+            'updated_at' => '2026-04-22 09:01:00',
+        ]);
+
+        DB::table('customer_request_cases')->where('id', $completedId)->update([
+            'current_status_code' => 'completed',
+            'updated_at' => '2026-04-22 09:02:00',
+        ]);
+
+        $this->getJson('/api/v5/customer-request-cases?status_code[]=new_intake&status_code[]=completed')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonCount(2, 'data')
+            ->assertJsonFragment(['id' => $newIntakeId])
+            ->assertJsonFragment(['id' => $completedId]);
+    }
 }
