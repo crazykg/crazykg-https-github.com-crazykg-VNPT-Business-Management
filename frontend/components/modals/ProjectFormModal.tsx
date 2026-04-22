@@ -950,7 +950,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   );
 
   const projectProductDropdownGridClassName =
-    'grid grid-cols-[140px_minmax(0,1fr)_96px_128px] items-start gap-3';
+    'grid grid-cols-[140px_minmax(0,1.15fr)_minmax(0,1.2fr)_96px_128px] items-start gap-3';
 
   const legacyProjectProductSelectOptions = useMemo(() => {
     const options: SearchableSelectOption[] = [];
@@ -1022,6 +1022,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       {
         code: string;
         name: string;
+        description?: string | null;
         unit?: string | null;
         standardPrice: number;
       }
@@ -1051,6 +1052,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           name:
             String(productPackage.package_name || '').trim() ||
             String(productPackage.product_name || '').trim(),
+          description: String(productPackage.description || '').trim() || null,
           unit: packageUnit || fallbackUnit || null,
           standardPrice: Number(productPackage.standard_price || 0),
         });
@@ -1100,6 +1102,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           const packageCode = String(productPackage.package_code || '').trim();
           const packageName = String(productPackage.package_name || '').trim();
           const productName = String(productPackage.product_name || '').trim();
+          const description = String(productPackage.description || '').trim();
           const displayName = packageName || productName || packageCode;
           const productPackageId = String(productPackage.product_id ?? '').trim();
           const parentProduct = productPackageId ? productById.get(productPackageId) : null;
@@ -1114,6 +1117,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
               packageCode,
               packageName,
               productName,
+              description,
               productPackage.parent_product_code,
               resolvedUnit,
               rawPrice,
@@ -1142,6 +1146,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
       >
         <span>Mã gói</span>
         <span>Tên hạng mục</span>
+        <span>Mô tả</span>
         <span className="text-center">ĐVT</span>
         <span className="text-right">Đơn giá</span>
       </div>
@@ -1168,6 +1173,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         );
       }
 
+      const hasDescription = Boolean(itemMeta.description);
       return (
         <div className={`${projectProductDropdownGridClassName} w-full`}>
           <span
@@ -1177,11 +1183,19 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             {itemMeta.code}
           </span>
           <span
-            className="truncate text-left text-slate-900"
+            className={`${hasDescription ? 'truncate' : 'col-span-2 truncate'} text-left text-slate-900`}
             title={itemMeta.name}
           >
             {itemMeta.name}
           </span>
+          {hasDescription ? (
+            <span
+              className="truncate text-left text-slate-500"
+              title={itemMeta.description || '—'}
+            >
+              {itemMeta.description || '—'}
+            </span>
+          ) : null}
           <span
             className="truncate text-center text-slate-600"
             title={itemMeta.unit || '—'}
@@ -2258,10 +2272,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
     );
   }, [formData.items]);
 
-  const totalDiscountPercent =
-    itemSummary.baseTotal > 0
-      ? (itemSummary.discountTotal / itemSummary.baseTotal) * 100
-      : 0;
   const hasRevenueSchedules = type === 'EDIT' && revenueSchedules.length > 0;
   const revenueScheduleLockMessage = hasRevenueSchedules
     ? `Dự án đang có ${revenueSchedules.length} phân kỳ doanh thu. Bạn vẫn có thể cập nhật đội ngũ dự án, nhưng muốn đổi thông tin chung hoặc hạng mục thì vui lòng vào tab Phân kỳ doanh thu và xóa trước.`
@@ -2309,7 +2319,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         formData={formData}
         formatCurrency={formatCurrency}
         formatNumber={formatNumber}
-        formatPercent={formatPercent}
         handleAddItem={handleAddItem}
         handleCopyItem={handleCopyItem}
         handleDownloadProjectItemTemplate={handleDownloadProjectItemTemplate}
@@ -2330,7 +2339,6 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         renderProjectProductOption={renderProjectProductOption}
         showItemImportMenu={showItemImportMenu}
         toggleItemImportMenu={() => setShowItemImportMenu((prev) => !prev)}
-        totalDiscountPercent={totalDiscountPercent}
         triggerProjectItemImport={triggerProjectItemImport}
         onOpenQuotationPicker={() => setShowQuotationPicker(true)}
       />

@@ -313,6 +313,30 @@ describe('ProcedureTemplateManagement', () => {
     expect(sheets[0].rows[1]).toEqual(['1.1', '', 'Bước con', '', 'Đơn vị B', '', 'Kết quả B', 1]);
   });
 
+  it('renders the import menu in a fixed portal layer so it is not clipped by the page shell', async () => {
+    const user = userEvent.setup();
+    fetchProcedureTemplatesMock.mockResolvedValue([emptyTemplate]);
+    fetchProcedureTemplateStepsMock.mockResolvedValue([]);
+
+    const { container } = render(<ProcedureTemplateManagement />);
+
+    await waitFor(() => expect(fetchProcedureTemplatesMock).toHaveBeenCalledTimes(1));
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /Chọn mẫu/i }),
+      String(emptyTemplate.id),
+    );
+
+    await waitFor(() => expect(fetchProcedureTemplateStepsMock).toHaveBeenCalledWith(emptyTemplate.id));
+
+    await user.click(screen.getByRole('button', { name: /Nhập/i }));
+
+    const importMenu = await screen.findByRole('menu');
+
+    await waitFor(() => expect(importMenu).toHaveStyle({ position: 'fixed' }));
+    expect(container.contains(importMenu)).toBe(false);
+  });
+
   it('opens import modal from the dropdown and imports parsed steps into the selected template', async () => {
     const user = userEvent.setup();
     fetchProcedureTemplatesMock

@@ -25,10 +25,17 @@ class ProjectProcedureStepService
             return $err;
         }
 
+        $countableWorklogs = fn ($query) => $query
+            ->where('log_type', '!=', 'CUSTOM')
+            ->whereNotNull('content')
+            ->whereRaw("TRIM(content) <> ''");
+
         $steps = ProjectProcedureStep::where('procedure_id', $procedureId)
-            ->withCount('worklogs')
             ->withCount([
-                'worklogs as blocking_worklogs_count' => fn ($query) => $query->where('log_type', '!=', 'CUSTOM'),
+                'worklogs as worklogs_count' => $countableWorklogs,
+            ])
+            ->withCount([
+                'worklogs as blocking_worklogs_count' => $countableWorklogs,
             ])
             ->orderBy('sort_order')
             ->get();
@@ -62,6 +69,8 @@ class ProjectProcedureStepService
         $userId = $request->user()?->id;
         $hasBlockingWorklogs = $step->worklogs()
             ->where('log_type', '!=', 'CUSTOM')
+            ->whereNotNull('content')
+            ->whereRaw("TRIM(content) <> ''")
             ->exists();
 
         if ($request->has('step_name') && $hasBlockingWorklogs) {
@@ -373,6 +382,8 @@ class ProjectProcedureStepService
 
         $hasBlockingWorklogs = $step->worklogs()
             ->where('log_type', '!=', 'CUSTOM')
+            ->whereNotNull('content')
+            ->whereRaw("TRIM(content) <> ''")
             ->exists();
 
         if ($hasBlockingWorklogs) {

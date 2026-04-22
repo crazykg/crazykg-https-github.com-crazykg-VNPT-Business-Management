@@ -240,6 +240,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     editWorklogProposal,
     editWorklogStatus,
     editWorklogSaving,
+    deletingWorklogId,
     setEditWorklogContent,
     setEditWorklogHours,
     setEditWorklogDiff,
@@ -253,6 +254,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     handleStartEditWorklog,
     handleCancelEditWorklog,
     handleSaveEditWorklog,
+    handleDeleteStepWorklog,
     handleSetWlogInput,
     handleSetWlogHours,
     handleSetWlogDifficulty,
@@ -688,6 +690,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     editWorklogProposal={editWorklogProposal}
                     editWorklogStatus={editWorklogStatus}
                     editWorklogSaving={editWorklogSaving}
+                    deletingWorklogId={deletingWorklogId}
                     openWorklogStep={openWorklogStep}
                     onDraftChange={handleDraftChange}
                     onStartDateChange={handleStartDateChange}
@@ -708,6 +711,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     onStartEditWorklog={handleStartEditWorklog}
                     onCancelEditWorklog={handleCancelEditWorklog}
                     onSaveEditWorklog={handleSaveEditWorklog}
+                    onDeleteWorklog={handleDeleteStepWorklog}
                     onSetWlogInput={handleSetWlogInput}
                     onSetWlogHours={handleSetWlogHours}
                     onSetWlogDifficulty={handleSetWlogDifficulty}

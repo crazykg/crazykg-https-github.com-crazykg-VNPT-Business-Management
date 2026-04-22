@@ -120,6 +120,235 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(0, DB::table('project_procedure_steps')->where('id', $templateStepId)->count());
     }
 
+    public function test_worklog_creator_can_delete_note_worklog_and_cleanup_related_records(): void
+    {
+        $creator = $this->createUser([
+            'id' => 26,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 350);
+        $stepId = $this->createStep([
+            'id' => 1350,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 550,
+            'step_name' => 'Bước có worklog',
+        ]);
+
+        $worklogId = DB::table('project_procedure_step_worklogs')->insertGetId([
+            'step_id' => $stepId,
+            'procedure_id' => $procedureId,
+            'log_type' => 'NOTE',
+            'content' => 'Đã cập nhật hồ sơ',
+            'created_by' => $creator->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('shared_timesheets')->insert([
+            'procedure_step_worklog_id' => $worklogId,
+            'hours_spent' => 2.5,
+            'work_date' => now()->toDateString(),
+            'activity_description' => 'Làm việc với đơn vị',
+            'created_by' => $creator->id,
+            'updated_by' => $creator->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('shared_issues')->insert([
+            'procedure_step_worklog_id' => $worklogId,
+            'issue_content' => 'Thiếu phụ lục',
+            'proposal_content' => 'Bổ sung bản ký',
+            'issue_status' => 'IN_PROGRESS',
+            'created_by' => $creator->id,
+            'updated_by' => $creator->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->deleteWorklog(
+            $this->makeRequest('DELETE', [], $creator),
+            $worklogId,
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(0, DB::table('project_procedure_step_worklogs')->where('id', $worklogId)->count());
+        $this->assertSame(0, DB::table('shared_timesheets')->where('procedure_step_worklog_id', $worklogId)->count());
+        $this->assertSame(0, DB::table('shared_issues')->where('procedure_step_worklog_id', $worklogId)->count());
+    }
+
+    public function test_non_creator_without_admin_or_raci_a_cannot_delete_note_worklog(): void
+    {
+        $creator = $this->createUser([
+            'id' => 27,
+            'department_id' => 10,
+        ]);
+        $viewer = $this->createUser([
+            'id' => 28,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 351);
+        $stepId = $this->createStep([
+            'id' => 1351,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 551,
+            'step_name' => 'Bước bị chặn xoá',
+        ]);
+
+        $worklogId = DB::table('project_procedure_step_worklogs')->insertGetId([
+            'step_id' => $stepId,
+            'procedure_id' => $procedureId,
+            'log_type' => 'NOTE',
+            'content' => 'Không thuộc người này',
+            'created_by' => $creator->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->deleteWorklog(
+            $this->makeRequest('DELETE', [], $viewer),
+            $worklogId,
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bạn không có quyền xóa worklog này.', $response->getData(true)['message'] ?? null);
+        $this->assertSame(1, DB::table('project_procedure_step_worklogs')->where('id', $worklogId)->count());
+    }
+
+    public function test_admin_cannot_delete_non_note_worklog(): void
+    {
+        $admin = $this->createUser([
+            'id' => 29,
+            'department_id' => 10,
+        ]);
+        $this->assignAdminRole((int) $admin->id);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 352);
+        $stepId = $this->createStep([
+            'id' => 1352,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 552,
+            'step_name' => 'Bước có log hệ thống',
+        ]);
+
+        $worklogId = DB::table('project_procedure_step_worklogs')->insertGetId([
+            'step_id' => $stepId,
+            'procedure_id' => $procedureId,
+            'log_type' => 'CUSTOM',
+            'content' => 'Log hệ thống không được xoá',
+            'created_by' => $admin->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->deleteWorklog(
+            $this->makeRequest('DELETE', [], $admin),
+            $worklogId,
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Chỉ có thể xóa worklog loại NOTE.', $response->getData(true)['message'] ?? null);
+        $this->assertSame(1, DB::table('project_procedure_step_worklogs')->where('id', $worklogId)->count());
+    }
+
+    public function test_procedure_steps_excludes_custom_and_blank_content_worklogs_from_counts(): void
+    {
+        $admin = $this->createUser([
+            'id' => 30,
+            'department_id' => 10,
+        ]);
+        $this->assignAdminRole((int) $admin->id);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 353);
+        $stepId = $this->createStep([
+            'id' => 1353,
+            'procedure_id' => $procedureId,
+            'template_step_id' => null,
+            'step_name' => 'Bước tự thêm',
+            'created_by' => $admin->id,
+        ]);
+
+        DB::table('project_procedure_step_worklogs')->insert([
+            [
+                'step_id' => $stepId,
+                'procedure_id' => $procedureId,
+                'log_type' => 'CUSTOM',
+                'content' => 'Bước tùy chỉnh được thêm: Bước tự thêm',
+                'created_by' => $admin->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'step_id' => $stepId,
+                'procedure_id' => $procedureId,
+                'log_type' => 'NOTE',
+                'content' => '   ',
+                'created_by' => $admin->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'step_id' => $stepId,
+                'procedure_id' => $procedureId,
+                'log_type' => 'NOTE',
+                'content' => 'Đã gọi khách hàng',
+                'created_by' => $admin->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $response = $this->controller()->procedureSteps(
+            $procedureId,
+            $this->makeRequest('GET', [], $admin),
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $steps = $response->getData(true)['data'] ?? [];
+        $step = collect($steps)->firstWhere('id', $stepId);
+
+        $this->assertNotNull($step);
+        $this->assertSame(1, $step['worklogs_count'] ?? null);
+        $this->assertSame(1, $step['blocking_worklogs_count'] ?? null);
+    }
+
+    public function test_admin_can_delete_step_when_only_blank_content_worklog_exists(): void
+    {
+        $admin = $this->createUser([
+            'id' => 31,
+            'department_id' => 10,
+        ]);
+        $this->assignAdminRole((int) $admin->id);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 354);
+        $stepId = $this->createStep([
+            'id' => 1354,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 554,
+            'step_name' => 'Bước có log trắng',
+        ]);
+
+        DB::table('project_procedure_step_worklogs')->insert([
+            'step_id' => $stepId,
+            'procedure_id' => $procedureId,
+            'log_type' => 'NOTE',
+            'content' => '   ',
+            'created_by' => $admin->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->deleteStep(
+            $stepId,
+            $this->makeRequest('DELETE', [], $admin),
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(0, DB::table('project_procedure_steps')->where('id', $stepId)->count());
+    }
+
     public function test_project_procedures_allows_cross_department_project_raci_members_without_legacy_table(): void
     {
         $member = $this->createUser([
@@ -1052,6 +1281,8 @@ class ProjectProcedureStepPermissionTest extends TestCase
     private function setUpSchema(): void
     {
         Schema::disableForeignKeyConstraints();
+        Schema::dropIfExists('shared_issues');
+        Schema::dropIfExists('shared_timesheets');
         Schema::dropIfExists('project_procedure_step_worklogs');
         Schema::dropIfExists('project_procedure_step_raci');
         Schema::dropIfExists('project_procedure_raci');
@@ -1183,6 +1414,39 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->text('new_value')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('shared_timesheets', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('procedure_step_worklog_id')->nullable();
+            $table->decimal('hours_spent', 8, 2);
+            $table->date('work_date');
+            $table->text('activity_description')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
+
+            $table->foreign('procedure_step_worklog_id')
+                ->references('id')
+                ->on('project_procedure_step_worklogs')
+                ->cascadeOnDelete();
+        });
+
+        Schema::create('shared_issues', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('procedure_step_worklog_id')->nullable();
+            $table->text('issue_content');
+            $table->text('proposal_content')->nullable();
+            $table->string('issue_status', 50)->default('JUST_ENCOUNTERED');
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+
+            $table->foreign('procedure_step_worklog_id')
+                ->references('id')
+                ->on('project_procedure_step_worklogs')
+                ->cascadeOnDelete();
         });
 
         DB::table('projects')->insert([

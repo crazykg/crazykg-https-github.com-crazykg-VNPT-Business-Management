@@ -169,6 +169,7 @@ export interface StepRowProps {
   editWorklogProposal: string;
   editWorklogStatus: IssueStatus;
   editWorklogSaving: boolean;
+  deletingWorklogId: string | number | null;
 
   // Stable callbacks
   onDraftChange: (id: string | number, field: string, value: string | null) => void;
@@ -190,6 +191,7 @@ export interface StepRowProps {
   onStartEditWorklog: (log: ProcedureStepWorklog) => void;
   onCancelEditWorklog: () => void;
   onSaveEditWorklog: (stepId: string | number, logId: string | number) => void;
+  onDeleteWorklog: (stepId: string | number, log: ProcedureStepWorklog) => void;
   onSetWlogInput: (stepId: string | number, val: string) => void;
   onSetWlogHours: (stepId: string | number, val: string) => void;
   onSetWlogDifficulty: (stepId: string | number, val: string) => void;
@@ -223,12 +225,12 @@ export const StepRow = memo(function StepRow({
   attachList, attachLoading, attachUploading,
   newChildName, newChildUnit, newChildDays, newChildStartDate, newChildEndDate, newChildStatus,
   editingWorklogId, editWorklogContent, editWorklogHours, editWorklogDiff,
-  editWorklogProposal, editWorklogStatus, editWorklogSaving,
+  editWorklogProposal, editWorklogStatus, editWorklogSaving, deletingWorklogId,
   onDraftChange, onStartDateChange, onReorder, onToggleDetail,
   onStartEditRow, onCancelEditRow, onSaveEditRow, onSetEditingRowDraft,
   onDeleteStep, onOpenAttachments, onUploadFile, onDeleteAttachment,
   onToggleWorklog, onAddWorklog, onUpdateIssueStatus,
-  onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog,
+  onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog, onDeleteWorklog,
   onSetWlogInput, onSetWlogHours, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
   onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
   onSetEditWorklogProposal, onSetEditWorklogStatus,
@@ -238,10 +240,11 @@ export const StepRow = memo(function StepRow({
   const isChild  = !!step.parent_step_id;
   const status   = (draft.progress_status ?? step.progress_status) as ProcedureStepStatus;
   const isCustom = !step.template_step_id;
+  const countableWlogs = wlogs.filter((log) => log.log_type !== 'CUSTOM' && log.content.trim().length > 0);
 
-  const worklogCount      = step.worklogs_count ?? wlogs.length;
+  const worklogCount      = step.worklogs_count ?? countableWlogs.length;
   const blockingWlogCount = step.blocking_worklogs_count
-    ?? wlogs.filter((log) => log.log_type !== 'CUSTOM').length;
+    ?? countableWlogs.length;
 
   const isCreator = isCustom && !!myId && String(step.created_by) === myId;
   const canMutate = blockingWlogCount === 0 && (isAdmin || isRaciA || isCreator);
@@ -616,11 +619,16 @@ export const StepRow = memo(function StepRow({
           editWorklogProposal={editWorklogProposal}
           editWorklogStatus={editWorklogStatus}
           editWorklogSaving={editWorklogSaving}
+          deletingWorklogId={deletingWorklogId}
+          isAdmin={isAdmin}
+          isRaciA={isRaciA}
+          myId={myId}
           onAddWorklog={() => onAddWorklog(step.id)}
           onUpdateIssueStatus={(issueId, status) => onUpdateIssueStatus(step.id, issueId, status)}
           onStartEditWorklog={onStartEditWorklog}
           onCancelEditWorklog={onCancelEditWorklog}
           onSaveEditWorklog={(logId) => onSaveEditWorklog(step.id, logId)}
+          onDeleteWorklog={(log) => onDeleteWorklog(step.id, log)}
           onSetWlogInput={(value) => onSetWlogInput(step.id, value)}
           onSetWlogHours={(value) => onSetWlogHours(step.id, value)}
           onSetWlogDifficulty={(value) => onSetWlogDifficulty(step.id, value)}

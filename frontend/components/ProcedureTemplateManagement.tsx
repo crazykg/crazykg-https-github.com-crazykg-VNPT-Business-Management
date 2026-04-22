@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ProcedureTemplate, ProcedureTemplateStep } from '../types/project';
 import {
   fetchProcedureTemplates,
@@ -13,6 +14,7 @@ import {
   importProcedureTemplateSteps,
 } from '../services/api/projectApi';
 import { ImportModal, type ImportPayload } from './modals';
+import { useEscKey } from '../hooks/useEscKey';
 import { useToastStore } from '../shared/stores/toastStore';
 import { downloadExcelWorkbook } from '../utils/excelTemplate';
 import { normalizeImportNumber, normalizeImportToken } from '../utils/importUtils';
@@ -223,10 +225,15 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
   const [deletingSelectedSteps, setDeletingSelectedSteps] = useState(false);
   const [deletingSingleStepId, setDeletingSingleStepId] = useState<string | null>(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [importMenuStyle, setImportMenuStyle] = useState<React.CSSProperties>({});
   const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const selectAllStepsRef = useRef<HTMLInputElement | null>(null);
+  const importMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const addToast = useToastStore((state) => state.addToast);
+  const canUsePortal = typeof document !== 'undefined';
+
+  useEscKey(() => setShowImportMenu(false), showImportMenu);
 
   // Template form
   const [editingTemplate, setEditingTemplate] = useState<ProcedureTemplate | null>(null);
@@ -303,6 +310,40 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
   useEffect(() => {
     setShowImportMenu(false);
   }, [selectedTemplateId]);
+
+  const syncImportMenuPlacement = useCallback(() => {
+    if (!showImportMenu || !importMenuButtonRef.current) {
+      return;
+    }
+
+    const rect = importMenuButtonRef.current.getBoundingClientRect();
+    const width = 240;
+    const maxLeft = Math.max(12, window.innerWidth - width - 12);
+    const left = Math.min(Math.max(12, rect.right - width), maxLeft);
+
+    setImportMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 8,
+      left,
+      width,
+      zIndex: 40,
+    });
+  }, [showImportMenu]);
+
+  useEffect(() => {
+    if (!showImportMenu || !canUsePortal) {
+      return;
+    }
+
+    syncImportMenuPlacement();
+    window.addEventListener('resize', syncImportMenuPlacement);
+    window.addEventListener('scroll', syncImportMenuPlacement, true);
+
+    return () => {
+      window.removeEventListener('resize', syncImportMenuPlacement);
+      window.removeEventListener('scroll', syncImportMenuPlacement, true);
+    };
+  }, [canUsePortal, showImportMenu, syncImportMenuPlacement]);
 
   useEffect(() => {
     if (selectedTemplateId !== null) {
@@ -540,6 +581,45 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
     }
   }, [addToast, loadSteps, loadTemplates, selectedTemplate, steps.length]);
 
+  const importMenuContent = showImportMenu ? (
+    <>
+      <div className="fixed inset-0 z-30" onClick={() => setShowImportMenu(false)} />
+      <div
+        role="menu"
+        style={canUsePortal ? importMenuStyle : undefined}
+        className={`flex min-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl ${
+          canUsePortal ? '' : 'absolute right-0 top-full z-40 mt-2'
+        }`}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!canImportSelectedTemplate}
+          onClick={() => {
+            setShowImportMenu(false);
+            handleOpenImportModal();
+          }}
+          className="flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white disabled:hover:text-slate-300"
+        >
+          <span className="material-symbols-outlined text-[20px]">upload_file</span>
+          Nhập dữ liệu
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setShowImportMenu(false);
+            handleDownloadTemplate();
+          }}
+          className="flex items-center gap-3 border-t border-slate-100 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
+        >
+          <span className="material-symbols-outlined text-[20px]">download</span>
+          Tải file mẫu
+        </button>
+      </div>
+    </>
+  ) : null;
+
   // ─── Render ───────────────────────────────────────────────────
   if (!canRead) {
     return (
@@ -613,6 +693,7 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
             <>
               <div className="relative">
                 <button
+                  ref={importMenuButtonRef}
                   type="button"
                   aria-haspopup="menu"
                   aria-expanded={showImportMenu}
@@ -623,41 +704,7 @@ export const ProcedureTemplateManagement: React.FC<ProcedureTemplateManagementPr
                   Nhập
                   <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 14 }}>expand_more</span>
                 </button>
-                {showImportMenu ? (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
-                    <div
-                      role="menu"
-                      className="absolute right-0 top-full z-20 mt-2 flex min-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={!canImportSelectedTemplate}
-                        onClick={() => {
-                          setShowImportMenu(false);
-                          handleOpenImportModal();
-                        }}
-                        className="flex items-center gap-3 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white disabled:hover:text-slate-300"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">upload_file</span>
-                        Nhập dữ liệu
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setShowImportMenu(false);
-                          handleDownloadTemplate();
-                        }}
-                        className="flex items-center gap-3 border-t border-slate-100 px-5 py-4 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-blue-700"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">download</span>
-                        Tải file mẫu
-                      </button>
-                    </div>
-                  </>
-                ) : null}
+                {importMenuContent ? (canUsePortal ? createPortal(importMenuContent, document.body) : importMenuContent) : null}
               </div>
               <button
                 type="button"

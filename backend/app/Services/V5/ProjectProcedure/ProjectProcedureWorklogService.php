@@ -173,6 +173,29 @@ class ProjectProcedureWorklogService
         return response()->json(['data' => $log->fresh(['creator', 'timesheet', 'issue'])]);
     }
 
+    public function deleteWorklog(Request $request, int $logId): JsonResponse
+    {
+        [$log, $err] = $this->access->resolveAccessibleWorklog($logId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        if ($log->log_type !== 'NOTE') {
+            return response()->json(['message' => 'Chỉ có thể xóa worklog loại NOTE.'], 422);
+        }
+
+        $userId = $request->user()?->id;
+        if (! $this->access->canMutateWorklog($log, $userId)) {
+            return response()->json(['message' => 'Bạn không có quyền xóa worklog này.'], 403);
+        }
+
+        DB::transaction(function () use ($log): void {
+            $log->delete();
+        });
+
+        return response()->json(['message' => 'Đã xoá worklog.']);
+    }
+
     public function procedureWorklogs(int $procedureId, Request $request): JsonResponse
     {
         [, $err] = $this->access->resolveAccessibleProcedure($procedureId, $request);

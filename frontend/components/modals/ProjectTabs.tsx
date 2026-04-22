@@ -23,8 +23,6 @@ const PROJECT_ITEM_FIELD_ORDER = [
   'catalog',
   'quantity',
   'unitPrice',
-  'discountPercent',
-  'discountAmount',
 ] as const;
 
 type ProjectItemField = (typeof PROJECT_ITEM_FIELD_ORDER)[number];
@@ -42,7 +40,6 @@ interface ProjectItemsTabProps {
   formData: Partial<Project>;
   formatCurrency: (value: number) => string;
   formatNumber: (num: number | string | undefined | null) => string;
-  formatPercent: (value: number) => string;
   handleAddItem: () => string | null;
   handleCopyItem: (itemId: string) => string | null;
   handleDownloadProjectItemTemplate: () => void;
@@ -65,6 +62,7 @@ interface ProjectItemsTabProps {
     {
       code: string;
       name: string;
+      description?: string | null;
       unit?: string | null;
       standardPrice: number;
     }
@@ -78,7 +76,6 @@ interface ProjectItemsTabProps {
   lockMessage?: string | null;
   showItemImportMenu: boolean;
   toggleItemImportMenu: () => void;
-  totalDiscountPercent: number;
   triggerProjectItemImport: () => void;
   onOpenQuotationPicker: () => void;
 }
@@ -89,7 +86,6 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
   formData,
   formatCurrency,
   formatNumber,
-  formatPercent,
   handleAddItem,
   handleCopyItem,
   handleDownloadProjectItemTemplate,
@@ -110,7 +106,6 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
   lockMessage,
   showItemImportMenu,
   toggleItemImportMenu,
-  totalDiscountPercent,
   triggerProjectItemImport,
   onOpenQuotationPicker,
 }) => {
@@ -359,13 +354,11 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
         <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[36%]">Hạng mục</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Đơn vị tính</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[6%] text-center whitespace-nowrap">SL</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[13%] text-right whitespace-nowrap">Đơn giá</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[7%] text-right whitespace-nowrap">% CK</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Giảm giá</th>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-right whitespace-nowrap">Thành tiền</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[44%]">Hạng mục</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-center whitespace-nowrap">Đơn vị tính</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">SL</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[16%] text-right whitespace-nowrap">Đơn giá</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Thành tiền</th>
               <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Tác vụ</th>
             </tr>
           </thead>
@@ -434,39 +427,6 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                         onKeyDown={(event) => handleItemFieldEnter(event, index, 'unitPrice')}
                       />
                     </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        ref={setItemFieldRef(item.id, 'discountPercent')}
-                        aria-label={`Phần trăm chiết khấu hạng mục dòng ${index + 1}`}
-                        type="text"
-                        disabled={item.discountMode === 'AMOUNT' || isEditingLocked}
-                        className={`${PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME} pr-4 ${item.discountMode === 'AMOUNT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${duplicateFieldClassName}`}
-                        value={item.discountPercent === 0 ? '' : item.discountPercent}
-                        onChange={(e) => handleUpdateItem(item.id, 'discountPercent', e.target.value)}
-                        onBlur={() => handleItemBlur(item.id, 'discountPercent')}
-                        onKeyDown={(event) => handleItemFieldEnter(event, index, 'discountPercent')}
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <div className="relative">
-                        <input
-                          ref={setItemFieldRef(item.id, 'discountAmount')}
-                          aria-label={`Giảm giá hạng mục dòng ${index + 1}`}
-                          type="text"
-                          disabled={item.discountMode === 'PERCENT' || isEditingLocked}
-                          className={`${PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME} pr-8 ${item.discountMode === 'PERCENT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white text-slate-900'} ${duplicateFieldClassName}`}
-                          value={parseNumber(item.discountAmount) <= 0 ? '' : formatNumber(parseNumber(item.discountAmount))}
-                          onChange={(e) => handleUpdateItem(item.id, 'discountAmount', e.target.value)}
-                          onBlur={() => handleItemBlur(item.id, 'discountAmount')}
-                          onKeyDown={(event) => handleItemFieldEnter(event, index, 'discountAmount')}
-                          placeholder="0"
-                        />
-                        <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs ${item.discountMode === 'PERCENT' ? 'text-slate-300' : 'text-slate-400'}`}>
-                          ₫
-                        </span>
-                      </div>
-                    </td>
                     <td className="px-2 py-1.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap align-middle">
                       {formatCurrency(item.lineTotal || 0)}
                     </td>
@@ -499,20 +459,14 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
               })
             ) : (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có hạng mục nào.</td>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">Chưa có hạng mục nào.</td>
               </tr>
             )}
           </tbody>
           {formData.items && formData.items.length > 0 && (
             <tfoot className="bg-slate-50 border-t border-slate-200">
               <tr>
-                <td colSpan={4} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng % CK:</td>
-                <td className="px-4 py-3 text-sm font-bold text-amber-600 text-right whitespace-nowrap">
-                  {formatPercent(totalDiscountPercent)}
-                </td>
-                <td className="px-4 py-3 text-sm font-bold text-red-600 text-right">
-                  {formatCurrency(itemSummary.discountTotal)}
-                </td>
+                <td colSpan={4} className="px-4 py-3 text-sm font-bold text-slate-700 text-right">Tổng cộng:</td>
                 <td className="px-4 py-3 text-sm font-bold text-primary text-right whitespace-nowrap">
                   {formatCurrency(itemSummary.lineTotal)}
                 </td>

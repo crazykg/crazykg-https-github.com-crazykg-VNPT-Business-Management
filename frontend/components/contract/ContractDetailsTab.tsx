@@ -15,6 +15,14 @@ export interface ContractDraftItemComputedRow {
   amountWithVat: number;
 }
 
+export interface ContractPackageSelectMeta {
+  packageCode: string;
+  packageName: string;
+  unit: string;
+  standardPrice: number | null;
+  description: string;
+}
+
 interface ContractDetailsTabProps {
   modalType: 'ADD' | 'EDIT';
   formData: Partial<Contract>;
@@ -57,6 +65,7 @@ interface ContractDetailsTabProps {
     isItemsEditable: boolean;
     isContractProductOptionsLoading: boolean;
     productSelectOptions: SearchableSelectOption[];
+    productOptionMetaByValue: ReadonlyMap<string, ContractPackageSelectMeta>;
     onAddDraftItem: () => void;
     onImportProjectItems: () => void;
     onRemoveDraftItem: (index: number) => void;
@@ -159,6 +168,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
     isItemsEditable,
     isContractProductOptionsLoading,
     productSelectOptions,
+    productOptionMetaByValue,
     onAddDraftItem,
     onImportProjectItems,
     onRemoveDraftItem,
@@ -544,12 +554,12 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                     <tr>
                       <th className="w-14 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">#</th>
                       <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Sản phẩm/DV</th>
-                      <th className="w-52 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">ĐVT</th>
+                      <th className="w-32 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">ĐVT</th>
                       <th className="w-32 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Số lượng</th>
                       <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
                       <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền trước VAT</th>
-                      <th className="w-24 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">VAT</th>
-                      <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Tiền VAT</th>
+                      <th className="w-20 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">VAT</th>
+                      <th className="w-36 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Tiền VAT</th>
                       <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền VAT</th>
                       {isItemsEditable && (
                         <th className="w-28 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Thao tác</th>
@@ -575,11 +585,13 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                         const amountWithVat = computedRow?.amountWithVat ?? amountBeforeVat;
                         const hasStoredVatAmount = Number.isFinite(Number(item.vat_amount));
                         const rowCatalogValue = resolveContractItemCatalogValue(item);
+                        const rowOptionMeta = productOptionMetaByValue.get(rowCatalogValue);
+                        const displayUnit = String(item.unit || product?.unit || rowOptionMeta?.unit || '').trim() || 'Gói';
 
                         return (
                           <tr key={`contract-item-${String(item.id)}`} className="hover:bg-slate-50">
                             <td className="w-14 px-4 py-3 text-center text-sm font-medium text-slate-600">{index + 1}</td>
-                            <td className="px-4 py-3 text-sm leading-5 text-on-surface min-w-[260px]">
+                            <td className="px-4 py-3 text-sm leading-5 text-on-surface min-w-[320px]">
                               {isItemsEditable ? (
                                 <SearchableSelect
                                   value={rowCatalogValue}
@@ -590,13 +602,60 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                   usePortal
                                   disabled={isContractProductOptionsLoading}
                                   triggerClassName={compactTriggerClass}
+                                  optionEstimateSize={52}
+                                  dropdownClassName="min-w-[980px] max-w-[1180px]"
+                                  portalMinWidth={980}
+                                  portalMaxWidth={1180}
+                                  renderDropdownHeader={(
+                                    <div className="grid grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                      <span>Mã gói</span>
+                                      <span>Tên hạng mục</span>
+                                      <span>Mô tả gói</span>
+                                      <span className="text-left">ĐVT</span>
+                                      <span className="text-right">Đơn giá</span>
+                                    </div>
+                                  )}
+                                  renderOptionContent={(option, state) => {
+                                    const optionMeta = productOptionMetaByValue.get(String(option.value));
+                                    const packageCode = String(optionMeta?.packageCode || '').trim() || '--';
+                                    const packageName = String(optionMeta?.packageName || '').trim() || option.label;
+                                    const description = String(optionMeta?.description || '').trim() || '—';
+                                    const hasDescription = description !== '—';
+                                    const unitLabel = String(optionMeta?.unit || '').trim() || '—';
+                                    const standardPrice = optionMeta?.standardPrice;
+                                    const formattedStandardPrice = Number.isFinite(standardPrice)
+                                      ? formatCurrency(Number(standardPrice))
+                                      : '—';
+
+                                    return (
+                                      <div className="grid min-h-[40px] grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 py-0.5">
+                                        <p className={`truncate text-left font-mono text-xs font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-500'}`}>
+                                          {packageCode}
+                                        </p>
+                                        <p className={`${hasDescription ? 'truncate' : 'col-span-2 truncate'} text-left text-sm font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
+                                          {packageName}
+                                        </p>
+                                        {hasDescription ? (
+                                          <p className="truncate text-left text-xs text-slate-500">
+                                            {description}
+                                          </p>
+                                        ) : null}
+                                        <p className="truncate text-left text-sm text-slate-600">
+                                          {unitLabel}
+                                        </p>
+                                        <p className="truncate text-right text-sm font-medium text-slate-700">
+                                          {formattedStandardPrice}
+                                        </p>
+                                      </div>
+                                    );
+                                  }}
                                 />
                               ) : (
                                 item.product_name || item.product_code || '--'
                               )}
                             </td>
-                            <td className="w-52 px-4 py-3 text-left text-sm text-slate-600 whitespace-nowrap">
-                              {item.unit || product?.unit || '--'}
+                            <td className="w-32 px-4 py-3 text-left text-sm text-slate-600 whitespace-nowrap">
+                              {displayUnit}
                             </td>
                             <td className="w-32 px-4 py-3 text-center text-sm text-slate-600">
                               {isItemsEditable ? (
@@ -634,7 +693,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                             <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface whitespace-nowrap">
                               {formatCurrency(amountBeforeVat)} đ
                             </td>
-                            <td className="w-24 px-4 py-3 text-center">
+                            <td className="w-20 px-4 py-3 text-center">
                               {vatLabel !== '--' ? (
                                 <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-1 text-xs font-bold text-tertiary">
                                   {vatLabel}
@@ -643,7 +702,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                 <span className="text-sm text-slate-400">--</span>
                               )}
                             </td>
-                            <td className="w-40 px-4 py-3 text-right text-sm whitespace-nowrap">
+                            <td className="w-36 px-4 py-3 text-right text-sm whitespace-nowrap">
                               {isItemsEditable ? (
                                 <div className="flex justify-end">
                                   <input
@@ -651,7 +710,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                                     value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
                                     onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
                                     placeholder="0"
-                                    className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                    className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                                   />
                                 </div>
                               ) : (
@@ -692,8 +751,8 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                       <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
                         {formatCurrency(visibleDraftItemsTotal)} đ
                       </td>
-                      <td className="w-24 px-4 py-2.5" />
-                      <td className="w-40 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
+                      <td className="w-20 px-4 py-2.5" />
+                      <td className="w-36 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
                         {formatCurrency(visibleDraftItemsVatTotal)} đ
                       </td>
                       <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">

@@ -64,6 +64,7 @@ const baseProps: StepRowProps = {
   editWorklogProposal: '',
   editWorklogStatus: 'IN_PROGRESS' as IssueStatus,
   editWorklogSaving: false,
+  deletingWorklogId: null,
   onDraftChange: vi.fn(),
   onStartDateChange: vi.fn(),
   onReorder: vi.fn(),
@@ -83,6 +84,7 @@ const baseProps: StepRowProps = {
   onStartEditWorklog: vi.fn(),
   onCancelEditWorklog: vi.fn(),
   onSaveEditWorklog: vi.fn(),
+  onDeleteWorklog: vi.fn(),
   onSetWlogInput: vi.fn(),
   onSetWlogHours: vi.fn(),
   onSetWlogDifficulty: vi.fn(),
@@ -126,5 +128,46 @@ describe('StepRow UI', () => {
       expect(input.className).toContain('[&::-webkit-datetime-edit]:p-0');
       expect(input.closest('td')).toHaveClass('px-2', 'py-2');
     });
+  });
+
+  it('does not count custom or blank-content logs in the worklog badge fallback', () => {
+    render(
+      <table>
+        <tbody>
+          <StepRow
+            {...baseProps}
+            step={{ ...baseStep, worklogs_count: undefined, blocking_worklogs_count: undefined }}
+            wlogs={[
+              {
+                id: 1,
+                step_id: 1001,
+                procedure_id: 501,
+                log_type: 'CUSTOM',
+                content: 'Bước tùy chỉnh được thêm: Lập đề cương',
+                created_at: '2026-04-10T08:00:00Z',
+              },
+              {
+                id: 2,
+                step_id: 1001,
+                procedure_id: 501,
+                log_type: 'NOTE',
+                content: '   ',
+                created_at: '2026-04-10T09:00:00Z',
+              },
+              {
+                id: 3,
+                step_id: 1001,
+                procedure_id: 501,
+                log_type: 'NOTE',
+                content: 'Đã gọi khách hàng',
+                created_at: '2026-04-10T10:00:00Z',
+              },
+            ]}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByTestId('step-worklog-trigger-1001')).toHaveTextContent('Worklog(1)');
   });
 });

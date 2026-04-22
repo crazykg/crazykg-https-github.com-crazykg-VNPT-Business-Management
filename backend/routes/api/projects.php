@@ -76,6 +76,8 @@ Route::post('/project-procedure-steps/{stepId}/worklogs', [ProjectProcedureContr
     ->middleware('permission:projects.write');
 Route::patch('/project-procedure-worklogs/{logId}', [ProjectProcedureController::class, 'updateWorklog'])
     ->middleware('permission:projects.write');
+Route::delete('/project-procedure-worklogs/{logId}', [ProjectProcedureController::class, 'deleteWorklog'])
+    ->middleware('permission:projects.write');
 Route::get('/project-procedures/{procedureId}/worklogs', [ProjectProcedureController::class, 'procedureWorklogs'])
     ->middleware('permission:projects.read');
 Route::patch('/shared-issues/{issueId}/status', [ProjectProcedureController::class, 'updateIssueStatus'])

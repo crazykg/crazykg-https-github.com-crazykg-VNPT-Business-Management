@@ -148,6 +148,7 @@ const productPackages: ProductPackage[] = [
     product_id: 501,
     package_code: 'PKG001-A',
     package_name: 'Thuê Hệ thống thông tin quản lý y tế Trạm phụ',
+    description: 'Thuê phần mềm HIS cho trạm phụ tuyến xã',
     product_name: 'Hệ thống thông tin quản lý y tế',
     parent_product_code: 'SP001',
     standard_price: 600000,
@@ -158,6 +159,7 @@ const productPackages: ProductPackage[] = [
     product_id: 501,
     package_code: 'PKG001-B',
     package_name: 'Thuê Hệ thống thông tin quản lý y tế Trạm chính',
+    description: 'Thuê phần mềm HIS cho trạm chính tuyến huyện',
     product_name: 'Hệ thống thông tin quản lý y tế',
     parent_product_code: 'SP001',
     standard_price: 900000,
@@ -168,10 +170,22 @@ const productPackages: ProductPackage[] = [
     product_id: 502,
     package_code: 'PKG002-A',
     package_name: 'Dịch vụ EMR',
+    description: 'Thuê hệ sinh thái EMR cho bệnh viện',
     product_name: 'Dịch vụ EMR',
     parent_product_code: 'SP002',
     standard_price: 5000000,
     unit: 'Tháng',
+  },
+  {
+    id: 604,
+    product_id: 502,
+    package_code: 'RIS',
+    package_name: 'Thuê phần mềm quản lý chẩn đoán hình ảnh RIS',
+    description: null,
+    product_name: 'Dịch vụ RIS',
+    parent_product_code: 'SP002',
+    standard_price: 4000,
+    unit: 'Ca chụp',
   },
 ];
 
@@ -753,7 +767,7 @@ describe('ContractModal contract source modes', () => {
     expect(screen.queryByText(/Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án/)).not.toBeInTheDocument();
   });
 
-  it('uses linked project items for manual contract items and hydrates unit from the selected project item package', async () => {
+  it('shows the full product package catalog in manual contract items and hydrates unit from the selected package', async () => {
     const user = userEvent.setup();
 
     renderModal({
@@ -772,15 +786,215 @@ describe('ContractModal contract source modes', () => {
 
     await user.click(screen.getByText('Thêm hạng mục'));
     await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
-    expect(screen.getByText('PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'PKG001-B - Thuê Hệ thống thông tin quản lý y tế Trạm chính' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Dịch vụ EMR' })).not.toBeInTheDocument();
+    const dropdownHeader = screen.getByText('Mã gói').closest('div');
+    expect(dropdownHeader).not.toBeNull();
+    expect(within(dropdownHeader as HTMLElement).getByText('Mã gói')).toBeInTheDocument();
+    expect(within(dropdownHeader as HTMLElement).getByText('Tên hạng mục')).toBeInTheDocument();
+    expect(within(dropdownHeader as HTMLElement).getByText('Mô tả gói')).toBeInTheDocument();
+    expect(within(dropdownHeader as HTMLElement).getByText('ĐVT')).toBeInTheDocument();
+    expect(within(dropdownHeader as HTMLElement).getByText('Đơn giá')).toBeInTheDocument();
+    const packageOptionA = screen.getByRole('button', {
+      name: /PKG001-A\s+Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i,
+    });
+    expect(packageOptionA).toHaveTextContent('PKG001-A');
+    expect(packageOptionA).toHaveTextContent('Thuê Hệ thống thông tin quản lý y tế Trạm phụ');
+    expect(packageOptionA).toHaveTextContent('Thuê phần mềm HIS cho trạm phụ tuyến xã');
+    expect(packageOptionA).toHaveTextContent('Trạm Y tế, PKĐK/ Tháng');
+    expect(packageOptionA).toHaveTextContent('600.000');
+    expect(
+      screen.getByRole('button', {
+        name: /PKG001-B\s+Thuê Hệ thống thông tin quản lý y tế Trạm chính/i,
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: /PKG002-A\s+Dịch vụ EMR/i,
+      })
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Sản phẩm #/i })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ' }));
+    await user.click(packageOptionA);
 
-    expect(screen.getByText('PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
+    expect(screen.getByText('Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).toBeInTheDocument();
+    expect(screen.queryByText('PKG001-A - Thuê Hệ thống thông tin quản lý y tế Trạm phụ')).not.toBeInTheDocument();
     expect(screen.getByText('Trạm Y tế, PKĐK/ Tháng')).toBeInTheDocument();
     expect(screen.getByDisplayValue('600.000')).toBeInTheDocument();
+  });
+
+  it('searches contract item packages across the full product package catalog by package fields', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'ADD',
+      fixedSourceMode: 'PROJECT',
+      prefill: {
+        project_id: 101,
+        customer_id: 1,
+      },
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+      expect(screen.getByText('Thêm hạng mục')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Thêm hạng mục'));
+    await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
+    const searchInput = screen.getByLabelText('Tìm kiếm...');
+
+    await user.type(searchInput, 'PKG002-A');
+    let packageOption = screen.getByRole('button', {
+      name: /PKG002-A\s+Dịch vụ EMR/i,
+    });
+    expect(packageOption).toHaveTextContent('PKG002-A');
+    expect(packageOption).toHaveTextContent('Dịch vụ EMR');
+    expect(packageOption).toHaveTextContent('Thuê hệ sinh thái EMR cho bệnh viện');
+    expect(packageOption).toHaveTextContent('Tháng');
+    expect(packageOption).toHaveTextContent('5.000.000');
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'Dịch vụ EMR');
+    expect(
+      screen.getByRole('button', {
+        name: /PKG002-A\s+Dịch vụ EMR/i,
+      })
+    ).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'Trạm Y tế, PKĐK');
+    expect(
+      screen.getByRole('button', {
+        name: /PKG001-A\s+Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i,
+      })
+    ).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, '600000');
+    packageOption = screen.getByRole('button', {
+      name: /PKG001-A\s+Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i,
+    });
+    expect(packageOption).toHaveTextContent('600.000');
+
+    await user.clear(searchInput);
+    await user.type(searchInput, '600.000');
+    expect(
+      screen.getByRole('button', {
+        name: /PKG001-A\s+Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i,
+      })
+    ).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'hệ sinh thái EMR');
+    packageOption = screen.getByRole('button', {
+      name: /PKG002-A\s+Dịch vụ EMR/i,
+    });
+    expect(packageOption).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: /PKG001-A\s+Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i,
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it('lets package names use the description column width when the package has no description', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'ADD',
+      fixedSourceMode: 'PROJECT',
+      prefill: {
+        project_id: 101,
+        customer_id: 1,
+      },
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+      expect(screen.getByText('Thêm hạng mục')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Thêm hạng mục'));
+    await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
+    await user.type(screen.getByLabelText('Tìm kiếm...'), 'ris');
+
+    const packageOption = screen.getByRole('button', {
+      name: /RIS\s+Thuê phần mềm quản lý chẩn đoán hình ảnh RIS/i,
+    });
+    expect(packageOption).toHaveTextContent('RIS');
+    expect(packageOption).toHaveTextContent('Thuê phần mềm quản lý chẩn đoán hình ảnh RIS');
+    expect(packageOption).toHaveTextContent('Ca chụp');
+    expect(packageOption).toHaveTextContent('4.000');
+    expect(within(packageOption).getByText('Thuê phần mềm quản lý chẩn đoán hình ảnh RIS')).toHaveClass('col-span-2');
+  });
+
+  it('shows product-only catalog entries for contract items and keeps the selected product visible', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      fixedSourceMode: 'PROJECT',
+      prefill: {
+        project_id: 101,
+        customer_id: 1,
+      },
+      products: [products[0]],
+      productPackages: [],
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+      expect(screen.getByText('Thêm hạng mục')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Thêm hạng mục'));
+    await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
+
+    const productOption = screen.getByRole('button', {
+      name: /SP001\s+Hệ thống thông tin quản lý y tế/i,
+    });
+    expect(productOption).toHaveTextContent('SP001');
+    expect(productOption).toHaveTextContent('Hệ thống thông tin quản lý y tế');
+    expect(productOption).toHaveTextContent('Trạm Y tế, PKĐK/ Tháng');
+    expect(productOption).toHaveTextContent('150.000.000');
+
+    await user.click(productOption);
+
+    expect(screen.getByText('Hệ thống thông tin quản lý y tế')).toBeInTheDocument();
+    expect(screen.queryByText('Chọn sản phẩm/DV')).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic unit label when a product-only contract item has no unit metadata', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      fixedSourceMode: 'PROJECT',
+      prefill: {
+        project_id: 101,
+        customer_id: 1,
+      },
+      products: [
+        {
+          ...products[0],
+          unit: null,
+        },
+      ],
+      productPackages: [],
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+      expect(screen.getByText('Thêm hạng mục')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Thêm hạng mục'));
+    await user.click(screen.getByRole('button', { name: 'Chọn sản phẩm/DV' }));
+    await user.click(screen.getByRole('button', {
+      name: /SP001\s+Hệ thống thông tin quản lý y tế/i,
+    }));
+
+    const contractItemRow = screen.getByRole('row', {
+      name: /Hệ thống thông tin quản lý y tế/i,
+    });
+
+    expect(within(contractItemRow).getByText('Gói')).toBeInTheDocument();
   });
 
   it('locks the add modal to initial source when opened from the initial contract menu', async () => {

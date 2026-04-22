@@ -26,6 +26,7 @@ const updateProcedurePhaseLabelMock = vi.hoisted(() => vi.fn());
 const fetchStepWorklogsMock = vi.hoisted(() => vi.fn());
 const addStepWorklogMock = vi.hoisted(() => vi.fn());
 const updateStepWorklogMock = vi.hoisted(() => vi.fn());
+const deleteStepWorklogMock = vi.hoisted(() => vi.fn());
 const reorderProcedureStepsMock = vi.hoisted(() => vi.fn());
 const updateIssueStatusMock = vi.hoisted(() => vi.fn());
 const fetchProcedureRaciMock = vi.hoisted(() => vi.fn());
@@ -100,6 +101,7 @@ vi.mock('../services/api/projectApi', () => ({
   fetchStepWorklogs: fetchStepWorklogsMock,
   addStepWorklog: addStepWorklogMock,
   updateStepWorklog: updateStepWorklogMock,
+  deleteStepWorklog: deleteStepWorklogMock,
   reorderProcedureSteps: reorderProcedureStepsMock,
   updateIssueStatus: updateIssueStatusMock,
   fetchProcedureRaci: fetchProcedureRaciMock,
@@ -221,6 +223,7 @@ describe('ProjectProcedureModal UI', () => {
     fetchStepWorklogsMock.mockResolvedValue([]);
     addStepWorklogMock.mockResolvedValue({});
     updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
@@ -301,6 +304,7 @@ describe('ProjectProcedureModal UI', () => {
     fetchStepWorklogsMock.mockResolvedValue([]);
     addStepWorklogMock.mockResolvedValue({});
     updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
@@ -381,6 +385,7 @@ describe('ProjectProcedureModal UI', () => {
     fetchStepWorklogsMock.mockResolvedValue([]);
     addStepWorklogMock.mockResolvedValue({});
     updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
@@ -469,6 +474,7 @@ describe('ProjectProcedureModal UI', () => {
     fetchStepWorklogsMock.mockResolvedValue([]);
     addStepWorklogMock.mockResolvedValue({});
     updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
@@ -570,6 +576,7 @@ describe('ProjectProcedureModal UI', () => {
     fetchStepWorklogsMock.mockResolvedValue([]);
     addStepWorklogMock.mockResolvedValue({});
     updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);

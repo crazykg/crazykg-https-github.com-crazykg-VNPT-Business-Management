@@ -24,7 +24,11 @@ import {
   ProjectTypeOption,
 } from '../types';
 import { deleteUploadedDocumentAttachment, uploadDocumentAttachment } from '../services/v5Api';
-import { ContractDetailsTab, type ContractDraftItemComputedRow } from './contract/ContractDetailsTab';
+import {
+  ContractDetailsTab,
+  type ContractDraftItemComputedRow,
+  type ContractPackageSelectMeta,
+} from './contract/ContractDetailsTab';
 import {
   addUtcDays,
   addUtcMonths,
@@ -41,12 +45,14 @@ import { useContractForm } from './contract/hooks/useContractForm';
 import { useContractPaymentGeneration } from './contract/hooks/useContractPaymentGeneration';
 import { ContractPaymentTab } from './contract/ContractPaymentTab';
 import {
-  buildContractPackageCatalogValue,
   buildContractProductCatalogValue,
+  buildContractPackageCatalogValue,
 } from './contract/contractItemCatalogUtils';
 
 type ContractModalTab = 'CONTRACT' | 'PAYMENT';
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
+
+const normalizeContractPackageText = (value: unknown): string => String(value ?? '').trim();
 
 interface ContractModalProps {
   type: 'ADD' | 'EDIT';
@@ -799,144 +805,110 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         label: string;
         searchText: string;
       }> = [];
+      const optionMetaByValue = new Map<string, ContractPackageSelectMeta>();
       const seen = new Set<string>();
-      const selectedProjectId = String(formData.project_id || '').trim();
 
-      const pushOption = (value: string, label: string, searchParts: Array<unknown>) => {
+      const pushOption = (value: string, meta: ContractPackageSelectMeta) => {
         if (!value || seen.has(value)) {
           return;
         }
 
+        const packageCode = normalizeContractPackageText(meta.packageCode);
+        const packageName = normalizeContractPackageText(meta.packageName);
+        const unit = normalizeContractPackageText(meta.unit);
+        const standardPrice = Number.isFinite(Number(meta.standardPrice)) ? Number(meta.standardPrice) : null;
+        const formattedStandardPrice = standardPrice !== null ? formatCurrency(standardPrice) : '';
+        const description = normalizeContractPackageText(meta.description);
+        const label = packageName || packageCode || 'Gói cước';
+
         options.push({
           value,
           label,
-          searchText: searchParts.filter(Boolean).join(' '),
+          searchText: [
+            packageCode,
+            packageName,
+            unit,
+            standardPrice !== null ? String(standardPrice) : '',
+            formattedStandardPrice,
+            description,
+          ].filter(Boolean).join(' '),
+        });
+        optionMetaByValue.set(value, {
+          packageCode,
+          packageName,
+          unit,
+          standardPrice,
+          description,
         });
         seen.add(value);
       };
 
-      if (selectedProjectId) {
-        selectedProjectItems.forEach((projectItem) => {
-          const packageId = String(projectItem.product_package_id ?? '').trim();
-          const productId = String(projectItem.product_id ?? '').trim();
-          const productPackage = packageId ? (packageById.get(packageId) || null) : null;
-          const product = productId ? (productById.get(productId) || null) : null;
-          const optionValue = packageId
-            ? buildContractPackageCatalogValue(packageId)
-            : buildContractProductCatalogValue(productId);
+      (productPackages || []).forEach((productPackage) => {
+        const optionValue = buildContractPackageCatalogValue(productPackage.id);
+        const packageCode = normalizeContractPackageText(productPackage.package_code);
+        const packageName = normalizeContractPackageText(productPackage.package_name);
 
-          if (!optionValue) {
-            return;
-          }
+        if (!optionValue || (!packageCode && !packageName)) {
+          return;
+        }
 
-          const projectItemDisplayName = String(projectItem.display_name || '').trim();
-          const projectItemCode = String(projectItem.product_code || '').trim()
-            || String(productPackage?.package_code || '').trim()
-            || String(product?.product_code || '').trim();
-          const projectItemName = projectItemDisplayName
-            || String(projectItem.product_name || '').trim()
-            || String(productPackage?.package_name || '').trim()
-            || String(productPackage?.product_name || '').trim()
-            || String(product?.product_name || '').trim();
-          const label = projectItemDisplayName
-            || (
-              projectItemCode && projectItemName
-                ? `${projectItemCode} - ${projectItemName}`
-                : projectItemName || projectItemCode || (packageId ? `Gói cước #${packageId}` : `Sản phẩm #${productId}`)
-            );
-          const resolvedUnit = String(projectItem.unit || '').trim()
-            || String(productPackage?.unit || '').trim()
-            || String(product?.unit || '').trim();
-
-          pushOption(optionValue, label, [
-            projectItem.display_name,
-            projectItem.product_code,
-            projectItem.product_name,
-            productPackage?.package_code,
-            productPackage?.package_name,
-            productPackage?.product_name,
-            product?.product_code,
-            product?.product_name,
-            resolvedUnit,
-          ]);
+        pushOption(optionValue, {
+          packageCode,
+          packageName,
+          unit: normalizeContractPackageText(productPackage.unit),
+          standardPrice: Number(productPackage.standard_price || 0),
+          description: normalizeContractPackageText(productPackage.description),
         });
-      } else {
-        (productPackages || []).forEach((productPackage) => {
-          const optionValue = buildContractPackageCatalogValue(productPackage.id);
-          const parentProduct = productById.get(String(productPackage.product_id ?? '').trim()) || null;
-          const packageName = String(productPackage.package_name || '').trim();
-          const fallbackName = String(productPackage.product_name || '').trim()
-            || String(parentProduct?.product_name || '').trim();
-          const label = packageName || fallbackName || String(productPackage.package_code || '').trim() || `Gói cước #${productPackage.id}`;
-          const resolvedUnit = String(productPackage.unit || '').trim() || String(parentProduct?.unit || '').trim();
-
-          pushOption(optionValue, label, [
-            productPackage.package_code,
-            productPackage.package_name,
-            productPackage.product_name,
-            productPackage.parent_product_code,
-            parentProduct?.product_code,
-            parentProduct?.product_name,
-            resolvedUnit,
-          ]);
-        });
-      }
-
-      draftItems.forEach((item) => {
-        const packageId = String(item.productPackageId ?? item.product_package_id ?? '').trim();
-        if (packageId) {
-          const productPackage = packageById.get(packageId) || null;
-          const productId = String(productPackage?.product_id ?? item.product_id ?? '').trim();
-          const product = productById.get(productId) || null;
-          const label = String(item.product_name || '').trim()
-            || String(productPackage?.package_name || '').trim()
-            || String(product?.product_name || '').trim()
-            || String(productPackage?.package_code || '').trim()
-            || String(product?.product_code || '').trim()
-            || `Gói cước #${packageId}`;
-          const resolvedUnit = String(item.unit || '').trim()
-            || String(productPackage?.unit || '').trim()
-            || String(product?.unit || '').trim();
-
-          pushOption(buildContractPackageCatalogValue(packageId), label, [
-            item.product_code,
-            item.product_name,
-            productPackage?.package_code,
-            productPackage?.package_name,
-            productPackage?.product_name,
-            product?.product_code,
-            product?.product_name,
-            resolvedUnit,
-          ]);
-          return;
-        }
-
-        const productId = String(item.product_id ?? '').trim();
-        if (!productId) {
-          return;
-        }
-
-        const product = productById.get(productId);
-        if (!product) {
-          return;
-        }
-
-        pushOption(
-          buildContractProductCatalogValue(product.id),
-          String(item.product_name || '').trim() || product.product_name || product.product_code || `Sản phẩm #${product.id}`,
-          [
-            product.product_code,
-            product.product_name,
-            item.product_name,
-            product.unit,
-            item.unit,
-          ]
-        );
       });
 
-      return options;
+      (products || []).forEach((product) => {
+        const optionValue = buildContractProductCatalogValue(product.id);
+        const productCode = normalizeContractPackageText(product.product_code);
+        const productName = normalizeContractPackageText(product.product_name);
+
+        if (!optionValue || (!productCode && !productName)) {
+          return;
+        }
+
+        pushOption(optionValue, {
+          packageCode: productCode,
+          packageName: productName,
+          unit: normalizeContractPackageText(product.unit),
+          standardPrice: Number(product.standard_price || 0),
+          description: '',
+        });
+      });
+
+      draftItems.forEach((item) => {
+        const productPackageId = normalizeContractPackageText(
+          item.productPackageId ?? item.product_package_id
+        );
+        const productId = normalizeContractPackageText(item.product_id);
+        const optionValue = productPackageId
+          ? buildContractPackageCatalogValue(productPackageId)
+          : buildContractProductCatalogValue(productId);
+        const snapshotCode = normalizeContractPackageText(item.product_code);
+        const snapshotName = normalizeContractPackageText(item.product_name);
+
+        if (!optionValue || (!snapshotCode && !snapshotName)) {
+          return;
+        }
+
+        pushOption(optionValue, {
+          packageCode: snapshotCode,
+          packageName: snapshotName,
+          unit: normalizeContractPackageText(item.unit),
+          standardPrice: Number.isFinite(Number(item.unit_price)) ? Number(item.unit_price) : null,
+          description: '',
+        });
+      });
+
+      return {
+        options,
+        optionMetaByValue,
+      };
     },
-    [draftItems, formData.project_id, packageById, productById, productPackages, selectedProjectItems]
+    [draftItems, productPackages, products]
   );
 
   const selectedProjectCustomer = useMemo(
@@ -953,8 +925,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const isProjectSelectionLoading = isProjectsLoading && projects.length === 0;
   const isInitialCustomerSelectionLoading = isCustomersLoading && customers.length === 0;
   const isContractProductOptionsLoading = (
-    (isProductsLoading && products.length === 0 && productPackages.length === 0)
-    || (isProjectItemsLoading && String(formData.project_id || '').trim() !== '' && selectedProjectItems.length === 0)
+    isProductsLoading && productPackages.length === 0
   );
   const isContractProjectReferenceLoading = (
     isProjectItemsLoading
@@ -1272,7 +1243,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 projectFallbackGrandTotal,
                 isItemsEditable,
                 isContractProductOptionsLoading,
-                productSelectOptions,
+                productSelectOptions: productSelectOptions.options,
+                productOptionMetaByValue: productSelectOptions.optionMetaByValue,
                 onAddDraftItem: handleAddDraftItem,
                 onImportProjectItems: () => handleImportProjectItems(selectedProjectItems),
                 onRemoveDraftItem: handleRemoveDraftItem,
