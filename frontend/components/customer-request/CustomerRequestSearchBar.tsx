@@ -20,7 +20,7 @@ const MIN_QUERY_LEN = 2;
 
 export const CustomerRequestSearchBar: React.FC<CustomerRequestSearchBarProps> = ({
   onSelect,
-  placeholder = 'Tìm yêu cầu theo mã, tiêu đề...',
+  placeholder = 'Tìm yêu cầu theo mã, tiêu đề, người xử lý...',
   className = '',
 }) => {
   const [query, setQuery] = useState('');

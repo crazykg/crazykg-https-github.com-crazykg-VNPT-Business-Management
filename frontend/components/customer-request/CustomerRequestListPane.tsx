@@ -24,6 +24,9 @@ type CustomerRequestListPaneProps = {
   requestKeyword: string;
   onRequestKeywordChange: (value: string) => void;
   onSubmitKeywordSearch: () => void;
+  showHandlerSearch?: boolean;
+  requestHandlerKeyword?: string;
+  onRequestHandlerKeywordChange?: (value: string) => void;
   requestEntityFilter: string[];
   onRequestEntityFilterChange: (values: string[]) => void;
   requestPriorityFilter: string[];
@@ -85,20 +88,17 @@ const resolveCompletedLabel = (row: YeuCau): string =>
   row.completed_at ? formatDateTimeDdMmYyyy(row.completed_at).slice(0, 16) : '--';
 
 const resolveHandlerSummaryMeta = (row: YeuCau): { label: string; hint: string } => {
-  const raw = row as unknown as Record<string, unknown>;
-  const handler =
-    String(raw.to_user_id_name || '') ||
-    row.nguoi_xu_ly_name ||
-    row.performer_name ||
-    row.receiver_name ||
-    row.received_by_name ||
-    '--';
+  const handler = row.nguoi_xu_ly_name || '--';
 
   return {
     label: handler,
     hint: handler === '--' ? 'Chưa giao người xử lý' : 'Người xử lý hiện tại',
   };
 };
+
+const resolveCreatorName = (row: YeuCau): string =>
+  (row as unknown as Record<string, unknown>).created_by_name as string ||
+  '--';
 
 const resolveStatusLabel = (row: YeuCau): string =>
   row.current_status_name_vi ||
@@ -226,6 +226,7 @@ const RequestCardRow: React.FC<{
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
+          <SummaryCell label="Người nhập yêu cầu" value={resolveCreatorName(row)} />
           <SummaryCell label="Người xử lý" value={handlerMeta.label} />
           <SummaryCell label="Trạng thái xử lý" value={resolveStatusLabel(row)} hint="Trạng thái hiện tại" />
           <SummaryCell
@@ -317,6 +318,11 @@ const RequestTableRow: React.FC<{
         </p>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
+        <p className={`font-semibold text-slate-800 ${compactTextCls}`}>
+          {resolveCreatorName(row)}
+        </p>
+      </td>
+      <td className={`${cellPaddingCls} align-top`}>
         <p className={`font-semibold text-slate-800 ${compactTextCls}`}>{handlerMeta.label}</p>
       </td>
       <td className={`${cellPaddingCls} align-top`}>
@@ -341,6 +347,9 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   requestKeyword,
   onRequestKeywordChange,
   onSubmitKeywordSearch,
+  showHandlerSearch = false,
+  requestHandlerKeyword = '',
+  onRequestHandlerKeywordChange,
   requestEntityFilter,
   onRequestEntityFilterChange,
   requestPriorityFilter,
@@ -533,6 +542,26 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {showHandlerSearch && onRequestHandlerKeywordChange ? (
+                      <div className="relative w-[180px] shrink-0">
+                        <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
+                          person
+                        </span>
+                        <input
+                          type="text"
+                          value={requestHandlerKeyword}
+                          onChange={(event) => onRequestHandlerKeywordChange(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              onSubmitKeywordSearch();
+                            }
+                          }}
+                          placeholder="Người xử lý..."
+                          className={toolbarSearchClass}
+                        />
+                      </div>
+                    ) : null}
                     <div className="relative min-w-0 flex-1">
                       <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
                         search
@@ -614,25 +643,66 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                   </div>
 
                   <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                    <div className="grid min-w-0 flex-1 gap-2 lg:grid-cols-[minmax(0,1.35fr)_200px] xl:grid-cols-[minmax(0,1.4fr)_220px]">
-                      <div className="relative">
-                        <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
-                          search
-                        </span>
-                        <input
-                          type="text"
-                          value={requestKeyword}
-                          onChange={(event) => onRequestKeywordChange(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              onSubmitKeywordSearch();
-                            }
-                          }}
-                          placeholder="Tìm mã YC, tên yêu cầu..."
-                          className={toolbarSearchClass}
-                        />
-                      </div>
+                    <div className="grid min-w-0 flex-1 gap-2 lg:grid-cols-[minmax(0,1fr)_180px_200px] xl:grid-cols-[minmax(0,1fr)_180px_220px]">
+                      {showHandlerSearch && onRequestHandlerKeywordChange ? (
+                        <>
+                          <div className="relative">
+                            <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
+                              person
+                            </span>
+                            <input
+                              type="text"
+                              value={requestHandlerKeyword}
+                              onChange={(event) => onRequestHandlerKeywordChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  onSubmitKeywordSearch();
+                                }
+                              }}
+                              placeholder="Người xử lý..."
+                              className={toolbarSearchClass}
+                            />
+                          </div>
+                          <div className="relative">
+                            <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
+                              search
+                            </span>
+                            <input
+                              type="text"
+                              value={requestKeyword}
+                              onChange={(event) => onRequestKeywordChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  onSubmitKeywordSearch();
+                                }
+                              }}
+                              placeholder="Tìm mã YC, tên yêu cầu..."
+                              className={toolbarSearchClass}
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="relative">
+                          <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400">
+                            search
+                          </span>
+                          <input
+                            type="text"
+                            value={requestKeyword}
+                            onChange={(event) => onRequestKeywordChange(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                onSubmitKeywordSearch();
+                              }
+                            }}
+                            placeholder="Tìm mã YC, tên yêu cầu..."
+                            className={toolbarSearchClass}
+                          />
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={onSubmitKeywordSearch}
@@ -722,6 +792,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                     <col className="w-[132px]" />
                     <col className="w-[292px]" />
                     <col className="w-[160px]" />
+                    <col className="w-[160px]" />
                     <col className="w-[176px]" />
                     <col className="w-[158px]" />
                     <col className="w-[158px]" />
@@ -738,6 +809,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                       </th>
                       <th className="px-3 py-3">Mã yêu cầu</th>
                       <th className="px-3 py-3">Tên yêu cầu</th>
+                      <th className="px-3 py-3">Người nhập yêu cầu</th>
                       <th className="px-3 py-3">Người xử lý</th>
                       <th className="px-3 py-3">Trạng thái XL</th>
                       <th className="px-3 py-3">Ngày thực hiện</th>
@@ -747,7 +819,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                   <tbody>
                     {isListLoading ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center">
+                        <td colSpan={8} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined animate-spin text-[32px] text-slate-300">progress_activity</span>
                             <p className="text-sm font-medium text-slate-500">Đang tải danh sách yêu cầu...</p>
@@ -756,7 +828,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                       </tr>
                     ) : rows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center">
+                        <td colSpan={8} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined text-[32px] text-slate-300">inbox</span>
                             <p className="text-sm font-medium text-slate-500">Không có yêu cầu nào phù hợp với bộ lọc hiện tại.</p>

@@ -184,6 +184,7 @@ export const CusPersonnelFormModal: React.FC<CusPersonnelFormModalProps> = ({
       width="max-w-3xl"
       maxHeightClass="max-h-[98vh]"
       disableClose={isSubmitting}
+      zIndexClassName="z-[130]"
     >
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="lg:col-span-2">

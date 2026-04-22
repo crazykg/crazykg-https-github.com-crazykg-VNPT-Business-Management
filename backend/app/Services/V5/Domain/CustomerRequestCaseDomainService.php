@@ -2270,25 +2270,16 @@ class CustomerRequestCaseDomainService
 
     private function applyListOrdering(QueryBuilder $query, Request $request, ?int $actorId): void
     {
-        if ($actorId !== null && $this->resolveBooleanInput($request->query('prioritize_my_cases'), true) !== false) {
+        if ($actorId !== null && $this->resolveBooleanInput($request->query('prioritize_my_cases'), false) === true) {
             $query->orderByRaw(
                 'CASE WHEN COALESCE(crc.nguoi_xu_ly_id, crc.performer_user_id, crc.dispatcher_user_id, crc.received_by_user_id) = ? THEN 0 ELSE 1 END',
                 [$actorId]
             );
         }
 
-        $sortBy = $this->normalizeNullableString($request->query('sort_by'));
-        $sortDir = $this->support->resolveSortDirection($request);
-
-        if ($sortBy === 'to_user_id_name') {
-            $query->orderByRaw(
-                "COALESCE(current_handler.full_name, performer_owner.full_name, dispatcher.full_name, intake_receiver.full_name, '') {$sortDir}"
-            );
-        } else {
-            $query
-                ->orderByDesc('crc.updated_at')
-                ->orderByDesc('crc.id');
-        }
+        $query
+            ->orderByDesc('crc.updated_at')
+            ->orderByDesc('crc.id');
     }
 
     private function projectIdsForUserByRaciRoles(int $userId, array $roles = ['A', 'R']): array

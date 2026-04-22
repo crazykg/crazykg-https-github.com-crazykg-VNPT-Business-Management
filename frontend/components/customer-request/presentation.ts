@@ -1010,8 +1010,6 @@ export const resolveRequestIntakeLane = (
   return 'dispatcher';
 };
 
-const PERFORMER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
-const DISPATCHER_INTAKE_STATUS_CODES = new Set(['assigned_to_receiver', 'returned_to_manager']);
 const DISPATCHER_INTAKE_PM_MISSING_INFO_TARGETS = new Set([
   'not_executed',
   'waiting_customer_feedback',
@@ -1064,17 +1062,10 @@ export const filterTransitionOptionsForRequest = <T extends { process_code: stri
     );
   }
 
+  // new_intake now shows all transitions from backend (workflowa 2026-04-22)
+  // No longer filter to only assigned_to_receiver/returned_to_manager
   if (currentStatusCode !== 'new_intake') {
     return visibleProcesses;
-  }
-
-  const intakeLane = resolveRequestIntakeLane(request);
-  if (intakeLane === 'performer') {
-    return visibleProcesses.filter((process) => PERFORMER_INTAKE_STATUS_CODES.has(process.process_code));
-  }
-
-  if (intakeLane === 'dispatcher') {
-    return visibleProcesses.filter((process) => DISPATCHER_INTAKE_STATUS_CODES.has(process.process_code));
   }
 
   return visibleProcesses;

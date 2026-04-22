@@ -16,6 +16,7 @@ interface UseCustomerPersonnelReturn {
   loadCustomerPersonnel: () => Promise<void>;
   handleSaveCusPersonnel: (data: Partial<CustomerPersonnel>, modalType: 'ADD_CUS_PERSONNEL' | 'EDIT_CUS_PERSONNEL', selectedCusPersonnel: CustomerPersonnel | null) => Promise<boolean>;
   handleDeleteCusPersonnel: (selectedCusPersonnel: CustomerPersonnel) => Promise<boolean>;
+  setCustomerPersonnel: (personnel: CustomerPersonnel[]) => void;
 }
 
 export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', title: string, message: string) => void): UseCustomerPersonnelReturn {
@@ -116,5 +117,6 @@ export function useCustomerPersonnel(addToast?: (type: 'success' | 'error', titl
     loadCustomerPersonnel,
     handleSaveCusPersonnel,
     handleDeleteCusPersonnel,
+    setCustomerPersonnel,
   };
 }

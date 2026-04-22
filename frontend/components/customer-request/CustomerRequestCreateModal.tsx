@@ -71,6 +71,7 @@ type CustomerRequestCreateModalProps = {
   onClose: () => void;
   workflowDefinitionId?: string | number | null;
   onWorkflowDefinitionIdChange?: (workflowId: string | number | null) => void;
+  onOpenAddCustomerPersonnelModal?: () => void;
 };
 
 type TaskTab = 'IT360' | 'REFERENCE';
@@ -110,6 +111,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   onClose,
   workflowDefinitionId,
   onWorkflowDefinitionIdChange,
+  onOpenAddCustomerPersonnelModal,
 }) => {
   const [activeTaskTab, setActiveTaskTab] = useState<TaskTab>('IT360');
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
@@ -540,6 +542,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                               disabled={isSaving}
                               density="compact"
                               onChange={onMasterFieldChange}
+                              onOpenAddCustomerPersonnelModal={onOpenAddCustomerPersonnelModal}
                             />
                           </div>
                         );
@@ -563,6 +566,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                           disabled={isSaving}
                           density="compact"
                           onChange={onMasterFieldChange}
+                          onOpenAddCustomerPersonnelModal={onOpenAddCustomerPersonnelModal}
                         />
                       </div>
                     ) : null}

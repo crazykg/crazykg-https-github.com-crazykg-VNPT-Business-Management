@@ -123,6 +123,7 @@ type CustomerRequestHubContext = {
   projectItems: ProjectItemMaster[];
   employees: Employee[];
   supportServiceGroups: SupportServiceGroup[];
+  supportContactPositions: SupportContactPosition[];
   currentUserId: string | number | null;
   isAdminViewer: boolean;
   canImportRequests: boolean;
@@ -130,6 +131,8 @@ type CustomerRequestHubContext = {
   canReadRequests: boolean;
   canWriteRequests: boolean;
   canDeleteRequests: boolean;
+  onCustomersUpdated?: (customers: Customer[]) => void;
+  onCustomerPersonnelUpdated?: (personnel: CustomerPersonnel[]) => void;
 };
 
 export interface AppPagesProps {
@@ -782,6 +785,7 @@ export const AppPages: React.FC<AppPagesProps> = ({
           projectItems={customerRequestHubContext.projectItems}
           employees={customerRequestHubContext.employees}
           supportServiceGroups={customerRequestHubContext.supportServiceGroups}
+          supportContactPositions={customerRequestHubContext.supportContactPositions}
           currentUserId={customerRequestHubContext.currentUserId}
           isAdminViewer={customerRequestHubContext.isAdminViewer}
           canImportRequests={customerRequestHubContext.canImportRequests}
@@ -790,6 +794,8 @@ export const AppPages: React.FC<AppPagesProps> = ({
           canWriteRequests={customerRequestHubContext.canWriteRequests}
           canDeleteRequests={customerRequestHubContext.canDeleteRequests}
           onNotify={addToast}
+          onCustomersUpdated={customerRequestHubContext.onCustomersUpdated}
+          onCustomerPersonnelUpdated={customerRequestHubContext.onCustomerPersonnelUpdated}
         />
       )}
 

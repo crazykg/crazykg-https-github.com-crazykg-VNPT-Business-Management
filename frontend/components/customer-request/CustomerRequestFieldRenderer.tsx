@@ -258,6 +258,7 @@ type ProcessFieldInputProps = {
   disabled: boolean;
   density?: 'default' | 'compact';
   onChange: (fieldName: string, value: unknown) => void;
+  onOpenAddCustomerPersonnelModal?: () => void;
 };
 
 export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
@@ -272,6 +273,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
   disabled,
   density = 'default',
   onChange,
+  onOpenAddCustomerPersonnelModal,
 }) => {
   if (field.type === 'hidden') {
     return null;
@@ -468,6 +470,16 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           compact
           denseLabel={density === 'compact'}
           triggerClassName={density === 'compact' ? 'h-9 rounded border-slate-200 px-3 text-sm' : undefined}
+          rightAction={
+            field.type === 'customer_personnel_select' && onOpenAddCustomerPersonnelModal
+              ? {
+                  icon: 'add',
+                  label: 'Thêm nhân sự liên hệ',
+                  onClick: onOpenAddCustomerPersonnelModal,
+                  disabled,
+                }
+              : undefined
+          }
         />
         {helperText ? (
           <p className={`${density === 'compact' ? 'mt-1 text-[11px] leading-4' : 'mt-1.5'} text-xs text-slate-500`}>
@@ -492,6 +504,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
     prevProps.selectedCustomerId === nextProps.selectedCustomerId &&
     prevProps.disabled === nextProps.disabled &&
     prevProps.density === nextProps.density &&
-    prevProps.onChange === nextProps.onChange
+    prevProps.onChange === nextProps.onChange &&
+    prevProps.onOpenAddCustomerPersonnelModal === nextProps.onOpenAddCustomerPersonnelModal
   );
 });

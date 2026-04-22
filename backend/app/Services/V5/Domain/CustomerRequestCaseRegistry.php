@@ -478,20 +478,33 @@ final class CustomerRequestCaseRegistry
     public static function workflowaAllowedTargets(string $statusCode): ?array
     {
         $map = [
-            'new_intake' => ['assigned_to_receiver', 'returned_to_manager'],
-            'assigned_to_receiver' => ['returned_to_manager', 'waiting_notification', 'customer_notified'],
+            // Workflow A 2026-04-22: 8 transitions từ new_intake
+            'new_intake' => [
+                'assigned_to_receiver',
+                'not_executed',
+                'returned_to_manager',
+                'closed',
+                'waiting_customer_feedback',
+                'analysis',
+                'dms_transfer',
+                'coding',
+            ],
+            // Self-loop cho phep nguoi xu ly (A) chuyen sang chinh status do
+            'assigned_to_receiver' => ['returned_to_manager', 'waiting_notification', 'customer_notified', 'assigned_to_receiver'],
             'returned_to_manager' => ['not_executed', 'waiting_customer_feedback', 'assigned_to_receiver', 'analysis', 'dms_transfer', 'coding', 'completed', 'customer_notified', 'closed'],
             'in_progress' => [],
             'waiting_customer_feedback' => ['assigned_to_receiver', 'returned_to_manager'],
             'not_executed' => ['customer_notified', 'waiting_notification', 'closed', 'returned_to_manager'],
-            'analysis' => ['returned_to_manager'],
+            // Analysis co self-loop cho BA
+            'analysis' => ['returned_to_manager', 'analysis'],
             'analysis_completed' => [],
             'analysis_suspended' => [],
             'dms_transfer' => ['returned_to_manager', 'waiting_notification', 'customer_notified'],
             'dms_task_created' => [],
             'dms_in_progress' => [],
             'dms_suspended' => [],
-            'coding' => ['returned_to_manager', 'waiting_notification', 'customer_notified'],
+            // Coding co self-loop cho Dev
+            'coding' => ['returned_to_manager', 'waiting_notification', 'customer_notified', 'coding'],
             'coding_in_progress' => [],
             'coding_suspended' => [],
             'completed' => [],

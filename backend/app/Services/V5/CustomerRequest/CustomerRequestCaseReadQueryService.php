@@ -114,6 +114,11 @@ class CustomerRequestCaseReadQueryService
             $this->applyKeywordSearch($query, $keyword);
         }
 
+        $receivedByName = $this->normalizeNullableString($request->query('received_by_name'));
+        if ($receivedByName !== null && $this->support->hasColumn('customer_request_cases', 'nguoi_xu_ly_id')) {
+            $query->where('current_handler.full_name', 'like', '%'.$receivedByName.'%');
+        }
+
         $myRole = $this->normalizeNullableString($request->query('my_role'));
         if ($actorId !== null && $myRole !== null) {
             match ($myRole) {
@@ -215,30 +220,6 @@ class CustomerRequestCaseReadQueryService
                 ->where('crc.request_code', $normalizedKeyword)
                 ->orWhere('crc.request_code', 'like', $like)
                 ->orWhere('crc.summary', 'like', $like);
-
-            if ($this->support->hasColumn('customer_request_cases', 'description')) {
-                $builder->orWhere('crc.description', 'like', $like);
-            }
-
-            if ($this->support->hasTable('customers') && $this->support->hasColumn('customers', 'customer_name')) {
-                $builder->orWhere('c.customer_name', 'like', $like);
-            }
-
-            if ($this->support->hasTable('customer_personnel') && $this->support->hasColumn('customer_personnel', 'full_name')) {
-                $builder->orWhere('cp.full_name', 'like', $like);
-            }
-
-            if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_name')) {
-                $builder->orWhere('p.project_name', 'like', $like);
-            }
-
-            if ($this->support->hasTable('internal_users') && $this->support->hasColumn('internal_users', 'full_name')) {
-                $builder
-                    ->orWhere('dispatcher.full_name', 'like', $like)
-                    ->orWhere('performer_owner.full_name', 'like', $like)
-                    ->orWhere('creator.full_name', 'like', $like)
-                    ->orWhere('intake_receiver.full_name', 'like', $like);
-            }
         });
     }
 

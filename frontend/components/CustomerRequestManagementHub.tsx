@@ -19,6 +19,7 @@ import {
   updateYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
+import { createCustomer, createCustomerPersonnel, fetchCustomerPersonnel, fetchCustomers } from '../services/api/customerApi';
 import type {
   Attachment,
   Customer,
@@ -26,6 +27,7 @@ import type {
   Employee,
   ProjectItemMaster,
   ProjectRaciRow,
+  SupportContactPosition,
   SupportServiceGroup,
   Tag,
   YeuCau,
@@ -107,7 +109,7 @@ import {
   type CustomerRequestSavedView,
 } from './customer-request/customerRequestQuickAccess';
 import { useCustomerRequestQuickAccess } from './customer-request/hooks/useCustomerRequestQuickAccess';
-import { ImportModal } from './modals';
+import { CustomerFormModal, CusPersonnelFormModal, ImportModal } from './modals';
 import type { ImportPayload } from './modals/projectImportTypes';
 import ExcelJS from 'exceljs';
 import {
@@ -133,6 +135,7 @@ interface CustomerRequestManagementHubProps {
   projectItems: ProjectItemMaster[];
   employees: Employee[];
   supportServiceGroups: SupportServiceGroup[];
+  supportContactPositions?: SupportContactPosition[];
   currentUserId?: string | number | null;
   isAdminViewer?: boolean;
   canReadRequests?: boolean;
@@ -141,6 +144,8 @@ interface CustomerRequestManagementHubProps {
   canImportRequests?: boolean;
   canExportRequests?: boolean;
   onNotify?: (type: ToastType, title: string, message: string) => void;
+  onCustomersUpdated?: (customers: Customer[]) => void;
+  onCustomerPersonnelUpdated?: (personnel: CustomerPersonnel[]) => void;
 }
 
 const formatCustomerRequestDateInput = (date: Date): string => {
@@ -1116,6 +1121,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   projectItems,
   employees,
   supportServiceGroups,
+  supportContactPositions = [],
   currentUserId,
   isAdminViewer = false,
   canReadRequests = false,
@@ -1124,6 +1130,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   canImportRequests = false,
   canExportRequests = false,
   onNotify,
+  onCustomersUpdated,
+  onCustomerPersonnelUpdated,
 }) => {
   // -------------------------------------------------------------------------
   // 1. Notify helper
@@ -1140,6 +1148,78 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   // -------------------------------------------------------------------------
   const [dataVersion, setDataVersion] = useState(0);
   const bumpDataVersion = useCallback(() => setDataVersion((v) => v + 1), []);
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+  const [localCustomers, setLocalCustomers] = useState<Customer[]>(customers);
+  const [showAddCustomerPersonnelModal, setShowAddCustomerPersonnelModal] = useState(false);
+  const [isSavingCustomerPersonnel, setIsSavingCustomerPersonnel] = useState(false);
+
+  useEffect(() => {
+    setLocalCustomers(customers);
+  }, [customers]);
+
+  const handleOpenAddCustomerModal = useCallback(() => {
+    setShowAddCustomerModal(true);
+  }, []);
+
+  const handleCloseAddCustomerModal = useCallback(() => {
+    if (isSavingCustomer) {
+      return;
+    }
+    setShowAddCustomerModal(false);
+  }, [isSavingCustomer]);
+
+  const handleSaveNewCustomer = useCallback(async (payload: Partial<Customer>) => {
+    setIsSavingCustomer(true);
+    try {
+      await createCustomer(payload);
+      const refreshedCustomers = await fetchCustomers();
+      setLocalCustomers(refreshedCustomers || []);
+      onCustomersUpdated?.(refreshedCustomers || []);
+      notify('success', 'Thành công', 'Thêm mới khách hàng thành công.');
+      setShowAddCustomerModal(false);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo khách hàng.';
+      notify('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSavingCustomer(false);
+    }
+  }, [notify, onCustomersUpdated]);
+
+  const handleOpenAddCustomerPersonnelModal = useCallback(() => {
+    setShowAddCustomerPersonnelModal(true);
+  }, []);
+
+  const handleCloseAddCustomerPersonnelModal = useCallback(() => {
+    if (isSavingCustomerPersonnel) {
+      return;
+    }
+    setShowAddCustomerPersonnelModal(false);
+  }, [isSavingCustomerPersonnel]);
+
+  const handleSaveNewCustomerPersonnel = useCallback(async (payload: Partial<CustomerPersonnel>) => {
+    setIsSavingCustomerPersonnel(true);
+    try {
+      await createCustomerPersonnel(payload);
+      const refreshedPersonnel = await fetchCustomerPersonnel();
+      onCustomerPersonnelUpdated?.(refreshedPersonnel || []);
+      notify('success', 'Thành công', 'Thêm mới nhân sự liên hệ thành công.');
+      setShowAddCustomerPersonnelModal(false);
+    } catch (error) {
+      if (isRequestCanceledError(error)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Không thể tạo nhân sự liên hệ.';
+      notify('error', 'Lưu thất bại', message);
+      throw error;
+    } finally {
+      setIsSavingCustomerPersonnel(false);
+    }
+  }, [notify, onCustomerPersonnelUpdated]);
 
   const [selectedRequestId, setSelectedRequestId] = useState<string | number | null>(null);
   const [selectedRequestPreview, setSelectedRequestPreview] = useState<YeuCau | null>(null);
@@ -1171,6 +1251,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState(20);
   const [requestKeyword, setRequestKeyword] = useState('');
+  const [requestHandlerKeyword, setRequestHandlerKeyword] = useState('');
   const [requestEntityFilter, setRequestEntityFilter] = useState<string[]>([]);
   const [requestTagFilter, setRequestTagFilter] = useState<string[]>([]);
   const [requestPriorityFilter, setRequestPriorityFilter] = useState<string[]>([]);
@@ -1184,6 +1265,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const [draftActiveProcessCodes, setDraftActiveProcessCodes] = useState<string[]>([]);
   const [draftRequestKeywordInput, setDraftRequestKeywordInput] = useState('');
+  const [draftRequestHandlerKeywordInput, setDraftRequestHandlerKeywordInput] = useState('');
   const [draftRequestEntityFilter, setDraftRequestEntityFilter] = useState<string[]>([]);
   const [draftRequestTagFilter, setDraftRequestTagFilter] = useState<string[]>([]);
   const [draftRequestPriorityFilter, setDraftRequestPriorityFilter] = useState<string[]>([]);
@@ -1207,6 +1289,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setActiveProcessCodes(draftActiveProcessCodes);
     const normalizedKeyword = draftRequestKeywordInput.trim();
     setRequestKeyword(normalizedKeyword);
+    const normalizedHandlerKeyword = draftRequestHandlerKeywordInput.trim();
+    setRequestHandlerKeyword(normalizedHandlerKeyword);
     setRequestEntityFilter(draftRequestEntityFilter);
     setRequestTagFilter(draftRequestTagFilter);
     setRequestPriorityFilter(draftRequestPriorityFilter);
@@ -1222,6 +1306,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     draftRequestCreatedTo,
     draftRequestEntityFilter,
     draftRequestKeywordInput,
+    draftRequestHandlerKeywordInput,
     draftRequestMissingEstimateFilter,
     draftRequestOverEstimateFilter,
     draftRequestPriorityFilter,
@@ -1423,6 +1508,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       status_code: activeProcessCodes.length > 0 ? activeProcessCodes : undefined,
       tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
       my_role: requestRoleFilter || undefined,
+      received_by_name: requestHandlerKeyword || undefined,
       created_from: buildCreatedFromFilterValue(requestCreatedFrom),
       created_to: buildCreatedToFilterValue(requestCreatedTo),
       missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
@@ -1435,6 +1521,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     requestTagFilter,
     requestPriorityFilter,
     requestRoleFilter,
+    requestHandlerKeyword,
     requestCreatedFrom,
     requestCreatedTo,
     requestMissingEstimateFilter,
@@ -3352,6 +3439,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const hasDraftFilterChanges =
     requestKeyword !== draftRequestKeywordInput.trim() ||
+    requestHandlerKeyword !== draftRequestHandlerKeywordInput.trim() ||
     requestCreatedFrom !== draftRequestCreatedFrom ||
     requestCreatedTo !== draftRequestCreatedTo ||
     requestMissingEstimateFilter !== draftRequestMissingEstimateFilter ||
@@ -3366,7 +3454,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     buildNormalizedFilterCompareKey(requestPriorityFilter) !==
       buildNormalizedFilterCompareKey(draftRequestPriorityFilter);
 
-  const canSubmitFilters = hasDraftFilterChanges;
+  const canSubmitFilters = true;
 
   const handleClearFilters = useCallback(() => {
     const defaultRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
@@ -4045,6 +4133,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onRequestKeywordChange: (v: string) => {
       setDraftRequestKeywordInput(v);
     },
+    showHandlerSearch: true,
+    requestHandlerKeyword: draftRequestHandlerKeywordInput,
+    onRequestHandlerKeywordChange: (v: string) => {
+      setDraftRequestHandlerKeywordInput(v);
+    },
     onSubmitKeywordSearch: handleSubmitKeywordSearch,
     requestEntityFilter: draftRequestEntityFilter,
     onRequestEntityFilterChange: (values: string[]) => {
@@ -4130,7 +4223,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       onProcessDraftChange={handleProcessDraftChange}
       onSaveStatusDetail={handleSaveStatusDetail}
       onSaveTaskReference={handleSaveTaskReference}
-      customers={customers}
+      customers={localCustomers}
       employees={employees}
       customerPersonnel={customerPersonnel}
       supportServiceGroups={supportServiceGroups}
@@ -4455,7 +4548,33 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                   />
                 </label>
 
-                <label className="relative min-w-0">
+                <label className="relative w-[180px] shrink-0">
+                  <span className="sr-only">Tìm người xử lý</span>
+                  <span
+                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    style={{ fontSize: 16 }}
+                  >
+                    person
+                  </span>
+                  <input
+                    value={draftRequestHandlerKeywordInput}
+                    onChange={(event) => {
+                      setDraftRequestHandlerKeywordInput(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        if (canSubmitFilters) {
+                          handleSubmitKeywordSearch();
+                        }
+                      }
+                    }}
+                    placeholder="Người xử lý..."
+                    className={sharedSearchFieldClass}
+                  />
+                </label>
+
+                <label className="relative min-w-0 flex-1">
                   <span className="sr-only">Tìm kiếm yêu cầu</span>
                   <span
                     className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4496,7 +4615,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </div>
         ) : (
           <div
-            className="grid gap-2 xl:grid-cols-[156px_156px_minmax(0,1fr)_150px_180px_auto]"
+            className="grid gap-2 xl:grid-cols-[156px_156px_180px_minmax(0,1fr)_150px_180px_auto]"
           >
             <label>
               <span className="sr-only">Từ ngày tạo</span>
@@ -4522,7 +4641,33 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               />
             </label>
 
-            <label className="relative min-w-0">
+            <label className="relative w-[180px] shrink-0">
+              <span className="sr-only">Tìm người xử lý</span>
+              <span
+                className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                style={{ fontSize: 16 }}
+              >
+                person
+              </span>
+              <input
+                value={draftRequestHandlerKeywordInput}
+                onChange={(event) => {
+                  setDraftRequestHandlerKeywordInput(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (canSubmitFilters) {
+                      handleSubmitKeywordSearch();
+                    }
+                  }
+                }}
+                placeholder="Người xử lý..."
+                className={sharedSearchFieldClass}
+              />
+            </label>
+
+            <label className="relative min-w-0 flex-1">
               <span className="sr-only">Tìm kiếm yêu cầu</span>
               <span
                 className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -5139,7 +5284,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         onModalHandlerUserIdChange={transitionHook.setModalHandlerUserId}
         projectRaciRows={projectRaciRows}
         employees={employees}
-        customers={customers}
+        customers={localCustomers}
         customerPersonnel={customerPersonnel}
         supportServiceGroups={supportServiceGroups}
         projectItems={effectiveProjectItems}
@@ -5160,7 +5305,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           masterFields={masterFields}
           masterDraft={masterDraft}
           onMasterFieldChange={handleMasterFieldChange}
-          customers={customers}
+          customers={localCustomers}
           employees={employees}
           customerPersonnel={customerPersonnel}
           supportServiceGroups={supportServiceGroups}
@@ -5196,8 +5341,30 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             setIsCreateMode(false);
             setSelectedRequestId(null);
           }}
+          onOpenAddCustomerPersonnelModal={handleOpenAddCustomerPersonnelModal}
         />
       )}
+
+      {showAddCustomerModal ? (
+        <CustomerFormModal
+          type="ADD"
+          data={null}
+          onClose={handleCloseAddCustomerModal}
+          onSave={handleSaveNewCustomer}
+          zIndexClassName="z-[210]"
+        />
+      ) : null}
+
+      {showAddCustomerPersonnelModal ? (
+        <CusPersonnelFormModal
+          type="ADD"
+          data={null}
+          customers={localCustomers}
+          supportContactPositions={supportContactPositions || []}
+          onClose={handleCloseAddCustomerPersonnelModal}
+          onSave={handleSaveNewCustomerPersonnel}
+        />
+      ) : null}
 
       {showImportModal ? (
         <ImportModal

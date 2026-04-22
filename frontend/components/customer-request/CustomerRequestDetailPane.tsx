@@ -1109,8 +1109,8 @@ const renderInfoSection = () => (
               key={field.name}
               className={
                 field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
-                  ? 'lg:col-span-2'
-                  : undefined
+                  ? 'min-w-0 lg:col-span-2'
+                  : 'min-w-0'
               }
             >
               <ProcessFieldInput
@@ -1175,20 +1175,21 @@ const renderTagSection = () => (
             { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
             { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
           ] satisfies YeuCauProcessField[]).map((field) => (
-            <ProcessFieldInput
-              key={field.name}
-              field={field}
-              value={processDraft[field.name]}
-              customers={customers}
-              employees={employees}
-              customerPersonnel={customerPersonnel}
-              supportServiceGroups={supportServiceGroups}
-              projectItems={availableProjectItems}
-              selectedCustomerId={normalizeText(masterDraft.customer_id)}
-              disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
-              density="compact"
-              onChange={onProcessDraftChange}
-            />
+            <div key={field.name} className="min-w-0">
+              <ProcessFieldInput
+                field={field}
+                value={processDraft[field.name]}
+                customers={customers}
+                employees={employees}
+                customerPersonnel={customerPersonnel}
+                supportServiceGroups={supportServiceGroups}
+                projectItems={availableProjectItems}
+                selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                density="compact"
+                onChange={onProcessDraftChange}
+              />
+            </div>
           ))}
         </div>
       </section>
@@ -1435,8 +1436,8 @@ const renderOperationSection = () => (
                   key={field.name}
                   className={
                     field.name === 'project_item_id' || field.name === 'summary' || field.name === 'description'
-                      ? 'lg:col-span-2'
-                      : undefined
+                      ? 'min-w-0 lg:col-span-2'
+                      : 'min-w-0'
                   }
                 >
                   <ProcessFieldInput
@@ -1507,20 +1508,21 @@ const renderOperationSection = () => (
                 { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
                 { name: 'notes', label: 'Ghi chú', type: 'textarea', required: false },
               ] satisfies YeuCauProcessField[]).map((field) => (
-                <ProcessFieldInput
-                  key={field.name}
-                  field={field}
-                  value={processDraft[field.name]}
-                  customers={customers}
-                  employees={employees}
-                  customerPersonnel={customerPersonnel}
-                  supportServiceGroups={supportServiceGroups}
-                  projectItems={availableProjectItems}
-                  selectedCustomerId={normalizeText(masterDraft.customer_id)}
-                  disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
-                  density="compact"
-                  onChange={onProcessDraftChange}
-                />
+                <div key={field.name} className="min-w-0">
+                  <ProcessFieldInput
+                    field={field}
+                    value={processDraft[field.name]}
+                    customers={customers}
+                    employees={employees}
+                    customerPersonnel={customerPersonnel}
+                    supportServiceGroups={supportServiceGroups}
+                    projectItems={availableProjectItems}
+                    selectedCustomerId={normalizeText(masterDraft.customer_id)}
+                    disabled={!canEditActiveForm || isSaving || field.name === 'from_user_id' || field.name === 'to_user_id'}
+                    density="compact"
+                    onChange={onProcessDraftChange}
+                  />
+                </div>
               ))}
             </div>
           </section>

@@ -481,6 +481,7 @@ const App: React.FC = () => {
     loadCustomerPersonnel,
     handleSaveCusPersonnel,
     handleDeleteCusPersonnel,
+    setCustomerPersonnel,
   } = useCustomerPersonnel(addToast);
   const { handleImportCustomerPersonnel } = useImportCustomerPersonnel();
   const saveContract = useContractStore((state) => state.saveContract);
@@ -2186,6 +2187,7 @@ const App: React.FC = () => {
         case 'customer_request_management':
           await Promise.all([
             fetchSupportServiceGroups().then((rows) => setSupportServiceGroups(rows || [])).catch(() => {}),
+            fetchSupportContactPositions().then((rows) => setSupportContactPositions(rows || [])).catch(() => {}),
           ]);
           setTimeout(() => {
             Promise.all([
@@ -2468,6 +2470,7 @@ const App: React.FC = () => {
               projectItems,
               employees,
               supportServiceGroups,
+              supportContactPositions,
               currentUserId: authUser?.id ?? null,
               isAdminViewer: Boolean(
                 authUser
@@ -2481,6 +2484,12 @@ const App: React.FC = () => {
               canReadRequests: hasPermission(authUser, 'support_requests.read'),
               canWriteRequests: hasPermission(authUser, 'support_requests.write'),
               canDeleteRequests: hasPermission(authUser, 'support_requests.delete'),
+              onCustomersUpdated: (nextCustomers: Customer[]) => {
+                setCustomers(nextCustomers || []);
+              },
+              onCustomerPersonnelUpdated: (nextPersonnel: CustomerPersonnel[]) => {
+                setCustomerPersonnel(nextPersonnel || []);
+              },
             }}
             handleOpenModal={(type, item) => {
               const buildProjectCopyPrefill = (source?: Partial<Project> | null): Project =>

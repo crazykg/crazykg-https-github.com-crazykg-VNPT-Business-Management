@@ -1,7 +1,8 @@
+// @vitest-environment jsdom
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { Customer, Employee, ProjectItemMaster, SupportServiceGroup } from '../types';
+import type { Customer, CustomerPersonnel, Employee, ProjectItemMaster, SupportServiceGroup } from '../types';
 import { CustomerRequestCreateModal } from '../components/customer-request/CustomerRequestCreateModal';
 
 vi.mock('../services/api/customerRequestApi', () => ({
@@ -48,48 +49,69 @@ const projectItems: ProjectItemMaster[] = [
 
 const supportServiceGroups: SupportServiceGroup[] = [];
 
+const customerPersonnel: CustomerPersonnel[] = [
+  {
+    id: '301',
+    fullName: 'Trần Văn B',
+    birthday: '',
+    positionType: 'DAU_MOI',
+    positionId: null,
+    positionLabel: 'Đầu mối',
+    phoneNumber: '0900000001',
+    email: 'tranvanb@example.com',
+    customerId: '20',
+    status: 'Active',
+  },
+];
+
+const renderCreateModal = (overrides: Partial<React.ComponentProps<typeof CustomerRequestCreateModal>> = {}) => {
+  const props: React.ComponentProps<typeof CustomerRequestCreateModal> = {
+    masterFields: [
+      { name: 'requester_id', label: 'Người yêu cầu', type: 'customer_personnel_select', required: true },
+      { name: 'project_item_id', label: 'Khách hàng | Dự án | Sản phẩm', type: 'project_item_select', required: true },
+      { name: 'summary', label: 'Nội dung yêu cầu', type: 'text', required: true },
+      { name: 'description', label: 'Mô tả chi tiết', type: 'textarea', required: false },
+    ],
+    masterDraft: { customer_id: '20', requester_id: '301', project_item_id: '101', summary: 'YC mới', description: '' },
+    onMasterFieldChange: vi.fn(),
+    customers,
+    employees,
+    customerPersonnel,
+    supportServiceGroups,
+    projectItems,
+    formAttachments: [],
+    onUploadAttachment: async () => undefined,
+    onDeleteAttachment: async () => undefined,
+    isUploadingAttachment: false,
+    attachmentError: '',
+    attachmentNotice: '',
+    formIt360Tasks: [],
+    onAddIt360Task: vi.fn(),
+    onUpdateIt360TaskRow: vi.fn(),
+    onRemoveIt360TaskRow: vi.fn(),
+    formReferenceTasks: [],
+    onAddReferenceTask: vi.fn(),
+    onUpdateReferenceTaskRow: vi.fn(),
+    onRemoveReferenceTaskRow: vi.fn(),
+    taskReferenceOptions: [],
+    taskReferenceSearchTerm: '',
+    onTaskReferenceSearchTermChange: vi.fn(),
+    taskReferenceSearchError: '',
+    isTaskReferenceSearchLoading: false,
+    formTags: [],
+    onTagsChange: vi.fn(),
+    isSaving: false,
+    onSave: vi.fn(),
+    onClose: vi.fn(),
+    ...overrides,
+  };
+
+  return render(<CustomerRequestCreateModal {...props} />);
+};
+
 describe('CustomerRequestCreateModal UI', () => {
   it('renders the split create layout with a dedicated side rail for supporting sections', () => {
-    const { container } = render(
-      <CustomerRequestCreateModal
-        masterFields={[
-          { name: 'project_item_id', label: 'Khách hàng | Dự án | Sản phẩm', type: 'project_item_select', required: true },
-          { name: 'summary', label: 'Nội dung yêu cầu', type: 'text', required: true },
-          { name: 'description', label: 'Mô tả chi tiết', type: 'textarea', required: false },
-        ]}
-        masterDraft={{ customer_id: '20', project_item_id: '101', summary: 'YC mới', description: '' }}
-        onMasterFieldChange={vi.fn()}
-        customers={customers}
-        employees={employees}
-        customerPersonnel={[]}
-        supportServiceGroups={supportServiceGroups}
-        projectItems={projectItems}
-        formAttachments={[]}
-        onUploadAttachment={async () => undefined}
-        onDeleteAttachment={async () => undefined}
-        isUploadingAttachment={false}
-        attachmentError=""
-        attachmentNotice=""
-        formIt360Tasks={[]}
-        onAddIt360Task={vi.fn()}
-        onUpdateIt360TaskRow={vi.fn()}
-        onRemoveIt360TaskRow={vi.fn()}
-        formReferenceTasks={[]}
-        onAddReferenceTask={vi.fn()}
-        onUpdateReferenceTaskRow={vi.fn()}
-        onRemoveReferenceTaskRow={vi.fn()}
-        taskReferenceOptions={[]}
-        taskReferenceSearchTerm=""
-        onTaskReferenceSearchTermChange={vi.fn()}
-        taskReferenceSearchError=""
-        isTaskReferenceSearchLoading={false}
-        formTags={[]}
-        onTagsChange={vi.fn()}
-        isSaving={false}
-        onSave={vi.fn()}
-        onClose={vi.fn()}
-      />
-    );
+    const { container } = renderCreateModal();
 
     expect(screen.getByText('Tạo yêu cầu mới')).toBeInTheDocument();
     expect(screen.queryByText('Ngữ cảnh')).not.toBeInTheDocument();
@@ -134,5 +156,30 @@ describe('CustomerRequestCreateModal UI', () => {
     expect(modalPanel?.className).toContain('sm:h-[calc(100dvh-48px)]');
     expect(modalPanel?.className).toContain('rounded-none');
     expect(modalPanel?.className).toContain('sm:rounded-3xl');
+  });
+
+  it('shows add-customer-personnel action inside requester combobox and triggers callback', () => {
+    const onOpenAddCustomerPersonnelModal = vi.fn();
+    renderCreateModal({ onOpenAddCustomerPersonnelModal });
+
+    const requesterTrigger = screen.getByRole('button', { name: /Người yêu cầu/i });
+    expect(within(requesterTrigger).getByText('Trần Văn B')).toBeInTheDocument();
+    expect(within(requesterTrigger).getByText('add')).toBeInTheDocument();
+    expect(within(requesterTrigger).getByText('expand_more')).toBeInTheDocument();
+
+    const valueSlot = within(requesterTrigger).getByText('Trần Văn B');
+    expect(valueSlot.className).toContain('pr-16');
+
+    const addCustomerPersonnelAction = screen.getByRole('button', { name: 'Thêm nhân sự liên hệ' });
+    expect(addCustomerPersonnelAction).toHaveAttribute('title', 'Thêm nhân sự liên hệ');
+
+    expect(requesterTrigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(addCustomerPersonnelAction);
+    expect(onOpenAddCustomerPersonnelModal).toHaveBeenCalledTimes(1);
+    expect(requesterTrigger).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.keyDown(addCustomerPersonnelAction, { key: 'Enter' });
+    fireEvent.keyDown(addCustomerPersonnelAction, { key: ' ' });
+    expect(onOpenAddCustomerPersonnelModal).toHaveBeenCalledTimes(3);
   });
 });

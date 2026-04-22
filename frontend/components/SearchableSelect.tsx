@@ -44,6 +44,12 @@ interface SearchableSelectProps {
   autoFocusTrigger?: boolean;
   triggerButtonRef?: Ref<HTMLButtonElement>;
   onTriggerKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
+  rightAction?: {
+    icon?: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  };
   renderOptionContent?: (
     option: SearchableSelectOption,
     state: { isSelected: boolean; isHighlighted: boolean }
@@ -93,6 +99,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   autoFocusTrigger = false,
   triggerButtonRef,
   onTriggerKeyDown,
+  rightAction,
   renderOptionContent,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -531,6 +538,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
     [closeDropdown, commitCustomValue, filteredOptions, highlightedIndex, moveHighlight, selectOption]
   );
 
+  const hasRightAction = Boolean(rightAction);
   const baseTriggerClass = compact
     ? 'relative flex min-w-0 w-full items-center h-9 px-3 rounded border border-slate-200 bg-white text-left text-sm text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed'
     : 'relative flex min-w-0 w-full items-center h-10 px-3 rounded border border-slate-300 bg-white text-left text-sm text-slate-900 focus:ring-1 focus:ring-primary/30 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed';
@@ -743,10 +751,46 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
         >
           <span
             title={selectedOption?.label || placeholder}
-            className={`block min-w-0 w-full truncate pr-8 text-left leading-5 ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
+            className={`block min-w-0 w-full truncate ${hasRightAction ? 'pr-16' : 'pr-8'} text-left leading-5 ${selectedOption ? selectedOption.triggerLabelClassName || '' : 'text-slate-400'}`}
           >
             {selectedOption?.label || placeholder}
           </span>
+          {hasRightAction ? (
+            <span
+              className="absolute right-8 top-1/2 -translate-y-1/2 z-10"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!disabled && !rightAction?.disabled) {
+                  rightAction?.onClick();
+                }
+              }}
+              role="button"
+              tabIndex={disabled || rightAction?.disabled ? -1 : 0}
+              aria-label={rightAction?.label}
+              title={rightAction?.label}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!disabled && !rightAction?.disabled) {
+                    rightAction?.onClick();
+                  }
+                }
+              }}
+            >
+              <span
+                className={`material-symbols-outlined rounded-full border p-0.5 text-[14px] leading-none transition-colors ${disabled || rightAction?.disabled ? 'cursor-not-allowed border-slate-200 text-slate-300' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
+                aria-hidden="true"
+              >
+                {rightAction?.icon ?? 'add'}
+              </span>
+            </span>
+          ) : null}
           <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" style={{ fontSize: 16 }}>expand_more</span>
         </button>
 

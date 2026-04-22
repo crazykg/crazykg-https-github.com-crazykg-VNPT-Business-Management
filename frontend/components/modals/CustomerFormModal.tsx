@@ -39,6 +39,7 @@ export interface CustomerFormModalProps {
   data?: Customer | null;
   onClose: () => void;
   onSave: (data: Partial<Customer>) => Promise<void>;
+  zIndexClassName?: string;
 }
 
 export const validateCustomerForm = (formData: Partial<Customer>): CustomerFormErrors => {
@@ -85,7 +86,7 @@ export const validateCustomerForm = (formData: Partial<Customer>): CustomerFormE
   return errors;
 };
 
-export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ type, data, onClose, onSave }) => {
+export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ type, data, onClose, onSave, zIndexClassName }) => {
   const initialCustomerName = data?.customer_name || data?.company_name || '';
   const initialCustomerCode = data?.customer_code || '';
   const initialCustomerSector = normalizeCustomerSectorValue(
@@ -236,6 +237,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ type, data
       icon="domain"
       width="max-w-3xl"
       disableClose={isSubmitting}
+      zIndexClassName={zIndexClassName}
     >
       <div className="px-5 py-4 space-y-4">
         <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
