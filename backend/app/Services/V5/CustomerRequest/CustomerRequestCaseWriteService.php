@@ -1187,6 +1187,11 @@ class CustomerRequestCaseWriteService
             return $explicitHandlerId;
         }
 
+        $toUserId = $this->support->parseNullableInt($statusPayload['to_user_id'] ?? null);
+        if ($toUserId !== null) {
+            return $toUserId;
+        }
+
         $handlerField = $this->metadataService->resolveHandlerField($statusCode, $workflowDefinitionId);
         if ($handlerField !== null) {
             $resolved = $this->support->parseNullableInt($statusPayload[$handlerField] ?? null)
