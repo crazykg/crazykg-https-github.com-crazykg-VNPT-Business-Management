@@ -1252,6 +1252,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [listPageSize, setListPageSize] = useState(20);
   const [requestKeyword, setRequestKeyword] = useState('');
   const [requestHandlerKeyword, setRequestHandlerKeyword] = useState('');
+  const [requestCreatorKeyword, setRequestCreatorKeyword] = useState('');
   const [requestEntityFilter, setRequestEntityFilter] = useState<string[]>([]);
   const [requestTagFilter, setRequestTagFilter] = useState<string[]>([]);
   const [requestPriorityFilter, setRequestPriorityFilter] = useState<string[]>([]);
@@ -1266,6 +1267,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [draftActiveProcessCodes, setDraftActiveProcessCodes] = useState<string[]>([]);
   const [draftRequestKeywordInput, setDraftRequestKeywordInput] = useState('');
   const [draftRequestHandlerKeywordInput, setDraftRequestHandlerKeywordInput] = useState('');
+  const [draftRequestCreatorKeywordInput, setDraftRequestCreatorKeywordInput] = useState('');
   const [draftRequestEntityFilter, setDraftRequestEntityFilter] = useState<string[]>([]);
   const [draftRequestTagFilter, setDraftRequestTagFilter] = useState<string[]>([]);
   const [draftRequestPriorityFilter, setDraftRequestPriorityFilter] = useState<string[]>([]);
@@ -1291,6 +1293,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestKeyword(normalizedKeyword);
     const normalizedHandlerKeyword = draftRequestHandlerKeywordInput.trim();
     setRequestHandlerKeyword(normalizedHandlerKeyword);
+    const normalizedCreatorKeyword = draftRequestCreatorKeywordInput.trim();
+    setRequestCreatorKeyword(normalizedCreatorKeyword);
     setRequestEntityFilter(draftRequestEntityFilter);
     setRequestTagFilter(draftRequestTagFilter);
     setRequestPriorityFilter(draftRequestPriorityFilter);
@@ -1307,6 +1311,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     draftRequestEntityFilter,
     draftRequestKeywordInput,
     draftRequestHandlerKeywordInput,
+    draftRequestCreatorKeywordInput,
     draftRequestMissingEstimateFilter,
     draftRequestOverEstimateFilter,
     draftRequestPriorityFilter,
@@ -1509,6 +1514,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
       my_role: requestRoleFilter || undefined,
       received_by_name: requestHandlerKeyword || undefined,
+      created_by_name: requestCreatorKeyword || undefined,
       created_from: buildCreatedFromFilterValue(requestCreatedFrom),
       created_to: buildCreatedToFilterValue(requestCreatedTo),
       missing_estimate: requestMissingEstimateFilter ? (1 as const) : undefined,
@@ -1522,6 +1528,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     requestPriorityFilter,
     requestRoleFilter,
     requestHandlerKeyword,
+    requestCreatorKeyword,
     requestCreatedFrom,
     requestCreatedTo,
     requestMissingEstimateFilter,
@@ -4549,6 +4556,32 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 </label>
 
                 <label className="relative w-[180px] shrink-0">
+                  <span className="sr-only">Tìm người nhập yêu cầu</span>
+                  <span
+                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    style={{ fontSize: 16 }}
+                  >
+                    person_add
+                  </span>
+                  <input
+                    value={draftRequestCreatorKeywordInput}
+                    onChange={(event) => {
+                      setDraftRequestCreatorKeywordInput(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        if (canSubmitFilters) {
+                          handleSubmitKeywordSearch();
+                        }
+                      }
+                    }}
+                    placeholder="Người nhập..."
+                    className={sharedSearchFieldClass}
+                  />
+                </label>
+
+                <label className="relative w-[180px] shrink-0">
                   <span className="sr-only">Tìm người xử lý</span>
                   <span
                     className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4615,7 +4648,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           </div>
         ) : (
           <div
-            className="grid gap-2 xl:grid-cols-[156px_156px_180px_minmax(0,1fr)_150px_180px_auto]"
+            className="grid gap-2 xl:grid-cols-[156px_156px_150px_150px_minmax(0,1fr)_120px_180px_auto]"
           >
             <label>
               <span className="sr-only">Từ ngày tạo</span>
@@ -4641,7 +4674,33 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               />
             </label>
 
-            <label className="relative w-[180px] shrink-0">
+            <label className="relative w-[150px] shrink-0">
+              <span className="sr-only">Tìm người nhập yêu cầu</span>
+              <span
+                className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                style={{ fontSize: 16 }}
+              >
+                person_add
+              </span>
+              <input
+                value={draftRequestCreatorKeywordInput}
+                onChange={(event) => {
+                  setDraftRequestCreatorKeywordInput(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (canSubmitFilters) {
+                      handleSubmitKeywordSearch();
+                    }
+                  }
+                }}
+                placeholder="Người nhập..."
+                className={sharedSearchFieldClass}
+              />
+            </label>
+
+            <label className="relative w-[150px] shrink-0">
               <span className="sr-only">Tìm người xử lý</span>
               <span
                 className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4703,21 +4762,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               <span>Tìm kiếm</span>
             </button>
 
-            <SearchableMultiSelect
-              values={draftActiveProcessCodes}
-              options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
-              onChange={(values) => {
-                setDraftActiveProcessCodes(values);
-              }}
-              label=""
-              placeholder="Tiến trình"
-              searchPlaceholder="Tìm tiến trình..."
-              usePortal
-              portalZIndex={70}
-              triggerClassName={sharedSelectTriggerClass}
-              showSelectedChips={false}
-            />
-
             {!isAnalyticsSurface ? (
               <button
                 type="button"
@@ -4741,25 +4785,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             className={`grid gap-2 ${
               isCompactTopShell
                 ? 'grid-cols-1'
-                : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_auto]'
+                : 'xl:grid-cols-[minmax(0,1fr)_200px_200px_200px_auto]'
             }`}
           >
-            {isCompactTopShell ? (
-              <SearchableMultiSelect
-                values={draftActiveProcessCodes}
-                options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
-                onChange={(values) => {
-                  setDraftActiveProcessCodes(values);
-                }}
-                label=""
-                placeholder="Tiến trình"
-                searchPlaceholder="Tìm tiến trình..."
-                usePortal
-                portalZIndex={70}
-                triggerClassName={sharedSelectTriggerClass}
-                showSelectedChips={false}
-              />
-            ) : null}
             <SearchableMultiSelect
               values={draftRequestEntityFilter}
               options={entityFilterOptions}
@@ -4783,6 +4811,20 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               label=""
               placeholder="Tags"
               searchPlaceholder="Tìm tags..."
+              usePortal
+              portalZIndex={70}
+              triggerClassName={sharedSelectTriggerClass}
+              showSelectedChips={false}
+            />
+            <SearchableMultiSelect
+              values={draftActiveProcessCodes}
+              options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+              onChange={(values) => {
+                setDraftActiveProcessCodes(values);
+              }}
+              label=""
+              placeholder="Tiến trình"
+              searchPlaceholder="Tìm tiến trình..."
               usePortal
               portalZIndex={70}
               triggerClassName={sharedSelectTriggerClass}

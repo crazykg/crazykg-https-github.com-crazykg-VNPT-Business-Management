@@ -489,6 +489,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       maxHeightClass=""
       panelClassName="rounded-none sm:rounded-3xl"
       disableClose={isSaving}
+      disableBackdropClose={true}
       headerClassName="bg-white px-3 py-2 sm:px-4 lg:px-4 xl:px-5"
       onClose={onClose}
     >

@@ -453,20 +453,6 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
           : '2xl:grid-cols-[minmax(0,1fr)_190px]'
       }`}
     >
-      {isMobile ? (
-        <SearchableMultiSelect
-          values={activeProcessCodes}
-          options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
-          onChange={onProcessCodesChange}
-          label=""
-          placeholder="Tiến trình"
-          searchPlaceholder="Tìm tiến trình..."
-          usePortal
-          portalZIndex={60}
-          triggerClassName={toolbarSelectTriggerClass}
-          showSelectedChips={false}
-        />
-      ) : null}
       <SearchableMultiSelect
         values={requestEntityFilter}
         options={entityFilterOptions}
@@ -486,6 +472,18 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
         label=""
         placeholder="Tags"
         searchPlaceholder="Tìm tags..."
+        usePortal
+        portalZIndex={60}
+        triggerClassName={toolbarSelectTriggerClass}
+        showSelectedChips={false}
+      />
+      <SearchableMultiSelect
+        values={activeProcessCodes}
+        options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
+        onChange={onProcessCodesChange}
+        label=""
+        placeholder="Tiến trình"
+        searchPlaceholder="Tìm tiến trình..."
         usePortal
         portalZIndex={60}
         triggerClassName={toolbarSelectTriggerClass}
@@ -711,18 +709,6 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                         <span className="material-symbols-outlined text-[17px]">search</span>
                         <span>Tìm kiếm</span>
                       </button>
-                      <SearchableMultiSelect
-                        values={activeProcessCodes}
-                        options={processOptions.filter((option) => String(option.value ?? '').trim() !== '')}
-                        onChange={onProcessCodesChange}
-                        label=""
-                        placeholder="Tiến trình"
-                        searchPlaceholder="Tìm tiến trình..."
-                        usePortal
-                        portalZIndex={60}
-                        triggerClassName={toolbarSelectTriggerClass}
-                        showSelectedChips={false}
-                      />
                     </div>
                     <div className="flex shrink-0 items-center gap-2 lg:justify-end">
                       <button

@@ -715,6 +715,11 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                   </span>
                   {entry.trang_thai_cu ? (
                     <span className="text-xs text-slate-400">từ {entry.trang_thai_cu}</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">chuyển tiếp</span>
+                  )}
+                  {entry.nguoi_xu_ly_name ? (
+                    <span className="text-xs text-slate-500">• giao cho <span className="font-medium text-slate-700">{entry.nguoi_xu_ly_name}</span></span>
                   ) : null}
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500">

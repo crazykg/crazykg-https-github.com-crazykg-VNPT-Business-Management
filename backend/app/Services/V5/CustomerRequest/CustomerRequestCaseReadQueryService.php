@@ -119,6 +119,11 @@ class CustomerRequestCaseReadQueryService
             $query->where('current_handler.full_name', 'like', '%'.$receivedByName.'%');
         }
 
+        $createdByName = $this->normalizeNullableString($request->query('created_by_name'));
+        if ($createdByName !== null) {
+            $query->where('creator.full_name', 'like', '%'.$createdByName.'%');
+        }
+
         $myRole = $this->normalizeNullableString($request->query('my_role'));
         if ($actorId !== null && $myRole !== null) {
             match ($myRole) {

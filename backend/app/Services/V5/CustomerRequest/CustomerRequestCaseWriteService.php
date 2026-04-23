@@ -250,44 +250,18 @@ class CustomerRequestCaseWriteService
                 $case->requester_name_snapshot
             );
 
-            if ($targetStatusCode === $currentStatusCode) {
-                $currentInstance = $this->currentStatusInstance($case);
-                if ($currentInstance === null) {
-                    throw new \RuntimeException('Thiếu trạng thái hiện tại.');
-                }
+            // Luôn tạo status instance mới (cho phép re-transition cùng status tạo timeline entry mới)
+            $transition = $this->createStatusInstanceAndRow(
+                $case,
+                $statusDefinition,
+                $statusPayload,
+                $actorId,
+                $this->currentStatusInstance($case),
+                $transitionDecisionMetadata
+            );
 
-                $rowId = $this->upsertStatusRow(
-                    $statusDefinition,
-                    (int) $case->id,
-                    (int) $currentInstance->id,
-                    $statusPayload,
-                    $actorId,
-                    $this->support->parseNullableInt($currentInstance->status_row_id)
-                );
-
-                DB::table('customer_request_status_instances')
-                    ->where('id', $currentInstance->id)
-                    ->update($this->filterByTableColumns('customer_request_status_instances', [
-                        'status_row_id' => $rowId,
-                        'updated_by' => $actorId,
-                        'updated_at' => now(),
-                    ]));
-
-                $this->syncCaseCurrentStatus($case, $statusDefinition, (int) $currentInstance->id, $statusPayload, $actorId);
-                $this->syncCurrentStatusRelations((int) $case->id, (int) $currentInstance->id, $request, $actorId);
-            } else {
-                $transition = $this->createStatusInstanceAndRow(
-                    $case,
-                    $statusDefinition,
-                    $statusPayload,
-                    $actorId,
-                    $this->currentStatusInstance($case),
-                    $transitionDecisionMetadata
-                );
-
-                $this->syncCaseCurrentStatus($case, $statusDefinition, $transition['instance_id'], $statusPayload, $actorId);
-                $this->syncCurrentStatusRelations((int) $case->id, $transition['instance_id'], $request, $actorId);
-            }
+            $this->syncCaseCurrentStatus($case, $statusDefinition, $transition['instance_id'], $statusPayload, $actorId);
+            $this->syncCurrentStatusRelations((int) $case->id, $transition['instance_id'], $request, $actorId);
 
             $case->save();
             $fresh = $case->fresh() ?? $case;
@@ -331,14 +305,7 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
         }
 
-        if ((string) $case->current_status_code === $targetStatusCode) {
-            return response()->json([
-                'message' => 'Không thể chuyển sang chính trạng thái hiện tại.',
-                'errors' => [
-                    'to_status_code' => ['Không thể chuyển sang chính trạng thái hiện tại.'],
-                ],
-            ], 422);
-        }
+        // Cho phép chuyển sang cùng status (re-transition) - useful để update handler, notes, v.v.
 
         return $this->saveStatus($request, $id, $targetStatusCode, $buildStatusDetailData);
     }
@@ -1182,11 +1149,6 @@ class CustomerRequestCaseWriteService
         ?int $actorId,
         ?int $workflowDefinitionId = null
     ): ?int {
-        $explicitHandlerId = $this->support->parseNullableInt($statusPayload['nguoi_xu_ly_id'] ?? null);
-        if ($explicitHandlerId !== null) {
-            return $explicitHandlerId;
-        }
-
         $toUserId = $this->support->parseNullableInt($statusPayload['to_user_id'] ?? null);
         if ($toUserId !== null) {
             return $toUserId;
@@ -1515,9 +1477,7 @@ class CustomerRequestCaseWriteService
 
     private function assertTransitionAllowed(CustomerRequestCase $case, string $fromStatusCode, string $toStatusCode): void
     {
-        if ($fromStatusCode === $toStatusCode) {
-            throw new \RuntimeException('Không thể chuyển sang chính trạng thái hiện tại.');
-        }
+        // Cho phép chuyển sang cùng status (re-transition) - useful để update handler, notes, v.v.
 
         if (! $this->isTransitionAllowedForCase($case, $fromStatusCode, $toStatusCode)) {
             throw new \RuntimeException('Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');
