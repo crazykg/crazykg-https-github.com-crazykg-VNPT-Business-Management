@@ -560,6 +560,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::patch('/project-procedure-worklogs/{logId}', [ProjectProcedureController::class, 'updateWorklog'])
             ->middleware('permission:projects.write');
+        Route::delete('/project-procedure-worklogs/{logId}', [ProjectProcedureController::class, 'deleteWorklog'])
+            ->middleware('permission:projects.write');
         Route::get('/project-procedures/{procedureId}/worklogs', [ProjectProcedureController::class, 'procedureWorklogs'])
             ->middleware('permission:projects.read');
         // Shared issues
@@ -785,12 +787,24 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:products.write|support_requests.write');
         Route::put('/product-unit-masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
             ->middleware('permission:products.write|support_requests.write');
+        Route::get('/contract-signer-masters', [SupportConfigController::class, 'contractSignerMasters'])
+            ->middleware(['permission:contracts.read', 'permission:support_requests.read']);
+        Route::post('/contract-signer-masters', [SupportConfigController::class, 'storeContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
+        Route::put('/contract-signer-masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
         Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
             ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
         Route::post('/product_unit_masters', [SupportConfigController::class, 'storeProductUnitMaster'])
             ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
         Route::put('/product_unit_masters/{id}', [SupportConfigController::class, 'updateProductUnitMaster'])
             ->middleware(['permission:products.write|support_requests.write', 'deprecated.route:/api/v5/product-unit-masters/{id},2026-04-27']);
+        Route::get('/contract_signer_masters', [SupportConfigController::class, 'contractSignerMasters'])
+            ->middleware(['permission:contracts.read', 'permission:support_requests.read', 'deprecated.route:/api/v5/contract-signer-masters,2026-04-27']);
+        Route::post('/contract_signer_masters', [SupportConfigController::class, 'storeContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters,2026-04-27']);
+        Route::put('/contract_signer_masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
+            ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters/{id},2026-04-27']);
 
         Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
             ->middleware('permission:support_contact_positions.read');

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import {
   addStepWorklog,
+  deleteStepWorklog,
   fetchStepWorklogs,
   updateIssueStatus,
   updateStepWorklog,
@@ -13,6 +14,9 @@ import type {
 } from '../../../types';
 
 type ProcedureNotify = ((type: string, title: string, message: string) => void) | undefined;
+
+const isCountableWorklog = (log: Pick<ProcedureStepWorklog, 'log_type' | 'content'>): boolean =>
+  log.log_type !== 'CUSTOM' && log.content.trim().length > 0;
 
 interface UseProcedureStepWorklogsParams {
   inflightRef: MutableRefObject<Set<string>>;
@@ -44,6 +48,7 @@ export const useProcedureStepWorklogs = ({
   const [editWorklogProposal, setEditWorklogProposal] = useState('');
   const [editWorklogStatus, setEditWorklogStatus] = useState<IssueStatus>('JUST_ENCOUNTERED');
   const [editWorklogSaving, setEditWorklogSaving] = useState(false);
+  const [deletingWorklogId, setDeletingWorklogId] = useState<string | number | null>(null);
 
   const closeStepWorklogPanel = useCallback(() => {
     setOpenWorklogStep(null);
@@ -65,6 +70,7 @@ export const useProcedureStepWorklogs = ({
     setEditWorklogProposal('');
     setEditWorklogStatus('JUST_ENCOUNTERED');
     setEditWorklogSaving(false);
+    setDeletingWorklogId(null);
   }, []);
 
   const handleToggleStepWorklog = useCallback(async (stepId: string | number) => {
@@ -116,8 +122,8 @@ export const useProcedureStepWorklogs = ({
         String(step.id) === sid
           ? {
               ...step,
-              worklogs_count: (step.worklogs_count ?? 0) + 1,
-              blocking_worklogs_count: (step.blocking_worklogs_count ?? 0) + (log.log_type === 'CUSTOM' ? 0 : 1),
+              worklogs_count: (step.worklogs_count ?? 0) + (isCountableWorklog(log) ? 1 : 0),
+              blocking_worklogs_count: (step.blocking_worklogs_count ?? 0) + (isCountableWorklog(log) ? 1 : 0),
             }
           : step
       ));
@@ -240,6 +246,61 @@ export const useProcedureStepWorklogs = ({
     setWorklogs,
   ]);
 
+  const handleDeleteStepWorklog = useCallback(async (
+    stepId: string | number,
+    log: ProcedureStepWorklog,
+  ) => {
+    if (deletingWorklogId !== null || editWorklogSaving) {
+      return;
+    }
+
+    if (!window.confirm('Bạn có chắc muốn xoá worklog này?')) {
+      return;
+    }
+
+    setDeletingWorklogId(log.id);
+    try {
+      await deleteStepWorklog(log.id);
+      setStepWorklogs((prev) => {
+        const sid = String(stepId);
+        const list = prev[sid] || [];
+        return {
+          ...prev,
+          [sid]: list.filter((item) => String(item.id) !== String(log.id)),
+        };
+      });
+      setSteps((prev) => prev.map((step) =>
+        String(step.id) === String(stepId)
+          ? {
+              ...step,
+              worklogs_count: Math.max(0, (step.worklogs_count ?? (isCountableWorklog(log) ? 1 : 0)) - (isCountableWorklog(log) ? 1 : 0)),
+              blocking_worklogs_count: Math.max(
+                0,
+                (step.blocking_worklogs_count ?? (isCountableWorklog(log) ? 1 : 0)) - (isCountableWorklog(log) ? 1 : 0),
+              ),
+            }
+          : step
+      ));
+      setWorklogs((prev) => prev.filter((item) => String(item.id) !== String(log.id)));
+
+      if (String(editingWorklogId) === String(log.id)) {
+        handleCancelEditWorklog();
+      }
+    } catch (error: any) {
+      onNotify?.('error', 'Lỗi', error?.message || 'Không thể xoá worklog');
+    } finally {
+      setDeletingWorklogId(null);
+    }
+  }, [
+    deletingWorklogId,
+    editWorklogSaving,
+    editingWorklogId,
+    handleCancelEditWorklog,
+    onNotify,
+    setSteps,
+    setWorklogs,
+  ]);
+
   const handleSetWlogInput = useCallback((stepId: string | number, value: string) => {
     setStepWorklogInput((prev) => ({ ...prev, [String(stepId)]: value }));
   }, []);
@@ -276,6 +337,7 @@ export const useProcedureStepWorklogs = ({
     editWorklogProposal,
     editWorklogStatus,
     editWorklogSaving,
+    deletingWorklogId,
     setEditWorklogContent,
     setEditWorklogHours,
     setEditWorklogDiff,
@@ -289,6 +351,7 @@ export const useProcedureStepWorklogs = ({
     handleStartEditWorklog,
     handleCancelEditWorklog,
     handleSaveEditWorklog,
+    handleDeleteStepWorklog,
     handleSetWlogInput,
     handleSetWlogHours,
     handleSetWlogDifficulty,

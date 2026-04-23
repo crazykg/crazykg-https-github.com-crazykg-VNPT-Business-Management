@@ -922,6 +922,18 @@ export const updateStepWorklog = async (
   return parseItemJson<ProcedureStepWorklog>(res);
 };
 
+export const deleteStepWorklog = async (logId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedure-worklogs/${logId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'DELETE_WORKLOG_FAILED'));
+  }
+};
+
 export const updateIssueStatus = async (
   issueId: string | number,
   status: IssueStatus

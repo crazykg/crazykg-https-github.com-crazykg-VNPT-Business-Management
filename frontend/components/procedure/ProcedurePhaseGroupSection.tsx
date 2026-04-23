@@ -91,6 +91,7 @@ interface ProcedurePhaseGroupSectionProps {
   editWorklogProposal: string;
   editWorklogStatus: IssueStatus;
   editWorklogSaving: boolean;
+  deletingWorklogId: string | number | null;
   openWorklogStep: string | number | null;
   onDraftChange: StepRowProps['onDraftChange'];
   onStartDateChange: StepRowProps['onStartDateChange'];
@@ -111,6 +112,7 @@ interface ProcedurePhaseGroupSectionProps {
   onStartEditWorklog: StepRowProps['onStartEditWorklog'];
   onCancelEditWorklog: StepRowProps['onCancelEditWorklog'];
   onSaveEditWorklog: StepRowProps['onSaveEditWorklog'];
+  onDeleteWorklog: StepRowProps['onDeleteWorklog'];
   onSetWlogInput: StepRowProps['onSetWlogInput'];
   onSetWlogHours: StepRowProps['onSetWlogHours'];
   onSetWlogDifficulty: StepRowProps['onSetWlogDifficulty'];
@@ -201,6 +203,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   editWorklogProposal,
   editWorklogStatus,
   editWorklogSaving,
+  deletingWorklogId,
   openWorklogStep,
   onDraftChange,
   onStartDateChange,
@@ -221,6 +224,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   onStartEditWorklog,
   onCancelEditWorklog,
   onSaveEditWorklog,
+  onDeleteWorklog,
   onSetWlogInput,
   onSetWlogHours,
   onSetWlogDifficulty,
@@ -443,6 +447,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 editWorklogProposal={editWorklogProposal}
                 editWorklogStatus={editWorklogStatus}
                 editWorklogSaving={editWorklogSaving}
+                deletingWorklogId={deletingWorklogId}
                 onDraftChange={onDraftChange}
                 onStartDateChange={onStartDateChange}
                 onReorder={onReorder}
@@ -462,6 +467,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 onStartEditWorklog={onStartEditWorklog}
                 onCancelEditWorklog={onCancelEditWorklog}
                 onSaveEditWorklog={onSaveEditWorklog}
+                onDeleteWorklog={onDeleteWorklog}
                 onSetWlogInput={onSetWlogInput}
                 onSetWlogHours={onSetWlogHours}
                 onSetWlogDifficulty={onSetWlogDifficulty}

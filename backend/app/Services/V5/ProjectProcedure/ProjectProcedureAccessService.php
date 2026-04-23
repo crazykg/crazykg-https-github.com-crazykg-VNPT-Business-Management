@@ -182,6 +182,30 @@ class ProjectProcedureAccessService
             && (int) $step->created_by === $userId;
     }
 
+    public function canMutateWorklog(ProjectProcedureStepWorklog $worklog, ?int $userId): bool
+    {
+        if ($userId === null) {
+            return false;
+        }
+
+        if ($this->userAccess->isAdmin($userId)) {
+            return true;
+        }
+
+        $isRaciA = ProjectProcedureRaci::query()
+            ->where('procedure_id', $worklog->procedure_id)
+            ->where('user_id', $userId)
+            ->where('raci_role', 'A')
+            ->exists();
+
+        if ($isRaciA) {
+            return true;
+        }
+
+        return $worklog->created_by !== null
+            && (int) $worklog->created_by === $userId;
+    }
+
     public function resolveInsertSortOrder(
         int $procedureId,
         ?ProjectProcedureStep $parentStep,

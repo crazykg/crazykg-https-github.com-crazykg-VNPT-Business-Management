@@ -651,7 +651,7 @@ export const useContractForm = ({
         product_package_id: null,
         product_code: product?.product_code || null,
         product_name: product?.product_name || null,
-        unit: product?.unit || null,
+        unit: normalizeSnapshotText(product?.unit) ?? 'Gói',
         unit_price: nextUnitPrice,
         vat_rate: defaultVatRate,
         vat_amount: computeVatAmountByRate(amountBeforeVat, defaultVatRate),

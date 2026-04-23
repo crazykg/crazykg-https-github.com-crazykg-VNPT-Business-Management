@@ -11,6 +11,7 @@ const baseWorklog: ProcedureStepWorklog = {
   step_id: 7001,
   log_type: 'NOTE',
   content: 'Đã trao đổi với đơn vị',
+  created_by: 22,
   created_at: '2026-03-30T08:00:00Z',
   creator: {
     id: 22,
@@ -34,6 +35,7 @@ describe('ProcedureStepWorklogPanel', () => {
     const onAddWorklog = vi.fn();
     const onUpdateIssueStatus = vi.fn();
     const onStartEditWorklog = vi.fn();
+    const onDeleteWorklog = vi.fn();
     const onSetWlogInput = vi.fn();
     const onSetWlogHours = vi.fn();
     const onSetWlogDifficulty = vi.fn();
@@ -59,11 +61,16 @@ describe('ProcedureStepWorklogPanel', () => {
             editWorklogProposal=""
             editWorklogStatus="JUST_ENCOUNTERED"
             editWorklogSaving={false}
+            deletingWorklogId={null}
+            isAdmin={false}
+            isRaciA={false}
+            myId="22"
             onAddWorklog={onAddWorklog}
             onUpdateIssueStatus={onUpdateIssueStatus}
             onStartEditWorklog={onStartEditWorklog}
             onCancelEditWorklog={vi.fn()}
             onSaveEditWorklog={vi.fn()}
+            onDeleteWorklog={onDeleteWorklog}
             onSetWlogInput={onSetWlogInput}
             onSetWlogHours={onSetWlogHours}
             onSetWlogDifficulty={onSetWlogDifficulty}
@@ -102,7 +109,10 @@ describe('ProcedureStepWorklogPanel', () => {
     await user.click(screen.getByTitle('Chỉnh sửa'));
     expect(onStartEditWorklog).toHaveBeenCalledWith(baseWorklog);
 
-    await user.click(screen.getByRole('button', { name: /Đã giải quyết/i }));
+    await user.click(screen.getByTitle('Xóa'));
+    expect(onDeleteWorklog).toHaveBeenCalledWith(baseWorklog);
+
+    fireEvent.change(screen.getByTestId('step-worklog-issue-status-8101'), { target: { value: 'RESOLVED' } });
     expect(onUpdateIssueStatus).toHaveBeenCalledWith(9901, 'RESOLVED');
   });
 
@@ -135,11 +145,16 @@ describe('ProcedureStepWorklogPanel', () => {
             editWorklogProposal="Bổ sung biên bản bàn giao"
             editWorklogStatus="IN_PROGRESS"
             editWorklogSaving={false}
+            deletingWorklogId={null}
+            isAdmin={false}
+            isRaciA={false}
+            myId="22"
             onAddWorklog={vi.fn()}
             onUpdateIssueStatus={vi.fn()}
             onStartEditWorklog={vi.fn()}
             onCancelEditWorklog={onCancelEditWorklog}
             onSaveEditWorklog={onSaveEditWorklog}
+            onDeleteWorklog={vi.fn()}
             onSetWlogInput={vi.fn()}
             onSetWlogHours={vi.fn()}
             onSetWlogDifficulty={vi.fn()}

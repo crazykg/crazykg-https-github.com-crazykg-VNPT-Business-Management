@@ -62,11 +62,16 @@ interface ProcedureStepWorklogPanelProps {
   editWorklogProposal: string;
   editWorklogStatus: IssueStatus;
   editWorklogSaving: boolean;
+  deletingWorklogId: string | number | null;
+  isAdmin: boolean;
+  isRaciA: boolean;
+  myId: string;
   onAddWorklog: () => void;
   onUpdateIssueStatus: (issueId: string | number, status: IssueStatus) => void;
   onStartEditWorklog: (log: ProcedureStepWorklog) => void;
   onCancelEditWorklog: () => void;
   onSaveEditWorklog: (logId: string | number) => void;
+  onDeleteWorklog: (log: ProcedureStepWorklog) => void;
   onSetWlogInput: (value: string) => void;
   onSetWlogHours: (value: string) => void;
   onSetWlogDifficulty: (value: string) => void;
@@ -95,11 +100,16 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
   editWorklogProposal,
   editWorklogStatus,
   editWorklogSaving,
+  deletingWorklogId,
+  isAdmin,
+  isRaciA,
+  myId,
   onAddWorklog,
   onUpdateIssueStatus,
   onStartEditWorklog,
   onCancelEditWorklog,
   onSaveEditWorklog,
+  onDeleteWorklog,
   onSetWlogInput,
   onSetWlogHours,
   onSetWlogDifficulty,
@@ -180,7 +190,13 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
 
         {wlogs.length > 0 ? (
           <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
-            {wlogs.map((log) => (
+            {wlogs.map((log) => {
+              const canDeleteLog =
+                log.log_type === 'NOTE'
+                && (isAdmin || isRaciA || (!!myId && String(log.created_by ?? '') === String(myId)));
+              const isDeletingLog = String(deletingWorklogId ?? '') === String(log.id);
+
+              return (
               <div key={log.id} className="flex items-start gap-2 text-xs group">
                 <span className={`p-1 rounded-full shrink-0 ${WORKLOG_COLOR[log.log_type] || 'bg-slate-100 text-slate-400'}`}>
                   <span className="material-symbols-outlined text-xs leading-none">{WORKLOG_ICON[log.log_type] || 'info'}</span>
@@ -257,13 +273,29 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
                           </span>
                         )}
                         {log.log_type === 'NOTE' && (
-                          <button
-                            onClick={() => onStartEditWorklog(log)}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-violet-500 transition-all"
-                            title="Chỉnh sửa"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">edit</span>
-                          </button>
+                          <>
+                            <button
+                              onClick={() => onStartEditWorklog(log)}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-violet-500 transition-all"
+                              title="Chỉnh sửa"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">edit</span>
+                            </button>
+                            {canDeleteLog ? (
+                              <button
+                                type="button"
+                                onClick={() => onDeleteWorklog(log)}
+                                disabled={isDeletingLog}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-error disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                                title="Xóa"
+                                aria-label={`Xóa worklog ${log.content}`}
+                              >
+                                <span className="material-symbols-outlined text-[12px]">
+                                  {isDeletingLog ? 'progress_activity' : 'delete'}
+                                </span>
+                              </button>
+                            ) : null}
+                          </>
                         )}
                       </div>
                       {log.issue && (
@@ -271,24 +303,22 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
                           <div className="flex items-start gap-1.5 flex-wrap">
                             <span className="material-symbols-outlined text-[10px] text-orange-400 mt-0.5">warning</span>
                             <span className="text-slate-600 text-[11px] flex-1">{log.issue.issue_content}</span>
-                            <div className="relative group/status">
-                              <button className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
-                                {ISSUE_STATUS_META[log.issue.issue_status]?.label || log.issue.issue_status}
-                                <span className="material-symbols-outlined text-[10px]">expand_more</span>
-                              </button>
-                              <div className="absolute left-0 top-full mt-1 z-20 hidden group-hover/status:flex flex-col bg-white border border-slate-200 rounded-lg shadow-lg min-w-[130px] overflow-hidden">
-                                {(['JUST_ENCOUNTERED', 'IN_PROGRESS', 'RESOLVED'] as IssueStatus[]).map((status) => (
-                                  <button
-                                    key={status}
-                                    onClick={() => onUpdateIssueStatus(log.issue!.id, status)}
-                                    className={`text-left px-3 py-1.5 text-[11px] hover:bg-slate-50 ${status === log.issue!.issue_status ? 'font-semibold' : ''} ${ISSUE_STATUS_META[status]?.color || ''}`}
-                                  >
-                                    <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${ISSUE_STATUS_META[status]?.dot || ''}`} />
-                                    {ISSUE_STATUS_META[status]?.label || status}
-                                  </button>
-                                ))}
-                              </div>
+                            <div className="relative shrink-0">
+                              <span className={`pointer-events-none absolute left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
+                              <select
+                                value={log.issue.issue_status}
+                                onChange={(e) => onUpdateIssueStatus(log.issue!.id, e.target.value as IssueStatus)}
+                                data-testid={`step-worklog-issue-status-${log.id}`}
+                                aria-label={`Trạng thái khó khăn ${log.issue.issue_content}`}
+                                className={`appearance-none rounded-full border py-0.5 pl-5 pr-6 text-[10px] font-semibold outline-none transition-colors ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}
+                              >
+                                <option value="JUST_ENCOUNTERED">Vừa gặp</option>
+                                <option value="IN_PROGRESS">Đang xử lý</option>
+                                <option value="RESOLVED">Đã giải quyết</option>
+                              </select>
+                              <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-current/70">
+                                expand_more
+                              </span>
                             </div>
                           </div>
                           {log.issue.proposal_content && (
@@ -308,7 +338,8 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
                   )}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         ) : (
           <p className="text-xs text-slate-400 italic">Chưa có worklog cho bước này.</p>

@@ -50,6 +50,7 @@ interface SearchableSelectProps {
     onClick: () => void;
     disabled?: boolean;
   };
+  renderDropdownHeader?: ReactNode;
   renderOptionContent?: (
     option: SearchableSelectOption,
     state: { isSelected: boolean; isHighlighted: boolean }
@@ -100,6 +101,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
   triggerButtonRef,
   onTriggerKeyDown,
   rightAction,
+  renderDropdownHeader,
   renderOptionContent,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -840,6 +842,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
             </div>
           </div>
 
+          {renderDropdownHeader ? (
+            <div className="border-b border-slate-100 bg-slate-50/80">
+              {renderDropdownHeader}
+            </div>
+          ) : null}
+
           {renderDropdownOptions()}
         </div>, document.body
         ) : <div
@@ -873,6 +881,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = React.memo(func
               ) : null}
             </div>
           </div>
+
+          {renderDropdownHeader ? (
+            <div className="border-b border-slate-100 bg-slate-50/80">
+              {renderDropdownHeader}
+            </div>
+          ) : null}
 
           {renderDropdownOptions()}
         </div>)

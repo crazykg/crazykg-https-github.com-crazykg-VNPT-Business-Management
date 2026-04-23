@@ -50,7 +50,7 @@ vi.mock('../services/api/projectApi', async () => {
 });
 
 describe('Project product search dropdown', () => {
-  it('searches project packages by code, name, unit, and price while showing a 4-column dropdown', async () => {
+  it('searches project packages by code, name, description, unit, and price while showing a 5-column dropdown', async () => {
     const user = userEvent.setup();
     const products: Product[] = [
       {
@@ -82,7 +82,7 @@ describe('Project product search dropdown', () => {
         parent_product_code: 'SOC_PARENT',
         standard_price: 180000000,
         unit: null,
-        description: null,
+        description: 'Giám sát an toàn thông tin 24/7',
       },
       {
         id: 2,
@@ -93,7 +93,7 @@ describe('Project product search dropdown', () => {
         parent_product_code: 'EMR_PARENT',
         standard_price: 2500000,
         unit: 'Người dùng/Tháng',
-        description: null,
+        description: 'Hồ sơ bệnh án điện tử nội trú',
       },
     ];
 
@@ -145,8 +145,11 @@ describe('Project product search dropdown', () => {
     expect(dropdownHeader).not.toBeNull();
     expect(within(dropdownHeader as HTMLElement).getByText('Mã gói')).toBeInTheDocument();
     expect(within(dropdownHeader as HTMLElement).getByText('Tên hạng mục')).toBeInTheDocument();
+    expect(within(dropdownHeader as HTMLElement).getByText('Mô tả')).toBeInTheDocument();
     expect(within(dropdownHeader as HTMLElement).getByText('ĐVT')).toBeInTheDocument();
     expect(within(dropdownHeader as HTMLElement).getByText('Đơn giá')).toBeInTheDocument();
+    expect(screen.queryByText('% CK')).not.toBeInTheDocument();
+    expect(screen.queryByText('Giảm giá')).not.toBeInTheDocument();
 
     const searchInput = screen.getByPlaceholderText('Tìm kiếm...');
 
@@ -170,10 +173,16 @@ describe('Project product search dropdown', () => {
     expect(screen.queryByText('Phần mềm Bệnh án điện tử')).not.toBeInTheDocument();
 
     await user.clear(searchInput);
+    await user.type(searchInput, 'an toàn thông tin');
+    expect(screen.getByText('Dịch vụ giám sát SOC')).toBeInTheDocument();
+    expect(screen.queryByText('Phần mềm Bệnh án điện tử')).not.toBeInTheDocument();
+
+    await user.clear(searchInput);
     await user.type(searchInput, '180.000.000');
     const socOption = screen.getByText('Dịch vụ giám sát SOC').closest('button');
     expect(socOption).not.toBeNull();
     expect(within(socOption as HTMLElement).getByText('SOC_MON')).toBeInTheDocument();
+    expect(within(socOption as HTMLElement).getByText('Giám sát an toàn thông tin 24/7')).toBeInTheDocument();
     expect(within(socOption as HTMLElement).getByText('Gói/Năm')).toBeInTheDocument();
     expect(within(socOption as HTMLElement).getByText('180.000.000')).toBeInTheDocument();
 
@@ -356,13 +365,6 @@ describe('Project product search dropdown', () => {
     expect(screen.getByLabelText(/Đơn giá hạng mục dòng 1/i)).toHaveFocus();
 
     await user.keyboard('{Enter}');
-    expect(screen.getByLabelText(/Phần trăm chiết khấu hạng mục dòng 1/i)).toHaveFocus();
-
-    await user.keyboard('{Enter}');
-    expect(screen.getByLabelText(/Giảm giá hạng mục dòng 1/i)).toHaveFocus();
-
-    await user.keyboard('{Enter}');
-
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Chọn hạng mục/i })).toHaveLength(1);
       expect(screen.getByRole('button', { name: /Chọn hạng mục/i })).toHaveFocus();

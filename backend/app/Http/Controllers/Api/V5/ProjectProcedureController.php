@@ -138,6 +138,11 @@ class ProjectProcedureController extends V5BaseController
         return $this->worklogs->updateWorklog($request, $logId);
     }
 
+    public function deleteWorklog(Request $request, int $logId): JsonResponse
+    {
+        return $this->worklogs->deleteWorklog($request, $logId);
+    }
+
     public function reorderSteps(Request $request): JsonResponse
     {
         return $this->steps->reorderSteps($request);
