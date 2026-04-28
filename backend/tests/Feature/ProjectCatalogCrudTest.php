@@ -120,6 +120,7 @@ class ProjectCatalogCrudTest extends TestCase
             'project_id' => 1,
             'product_id' => 10,
             'product_package_id' => 101,
+            'unit' => '4 May/Thang',
             'quantity' => 2,
             'unit_price' => 3.5,
             'created_at' => now(),
@@ -140,7 +141,7 @@ class ProjectCatalogCrudTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.customer_name', 'Khach hang A')
-            ->assertJsonPath('data.0.unit', 'goi')
+            ->assertJsonPath('data.0.unit', '4 May/Thang')
             ->assertJsonPath('data.0.quantity', 2)
             ->assertJsonPath('data.0.unit_price', 3.5);
     }
@@ -189,6 +190,7 @@ class ProjectCatalogCrudTest extends TestCase
             'items' => [[
                 'product_id' => 10,
                 'product_package_id' => 101,
+                'unit' => '4 May/Thang',
                 'quantity' => 3,
                 'unit_price' => 12.5,
             ]],
@@ -200,7 +202,7 @@ class ProjectCatalogCrudTest extends TestCase
             ->assertJsonPath('data.items.0.product_id', 10)
             ->assertJsonPath('data.items.0.product_package_id', 101)
             ->assertJsonPath('data.items.0.product_name', 'Goi dich vu A')
-            ->assertJsonPath('data.items.0.unit', 'goi');
+            ->assertJsonPath('data.items.0.unit', '4 May/Thang');
 
         $projectId = DB::table('projects')->where('project_code', 'PA-NEW-01')->value('id');
         $this->assertNotNull($projectId);
@@ -209,6 +211,100 @@ class ProjectCatalogCrudTest extends TestCase
             'project_id' => $projectId,
             'product_id' => 10,
             'product_package_id' => 101,
+            'unit' => '4 May/Thang',
+        ]);
+    }
+
+    public function test_it_updates_project_items_with_product_package_id_and_keeps_snapshot_unit(): void
+    {
+        $user = new InternalUser();
+        $user->id = 1;
+        $user->username = 'admin';
+        $this->actingAs($user);
+        $this->partialMock(UserAccessService::class, function ($mock): void {
+            $mock->shouldReceive('isAdmin')->andReturn(true);
+        });
+
+        DB::table('customers')->insert([
+            'id' => 1,
+            'customer_code' => 'C001',
+            'customer_name' => 'Khach hang A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('products')->insert([
+            'id' => 10,
+            'product_code' => 'SP01',
+            'product_name' => 'San pham cha A',
+            'unit' => 'May/Thang',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('product_packages')->insert([
+            'id' => 101,
+            'product_id' => 10,
+            'package_code' => 'PKG01',
+            'package_name' => 'Goi dich vu A',
+            'unit' => 'May/Thang',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('projects')->insert([
+            'id' => 1,
+            'project_code' => 'PA-001',
+            'project_name' => 'Du an A',
+            'customer_id' => 1,
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'QUARTERLY',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('project_items')->insert([
+            'id' => 1,
+            'project_id' => 1,
+            'product_id' => 10,
+            'product_package_id' => 101,
+            'unit' => 'May/Thang',
+            'quantity' => 12,
+            'unit_price' => 900000,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->putJson('/api/v5/projects/1', [
+            'project_code' => 'PA-001',
+            'project_name' => 'Du an A cap nhat',
+            'customer_id' => 1,
+            'investment_mode' => 'DAU_TU',
+            'payment_cycle' => 'QUARTERLY',
+            'sync_items' => true,
+            'items' => [[
+                'product_id' => 10,
+                'product_package_id' => 101,
+                'unit' => '4 May/Thang',
+                'quantity' => 48,
+                'unit_price' => 2000000,
+            ]],
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.project_name', 'Du an A cap nhat')
+            ->assertJsonPath('data.items.0.product_id', 10)
+            ->assertJsonPath('data.items.0.product_package_id', 101)
+            ->assertJsonPath('data.items.0.product_name', 'Goi dich vu A')
+            ->assertJsonPath('data.items.0.unit', '4 May/Thang');
+
+        $this->assertDatabaseHas('project_items', [
+            'project_id' => 1,
+            'product_id' => 10,
+            'product_package_id' => 101,
+            'unit' => '4 May/Thang',
+            'quantity' => 48,
         ]);
     }
 
@@ -1280,6 +1376,7 @@ class ProjectCatalogCrudTest extends TestCase
             $table->unsignedBigInteger('project_id')->nullable();
             $table->unsignedBigInteger('product_id')->nullable();
             $table->unsignedBigInteger('product_package_id')->nullable();
+            $table->string('unit', 100)->nullable();
             $table->decimal('quantity', 12, 2)->nullable();
             $table->decimal('unit_price', 12, 2)->nullable();
             $table->timestamp('deleted_at')->nullable();

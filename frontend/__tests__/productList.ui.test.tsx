@@ -237,6 +237,10 @@ describe('ProductList UI', () => {
       onOpenModal: vi.fn(),
     });
 
+    expect(screen.getByPlaceholderText('Tìm mã định danh, tên sản phẩm, phân nhóm, tên viết tắt hoặc mô tả...')).toHaveClass('h-8', 'rounded-md', 'bg-slate-50');
+    expect(screen.getByRole('button', { name: 'Hoạt động' }).className).toContain('!h-8');
+    expect(screen.getByRole('button', { name: 'Hoạt động' }).className).toContain('!text-xs');
+
     await user.click(screen.getByRole('button', { name: 'Tất cả nhóm dịch vụ' }));
     await user.click(screen.getByRole('button', { name: 'Dịch vụ nhóm A' }));
 

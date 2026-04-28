@@ -640,13 +640,15 @@ describe('ProductQuotationTab UI', () => {
 
     await renderProductQuotationTab();
 
-    expect(screen.getByRole('button', { name: /Chọn báo giá/i })).toHaveClass('h-8', 'rounded-lg');
+    expect(screen.getByRole('button', { name: /Chọn báo giá/i }).className).toContain('!h-8');
+    expect(screen.getByRole('button', { name: /Chọn báo giá/i }).className).toContain('!rounded-md');
     expect(getNewQuotationButton()).toHaveClass('h-8', 'items-center');
     expect(getExportQuotationButton()).toHaveClass('h-8', 'items-center');
 
     await user.click(getNewQuotationButton());
 
-    expect(screen.getByRole('button', { name: /Chọn khách hàng/i })).toHaveClass('h-8', 'rounded-lg');
+    expect(screen.getByRole('button', { name: /Chọn khách hàng/i }).className).toContain('!h-8');
+    expect(screen.getByRole('button', { name: /Chọn khách hàng/i }).className).toContain('!rounded-md');
   });
 
   it('loads recent quotations when recipient is empty and reloads old quotations for the selected customer', async () => {

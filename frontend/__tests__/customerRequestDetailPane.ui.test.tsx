@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Employee, ProjectItemMaster } from '../types';
 import { CustomerRequestDetailPane } from '../components/customer-request/CustomerRequestDetailPane';
+import { formatDateTimeDdMmYyyy } from '../utils/dateDisplay';
 
 const employees: Employee[] = [
   {
@@ -372,6 +373,131 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(fullWidthContainers.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('shows inline confirm before removing a reference row in full modal presentation', async () => {
+    const user = userEvent.setup();
+    const onRemoveReferenceTaskRow = vi.fn();
+
+    render(
+      <CustomerRequestDetailPane
+        isDetailLoading={false}
+        isListLoading={false}
+        isCreateMode={false}
+        presentation="full_modal"
+        processDetail={{
+          yeu_cau: {
+            id: 22,
+            ma_yc: 'CRC-202604-0015',
+            request_code: 'CRC-202604-0015',
+            tieu_de: 'Hỗ trợ LIS',
+            summary: 'Hỗ trợ LIS',
+            trang_thai: 'new_intake',
+            current_status_code: 'new_intake',
+            current_status_name_vi: 'Tiếp nhận',
+            customer_name: 'VNPT Hà Nội',
+            khach_hang_name: 'VNPT Hà Nội',
+            project_name: 'Dashboard SOC',
+          },
+          process: {
+            process_code: 'new_intake',
+            process_label: 'Mới tiếp nhận',
+            group_code: 'intake',
+            group_label: 'Tiếp nhận',
+            table_name: 'customer_request_cases',
+            default_status: 'new_intake',
+            read_roles: [],
+            write_roles: [],
+            allowed_next_processes: [],
+            form_fields: [],
+            list_columns: [],
+          },
+          allowed_next_processes: [],
+          transition_allowed: false,
+          can_write: true,
+          available_actions: {
+            can_write: true,
+          },
+          estimates: [],
+          hours_report: null,
+        } as never}
+        canTransitionActiveRequest={false}
+        transitionOptions={[]}
+        transitionStatusCode=""
+        onTransitionStatusCodeChange={vi.fn()}
+        onOpenTransitionModal={vi.fn()}
+        isSaving={false}
+        canEditActiveForm={true}
+        masterFields={[]}
+        masterDraft={{}}
+        onMasterFieldChange={vi.fn()}
+        editorProcessMeta={null}
+        processDraft={{}}
+        onProcessDraftChange={vi.fn()}
+        customers={[{ id: 20, uuid: 'customer-20', customer_code: 'C020', customer_name: 'VNPT Hà Nội', tax_code: '0123456789', address: 'Hà Nội' }]}
+        employees={employees}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        availableProjectItems={[selectedProjectItem]}
+        selectedProjectItem={selectedProjectItem}
+        selectedCustomerId="20"
+        activeTaskTab="REFERENCE"
+        onActiveTaskTabChange={vi.fn()}
+        onAddTaskRow={vi.fn()}
+        formIt360Tasks={[]}
+        onUpdateIt360TaskRow={vi.fn()}
+        onRemoveIt360TaskRow={vi.fn()}
+        formReferenceTasks={[{ local_id: 'ref-1', task_code: 'CRC-202604-0015' }]}
+        formTags={[]}
+        onFormTagsChange={vi.fn()}
+        taskReferenceOptions={[{ value: 'CRC-202604-0015', label: 'CRC-202604-0015 — Hỗ trợ LIS' }]}
+        onUpdateReferenceTaskRow={vi.fn()}
+        onTaskReferenceSearchTermChange={vi.fn()}
+        taskReferenceSearchTerm=""
+        taskReferenceSearchError=""
+        isTaskReferenceSearchLoading={false}
+        onRemoveReferenceTaskRow={onRemoveReferenceTaskRow}
+        formAttachments={[]}
+        onUploadAttachment={async () => undefined}
+        onDeleteAttachment={async () => undefined}
+        isUploadingAttachment={false}
+        attachmentError=""
+        attachmentNotice=""
+        relatedSummaryItems={[]}
+        currentHoursReport={null}
+        estimateHistory={[]}
+        timeline={[]}
+        caseWorklogs={[]}
+        canOpenCreatorFeedbackModal={false}
+        onOpenCreatorFeedbackModal={vi.fn()}
+        canOpenNotifyCustomerModal={false}
+        onOpenNotifyCustomerModal={vi.fn()}
+        canOpenWorklogModal={false}
+        onOpenWorklogModal={vi.fn()}
+        onOpenDetailStatusWorklogModal={vi.fn()}
+        onEditWorklog={vi.fn()}
+        isSubmittingWorklog={false}
+        canOpenEstimateModal={false}
+        onOpenEstimateModal={vi.fn()}
+        isSubmittingEstimate={false}
+        dispatcherQuickActions={[]}
+        onRunDispatcherAction={vi.fn()}
+        performerQuickActions={[]}
+        onRunPerformerAction={vi.fn()}
+        onSaveStatusDetail={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Bỏ Ref #1' }));
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText('Bỏ Ref này?')).toBeInTheDocument();
+    expect(screen.getByText('Liên kết này sẽ bị gỡ khỏi yêu cầu hiện tại. Yêu cầu gốc không bị xoá.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Bỏ Ref' }));
+
+    expect(onRemoveReferenceTaskRow).toHaveBeenCalledTimes(1);
+    expect(onRemoveReferenceTaskRow).toHaveBeenCalledWith('ref-1');
+  });
+
   it('removes activity and performer summary cards from the hours tab in full modal presentation', () => {
     render(
       <CustomerRequestDetailPane
@@ -524,7 +650,7 @@ describe('CustomerRequestDetailPane UI', () => {
       />
     );
 
-    expect(screen.getByText('Nhật ký công việc gần nhất')).toBeInTheDocument();
+    expect(screen.getByText('Nhật ký công việc')).toBeInTheDocument();
     expect(screen.queryByText('Theo hoạt động')).not.toBeInTheDocument();
     expect(screen.queryByText('Theo người thực hiện')).not.toBeInTheDocument();
   });
@@ -672,7 +798,7 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(onOpenEstimateModal).toHaveBeenCalledTimes(1);
   });
 
-  it('joins difficulty note, proposal and difficulty status into one line in latest worklogs', async () => {
+  it('shows timeline content inside the worklog frame in full modal presentation', async () => {
     const user = userEvent.setup();
 
     render(
@@ -689,7 +815,9 @@ describe('CustomerRequestDetailPane UI', () => {
             tieu_de: 'Hỗ trợ HIS',
             summary: 'Hỗ trợ HIS',
             trang_thai: 'in_progress',
-            current_status_name_vi: 'Đang xử lý',
+            current_status_code: 'assigned_to_receiver',
+            current_status_name_vi: 'Giao R thực hiện',
+            nguoi_xu_ly_name: 'Trịnh Minh Tuấn',
             customer_name: 'Bệnh viện Sản',
             khach_hang_name: 'Bệnh viện Sản',
             project_name: 'HIS Core',
@@ -774,11 +902,34 @@ describe('CustomerRequestDetailPane UI', () => {
           hours_usage_pct: 40,
         }}
         estimateHistory={[]}
-        timeline={[]}
+        timeline={[
+          {
+            id: 501,
+            yeu_cau_id: 9,
+            tien_trinh: 'assigned_to_receiver',
+            trang_thai_cu: 'Tiếp nhận',
+            trang_thai_moi: 'Giao R thực hiện',
+            nguoi_thay_doi_name: 'Phan Văn Rở',
+            nguoi_thay_doi_code: 'VNPT022600',
+            nguoi_xu_ly_name: 'Trịnh Minh Tuấn',
+            nguoi_xu_ly_code: 'VNPT009999',
+            created_at: '2026-04-20 08:00:00',
+          },
+          {
+            id: 500,
+            yeu_cau_id: 9,
+            tien_trinh: 'new_intake',
+            trang_thai_moi: 'Tiếp nhận',
+            nguoi_thay_doi_name: 'Phan Văn Rở',
+            nguoi_thay_doi_code: 'VNPT022600',
+            created_at: '2026-04-20 07:30:00',
+          },
+        ] as never}
         caseWorklogs={[
           {
             id: 1001,
             performed_by_name: 'Phan Văn Rở',
+            performed_by_code: 'VNPT022600',
             hours_spent: 2,
             activity_type_code: 'Khảo sát',
             work_date: '2026-04-20',
@@ -788,7 +939,8 @@ describe('CustomerRequestDetailPane UI', () => {
             difficulty_note: 'asdfasdf',
             proposal_note: 'asdfasdf',
             detail_status_action: 'in_progress',
-            status_name_vi: 'Đang thực hiện',
+            status_code: 'new_intake',
+            status_name_vi: 'Tiếp nhận',
           },
         ] as never}
         canOpenCreatorFeedbackModal={false}
@@ -817,24 +969,19 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(hoursTabButton).toBeDefined();
     await user.click(hoursTabButton!);
 
-    const expected = 'Khó khăn: asdfasdf - Đề xuất: asdfasdf - Trạng thái xử lý khó khăn: Đã giải quyết';
-    expect(screen.getAllByText(expected).length).toBeGreaterThanOrEqual(1);
-
-    const prefixedStatusLines = screen.queryAllByText((_, element) => {
+    expect(screen.getAllByText('2 dòng').length).toBeGreaterThanOrEqual(1);
+    const expectedTimelineTime = formatDateTimeDdMmYyyy('2026-04-20 08:00:00')?.slice(0, 16);
+    expect(
+      screen.getAllByText((_, element) => {
+        const text = element?.textContent?.trim() ?? '';
+        return text.includes('VNPT022600 - Phan Văn Rở giao R thực hiện VNPT009999 - Trịnh Minh Tuấn')
+          && text.includes(expectedTimelineTime ?? '');
+      }).length
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText((_, element) => {
       const text = element?.textContent?.trim() ?? '';
-      return text === 'Trạng thái xử lý khó khăn:';
-    });
-    const prefixedDifficultyLines = screen.queryAllByText((_, element) => {
-      const text = element?.textContent?.trim() ?? '';
-      return text === 'Khó khăn:';
-    });
-    const prefixedProposalLines = screen.queryAllByText((_, element) => {
-      const text = element?.textContent?.trim() ?? '';
-      return text === 'Đề xuất:';
-    });
-
-    expect(prefixedStatusLines).toHaveLength(0);
-    expect(prefixedDifficultyLines).toHaveLength(0);
-    expect(prefixedProposalLines).toHaveLength(0);
+      return text.includes('VNPT022600 - Phan Văn Rở tiếp nhận')
+        && text.includes(formatDateTimeDdMmYyyy('2026-04-20 07:30:00')?.slice(0, 16) ?? '');
+    }).length).toBeGreaterThanOrEqual(1);
   });
 });

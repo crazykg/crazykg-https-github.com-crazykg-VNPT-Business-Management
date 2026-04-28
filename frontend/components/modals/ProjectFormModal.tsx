@@ -217,6 +217,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           : buildProjectProductCatalogValue(normalizedProductId),
         product_id: normalizedProductId || null,
         product_package_id: normalizedProductPackageId || null,
+        unit: String(source.unit ?? '').trim() || null,
         quantity,
         unitPrice,
         unit_price: unitPrice,
@@ -950,7 +951,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   );
 
   const projectProductDropdownGridClassName =
-    'grid grid-cols-[140px_minmax(0,1.15fr)_minmax(0,1.2fr)_96px_128px] items-start gap-3';
+    'grid grid-cols-[128px_minmax(0,1.1fr)_minmax(0,1fr)_92px_128px] items-start gap-3';
 
   const legacyProjectProductSelectOptions = useMemo(() => {
     const options: SearchableSelectOption[] = [];
@@ -1145,8 +1146,12 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         className={`${projectProductDropdownGridClassName} px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500`}
       >
         <span>Mã gói</span>
-        <span>Tên hạng mục</span>
-        <span>Mô tả</span>
+        <div className="col-span-2 flex min-w-0 items-center gap-2">
+          <span>Tên hạng mục</span>
+          <span className="text-[10px] font-medium normal-case tracking-normal text-slate-400">
+            Mô tả
+          </span>
+        </div>
         <span className="text-center">ĐVT</span>
         <span className="text-right">Đơn giá</span>
       </div>
@@ -1173,7 +1178,7 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
         );
       }
 
-      const hasDescription = Boolean(itemMeta.description);
+      const normalizedDescription = String(itemMeta.description || '').trim();
       return (
         <div className={`${projectProductDropdownGridClassName} w-full`}>
           <span
@@ -1182,20 +1187,17 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           >
             {itemMeta.code}
           </span>
-          <span
-            className={`${hasDescription ? 'truncate' : 'col-span-2 truncate'} text-left text-slate-900`}
-            title={itemMeta.name}
-          >
-            {itemMeta.name}
-          </span>
-          {hasDescription ? (
-            <span
-              className="truncate text-left text-slate-500"
-              title={itemMeta.description || '—'}
-            >
-              {itemMeta.description || '—'}
+          <div className="col-span-2 min-w-0 space-y-0.5 text-left">
+            <span className="block truncate text-slate-900" title={itemMeta.name}>
+              {itemMeta.name}
             </span>
-          ) : null}
+            <span
+              className="block truncate text-xs leading-4 text-slate-500"
+              title={normalizedDescription || itemMeta.name}
+            >
+              {normalizedDescription || itemMeta.name}
+            </span>
+          </div>
           <span
             className="truncate text-center text-slate-600"
             title={itemMeta.unit || '—'}
@@ -1816,8 +1818,16 @@ export const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
           const current = existing[idx];
           const newQty = Number(current.quantity || 0) + Number(incoming.quantity || 0);
           const price = Number(current.unitPrice || current.unit_price || 0);
+          const incomingUnit = String(incoming.unit ?? '').trim() || null;
           existing[idx] = {
             ...current,
+            productId: String(current.productId ?? '').trim() || incoming.productId,
+            product_id: current.product_id ?? incoming.product_id ?? null,
+            productPackageId:
+              String(current.productPackageId ?? '').trim() || incoming.productPackageId || null,
+            product_package_id: current.product_package_id ?? incoming.product_package_id ?? null,
+            catalogValue: String(current.catalogValue ?? '').trim() || incoming.catalogValue,
+            unit: incomingUnit ?? current.unit ?? null,
             quantity: newQty,
             lineTotal: newQty * price,
             line_total: newQty * price,

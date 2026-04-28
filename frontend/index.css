@@ -51,6 +51,9 @@
   --ui-modal-footer-min-height: 56px;
   --ui-modal-footer-gap: 8px;
   --ui-modal-mobile-radius: 20px;
+  --ui-z-drawer: 300;
+  --ui-z-modal: 500;
+  --ui-z-popover: 600;
   font-synthesis: none;
 
   /* Base font size — mobile first (điện thoại) */
@@ -133,6 +136,24 @@
       'wght' 400,
       'GRAD' 0,
       'opsz' 24;
+  }
+}
+
+@layer utilities {
+  .ui-layer-drawer {
+    z-index: var(--ui-z-drawer);
+  }
+
+  .ui-layer-drawer-backdrop {
+    z-index: calc(var(--ui-z-drawer) - 10);
+  }
+
+  .ui-layer-modal {
+    z-index: var(--ui-z-modal);
+  }
+
+  .ui-layer-popover {
+    z-index: var(--ui-z-popover);
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { DEFAULT_PAGINATION_META, isRequestCanceledError } from '../../../services/v5Api';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import type { PaginationMeta } from '../../../types';
@@ -13,6 +13,8 @@ type UseCustomerRequestListOptions = {
   requestKeyword: string;
   filters: {
     customer_id?: string | string[];
+    project_id?: string | string[];
+    product_id?: string | string[];
     support_service_group_id?: string | string[];
     priority?: string | string[];
     status_code?: string | string[];
@@ -42,6 +44,8 @@ export const useCustomerRequestList = ({
   onPageOverflow,
 }: UseCustomerRequestListOptions) => {
   const enabled = canReadRequests && !isCreateMode;
+  const lastRefetchedVersionRef = useRef(0);
+  const refetchRef = useRef<() => Promise<unknown>>(async () => undefined);
 
   const listQuery = useCRCList(
     {
@@ -57,10 +61,22 @@ export const useCustomerRequestList = ({
   );
 
   useEffect(() => {
-    if (dataVersion > 0 && enabled) {
-      void listQuery.refetch();
+    refetchRef.current = listQuery.refetch;
+  }, [listQuery.refetch]);
+
+  useEffect(() => {
+    if (!enabled) {
+      lastRefetchedVersionRef.current = 0;
+      return;
     }
-  }, [dataVersion, enabled, listQuery.refetch]);
+
+    if (dataVersion <= 0 || lastRefetchedVersionRef.current === dataVersion) {
+      return;
+    }
+
+    lastRefetchedVersionRef.current = dataVersion;
+    void refetchRef.current();
+  }, [dataVersion, enabled]);
 
   useEffect(() => {
     if (!listQuery.error || isRequestCanceledError(listQuery.error)) {

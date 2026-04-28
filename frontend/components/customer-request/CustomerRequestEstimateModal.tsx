@@ -3,6 +3,14 @@ import { createPortal } from 'react-dom';
 import type { YeuCauEstimate, YeuCauHoursReport } from '../../types/customerRequest';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
+import {
+  customerRequestCheckboxRowClass,
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestTextareaClass,
+} from './uiClasses';
 
 export type CustomerRequestEstimateSubmission = {
   estimated_hours: string;
@@ -135,7 +143,7 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
 
           <div className="grid gap-4 md:grid-cols-[170px_180px_minmax(0,1fr)]">
             <div>
-              <label htmlFor="crc-estimate-hours" className="mb-1.5 block text-sm font-semibold text-slate-700">Giờ ước lượng</label>
+              <label htmlFor="crc-estimate-hours" className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Giờ ước lượng</label>
               <input
                 id="crc-estimate-hours"
                 type="number"
@@ -145,12 +153,12 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
                 onChange={(event) => setEstimatedHours(event.target.value)}
                 disabled={isSubmitting}
                 placeholder="4.0"
-                className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+                className={customerRequestFieldClass}
               />
             </div>
 
             <div>
-              <label htmlFor="crc-estimate-scope" className="mb-1.5 block text-sm font-semibold text-slate-700">Phạm vi</label>
+              <label htmlFor="crc-estimate-scope" className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Phạm vi</label>
               <select
                 id="crc-estimate-scope"
                 value={estimateScope}
@@ -162,7 +170,7 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
                   }
                 }}
                 disabled={isSubmitting}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+                className={customerRequestFieldClass}
               >
                 <option value="total">Total</option>
                 <option value="remaining">Remaining</option>
@@ -171,21 +179,21 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
             </div>
 
             <div>
-              <label htmlFor="crc-estimate-at" className="mb-1.5 block text-sm font-semibold text-slate-700">Thời điểm estimate</label>
+              <label htmlFor="crc-estimate-at" className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Thời điểm estimate</label>
               <input
                 id="crc-estimate-at"
                 type="datetime-local"
                 value={estimatedAt}
                 onChange={(event) => setEstimatedAt(event.target.value)}
                 disabled={isSubmitting}
-                className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+                className={customerRequestFieldClass}
               />
             </div>
           </div>
 
           {estimateScope === 'phase' ? (
             <div>
-              <label htmlFor="crc-estimate-phase" className="mb-1.5 block text-sm font-semibold text-slate-700">Tên giai đoạn</label>
+              <label htmlFor="crc-estimate-phase" className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Tên giai đoạn</label>
               <input
                 id="crc-estimate-phase"
                 type="text"
@@ -193,13 +201,13 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
                 onChange={(event) => setPhaseLabel(event.target.value)}
                 disabled={isSubmitting}
                 placeholder="Ví dụ: Phân tích, coding, kiểm thử..."
-                className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+                className={customerRequestFieldClass}
               />
             </div>
           ) : null}
 
           <div>
-            <label htmlFor="crc-estimate-note" className="mb-1.5 block text-sm font-semibold text-slate-700">Ghi chú</label>
+            <label htmlFor="crc-estimate-note" className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Ghi chú</label>
             <textarea
               id="crc-estimate-note"
               rows={4}
@@ -207,11 +215,11 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
               onChange={(event) => setNote(event.target.value)}
               disabled={isSubmitting}
               placeholder="Mô tả lý do điều chỉnh estimate hoặc giả định chính."
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
+              className={customerRequestTextareaClass}
             />
           </div>
 
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <label className={customerRequestCheckboxRowClass}>
             <input
               type="checkbox"
               checked={syncMaster}
@@ -236,7 +244,7 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            className={customerRequestSecondaryButtonClass}
           >
             Huỷ
           </button>
@@ -244,7 +252,7 @@ export const CustomerRequestEstimateModal: React.FC<CustomerRequestEstimateModal
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+            className={customerRequestPrimaryButtonClass}
           >
             <span className="material-symbols-outlined text-[18px]">
               {isSubmitting ? 'progress_activity' : 'rule'}

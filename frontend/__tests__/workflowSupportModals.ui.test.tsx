@@ -136,9 +136,9 @@ describe('Workflow support modals', () => {
 
     expect(screen.getByText('Nhân sự', { selector: 'label' })).toHaveClass('text-xs');
     expect(screen.getByText('Ngày hiệu lực', { selector: 'label' })).toHaveClass('text-xs');
-    expect(within(transferTypeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(employeeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(destinationField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(transferTypeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(employeeField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(destinationField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
     expect(screen.getByDisplayValue('2026-04-07')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');
     expect(screen.getByPlaceholderText('Nhập số quyết định...')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');
     expect(screen.getByPlaceholderText('Tự động điền...')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-4');

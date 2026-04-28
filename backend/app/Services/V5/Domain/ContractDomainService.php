@@ -144,6 +144,11 @@ class ContractDomainService
             $query->where('contracts.status', $status);
         }
 
+        $departmentId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'dept_id'));
+        if ($departmentId !== null && $departmentId > 0 && $this->support->hasColumn('contracts', 'dept_id')) {
+            $query->where('contracts.dept_id', $departmentId);
+        }
+
         $customerId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'customer_id'));
         if ($customerId !== null && $this->support->hasColumn('contracts', 'customer_id')) {
             $query->where('contracts.customer_id', $customerId);
@@ -2250,6 +2255,7 @@ class ContractDomainService
      *     status_counts:array{DRAFT:int,SIGNED:int,RENEWED:int},
      *     new_signed_count:int,
      *     new_signed_value:float,
+     *     sign_period_total_value:float,
      *     total_pipeline_value:float,
      *     overdue_payment_amount:float,
      *     collection_rate:int,
@@ -2284,10 +2290,19 @@ class ContractDomainService
             );
         }
 
-        if ($this->support->hasColumn('contracts', 'value')) {
-            $valueExpr = $this->support->hasColumn('contracts', 'total_value')
-                ? 'COALESCE(contracts.value, contracts.total_value, 0)'
-                : 'COALESCE(contracts.value, 0)';
+        $hasValueColumn = $this->support->hasColumn('contracts', 'value');
+        $hasTotalValueColumn = $this->support->hasColumn('contracts', 'total_value');
+        if ($hasValueColumn || $hasTotalValueColumn) {
+            if ($hasValueColumn && $hasTotalValueColumn) {
+                $valueExpr = 'COALESCE(NULLIF(contracts.value, 0), contracts.total_value, 0)';
+            } elseif ($hasTotalValueColumn) {
+                $valueExpr = 'COALESCE(contracts.total_value, 0)';
+            } else {
+                $valueExpr = 'COALESCE(contracts.value, 0)';
+            }
+            $kpiQuery->selectRaw(
+                "COALESCE(SUM({$valueExpr}), 0) as sign_period_total_value_sum"
+            );
             $kpiQuery->selectRaw(
                 "SUM(CASE WHEN UPPER(contracts.status) = 'SIGNED' THEN {$valueExpr} ELSE 0 END) as new_signed_value_sum"
             );
@@ -2302,6 +2317,7 @@ class ContractDomainService
         $signed = max(0, (int) ($aggregate?->signed_rows ?? 0));
         $renewed = max(0, (int) ($aggregate?->renewed_rows ?? 0));
         $expiringSoon = max(0, (int) ($aggregate?->expiring_soon_rows ?? 0));
+        $signPeriodTotalValue = (float) ($aggregate?->sign_period_total_value_sum ?? 0);
         $newSignedValue = (float) ($aggregate?->new_signed_value_sum ?? 0);
         $totalPipelineValue = (float) ($aggregate?->total_pipeline_value_sum ?? 0);
         [$upcomingPaymentCustomers, $upcomingPaymentContracts] = $this->buildUpcomingPaymentKpis($baseQuery, $paymentWarningDays);
@@ -2371,6 +2387,7 @@ class ContractDomainService
             ],
             'new_signed_count' => $signed,
             'new_signed_value' => $newSignedValue,
+            'sign_period_total_value' => $signPeriodTotalValue,
             'total_pipeline_value' => $totalPipelineValue,
             'overdue_payment_amount' => $overduePaymentAmount,
             'collection_rate' => $collectionRate,

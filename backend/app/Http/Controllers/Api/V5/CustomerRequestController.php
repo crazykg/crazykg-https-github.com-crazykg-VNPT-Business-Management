@@ -83,4 +83,19 @@ class CustomerRequestController extends V5BaseController
     {
         return $this->service->projectItems($request);
     }
+
+    public function customerFilterOptions(Request $request): JsonResponse
+    {
+        return $this->service->customerFilterOptions($request);
+    }
+
+    public function projectFilterOptions(Request $request): JsonResponse
+    {
+        return $this->service->projectFilterOptions($request);
+    }
+
+    public function productFilterOptions(Request $request): JsonResponse
+    {
+        return $this->service->productFilterOptions($request);
+    }
 }

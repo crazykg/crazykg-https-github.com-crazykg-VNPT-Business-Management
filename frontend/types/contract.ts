@@ -120,6 +120,8 @@ export interface PaymentSchedule {
   milestone_name: string;
   cycle_number: number;
   expected_date: string;
+  expected_start_date?: string | null;
+  expected_end_date?: string | null;
   expected_amount: number;
   actual_paid_date?: string | null;
   actual_paid_amount: number;

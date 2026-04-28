@@ -125,6 +125,7 @@ describe('projectApi module', () => {
           product_id: 11,
           productPackageId: '21',
           product_package_id: 21,
+          unit: '4 Máy/Tháng',
           quantity: 12,
           unitPrice: 900000,
           unit_price: 900000,
@@ -142,6 +143,7 @@ describe('projectApi module', () => {
       {
         product_id: 11,
         product_package_id: 21,
+        unit: '4 Máy/Tháng',
         quantity: 12,
         unit_price: 900000,
       },

@@ -172,20 +172,21 @@ const applyFixedDefaultsFromCurrentCase = (
   toStatusCode?: string,
 ): Record<string, unknown> => {
   const actor = normalizeText(currentUserId);
-  const request = processDetail?.yeu_cau ?? {};
+  const request = processDetail?.yeu_cau;
+  const requestRecord = request as Record<string, unknown> | undefined;
   const currentOwnerUserId = normalizeText(
-    request.current_owner_user_id
-    ?? request.nguoi_xu_ly_id
+    requestRecord?.current_owner_user_id
+    ?? requestRecord?.nguoi_xu_ly_id
     ?? processDetail?.process_row?.data?.to_user_id
   );
 
   if (!hasValue(payload.from_user_id)) {
-    payload.from_user_id = actor || currentOwnerUserId || normalizeText(request.updated_by ?? request.receiver_user_id);
+    payload.from_user_id = actor || currentOwnerUserId || normalizeText(requestRecord?.updated_by ?? requestRecord?.receiver_user_id);
   }
 
 
   if (!hasValue(payload.received_at)) {
-    payload.received_at = normalizeText(request.ngay_tiep_nhan ?? request.received_at);
+    payload.received_at = normalizeText(requestRecord?.ngay_tiep_nhan ?? requestRecord?.received_at);
   }
 
   return payload;

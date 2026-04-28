@@ -12,8 +12,18 @@ import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { TagInput } from './TagInput';
 import { AttachmentManager, type AttachmentManagerHandle } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
+import { InlineRemoveConfirmButton } from './InlineRemoveConfirmButton';
 import { SUPPORT_TASK_STATUS_OPTIONS, type It360TaskFormRow, type ReferenceTaskFormRow } from './presentation';
 import { fetchWorkflowDefinitions, type WorkflowDefinition } from '../../services/api/customerRequestApi';
+import {
+  customerRequestDensePrimaryButtonClass,
+  customerRequestFieldClass,
+  customerRequestModalPanelClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestSelectTriggerClass,
+  customerRequestSurfaceClass,
+} from './uiClasses';
 import type {
   Attachment,
   Customer,
@@ -220,7 +230,20 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   }, [selectedCustomerId]);
 
   const compactSectionTitleClass = 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500';
-  const compactSectionIconBoxClass = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md';
+  const compactSectionIconBoxClass =
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)]';
+  const compactSectionCardClass = `${customerRequestSurfaceClass} p-3.5 sm:p-4`;
+  const taskTabButtonBaseClass =
+    'inline-flex h-8 items-center gap-1.5 rounded-[var(--ui-control-radius)] px-3 text-[13px] font-semibold leading-5 transition';
+  const taskSectionTitleClass = 'text-sm font-semibold leading-5 text-[color:var(--ui-text-default)]';
+  const taskHeaderClass = 'mb-3 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3';
+  const taskSegmentedControlClass =
+    'inline-flex items-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-1';
+  const taskActionGroupClass = 'ml-auto flex flex-wrap items-center gap-2';
+  const taskListScrollClass = 'max-h-[min(280px,40dvh)] overflow-y-auto pr-1 custom-scrollbar';
+  const attachmentListScrollClass = 'max-h-[min(240px,36dvh)] custom-scrollbar';
+  const itemCardClass =
+    'rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)]';
   const visibleMasterFields = masterFields.filter(
     (field) =>
       field.type !== 'hidden'
@@ -232,163 +255,165 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Task section ─────────────────────────────────────────────── */
   const renderTaskSection = () => (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
-      <div className="mb-2 flex flex-col gap-2 border-b border-slate-100 pb-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+    <div className={compactSectionCardClass}>
+      <div className={taskHeaderClass}>
+        <div className="flex min-w-0 items-center gap-2 pr-2">
           <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>deployed_code</span>
           </div>
-          <h4 className={compactSectionTitleClass}>
-            Task liên quan
-          </h4>
+          <h4 className={taskSectionTitleClass}>Task liên quan</h4>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+
+        <div className={taskSegmentedControlClass}>
           {(['IT360', 'REFERENCE'] as TaskTab[]).map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTaskTab(tab)}
-              className={`rounded px-2.5 py-1 text-[11px] font-semibold transition ${
+              className={`${taskTabButtonBaseClass} ${
                 activeTaskTab === tab
-                  ? 'bg-primary text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-primary text-white shadow-[var(--ui-shadow-shell)]'
+                  : 'bg-transparent text-slate-600 hover:bg-white'
               }`}
             >
-              {tab === 'IT360' ? 'IT360' : 'Tham chiếu'}
-              {tab === 'IT360' && formIt360Tasks.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-white/30 px-1.5 py-0.5 text-[10px] font-bold">
+              {tab === 'IT360' ? 'IT360' : 'Ref'}
+              {tab === 'IT360' && formIt360Tasks.length > 0 ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    activeTaskTab === tab ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
                   {formIt360Tasks.length}
                 </span>
-              )}
-              {tab === 'REFERENCE' && formReferenceTasks.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-white/30 px-1.5 py-0.5 text-[10px] font-bold">
+              ) : null}
+              {tab === 'REFERENCE' && formReferenceTasks.length > 0 ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    activeTaskTab === tab ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
                   {formReferenceTasks.length}
                 </span>
-              )}
+              ) : null}
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={activeTaskTab === 'IT360' ? onAddIt360Task : onAddReferenceTask}
-          className="inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
-        >
-          <span className="material-symbols-outlined text-[14px]">add</span>
-          Thêm
-        </button>
+
+        <div className={taskActionGroupClass}>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={activeTaskTab === 'IT360' ? onAddIt360Task : onAddReferenceTask}
+            className={customerRequestDensePrimaryButtonClass}
+          >
+            <span className="material-symbols-outlined text-[14px]">add</span>
+            Thêm
+          </button>
+        </div>
       </div>
 
       {activeTaskTab === 'IT360' ? (
-        <div className="space-y-2">
+        <div className={`space-y-2 ${taskListScrollClass}`}>
           {formIt360Tasks.length === 0 ? (
-            <p className="py-2.5 text-center text-xs text-slate-400">Chưa có task IT360 nào. Nhấn Thêm để gắn task.</p>
+            <div className="rounded-[var(--ui-control-radius)] border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-4 text-center text-xs text-slate-400">
+              Chưa có IT360 nào. Bấm Thêm để gắn task.
+            </div>
           ) : (
             formIt360Tasks.map((task, idx) => (
               <div
                 key={task.local_id}
-                className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                className={`${itemCardClass} p-3`}
               >
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Mã task #{idx + 1}</p>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <input
-                      type="text"
-                      value={task.task_code}
-                      onChange={(e) => onUpdateIt360TaskRow(task.local_id, 'task_code', e.target.value)}
-                      placeholder={`Mã task IT360 #${idx + 1}`}
-                      disabled={isSaving}
-                      className="h-9 w-full rounded border border-slate-200 px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <input
-                      type="text"
-                      value={task.task_link}
-                      onChange={(e) => onUpdateIt360TaskRow(task.local_id, 'task_link', e.target.value)}
-                      placeholder="https://..."
-                      disabled={isSaving}
-                      className="h-9 w-full rounded border border-slate-200 px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50"
-                    />
-                  </div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">IT360 #{idx + 1}</p>
+                  <InlineRemoveConfirmButton
+                    triggerLabel={`Bỏ IT360 #${idx + 1}`}
+                    confirmTitle="Bỏ IT360 này?"
+                    confirmDescription="Dòng IT360 này sẽ bị gỡ khỏi yêu cầu hiện tại. Task gốc không bị xoá."
+                    confirmActionLabel="Bỏ IT360"
+                    disabled={isSaving}
+                    onConfirm={() => onRemoveIt360TaskRow(task.local_id)}
+                  />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Trạng thái</p>
-                    <SearchableSelect
-                      value={task.status}
-                      options={SUPPORT_TASK_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                      onChange={(v) => onUpdateIt360TaskRow(task.local_id, 'status', v)}
-                      disabled={isSaving}
-                      compact
-                    />
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <button
-                      type="button"
-                      onClick={() => onRemoveIt360TaskRow(task.local_id)}
-                      disabled={isSaving}
-                      className="material-symbols-outlined rounded p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                      title="Xoá task IT360"
-                    >
-                      delete
-                    </button>
-                  </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
+                  <input
+                    type="text"
+                    value={task.task_code}
+                    onChange={(e) => onUpdateIt360TaskRow(task.local_id, 'task_code', e.target.value)}
+                    placeholder={`Mã IT360 #${idx + 1}`}
+                    disabled={isSaving}
+                    className={customerRequestFieldClass}
+                  />
+                  <SearchableSelect
+                    value={task.status}
+                    options={SUPPORT_TASK_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    onChange={(v) => onUpdateIt360TaskRow(task.local_id, 'status', v)}
+                    disabled={isSaving}
+                    compact
+                    triggerClassName={customerRequestSelectTriggerClass}
+                  />
+                </div>
+
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={task.task_link}
+                    onChange={(e) => onUpdateIt360TaskRow(task.local_id, 'task_link', e.target.value)}
+                    placeholder="Link task"
+                    disabled={isSaving}
+                    className={customerRequestFieldClass}
+                  />
                 </div>
               </div>
             ))
           )}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className={`space-y-2 ${taskListScrollClass}`}>
           {formReferenceTasks.length === 0 ? (
-            <p className="py-2.5 text-center text-xs text-slate-400">Chưa có task tham chiếu. Nhấn Thêm để gắn.</p>
+            <div className="rounded-[var(--ui-control-radius)] border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-4 text-center text-xs text-slate-400">
+              Chưa có Ref nào. Bấm Thêm để gắn liên kết.
+            </div>
           ) : (
             formReferenceTasks.map((task, idx) => (
               <div
                 key={task.local_id}
-                className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                className={`${itemCardClass} p-3`}
               >
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Task tham chiếu #{idx + 1}
-                </p>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <div className="space-y-1">
-                    <SearchableSelect
-                      value={task.task_code}
-                      options={taskReferenceOptions}
-                      onChange={(v) => onUpdateReferenceTaskRow(task.local_id, v)}
-                      searchTerm={taskReferenceSearchTerm}
-                      onSearchTermChange={onTaskReferenceSearchTermChange}
-                      placeholder="Tìm mã YC / task tham chiếu…"
-                      noOptionsText={
-                        taskReferenceSearchError ||
-                        (taskReferenceSearchTerm.trim() === ''
-                          ? 'Nhập mã task hoặc mã yêu cầu để tìm kiếm.'
-                          : 'Không tìm thấy task tham chiếu')
-                      }
-                      searching={isTaskReferenceSearchLoading}
-                      disabled={isSaving}
-                      compact
-                    />
-                    {taskReferenceSearchError ? (
-                      <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <button
-                      type="button"
-                      onClick={() => onRemoveReferenceTaskRow(task.local_id)}
-                      disabled={isSaving}
-                      className="material-symbols-outlined rounded p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                      title="Xoá task tham chiếu"
-                    >
-                      delete
-                    </button>
-                  </div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ref #{idx + 1}</p>
+                  <InlineRemoveConfirmButton
+                    triggerLabel={`Bỏ Ref #${idx + 1}`}
+                    confirmTitle="Bỏ Ref này?"
+                    confirmDescription="Liên kết này sẽ bị gỡ khỏi yêu cầu hiện tại. Yêu cầu gốc không bị xoá."
+                    confirmActionLabel="Bỏ Ref"
+                    disabled={isSaving}
+                    onConfirm={() => onRemoveReferenceTaskRow(task.local_id)}
+                  />
                 </div>
+
+                <SearchableSelect
+                  value={task.task_code}
+                  options={taskReferenceOptions}
+                  onChange={(v) => onUpdateReferenceTaskRow(task.local_id, v)}
+                  searchTerm={taskReferenceSearchTerm}
+                  onSearchTermChange={onTaskReferenceSearchTermChange}
+                  placeholder={`Chọn task/YC tham chiếu #${idx + 1}`}
+                  noOptionsText={
+                    taskReferenceSearchError ||
+                    (taskReferenceSearchTerm.trim() === ''
+                      ? 'Nhập mã task hoặc mã yêu cầu để tìm.'
+                      : 'Không tìm thấy task tham chiếu')
+                  }
+                  searching={isTaskReferenceSearchLoading}
+                  disabled={isSaving}
+                  compact
+                  triggerClassName={customerRequestSelectTriggerClass}
+                />
+                {taskReferenceSearchError ? (
+                  <p className="mt-2 text-xs text-rose-600">{taskReferenceSearchError}</p>
+                ) : null}
               </div>
             ))
           )}
@@ -399,25 +424,35 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
 
   /* ── Attachment section ───────────────────────────────────────── */
   const renderAttachmentSection = () => (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+    <div className={compactSectionCardClass}>
       <div
         data-testid="customer-request-create-attachment-header"
         className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-2"
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           <div className={`${compactSectionIconBoxClass} bg-amber-50 text-amber-700`}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>attach_file</span>
           </div>
-          <h4 className={compactSectionTitleClass}>
-            Đính kèm
-          </h4>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className={compactSectionTitleClass}>
+                Tệp đính kèm
+              </h4>
+              {formAttachments.length > 0 ? (
+                <span className="inline-flex h-6 items-center rounded-full bg-[var(--ui-surface-subtle)] px-2 text-xs font-semibold text-[color:var(--ui-text-muted)]">
+                  {formAttachments.length} file
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-[color:var(--ui-text-muted)]">Ctrl/Cmd+V để dán ảnh chụp.</p>
+          </div>
         </div>
         <button
           data-testid="customer-request-create-attachment-upload"
           type="button"
           onClick={() => attachmentManagerRef.current?.openFilePicker()}
           disabled={isUploadingAttachment || isSaving}
-          className="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 min-w-[116px]"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--ui-control-radius)] bg-primary/10 px-3 text-sm font-semibold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 min-w-[116px] sm:h-10 sm:min-h-0"
         >
           {isUploadingAttachment ? (
             <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
@@ -438,15 +473,18 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
         emptyStateDescription="Kéo thả hoặc dán ảnh chụp màn hình."
         enableClipboardPaste
         clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh."
+        showClipboardPasteHint={false}
         showSummaryMeta={false}
         showUploadButton={false}
         showListTitle={false}
+        listVariant="compact-row"
+        listMaxHeightClassName={attachmentListScrollClass}
       />
       {attachmentError ? (
         <p className="mt-1.5 text-sm text-rose-600">{attachmentError}</p>
       ) : null}
       {!attachmentError && attachmentNotice ? (
-        <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+        <div className="mt-1.5 rounded-[var(--ui-control-radius)] border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
           {attachmentNotice}
         </div>
       ) : null}
@@ -454,7 +492,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
   );
 
   const renderTagSection = () => (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+    <section className={compactSectionCardClass}>
       <div className="mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
         <div className={`${compactSectionIconBoxClass} bg-violet-50 text-violet-700`}>
           <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sell</span>
@@ -487,7 +525,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
       width="max-w-none"
       heightClass="h-[calc(100dvh-32px)] sm:h-[calc(100dvh-48px)]"
       maxHeightClass=""
-      panelClassName="rounded-none sm:rounded-3xl"
+      panelClassName={customerRequestModalPanelClass}
       disableClose={isSaving}
       disableBackdropClose={true}
       headerClassName="bg-white px-3 py-2 sm:px-4 lg:px-4 xl:px-5"
@@ -497,7 +535,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
         <div className="h-full overflow-y-auto custom-scrollbar">
           <div className="min-w-0 w-full space-y-4 px-3 py-2 sm:px-5 sm:py-4">
             {masterFields.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400">
+              <div className="rounded-[var(--ui-shell-radius)] border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400">
                 <span className="material-symbols-outlined mb-2 block text-3xl text-slate-300">
                   hourglass_empty
                 </span>
@@ -509,7 +547,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
                 className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,1fr)] xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,1fr)]"
               >
                 <div className="min-w-0">
-                  <section className="rounded-[28px] border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
+                  <section className={compactSectionCardClass}>
                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                       <div className={`${compactSectionIconBoxClass} bg-primary/10 text-primary`}>
                         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
@@ -619,7 +657,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
+            className={`${customerRequestSecondaryButtonClass} w-full sm:w-auto`}
           >
             Hủy
           </button>
@@ -627,7 +665,7 @@ export const CustomerRequestCreateModal: React.FC<CustomerRequestCreateModalProp
             type="button"
             onClick={() => void onSave()}
             disabled={isSaving || masterFields.length === 0}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-primary/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            className={`${customerRequestPrimaryButtonClass} w-full sm:w-auto`}
           >
             {isSaving ? (
               <>

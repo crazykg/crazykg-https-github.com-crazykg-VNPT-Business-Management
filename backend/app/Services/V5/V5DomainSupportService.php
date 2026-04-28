@@ -67,7 +67,6 @@ class V5DomainSupportService
     {
         return $this->querySupport->shouldUseSimplePagination($request);
     }
-
     /**
      * @return array{0:int,1:int}
      */
@@ -75,7 +74,6 @@ class V5DomainSupportService
     {
         return $this->querySupport->resolvePaginationParams($request, $defaultPerPage, $maxPerPage);
     }
-
     /**
      * @return array{page:int,per_page:int,total:int,total_pages:int}
      */
@@ -83,7 +81,6 @@ class V5DomainSupportService
     {
         return $this->querySupport->buildPaginationMeta($page, $perPage, $total);
     }
-
     /**
      * @return array{page:int,per_page:int,total:int,total_pages:int}
      */
@@ -95,7 +92,6 @@ class V5DomainSupportService
     {
         return $this->querySupport->resolveSortDirection($request);
     }
-
     /**
      * @param array<string, string> $allowed
      */
@@ -123,7 +119,6 @@ class V5DomainSupportService
     {
         return $this->settingsResolver->resolveContractPaymentWarningDays();
     }
-
     /**
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
@@ -1014,6 +1009,11 @@ class V5DomainSupportService
         } else {
             $selects[] = DB::raw('0 as unit_price');
         }
+        if ($this->hasColumn('project_items', 'unit')) {
+            $selects[] = 'pi.unit as snapshot_unit';
+        } else {
+            $selects[] = DB::raw('NULL as snapshot_unit');
+        }
         if ($hasProductPackages && $this->hasColumn('product_packages', 'package_code')) {
             $selects[] = 'pp.package_code as package_code';
         } else {
@@ -1040,9 +1040,9 @@ class V5DomainSupportService
             $selects[] = DB::raw('NULL as product_name');
         }
         if ($hasProducts && $this->hasColumn('products', 'unit')) {
-            $selects[] = 'pr.unit as unit';
+            $selects[] = 'pr.unit as product_unit';
         } else {
-            $selects[] = DB::raw('NULL as unit');
+            $selects[] = DB::raw('NULL as product_unit');
         }
 
         $rows = $query
@@ -1068,7 +1068,9 @@ class V5DomainSupportService
                     'unit_price' => is_numeric($row['unit_price'] ?? null) ? (float) $row['unit_price'] : 0.0,
                     'product_code' => $this->normalizeNullableString($row['package_code'] ?? $row['product_code'] ?? null),
                     'product_name' => $this->normalizeNullableString($row['package_name'] ?? $row['product_name'] ?? null),
-                    'unit' => $this->normalizeNullableString($row['package_unit'] ?? $row['unit'] ?? null),
+                    'unit' => $this->normalizeNullableString(
+                        $row['snapshot_unit'] ?? $row['package_unit'] ?? $row['product_unit'] ?? null
+                    ),
                 ];
             })
             ->values()

@@ -543,7 +543,7 @@ class CustomerRequestCaseDomainService
             ->leftJoin('customer_request_status_catalogs as prev_cat', 'prev_cat.status_code', '=', 'prev.status_code')
             ->leftJoin('internal_users as actor', 'actor.id', '=', 'si.created_by')
             ->select([
-                'si.id', 'si.status_code', 'si.decision_context_code', 'si.decision_outcome_code', 'si.decision_source_status_code', 'si.entered_at', 'si.exited_at', 'si.is_current',
+                'si.id', 'si.request_case_id', 'si.status_code', 'si.status_table', 'si.status_row_id', 'si.previous_instance_id', 'si.next_instance_id', 'si.decision_context_code', 'si.decision_outcome_code', 'si.decision_source_status_code', 'si.entered_at', 'si.exited_at', 'si.is_current', 'si.created_by', 'si.updated_by', 'si.created_at', 'si.updated_at',
                 'cat.status_name_vi',
                 'prev_cat.status_name_vi as previous_status_name_vi',
                 'actor.full_name as changed_by_name',
@@ -1753,7 +1753,7 @@ class CustomerRequestCaseDomainService
     {
         $decisionContextCode = $this->normalizeNullableString($row->decision_context_code ?? null);
         $decisionOutcomeCode = $this->normalizeNullableString($row->decision_outcome_code ?? null);
-        [$fromUserId, $fromUserName, $ownerUserId, $ownerName] = $this->resolveTimelineTransferSnapshot($row);
+        [$fromUserId, $fromUserName, $fromUserCode, $ownerUserId, $ownerName, $ownerCode] = $this->resolveTimelineTransferSnapshot($row);
 
         return [
             'id' => (int) $row->id,
@@ -1786,15 +1786,17 @@ class CustomerRequestCaseDomainService
             'nguoi_thay_doi_code' => $this->normalizeNullableString($row->changed_by_code ?? null),
             'nguoi_chuyen_id' => $fromUserId,
             'nguoi_chuyen_name' => $fromUserName,
+            'nguoi_chuyen_code' => $fromUserCode,
             'nguoi_xu_ly_id' => $ownerUserId,
             'nguoi_xu_ly_name' => $ownerName,
+            'nguoi_xu_ly_code' => $ownerCode,
             'ly_do' => $this->resolveDecisionReasonLabel($decisionContextCode, $decisionOutcomeCode),
             'thay_doi_luc' => $this->normalizeNullableString($row->entered_at ?? null) ?? $this->normalizeNullableString($row->created_at ?? null),
         ];
     }
 
     /**
-     * @return array{0:int|null,1:string|null,2:int|null,3:string|null}
+     * @return array{0:int|null,1:string|null,2:string|null,3:int|null,4:string|null,5:string|null}
      */
     private function resolveTimelineTransferSnapshot(object $row): array
     {
@@ -1802,7 +1804,7 @@ class CustomerRequestCaseDomainService
         $statusRowId = $this->support->parseNullableInt($row->status_row_id ?? null);
 
         if ($statusTable === null || $statusRowId === null || ! $this->support->hasTable($statusTable)) {
-            return [null, null, null, null];
+            return [null, null, null, null, null, null];
         }
 
         $statusRow = DB::table($statusTable)
@@ -1810,26 +1812,47 @@ class CustomerRequestCaseDomainService
             ->first();
 
         if ($statusRow === null) {
-            return [null, null, null, null];
+            return [null, null, null, null, null, null];
         }
 
         $fromUserId = $this->support->parseNullableInt($statusRow->from_user_id ?? null);
         $ownerUserId = $this->support->parseNullableInt($statusRow->to_user_id ?? null)
             ?? $this->support->parseNullableInt($statusRow->performer_user_id ?? null);
 
-        if (! $this->support->hasTable('internal_users')) {
-            return [$fromUserId, null, $ownerUserId, null];
+        if ($ownerUserId === null) {
+            $requestCaseId = $this->support->parseNullableInt($row->request_case_id ?? null);
+            $caseRow = $requestCaseId === null
+                ? null
+                : DB::table('customer_request_cases')
+                    ->where('id', $requestCaseId)
+                    ->first(['nguoi_xu_ly_id', 'performer_user_id', 'dispatcher_user_id', 'received_by_user_id']);
+
+            $ownerUserId = $this->support->parseNullableInt($caseRow->nguoi_xu_ly_id ?? null)
+                ?? $this->support->parseNullableInt($caseRow->performer_user_id ?? null)
+                ?? $this->support->parseNullableInt($caseRow->dispatcher_user_id ?? null)
+                ?? $this->support->parseNullableInt($caseRow->received_by_user_id ?? null);
         }
 
-        $fromUserName = $fromUserId === null
-            ? null
-            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $fromUserId)->value('full_name'));
+        if (! $this->support->hasTable('internal_users')) {
+            return [$fromUserId, null, null, $ownerUserId, null, null];
+        }
 
-        $ownerName = $ownerUserId === null
+        $fromUser = $fromUserId === null
             ? null
-            : $this->normalizeNullableString(DB::table('internal_users')->where('id', $ownerUserId)->value('full_name'));
+            : DB::table('internal_users')->where('id', $fromUserId)->first(['full_name', 'user_code']);
 
-        return [$fromUserId, $fromUserName, $ownerUserId, $ownerName];
+        $ownerUser = $ownerUserId === null
+            ? null
+            : DB::table('internal_users')->where('id', $ownerUserId)->first(['full_name', 'user_code']);
+
+        return [
+            $fromUserId,
+            $this->normalizeNullableString($fromUser->full_name ?? null),
+            $this->normalizeNullableString($fromUser->user_code ?? null),
+            $ownerUserId,
+            $this->normalizeNullableString($ownerUser->full_name ?? null),
+            $this->normalizeNullableString($ownerUser->user_code ?? null),
+        ];
     }
 
     private function resolveDecisionReasonLabel(?string $contextCode, ?string $outcomeCode): ?string
@@ -1978,15 +2001,25 @@ class CustomerRequestCaseDomainService
     private function currentStatusInstance(CustomerRequestCase $case): ?CustomerRequestStatusInstance
     {
         $instanceId = $this->support->parseNullableInt($case->current_status_instance_id);
+        $pointedInstance = null;
         if ($instanceId !== null) {
-            return CustomerRequestStatusInstance::query()->find($instanceId);
+            $pointedInstance = CustomerRequestStatusInstance::query()
+                ->whereKey($instanceId)
+                ->where('request_case_id', $case->id)
+                ->first();
+
+            if ($pointedInstance !== null && (bool) $pointedInstance->is_current) {
+                return $pointedInstance;
+            }
         }
 
-        return CustomerRequestStatusInstance::query()
+        $currentInstance = CustomerRequestStatusInstance::query()
             ->where('request_case_id', $case->id)
             ->where('is_current', 1)
             ->orderByDesc('id')
             ->first();
+
+        return $currentInstance ?? $pointedInstance;
     }
 
     private function findStatusInstanceForCase(int $caseId, string $statusCode, bool $currentOnly): ?CustomerRequestStatusInstance
@@ -2063,6 +2096,10 @@ class CustomerRequestCaseDomainService
             'customer_name' => $case['customer_name'] ?? null,
             'khach_hang_name' => $case['khach_hang_name'] ?? ($case['customer_name'] ?? null),
             'received_by_name' => $case['received_by_name'] ?? null,
+            'accountable_user_id' => $case['accountable_user_id'] ?? null,
+            'accountable_name' => $case['accountable_name'] ?? null,
+            'pm_id' => $case['pm_id'] ?? null,
+            'pm_name' => $case['pm_name'] ?? null,
             'dispatcher_name' => $case['dispatcher_name'] ?? null,
             'performer_name' => $case['performer_name'] ?? null,
             'receiver_user_id' => $case['receiver_user_id'] ?? null,
@@ -2270,15 +2307,18 @@ class CustomerRequestCaseDomainService
 
     private function applyListOrdering(QueryBuilder $query, Request $request, ?int $actorId): void
     {
-        if ($actorId !== null && $this->resolveBooleanInput($request->query('prioritize_my_cases'), false) === true) {
-            $query->orderByRaw(
-                'CASE WHEN COALESCE(crc.nguoi_xu_ly_id, crc.performer_user_id, crc.dispatcher_user_id, crc.received_by_user_id) = ? THEN 0 ELSE 1 END',
-                [$actorId]
-            );
+        $sortBy = $this->normalizeNullableString($request->query('sort_by'));
+        $sortDir = strtolower((string) ($this->normalizeNullableString($request->query('sort_dir')) ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+        $prioritizeDefault = $sortBy === 'to_user_id_name';
+        if ($actorId !== null && $this->resolveBooleanInput($request->query('prioritize_my_cases'), $prioritizeDefault) === true) {
+            $query->orderByRaw('CASE WHEN COALESCE(crc.nguoi_xu_ly_id, crc.performer_user_id, crc.dispatcher_user_id, crc.received_by_user_id) = ? THEN 0 ELSE 1 END', [$actorId]);
         }
-
-        $query
-            ->orderByDesc('crc.updated_at')
+        if ($sortBy === 'to_user_id_name' && $this->support->hasColumn('customer_request_cases', 'nguoi_xu_ly_id')) {
+            $query->orderByRaw("LOWER(COALESCE(current_handler.full_name, current_handler.username, '')) {$sortDir}")
+                ->orderBy('crc.id', $sortDir);
+            return;
+        }
+        $query->orderByDesc('crc.updated_at')
             ->orderByDesc('crc.id');
     }
 

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContractModal } from '../components/ContractModal';
+import { DeleteContractModal } from '../components/modals';
 import type {
   Business,
   Contract,
@@ -312,6 +313,69 @@ describe('ContractModal contract source modes', () => {
     vi.unstubAllGlobals();
   });
 
+  it('renders above the sidebar layer', () => {
+    const { container } = render(
+      <ContractModal
+        type="ADD"
+        data={null}
+        prefill={null}
+        projects={projects}
+        projectTypes={projectTypes}
+        businesses={businesses}
+        products={products}
+        productPackages={productPackages}
+        projectItems={projectItems}
+        customers={customers}
+        paymentSchedules={paymentSchedules}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(container.firstChild).toHaveClass('ui-layer-modal');
+    const dialog = screen.getByRole('dialog', { name: 'Thêm mới hợp đồng' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveClass('max-w-[1280px]');
+    expect(dialog).toHaveClass('sm:max-h-[var(--ui-modal-max-height)]');
+    expect(dialog).toHaveClass('sm:rounded-2xl');
+    expect(screen.getByRole('button', { name: 'Hủy' })).toHaveClass('h-8');
+    expect(screen.getByText('Lưu').closest('button')).toHaveClass('h-8');
+  });
+
+  it('keeps the contract details form in a single column until large screens', () => {
+    const { container } = render(
+      <ContractModal
+        type="ADD"
+        data={null}
+        prefill={null}
+        projects={projects}
+        projectTypes={projectTypes}
+        businesses={businesses}
+        products={products}
+        productPackages={productPackages}
+        projectItems={projectItems}
+        customers={customers}
+        paymentSchedules={paymentSchedules}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(container.querySelector('.grid.grid-cols-1.gap-2.md\\:grid-cols-2.xl\\:grid-cols-4')).not.toBeNull();
+  });
+
+  it('keeps contract delete confirm above the sidebar layer', () => {
+    const { container } = render(
+      <DeleteContractModal
+        data={buildContract()}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(container.firstChild).toHaveClass('ui-layer-modal');
+  });
+
   it('opens existing project-linked contracts in project mode', () => {
     renderModal({
       type: 'EDIT',
@@ -433,6 +497,8 @@ describe('ContractModal contract source modes', () => {
   });
 
   it('shows read only fallback contract items from the linked project when the contract snapshot is empty', async () => {
+    const user = userEvent.setup();
+
     renderModal({
       type: 'EDIT',
       businesses: [
@@ -452,15 +518,25 @@ describe('ContractModal contract source modes', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    expect(screen.getByText(/Hạng mục hợp đồng \(2 hạng mục\)/i)).toBeInTheDocument();
+    const contractItemsDisclosure = screen.getByRole('button', { name: /Hạng mục hợp đồng \(2 hạng mục\)/i });
+    expect(contractItemsDisclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(within(contractItemsDisclosure).getByText('Xem chi tiết')).toBeInTheDocument();
+    expect(screen.queryByText(/Hệ thống đang hiển thị tạm từ hạng mục dự án liên kết để bạn đối chiếu\./i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm chính/i })).not.toBeInTheDocument();
+
+    await user.click(contractItemsDisclosure);
+
+    expect(contractItemsDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(within(contractItemsDisclosure).getByText('Thu gọn')).toBeInTheDocument();
     expect(screen.getByText(/Hệ thống đang hiển thị tạm từ hạng mục dự án liên kết để bạn đối chiếu\./i)).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm chính/i })).toBeInTheDocument();
     expect(screen.getAllByText('10%')).toHaveLength(2);
     expect(screen.getByText('720.000 đ')).toBeInTheDocument();
     expect(screen.getByText('1.080.000 đ')).toBeInTheDocument();
-    expect(screen.getByText('1.800.000 đ')).toBeInTheDocument();
-    expect(screen.getByText('19.800.000 đ')).toBeInTheDocument();
+    expect(screen.getAllByText('1.800.000 đ').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('19.800.000 đ').length).toBeGreaterThan(0);
     expect(screen.queryByText('Chưa có hạng mục hợp đồng.')).not.toBeInTheDocument();
   });
 
@@ -539,7 +615,8 @@ describe('ContractModal contract source modes', () => {
     expect(screen.queryByText(/Phòng ban ownership sẽ lưu cho hợp đồng:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Mốc tính hạn:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Đính kèm bản PDF hợp đồng/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^0 file$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^0 file$/i)).toBeInTheDocument();
+    expect(screen.queryByText('Danh sách file đính kèm')).not.toBeInTheDocument();
     expect(screen.queryByText(/Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án/)).not.toBeInTheDocument();
   });
 
@@ -677,10 +754,54 @@ describe('ContractModal contract source modes', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(screen.getByText('Tệp hợp đồng')).toBeInTheDocument();
+    expect(screen.getByText('PDF/Word')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Tải PDF/Word' })).toHaveLength(1);
+    expect(screen.queryByText('Danh sách file đính kèm')).not.toBeInTheDocument();
     expect(screen.getAllByText('hop-dong-da-ky.pdf').length).toBeGreaterThan(0);
   });
 
-  it('rejects non-pdf contract attachments before upload', async () => {
+  it('uploads Word contract attachments from the compact section header', async () => {
+    const user = userEvent.setup();
+    uploadDocumentAttachmentMock.mockResolvedValueOnce({
+      id: 'ATT-DOCX-001',
+      fileName: 'hop-dong.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileSize: 2048,
+      fileUrl: 'https://files.local/hop-dong.docx',
+      driveFileId: '',
+      createdAt: '2026-04-11T08:00:00Z',
+      storageProvider: 'LOCAL',
+      storagePath: '/contracts/hop-dong.docx',
+      storageDisk: 'local',
+      storageVisibility: 'private',
+      warningMessage: null,
+    });
+    renderModal({ fixedSourceMode: 'INITIAL' });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.getByText('PDF/Word')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Tải PDF/Word' })).toHaveLength(1);
+    expect(screen.getByText(/Tải lên file PDF hoặc Word để lưu kèm hồ sơ hợp đồng/i)).toBeInTheDocument();
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(fileInput).not.toBeNull();
+    expect(fileInput?.accept).toContain('.docx');
+
+    const wordFile = new File(['docx'], 'hop-dong.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    await user.upload(
+      fileInput as HTMLInputElement,
+      wordFile
+    );
+
+    await waitFor(() => expect(uploadDocumentAttachmentMock).toHaveBeenCalledTimes(1));
+    expect(uploadDocumentAttachmentMock).toHaveBeenCalledWith(wordFile);
+    expect(screen.getAllByText('hop-dong.docx').length).toBeGreaterThan(0);
+  });
+
+  it('rejects unsupported contract attachments before upload', async () => {
     const user = userEvent.setup({ applyAccept: false });
     renderModal({ fixedSourceMode: 'INITIAL' });
 
@@ -689,15 +810,10 @@ describe('ContractModal contract source modes', () => {
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
     expect(fileInput).not.toBeNull();
 
-    await user.upload(
-      fileInput as HTMLInputElement,
-      new File(['docx'], 'hop-dong.docx', {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      })
-    );
+    await user.upload(fileInput as HTMLInputElement, new File(['png'], 'hop-dong.png', { type: 'image/png' }));
 
     expect(uploadDocumentAttachmentMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Chỉ cho phép tải lên file PDF cho hợp đồng/i)).toBeInTheDocument();
+    expect(screen.getByText(/Chỉ cho phép tải lên file PDF hoặc Word cho hợp đồng/i)).toBeInTheDocument();
   });
 
   it('deletes uploaded contract attachments through the existing upload cleanup api', async () => {
@@ -713,7 +829,7 @@ describe('ContractModal contract source modes', () => {
     await waitFor(() => expect(uploadDocumentAttachmentMock).toHaveBeenCalledTimes(1));
     expect(screen.getAllByText('hop-dong.pdf').length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole('button', { name: /Xóa/i }));
+    await user.click(screen.getByRole('button', { name: /Gỡ file/i }));
 
     await waitFor(() => expect(deleteUploadedDocumentAttachmentMock).toHaveBeenCalledTimes(1));
     expect(deleteUploadedDocumentAttachmentMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -763,7 +879,8 @@ describe('ContractModal contract source modes', () => {
     expect(screen.queryByText(/Phòng ban ownership sẽ lưu cho hợp đồng:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Mốc tính hạn:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Đính kèm bản PDF hợp đồng/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^0 file$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^0 file$/i)).toBeInTheDocument();
+    expect(screen.queryByText('Danh sách file đính kèm')).not.toBeInTheDocument();
     expect(screen.queryByText(/Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án/)).not.toBeInTheDocument();
   });
 
@@ -1045,6 +1162,7 @@ describe('ContractModal contract source modes', () => {
   it('imports project items into contract draft items from the linked project', async () => {
     const user = userEvent.setup();
     const { onSave } = renderModal({ fixedSourceMode: 'PROJECT' });
+    const confirmSpy = vi.spyOn(window, 'confirm');
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await user.type(screen.getByPlaceholderText('HD-2026-001'), 'HD-IMPORT-001');
@@ -1057,9 +1175,25 @@ describe('ContractModal contract source modes', () => {
 
     await user.click(importButton);
 
+    await screen.findByTestId('contract-project-item-picker-modal');
+    expect(screen.getByRole('dialog', { name: 'Lấy hạng mục từ dự án' })).toHaveClass('max-w-[96rem]');
+    expect(screen.getByText('Đã chọn 2/2 hạng mục')).toBeInTheDocument();
+    expect(screen.getByLabelText('Chọn tất cả hạng mục dự án')).toBeChecked();
+    expect(screen.getByText('Gộp với hạng mục hiện có')).toBeInTheDocument();
+    expect(screen.getByText('Thay thế toàn bộ')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Lấy 2 hạng mục/i }));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('contract-project-item-picker-modal')).not.toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm phụ/i })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Thuê Hệ thống thông tin quản lý y tế Trạm chính/i })).toBeInTheDocument();
     expect(screen.getByText(/Hạng mục hợp đồng \(2 hạng mục\)/i)).toBeInTheDocument();
+    const footerCells = Array.from(document.querySelectorAll('tfoot td'));
+    expect(footerCells[0]).toHaveClass('whitespace-nowrap');
+    expect(footerCells[1]).toHaveClass('whitespace-nowrap');
+    expect(footerCells[3]).toHaveClass('whitespace-nowrap');
+    expect(footerCells[4]).toHaveClass('whitespace-nowrap');
 
     await user.type(screen.getByPlaceholderText('Ví dụ: 30'), '30');
 
@@ -1087,6 +1221,80 @@ describe('ContractModal contract source modes', () => {
         }),
       ],
     }));
+
+    confirmSpy.mockRestore();
+  });
+
+  it('formats contract item quantity inputs with thousand separators', async () => {
+    renderModal({
+      type: 'EDIT',
+      data: buildContract({
+        items: [
+          {
+            id: 'contract-item-1',
+            contract_id: 7001,
+            product_id: 501,
+            product_package_id: 601,
+            product_name: 'Thuê Hệ thống thông tin quản lý y tế Trạm phụ',
+            unit: 'Ca chụp',
+            quantity: 45000,
+            unit_price: 1818,
+            vat_rate: 10,
+            vat_amount: 8181000,
+          } as never,
+        ],
+      }),
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.getByDisplayValue('45.000')).toBeInTheDocument();
+  });
+
+  it('keeps contract form controls on the MD sizing contract', async () => {
+    renderModal();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.getByPlaceholderText('HD-2026-001')).toHaveClass('h-8', 'text-[13px]');
+    expect(screen.getByPlaceholderText('Hợp đồng triển khai giải pháp...')).toHaveClass('h-8', 'text-[13px]');
+    expect(screen.getByRole('button', { name: 'Theo dự án' })).toHaveClass('h-8', 'text-[13px]', 'leading-5');
+    expect(screen.getByRole('button', { name: 'Đầu kỳ' })).toHaveClass('h-8', 'text-[13px]', 'leading-5');
+  });
+
+  it('uses explicit dense heights for contract item section actions', async () => {
+    const user = userEvent.setup();
+    renderModal({ fixedSourceMode: 'PROJECT' });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await selectSearchableOption(user, 'Dự án', 'DA001 - Triển khai HIS');
+
+    expect(screen.getByRole('button', { name: /Lấy hạng mục từ dự án/i })).toHaveClass('h-7');
+    expect(screen.getByRole('button', { name: /Thêm hạng mục/i })).toHaveClass('h-7');
+  });
+
+  it('closes only the project-item import modal on Escape', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    renderModal({ fixedSourceMode: 'PROJECT', onClose });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText('HD-2026-001'), 'HD-ESC-001');
+    await user.type(screen.getByPlaceholderText('Hợp đồng triển khai giải pháp...'), 'Hợp đồng kiểm tra ESC');
+    await selectSearchableOption(user, 'Người ký hợp đồng', 'U001 - Tester');
+    await selectSearchableOption(user, 'Dự án', 'DA001 - Triển khai HIS');
+    await user.click(screen.getByRole('button', { name: /Lấy hạng mục từ dự án/i }));
+
+    await screen.findByTestId('contract-project-item-picker-modal');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('contract-project-item-picker-modal')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('dialog', { name: 'Thêm mới hợp đồng' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('blocks save when signer is missing', async () => {
@@ -1124,6 +1332,12 @@ describe('ContractModal contract source modes', () => {
 
     expect(screen.getByText('Dòng tiền hợp đồng')).toBeInTheDocument();
     expect(screen.getByText('Cách phân bổ')).toBeInTheDocument();
+    const paymentSummaryRow = screen.getByText('Mã HĐ:').closest('.flex-wrap');
+    expect(paymentSummaryRow).toHaveClass('flex-wrap', 'gap-y-1');
+    expect(paymentSummaryRow).toHaveTextContent('Tên HĐ:');
+    expect(paymentSummaryRow).toHaveTextContent('Chu kỳ:');
+    expect(paymentSummaryRow).toHaveTextContent('Hình thức:');
+    expect(paymentSummaryRow).toHaveTextContent('Giá trị:');
 
     await user.click(screen.getByRole('button', { name: 'Nhập từng đợt' }));
     await waitFor(() => {
@@ -1240,8 +1454,11 @@ describe('ContractModal contract source modes', () => {
 
     const [previewTable, scheduleTable] = screen.getAllByRole('table');
     expect(within(previewTable).getByText('Kỳ đề xuất')).toBeInTheDocument();
+    expect(within(previewTable).getByText('Từ ngày dự kiến')).toBeInTheDocument();
+    expect(within(previewTable).queryByText('Đến ngày dự kiến')).not.toBeInTheDocument();
     expect(within(previewTable).getByText('Phí dịch vụ kỳ 1 (quý)')).toBeInTheDocument();
     expect(within(previewTable).getByText('Phí dịch vụ kỳ 4 (quý)')).toBeInTheDocument();
+    expect(within(previewTable).queryByText('10/7/2026')).not.toBeInTheDocument();
     expect(within(previewTable).getAllByText('4.500.000 đ')).toHaveLength(4);
     expect(within(scheduleTable).getByText('Phí dịch vụ kỳ 1 (quý)')).toBeInTheDocument();
   });
@@ -1273,6 +1490,8 @@ describe('ContractModal contract source modes', () => {
           milestone_name: 'Phí dịch vụ kỳ 1 (quý)',
           cycle_number: 1,
           expected_date: '2026-04-11',
+          expected_start_date: '2026-04-11',
+          expected_end_date: '2026-07-10',
           expected_amount: 4500000,
           actual_paid_amount: 4500000,
           status: 'PAID',
@@ -1283,6 +1502,8 @@ describe('ContractModal contract source modes', () => {
           milestone_name: 'Phí dịch vụ kỳ 2 (quý)',
           cycle_number: 2,
           expected_date: '2026-07-11',
+          expected_start_date: '2026-07-11',
+          expected_end_date: '2026-10-10',
           expected_amount: 4500000,
           actual_paid_amount: 0,
           status: 'PENDING',
@@ -1304,17 +1525,25 @@ describe('ContractModal contract source modes', () => {
 
     await user.click(screen.getByRole('button', { name: /Xem tham chiếu/i }));
 
-    expect(screen.getByText('Kỳ tham chiếu')).toBeInTheDocument();
+    const referenceTable = screen.getByText('Kỳ tham chiếu').closest('table') as HTMLTableElement;
+    expect(referenceTable).toBeInTheDocument();
+    expect(within(referenceTable).getByText('Từ ngày')).toBeInTheDocument();
+    expect(within(referenceTable).getByText('Đến ngày')).toBeInTheDocument();
+    expect(within(referenceTable).getByText('Dự kiến thu')).toBeInTheDocument();
+    expect(within(referenceTable).getByText('Tiền dự kiến')).toBeInTheDocument();
+    expect(within(referenceTable).getByText('10/7/2026')).toBeInTheDocument();
     expect(screen.getAllByText('Phí dịch vụ kỳ 1 (quý)')).toHaveLength(2);
     expect(screen.getByRole('button', { name: /Ẩn tham chiếu/i })).toBeInTheDocument();
   });
 
   it('renders the payment confirmation modal with formatted currency input and balanced upload action', async () => {
     const user = userEvent.setup();
+    const onConfirmPayment = vi.fn().mockResolvedValue(undefined);
 
     renderModal({
       type: 'EDIT',
       fixedSourceMode: 'INITIAL',
+      onConfirmPayment,
       data: buildContract({
         id: 7018,
         project_id: null,
@@ -1338,7 +1567,7 @@ describe('ContractModal contract source modes', () => {
           milestone_name: 'Phí dịch vụ kỳ 3 (quý)',
           cycle_number: 3,
           expected_date: '2026-04-12',
-          expected_amount: 4500000,
+          expected_amount: 46772222.22,
           actual_paid_amount: 0,
           status: 'PENDING',
         },
@@ -1347,7 +1576,7 @@ describe('ContractModal contract source modes', () => {
 
     await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
 
-    const [, scheduleTable] = screen.getAllByRole('table');
+    const scheduleTable = screen.getAllByRole('table').at(-1) as HTMLTableElement;
     const scheduleRow = within(scheduleTable).getByRole('row', { name: /Phí dịch vụ kỳ 3 \(quý\)/i });
     await user.click(within(scheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i }));
 
@@ -1355,11 +1584,181 @@ describe('ContractModal contract source modes', () => {
     expect(screen.queryByText('Ghi nhận thực thu, hồ sơ đính kèm và trạng thái kỳ thanh toán.')).not.toBeInTheDocument();
     expect(screen.queryByText('Trạng thái hiện tại')).not.toBeInTheDocument();
     expect(screen.queryByText('Hồ sơ đính kèm')).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue('4.500.000')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('46.772.222')).toBeInTheDocument();
+    expect(screen.getByText(/Bạn đang nhập:/).parentElement).toHaveTextContent(/Bạn đang nhập:\s*46\.772\.222\s*[₫đ]/);
+    expect(screen.getByText('Đã thu đủ')).toBeInTheDocument();
 
     const uploadButton = screen.getByRole('button', { name: /Tải file nghiệm thu/i });
     const saveButton = screen.getByRole('button', { name: 'Lưu thu tiền' });
     expect(uploadButton.className).toBe(saveButton.className);
+
+    await user.click(saveButton);
+
+    await waitFor(() => expect(onConfirmPayment).toHaveBeenCalledTimes(1));
+    expect(onConfirmPayment).toHaveBeenCalledWith(9203, expect.objectContaining({
+      actual_paid_amount: 46772222,
+      status: 'PAID',
+    }));
+  });
+
+  it('keeps one-VND-short payments as partial after whole-VND normalization', async () => {
+    const user = userEvent.setup();
+    const onConfirmPayment = vi.fn().mockResolvedValue(undefined);
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      onConfirmPayment,
+      data: buildContract({
+        id: 7019,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'QUARTERLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 18000000,
+        signer_user_id: 1,
+        signer_user_code: 'U001',
+        signer_full_name: 'Tester',
+        dept_id: 10,
+        dept_code: 'P10',
+        dept_name: 'Phong giai phap 10',
+      }),
+      paymentSchedules: [
+        {
+          id: 9204,
+          contract_id: 7019,
+          milestone_name: 'Phí dịch vụ kỳ 4 (quý)',
+          cycle_number: 4,
+          expected_date: '2026-05-12',
+          expected_amount: 46772223,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    const scheduleTable = screen.getAllByRole('table').at(-1) as HTMLTableElement;
+    const scheduleRow = within(scheduleTable).getByRole('row', { name: /Phí dịch vụ kỳ 4 \(quý\)/i });
+    await user.click(within(scheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i }));
+
+    const amountInput = screen.getByDisplayValue('46.772.223');
+    await user.clear(amountInput);
+    await user.type(amountInput, '46772222');
+
+    expect(screen.getByText(/Bạn đang nhập:/).parentElement).toHaveTextContent(/Bạn đang nhập:\s*46\.772\.222\s*[₫đ]/);
+    expect(screen.getByText('Thu một phần')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Lưu thu tiền' }));
+
+    await waitFor(() => expect(onConfirmPayment).toHaveBeenCalledTimes(1));
+    expect(onConfirmPayment).toHaveBeenCalledWith(9204, expect.objectContaining({
+      actual_paid_amount: 46772222,
+      status: 'PARTIAL',
+    }));
+  });
+
+  it('blocks payment confirmation when the actual amount exceeds the expected schedule amount', async () => {
+    const user = userEvent.setup();
+    const onConfirmPayment = vi.fn().mockResolvedValue(undefined);
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      onConfirmPayment,
+      data: buildContract({
+        id: 7021,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'QUARTERLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 18000000,
+        signer_user_id: 1,
+        signer_user_code: 'U001',
+        signer_full_name: 'Tester',
+        dept_id: 10,
+        dept_code: 'P10',
+        dept_name: 'Phong giai phap 10',
+      }),
+      paymentSchedules: [
+        {
+          id: 9205,
+          contract_id: 7021,
+          milestone_name: 'Phí dịch vụ kỳ vượt',
+          cycle_number: 5,
+          expected_date: '2026-06-12',
+          expected_amount: 46772222.22,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    const scheduleTable = screen.getAllByRole('table').at(-1) as HTMLTableElement;
+    const scheduleRow = within(scheduleTable).getByRole('row', { name: /Phí dịch vụ kỳ vượt/i });
+    await user.click(within(scheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i }));
+
+    const amountInput = screen.getByDisplayValue('46.772.222');
+    await user.clear(amountInput);
+    await user.type(amountInput, '46772223');
+    await user.click(screen.getByRole('button', { name: 'Lưu thu tiền' }));
+
+    expect(screen.getByText('Số tiền thực thu không được vượt quá số tiền dự kiến của kỳ.')).toBeInTheDocument();
+    expect(onConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('flags legacy payment schedules whose actual amount already exceeds the expected amount', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7022,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'MONTHLY',
+        term_unit: 'MONTH',
+        term_value: 2,
+        value: 100000000,
+        signer_user_id: 1,
+      }),
+      paymentSchedules: [
+        {
+          id: 9206,
+          contract_id: 7022,
+          milestone_name: 'Phí dịch vụ kỳ lỗi',
+          cycle_number: 1,
+          expected_date: '2026-04-12',
+          expected_amount: 50000000,
+          actual_paid_amount: 150000000,
+          status: 'PAID',
+        },
+        {
+          id: 9207,
+          contract_id: 7022,
+          milestone_name: 'Phí dịch vụ kỳ 2',
+          cycle_number: 2,
+          expected_date: '2026-05-12',
+          expected_amount: 50000000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    expect(screen.getByText('Thu vượt dữ liệu')).toBeInTheDocument();
+    expect(screen.getByText(/Thu vượt 100\.000\.000\s*[₫đ] ở 1 kỳ/)).toBeInTheDocument();
   });
 
   it('allows editing even draft rows and resetting them from the proposal tab', async () => {
@@ -1387,6 +1786,10 @@ describe('ContractModal contract source modes', () => {
     await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
     await user.click(screen.getByRole('button', { name: 'Chỉnh sửa' }));
 
+    expect(screen.getByText('Từ ngày dự kiến')).toBeInTheDocument();
+    expect(screen.getByText('Đến ngày dự kiến')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2026-07-10')).toBeInTheDocument();
+
     const firstLabelInput = screen.getByDisplayValue('Phí dịch vụ kỳ 1 (quý)');
     const firstDateInput = screen.getByDisplayValue('2026-04-11');
     const firstAmountInput = screen.getAllByDisplayValue('4.500.000')[0];
@@ -1408,6 +1811,223 @@ describe('ContractModal contract source modes', () => {
     expect(screen.getByDisplayValue('2026-04-11')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('4.500.000')[0]).toBeInTheDocument();
     expect(screen.getByText(/Theo cấu hình hiện tại|Chưa chốt lại/)).toBeInTheDocument();
+  });
+
+  it('keeps payment-tab controls on the dense sizing contract', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7022,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'QUARTERLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 18000000,
+        sign_date: '2026-04-11',
+        effective_date: '2026-04-11',
+        expiry_date: '2027-01-11',
+        signer_user_id: 1,
+      }),
+      paymentSchedules: [
+        {
+          id: 9305,
+          contract_id: 7022,
+          milestone_name: 'Phí dịch vụ kỳ 1 (quý)',
+          cycle_number: 1,
+          expected_date: '2026-04-11',
+          expected_amount: 4500000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    expect(screen.getByRole('button', { name: 'Đề xuất' })).toHaveClass('h-8');
+    expect(screen.getByRole('button', { name: 'Chỉnh sửa' })).toHaveClass('h-8');
+    expect(screen.getByRole('button', { name: /^All\s+1$/ })).toHaveClass('h-8');
+    expect(screen.getByRole('button', { name: 'Bảng' })).toHaveClass('h-8');
+  });
+
+  it('shows payment schedule counts on each status tab and keeps filtering intact', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7023,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'MONTHLY',
+        term_unit: 'MONTH',
+        term_value: 6,
+        value: 60000000,
+        signer_user_id: 1,
+      }),
+      paymentSchedules: [
+        {
+          id: 9401,
+          contract_id: 7023,
+          milestone_name: 'Kỳ chờ thu',
+          cycle_number: 1,
+          expected_date: '2026-01-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+        {
+          id: 9402,
+          contract_id: 7023,
+          milestone_name: 'Kỳ đã xuất hóa đơn',
+          cycle_number: 2,
+          expected_date: '2026-02-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 0,
+          status: 'INVOICED',
+        },
+        {
+          id: 9403,
+          contract_id: 7023,
+          milestone_name: 'Kỳ đã thu đủ',
+          cycle_number: 3,
+          expected_date: '2026-03-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 10000000,
+          status: 'PAID',
+        },
+        {
+          id: 9404,
+          contract_id: 7023,
+          milestone_name: 'Kỳ thu một phần',
+          cycle_number: 4,
+          expected_date: '2026-04-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 5000000,
+          status: 'PARTIAL',
+        },
+        {
+          id: 9405,
+          contract_id: 7023,
+          milestone_name: 'Kỳ quá hạn',
+          cycle_number: 5,
+          expected_date: '2026-05-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 0,
+          status: 'OVERDUE',
+        },
+        {
+          id: 9406,
+          contract_id: 7023,
+          milestone_name: 'Kỳ đã hủy',
+          cycle_number: 6,
+          expected_date: '2026-06-01',
+          expected_amount: 10000000,
+          actual_paid_amount: 0,
+          status: 'CANCELLED',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    expect(screen.getByRole('button', { name: /^All\s+6$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Chờ thu\s+2$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Đã thu\s+2$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Quá hạn\s+1$/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Chờ thu\s+2$/ }));
+
+    expect(screen.getByText('Kỳ chờ thu')).toBeInTheDocument();
+    expect(screen.getByText('Kỳ đã xuất hóa đơn')).toBeInTheDocument();
+    expect(screen.queryByText('Kỳ đã thu đủ')).not.toBeInTheDocument();
+    expect(screen.queryByText('Kỳ thu một phần')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Đã thu\s+2$/ }));
+
+    expect(screen.getByText('Kỳ đã thu đủ')).toBeInTheDocument();
+    expect(screen.getByText('Kỳ thu một phần')).toBeInTheDocument();
+    expect(screen.queryByText('Kỳ chờ thu')).not.toBeInTheDocument();
+    expect(screen.queryByText('Kỳ đã xuất hóa đơn')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Quá hạn\s+1$/ }));
+
+    expect(screen.getByText('Kỳ quá hạn')).toBeInTheDocument();
+    expect(screen.queryByText('Kỳ đã hủy')).not.toBeInTheDocument();
+  });
+
+  it('keeps payment generation toolbar widths and font sizing aligned to the dense contract', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      data: buildContract({
+        id: 7004,
+        project_id: 101,
+        customer_id: 1,
+        project_type_code: null,
+      }),
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    expect(screen.getByText('Cách phân bổ').parentElement).toHaveClass('sm:flex-row', 'sm:items-center');
+    expect(screen.getByText('Tạm ứng (%)').parentElement).toHaveClass('w-full', 'sm:w-[120px]');
+    expect(screen.getByText('Giữ lại (%)').parentElement).toHaveClass('w-full', 'sm:w-[120px]');
+    expect(screen.getByText('Số đợt').parentElement).toHaveClass('w-full', 'sm:w-[120px]');
+
+    expect(screen.getAllByRole('combobox')[0]).toHaveClass('h-8', 'w-full', 'sm:w-[180px]', 'text-sm');
+    expect(screen.getByDisplayValue('15')).toHaveClass('h-8', 'text-sm');
+    expect(screen.getByDisplayValue('5')).toHaveClass('h-8', 'text-sm');
+    expect(screen.getByDisplayValue('3')).toHaveClass('h-8', 'text-sm');
+    expect(screen.getByRole('button', { name: 'Sinh kỳ thanh toán' })).toHaveClass('h-8', 'text-[13px]');
+  });
+
+  it('keeps the cycle draft editor compact enough to avoid horizontal scrolling', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7021,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_DACTHU',
+        payment_cycle: 'QUARTERLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 18000000,
+        sign_date: '2026-04-11',
+        effective_date: '2026-04-11',
+        expiry_date: '2027-01-11',
+        signer_user_id: 1,
+      }),
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+    await user.click(screen.getByRole('button', { name: 'Chỉnh sửa' }));
+
+    const editTable = screen.getByText('Kỳ chỉnh sửa').closest('table');
+    expect(editTable).not.toBeNull();
+    expect(editTable).toHaveClass('table-fixed');
+    expect(editTable).not.toHaveClass('min-w-[1260px]');
+    expect(editTable?.parentElement).toHaveClass('overflow-hidden');
+    expect(within(editTable as HTMLTableElement).queryByText('Ngày dự kiến')).not.toBeInTheDocument();
+
+    expect(within(editTable as HTMLTableElement).getByDisplayValue('Phí dịch vụ kỳ 1 (quý)')).toHaveClass('min-w-0');
+    expect(within(editTable as HTMLTableElement).getAllByRole('button', { name: /Xóa kỳ chỉnh sửa/i })[0]).toHaveClass(
+      'h-8',
+      'w-8',
+      'px-0'
+    );
   });
 
   it('submits custom even draft rows when generating schedules', async () => {
@@ -1450,11 +2070,16 @@ describe('ContractModal contract source modes', () => {
     await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
     await user.click(screen.getByRole('button', { name: 'Chỉnh sửa' }));
 
+    const editTable = screen.getByText('Kỳ chỉnh sửa').closest('table') as HTMLTableElement;
     const labelInputs = screen.getAllByDisplayValue(/Phí dịch vụ kỳ \d \(quý\)/);
     const amountInputs = screen.getAllByDisplayValue('4.500.000');
+    const firstStartDateInput = within(editTable).getByDisplayValue('2026-04-11');
+    const firstEndDateInput = within(editTable).getByDisplayValue('2026-07-10');
 
     await user.clear(labelInputs[0]);
     await user.type(labelInputs[0], 'Kỳ mở đầu');
+    fireEvent.change(firstStartDateInput, { target: { value: '2026-04-12' } });
+    fireEvent.change(firstEndDateInput, { target: { value: '2026-07-15' } });
     await user.clear(amountInputs[0]);
     await user.type(amountInputs[0], '4000000');
     await user.clear(amountInputs[1]);
@@ -1468,12 +2093,16 @@ describe('ContractModal contract source modes', () => {
       draft_installments: expect.arrayContaining([
         expect.objectContaining({
           label: 'Kỳ mở đầu',
-          expected_date: '2026-04-11',
+          expected_date: '2026-04-12',
+          expected_start_date: '2026-04-12',
+          expected_end_date: '2026-07-15',
           expected_amount: 4000000,
         }),
         expect.objectContaining({
           label: 'Phí dịch vụ kỳ 2 (quý)',
           expected_date: '2026-07-11',
+          expected_start_date: '2026-07-11',
+          expected_end_date: '2026-10-10',
           expected_amount: 5000000,
         }),
       ]),
@@ -1516,6 +2145,159 @@ describe('ContractModal contract source modes', () => {
     expect(screen.getByText('Tổng dự thảo phải bằng 18.000.000 đ để sinh kỳ thanh toán.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sinh kỳ thanh toán' })).toBeDisabled();
     expect(onGenerateSchedules).not.toHaveBeenCalled();
+  });
+
+  it('keeps payment schedule milestone and action columns aligned in the dense table layout', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7014,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_COSAN',
+        payment_cycle: 'MONTHLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 3000000,
+        signer_user_id: 1,
+      }),
+      paymentSchedules: [
+        {
+          id: 9103,
+          contract_id: 7014,
+          milestone_name: 'Phí dịch vụ kỳ 1 (tháng)',
+          cycle_number: 1,
+          expected_date: '2026-01-01',
+          expected_start_date: '2026-01-01',
+          expected_end_date: '2026-01-31',
+          expected_amount: 1500000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+          attachments: [
+            {
+              id: 'att-9103',
+              fileName: 'bien-ban-nghiem-thu.pdf',
+              mimeType: 'application/pdf',
+              fileSize: 1024,
+              fileUrl: '#',
+              driveFileId: '',
+              createdAt: '2026-01-02T00:00:00Z',
+            },
+          ],
+        },
+        {
+          id: 9104,
+          contract_id: 7014,
+          milestone_name: 'Phí dịch vụ kỳ 2 (tháng)',
+          cycle_number: 2,
+          expected_date: '2026-02-01',
+          expected_start_date: '2026-02-01',
+          expected_end_date: '2026-02-28',
+          expected_amount: 1500000,
+          actual_paid_amount: 0,
+          status: 'PENDING',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    const scheduleTable = screen.getAllByRole('table').at(-1) as HTMLTableElement;
+    expect(scheduleTable).toHaveClass('min-w-[1390px]', 'table-fixed');
+    const headerCells = Array.from(scheduleTable.querySelectorAll('thead th')).map((cell) => cell.textContent?.trim());
+    expect(headerCells.slice(0, 2)).toEqual(['TT', 'Kỳ']);
+    expect(within(scheduleTable).getByText('TT').closest('th')).toHaveClass('sticky', 'top-0');
+    expect(within(scheduleTable).getByText('Thao tác').closest('th')).toHaveClass('sticky', 'top-0', 'w-[104px]');
+    expect(within(scheduleTable).getByText('Trạng thái').closest('th')).toHaveClass('w-[112px]');
+    expect(within(scheduleTable).getByText('Từ ngày')).toHaveClass('whitespace-nowrap');
+    expect(within(scheduleTable).getByText('Đến ngày')).toHaveClass('whitespace-nowrap');
+    expect(within(scheduleTable).getByText('Dự kiến thu')).toHaveClass('whitespace-nowrap');
+    expect(within(scheduleTable).getByText('Tiền dự kiến')).toHaveClass('whitespace-nowrap');
+
+    const firstScheduleRow = within(scheduleTable).getByRole('row', { name: /Phí dịch vụ kỳ 1 \(tháng\)/i });
+    expect(within(firstScheduleRow).getAllByText('1/1/2026')[0]).toHaveClass('whitespace-nowrap');
+    expect(within(firstScheduleRow).getByText('31/1/2026')).toHaveClass('whitespace-nowrap');
+    expect(within(firstScheduleRow).getByText('#1').closest('td')).toHaveClass('text-center', 'align-middle');
+    const attachmentButton = within(firstScheduleRow).getByRole('button', { name: 'Mở hồ sơ nghiệm thu: 1 file' });
+    expect(attachmentButton).toHaveClass('h-7', 'min-w-[44px]', 'rounded-full');
+    expect(within(firstScheduleRow).queryByText('1 file')).not.toBeInTheDocument();
+    expect(within(firstScheduleRow).queryByText('Đã đính kèm hồ sơ nghiệm thu')).not.toBeInTheDocument();
+    expect(within(firstScheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i })).toHaveClass(
+      'h-7',
+      'w-7',
+      'justify-center'
+    );
+    expect(within(firstScheduleRow).getByRole('button', { name: /Xóa kỳ/i })).toHaveClass(
+      'h-7',
+      'w-7',
+      'justify-center'
+    );
+    expect(within(firstScheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i }).closest('td')).toHaveClass(
+      'w-[104px]'
+    );
+    expect(within(firstScheduleRow).getByRole('button', { name: /Xác nhận thu tiền/i }).closest('td')).not.toHaveClass('sticky');
+  });
+
+  it('keeps collected payment status chips on a single line in the schedule table', async () => {
+    const user = userEvent.setup();
+
+    renderModal({
+      type: 'EDIT',
+      fixedSourceMode: 'INITIAL',
+      data: buildContract({
+        id: 7022,
+        project_id: null,
+        customer_id: 2,
+        project_type_code: 'THUE_DICH_VU_COSAN',
+        payment_cycle: 'MONTHLY',
+        term_unit: 'MONTH',
+        term_value: 12,
+        value: 93544444,
+        signer_user_id: 1,
+      }),
+      paymentSchedules: [
+        {
+          id: 9301,
+          contract_id: 7022,
+          milestone_name: 'Phí dịch vụ kỳ 1 (tháng)',
+          cycle_number: 1,
+          expected_date: '2026-04-22',
+          expected_start_date: '2026-04-22',
+          expected_end_date: '2026-05-21',
+          expected_amount: 46772222,
+          actual_paid_date: '2026-04-26',
+          actual_paid_amount: 46772222,
+          confirmed_by_name: 'Phan Văn Rỡ',
+          confirmed_at: '2026-04-26T14:49:08',
+          status: 'PARTIAL',
+        },
+        {
+          id: 9302,
+          contract_id: 7022,
+          milestone_name: 'Phí dịch vụ kỳ 2 (tháng)',
+          cycle_number: 2,
+          expected_date: '2026-05-22',
+          expected_start_date: '2026-05-22',
+          expected_end_date: '2026-06-21',
+          expected_amount: 46772222,
+          actual_paid_date: '2026-04-27',
+          actual_paid_amount: 46772222,
+          confirmed_by_name: 'Phan Văn Rỡ',
+          confirmed_at: '2026-04-26T14:49:25',
+          status: 'PAID',
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: /Dòng tiền/i }));
+
+    const scheduleTable = screen.getAllByRole('table').at(-1) as HTMLTableElement;
+    expect(within(scheduleTable).getByText('Thu một phần')).toHaveClass('whitespace-nowrap');
+    expect(within(scheduleTable).getByText('Đã thu đủ')).toHaveClass('whitespace-nowrap');
+    expect(within(scheduleTable).getByText('Thu một phần').closest('td')).toHaveClass('w-[112px]');
   });
 
   it('shows unpaid schedules immediately and keeps manual deletions without auto-syncing the full schedule back', async () => {
@@ -1600,7 +2382,7 @@ describe('ContractModal contract source modes', () => {
     expect(within(scheduleTable).getByText('Phí dịch vụ kỳ 2 (tháng)')).toBeInTheDocument();
 
     const firstScheduleRow = within(scheduleTable).getByRole('row', { name: /Phí dịch vụ kỳ 1 \(tháng\)/i });
-    await user.click(within(firstScheduleRow).getByRole('button', { name: 'Xóa kỳ' }));
+    await user.click(within(firstScheduleRow).getByRole('button', { name: /Xóa kỳ/i }));
 
     await waitFor(() => expect(onDeletePaymentSchedule).toHaveBeenCalledWith(9101));
     await waitFor(() => {

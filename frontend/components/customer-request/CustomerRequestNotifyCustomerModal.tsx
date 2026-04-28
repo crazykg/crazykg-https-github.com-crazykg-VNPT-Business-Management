@@ -8,6 +8,14 @@ import { AttachmentManager } from '../AttachmentManager';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
 import type { It360TaskFormRow, ReferenceTaskFormRow } from './presentation';
+import {
+  customerRequestCheckboxRowClass,
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestTextareaClass,
+} from './uiClasses';
 
 export type NotifyCustomerSubmission = {
   notificationChannel: string;
@@ -52,6 +60,12 @@ const NOTIFICATION_CHANNEL_OPTIONS = [
 ];
 
 const todayForDateInput = (): string => formatCurrentDateTimeForInput().slice(0, 10);
+const fieldLabelClassName = `mb-2 ${customerRequestFieldLabelClass}`;
+const fieldInputClassName = customerRequestFieldClass;
+const fieldTextareaClassName = customerRequestTextareaClass;
+const checkboxRowClassName = customerRequestCheckboxRowClass;
+const primaryButtonClassName = customerRequestPrimaryButtonClass.replace('hover:bg-deep-teal', 'hover:brightness-105');
+const secondaryButtonClassName = customerRequestSecondaryButtonClass;
 
 export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyCustomerModalProps> = ({
   open,
@@ -282,7 +296,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
             <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="notify-customer-channel" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="notify-customer-channel" className={fieldLabelClassName}>
                     Kênh báo
                   </label>
                   <select
@@ -290,7 +304,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                     value={notificationChannel}
                     onChange={(event) => setNotificationChannel(event.target.value)}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   >
                     {NOTIFICATION_CHANNEL_OPTIONS.map((option) => (
                       <option key={option} value={option}>
@@ -300,7 +314,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="notify-customer-feedback" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="notify-customer-feedback" className={fieldLabelClassName}>
                     Phản hồi của KH
                   </label>
                   <input
@@ -310,13 +324,13 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                     onChange={(event) => setCustomerFeedback(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="Tóm tắt phản hồi ngay sau khi thông báo"
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="notify-customer-content" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="notify-customer-content" className={fieldLabelClassName}>
                   Nội dung đã báo khách hàng
                 </label>
                 <textarea
@@ -326,7 +340,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   onChange={(event) => setNotificationContent(event.target.value)}
                   disabled={isSubmitting}
                   placeholder="Ví dụ: YC đã xử lý xong, anh/chị vui lòng kiểm tra lại kết quả và phản hồi nếu cần chỉnh thêm."
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={fieldTextareaClassName}
                 />
               </div>
 
@@ -358,7 +372,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="notify-customer-activity" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="notify-customer-activity" className={fieldLabelClassName}>
                     Activity
                   </label>
                   <select
@@ -366,7 +380,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                     value={worklogActivityTypeCode}
                     onChange={(event) => setWorklogActivityTypeCode(event.target.value)}
                     disabled={isSubmitting || isActivityTypesLoading}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   >
                     <option value="">Chọn activity</option>
                     {activityTypes.map((item) => (
@@ -378,7 +392,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   {activityTypesError ? <p className="mt-1 text-xs text-rose-600">{activityTypesError}</p> : null}
                 </div>
                 <div>
-                  <label htmlFor="notify-customer-hours-spent" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="notify-customer-hours-spent" className={fieldLabelClassName}>
                     Giờ công
                   </label>
                   <input
@@ -390,11 +404,11 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                     onChange={(event) => setWorklogHoursSpent(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="VD: 0.5"
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
                 <div>
-                  <label htmlFor="notify-customer-work-date" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="notify-customer-work-date" className={fieldLabelClassName}>
                     Ngày làm việc
                   </label>
                   <input
@@ -403,10 +417,10 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                     value={worklogDate}
                     onChange={(event) => setWorklogDate(event.target.value)}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
-                <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <label className={checkboxRowClassName}>
                   <input
                     type="checkbox"
                     checked={worklogIsBillable}
@@ -419,7 +433,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
               </div>
 
               <div>
-                <label htmlFor="notify-customer-worklog-content" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="notify-customer-worklog-content" className={fieldLabelClassName}>
                   Nội dung worklog
                 </label>
                 <textarea
@@ -429,7 +443,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   onChange={(event) => setWorklogContent(event.target.value)}
                   disabled={isSubmitting}
                   placeholder="Ví dụ: Gọi điện thông báo kết quả và hướng dẫn khách hàng kiểm tra lại."
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={fieldTextareaClassName}
                 />
               </div>
             </section>
@@ -446,7 +460,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   onChange={(event) => setNote(event.target.value)}
                   disabled={isSubmitting}
                   placeholder="Ghi chú ngắn về cách báo, lưu ý sau trao đổi, hoặc hẹn follow-up nếu có."
-                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={`mt-3 ${fieldTextareaClassName}`}
                 />
               </div>
 
@@ -525,7 +539,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   type="button"
                   onClick={handleSubmit}
                   disabled={isSubmitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={primaryButtonClassName.replace('bg-primary', 'bg-teal-600').replace('shadow-[var(--ui-shadow-shell)]', '')}
                 >
                   <span className="material-symbols-outlined text-[18px]">campaign</span>
                   {isSubmitting ? 'Đang báo khách hàng...' : 'Xác nhận - Kết thúc YC'}
@@ -534,7 +548,7 @@ export const CustomerRequestNotifyCustomerModal: React.FC<CustomerRequestNotifyC
                   type="button"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  className={secondaryButtonClassName}
                 >
                   Hủy
                 </button>

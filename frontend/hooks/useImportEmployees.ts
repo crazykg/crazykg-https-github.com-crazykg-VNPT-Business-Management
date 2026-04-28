@@ -109,7 +109,8 @@ export function useImportEmployees(): UseImportEmployeesResult {
         'mobile',
         'tel',
       ]);
-      const email = getImportCell(row, headerIndex, ['email']);
+      const email = getImportCell(row, headerIndex, ['email', 'vnptmail', 'vnptemail']);
+      const gmail = getImportCell(row, headerIndex, ['gmail', 'googlemail']);
       const departmentCodeRaw = getImportCell(row, headerIndex, ['maphongban', 'mapb', 'departmentcode', 'deptcode']);
       const positionCode = getImportCell(row, headerIndex, ['machucvu', 'positioncode', 'positionid', 'chucvu']);
       const jobTitle = getImportCell(row, headerIndex, ['chucdanhtv', 'chucdanh', 'jobtitle', 'jobtitletv']);
@@ -125,6 +126,7 @@ export function useImportEmployees(): UseImportEmployeesResult {
         !fullName &&
         !phoneRaw &&
         !email &&
+        !gmail &&
         !departmentCodeRaw &&
         !positionCode &&
         !jobTitle &&
@@ -193,6 +195,9 @@ export function useImportEmployees(): UseImportEmployeesResult {
           }
           if (email) {
             employeePayload.email = email;
+          }
+          if (gmail) {
+            employeePayload.gmail = gmail;
           }
           if (department) {
             employeePayload.department_id = department.id;

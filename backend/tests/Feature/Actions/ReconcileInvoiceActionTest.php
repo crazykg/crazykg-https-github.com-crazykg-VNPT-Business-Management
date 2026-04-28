@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ReconcileInvoiceActionTest extends TestCase
@@ -89,6 +90,50 @@ class ReconcileInvoiceActionTest extends TestCase
         $this->assertSame('DRAFT', $fresh->status);
     }
 
+    public function test_execute_blocks_cascading_overpaid_invoice_to_payment_schedule(): void
+    {
+        DB::table('invoices')->insert([
+            'id' => 3,
+            'invoice_code' => 'INV-202603-0003',
+            'contract_id' => 10,
+            'customer_id' => 20,
+            'invoice_date' => '2026-03-01',
+            'due_date' => '2026-03-31',
+            'total_amount' => 2000,
+            'paid_amount' => 0,
+            'status' => 'ISSUED',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('payment_schedules')->insert([
+            'id' => 3,
+            'invoice_id' => 3,
+            'expected_amount' => 1000,
+            'actual_paid_amount' => 0,
+            'status' => 'INVOICED',
+            'updated_at' => now(),
+        ]);
+
+        DB::table('receipts')->insert([
+            'id' => 3,
+            'invoice_id' => 3,
+            'status' => 'CONFIRMED',
+            'amount' => 1001,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        try {
+            app(ReconcileInvoiceAction::class)->execute(Invoice::query()->findOrFail(3));
+        } finally {
+            $this->assertSame(0.0, (float) DB::table('payment_schedules')->where('invoice_id', 3)->value('actual_paid_amount'));
+            $this->assertSame('INVOICED', DB::table('payment_schedules')->where('invoice_id', 3)->value('status'));
+        }
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('receipts');
@@ -121,6 +166,7 @@ class ReconcileInvoiceActionTest extends TestCase
         Schema::create('payment_schedules', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->unsignedBigInteger('invoice_id')->nullable();
+            $table->decimal('expected_amount', 18, 2)->default(0);
             $table->decimal('actual_paid_amount', 18, 2)->default(0);
             $table->string('status', 32)->default('INVOICED');
             $table->timestamp('updated_at')->nullable();

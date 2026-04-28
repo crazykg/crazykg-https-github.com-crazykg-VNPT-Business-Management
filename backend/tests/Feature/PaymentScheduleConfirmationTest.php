@@ -142,6 +142,42 @@ class PaymentScheduleConfirmationTest extends TestCase
             );
     }
 
+    public function test_it_blocks_payment_confirmation_when_actual_amount_exceeds_expected_amount(): void
+    {
+        DB::table('payment_schedules')->insert([
+            'id' => 3,
+            'contract_id' => 100,
+            'project_id' => 1,
+            'milestone_name' => 'Thanh toán vượt kỳ',
+            'cycle_number' => 2,
+            'expected_date' => '2026-04-15',
+            'expected_amount' => 18750000,
+            'actual_paid_date' => null,
+            'actual_paid_amount' => 0,
+            'status' => 'PENDING',
+            'notes' => null,
+            'confirmed_by' => null,
+            'confirmed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->putJson('/api/v5/payment-schedules/3', [
+            'actual_paid_date' => '2026-04-20',
+            'actual_paid_amount' => 18750001,
+            'status' => 'PAID',
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'errors.actual_paid_amount.0',
+                'Số tiền thực thu không được vượt quá số tiền dự kiến của kỳ.'
+            );
+
+        $storedSchedule = DB::table('payment_schedules')->where('id', 3)->first();
+        $this->assertSame(0.0, (float) $storedSchedule->actual_paid_amount);
+        $this->assertSame('PENDING', $storedSchedule->status);
+    }
+
     private function setUpSchema(): void
     {
         Schema::dropIfExists('attachments');

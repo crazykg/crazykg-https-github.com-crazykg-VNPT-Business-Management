@@ -6,19 +6,27 @@ import { SearchableSelect, type SearchableSelectOption } from './selectPrimitive
 import { resolveProjectItemCatalogValue } from './projectImportUtils';
 
 const PROJECT_ITEM_SELECT_TRIGGER_CLASS_NAME =
-  'border-slate-300 bg-white text-slate-900 text-xs leading-5 shadow-sm focus:ring-1 focus:ring-primary/30';
+  '!h-8 !rounded-md border-slate-200 bg-slate-50 text-xs text-slate-700 shadow-sm focus:ring-1 focus:ring-primary/30';
 const PROJECT_ITEM_INPUT_CLASS_NAME =
-  'h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-xs leading-5 text-slate-900 shadow-sm transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
+  'h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs leading-5 text-slate-900 shadow-sm transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
 const PROJECT_ITEM_CENTER_INPUT_CLASS_NAME = `${PROJECT_ITEM_INPUT_CLASS_NAME} text-center`;
 const PROJECT_ITEM_RIGHT_INPUT_CLASS_NAME = `${PROJECT_ITEM_INPUT_CLASS_NAME} text-right`;
 const PROJECT_ITEM_READONLY_BOX_CLASS_NAME =
   'flex h-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-center text-xs font-medium leading-5 text-slate-600';
 const PROJECT_RACI_CONTROL_TRIGGER_CLASS_NAME =
-  'border-slate-300 bg-white text-slate-900 shadow-sm focus:ring-1 focus:ring-primary/30';
+  '!h-8 !rounded-md border-slate-200 bg-slate-50 text-sm text-slate-700 shadow-sm focus:ring-1 focus:ring-primary/30';
 const PROJECT_RACI_DATE_INPUT_CLASS_NAME =
-  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-center text-xs leading-5 text-slate-900 shadow-sm outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
+  'h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-center text-sm leading-5 text-slate-900 shadow-sm outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary/30';
 const PROJECT_RACI_READONLY_BOX_CLASS_NAME =
-  'flex h-8 w-full items-center rounded border border-slate-200 bg-slate-50 px-3 text-xs font-medium leading-5 text-slate-700';
+  'flex h-8 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-sm font-medium leading-5 text-slate-700';
+const PROJECT_TAB_SECONDARY_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const PROJECT_TAB_PRIMARY_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const PROJECT_TAB_ACCENT_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const PROJECT_TAB_ICON_BUTTON_CLASS_NAME =
+  'inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50';
 const PROJECT_ITEM_FIELD_ORDER = [
   'catalog',
   'quantity',
@@ -26,6 +34,86 @@ const PROJECT_ITEM_FIELD_ORDER = [
 ] as const;
 
 type ProjectItemField = (typeof PROJECT_ITEM_FIELD_ORDER)[number];
+
+const formatProjectItemQuantityThousands = (digits: string): string => {
+  const normalized = digits.replace(/^0+(?=\d)/, '') || '0';
+  return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+const sanitizeProjectItemQuantityInput = (value: string): string => {
+  const raw = String(value ?? '')
+    .replace(/[^\d,.\s]/g, '')
+    .replace(/\s+/g, '');
+
+  if (raw === '') {
+    return '';
+  }
+
+  const commaIndex = raw.lastIndexOf(',');
+  if (commaIndex >= 0) {
+    const integerDigits = raw.slice(0, commaIndex).replace(/\D/g, '');
+    const formattedInteger =
+      integerDigits === '' ? '0' : formatProjectItemQuantityThousands(integerDigits);
+    const decimalDigits = raw
+      .slice(commaIndex + 1)
+      .replace(/\D/g, '')
+      .slice(0, 2);
+
+    if (raw.endsWith(',') && decimalDigits === '') {
+      return `${formattedInteger},`;
+    }
+
+    return decimalDigits === ''
+      ? formattedInteger
+      : `${formattedInteger},${decimalDigits}`;
+  }
+
+  const dotIndexes = Array.from(raw.matchAll(/\./g), (match) => match.index ?? -1).filter((index) => index >= 0);
+  if (dotIndexes.length === 1) {
+    const separatorIndex = dotIndexes[0];
+    const digitsAfterSeparator = raw.slice(separatorIndex + 1).replace(/\D/g, '');
+    const treatAsDecimal =
+      raw.endsWith('.')
+      || (digitsAfterSeparator.length > 0 && digitsAfterSeparator.length <= 2);
+
+    if (treatAsDecimal) {
+      const integerDigits = raw.slice(0, separatorIndex).replace(/\D/g, '');
+      const formattedInteger =
+        integerDigits === '' ? '0' : formatProjectItemQuantityThousands(integerDigits);
+      const decimalDigits = digitsAfterSeparator.slice(0, 2);
+
+      if (raw.endsWith('.') && decimalDigits === '') {
+        return `${formattedInteger},`;
+      }
+
+      return decimalDigits === ''
+        ? formattedInteger
+        : `${formattedInteger},${decimalDigits}`;
+    }
+  }
+
+  const integerDigits = raw.replace(/\D/g, '');
+  if (integerDigits === '') {
+    return '';
+  }
+
+  return formatProjectItemQuantityThousands(integerDigits);
+};
+
+const parseProjectItemQuantityInput = (value: string): number => {
+  const sanitized = sanitizeProjectItemQuantityInput(value);
+  if (sanitized === '' || sanitized === '0,') {
+    return 0;
+  }
+
+  const canonical = sanitized.replace(/\./g, '').replace(',', '.');
+  const parsed = Number(canonical);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed;
+};
 
 export interface ProjectImportSummary {
   success: number;
@@ -114,6 +202,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
     rowId: string;
     field: ProjectItemField;
   } | null>(null);
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
 
   const buildItemFieldRefKey = useCallback(
     (rowId: string, field: ProjectItemField): string => `${rowId}:${field}`,
@@ -223,6 +312,60 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
     },
     [focusNextItemField]
   );
+  const handleQuantityFocus = useCallback(
+    (itemId: string, quantity: number | string | undefined | null) => {
+      const numericQuantity = Number(quantity);
+      setQuantityDrafts((prev) => ({
+        ...prev,
+        [itemId]:
+          Number.isFinite(numericQuantity) && numericQuantity !== 0
+            ? formatNumber(numericQuantity)
+            : '',
+      }));
+    },
+    [formatNumber]
+  );
+  const handleQuantityChange = useCallback(
+    (itemId: string, rawValue: string) => {
+      const nextDisplayValue = sanitizeProjectItemQuantityInput(rawValue);
+      setQuantityDrafts((prev) => ({
+        ...prev,
+        [itemId]: nextDisplayValue,
+      }));
+      handleUpdateItem(itemId, 'quantity', parseProjectItemQuantityInput(nextDisplayValue));
+    },
+    [handleUpdateItem]
+  );
+  const handleQuantityBlur = useCallback(
+    (itemId: string) => {
+      setQuantityDrafts((prev) => {
+        if (!(itemId in prev)) {
+          return prev;
+        }
+
+        const nextDrafts = { ...prev };
+        delete nextDrafts[itemId];
+        return nextDrafts;
+      });
+      handleItemBlur(itemId, 'quantity');
+    },
+    [handleItemBlur]
+  );
+  const resolveQuantityInputValue = useCallback(
+    (itemId: string, quantity: number | string | undefined | null) => {
+      if (Object.prototype.hasOwnProperty.call(quantityDrafts, itemId)) {
+        return quantityDrafts[itemId];
+      }
+
+      const numericQuantity = Number(quantity);
+      if (!Number.isFinite(numericQuantity) || numericQuantity === 0) {
+        return '';
+      }
+
+      return formatNumber(numericQuantity);
+    },
+    [formatNumber, quantityDrafts]
+  );
   const handleAddItemAndFocus = useCallback(() => {
     if (isEditingLocked) {
       return;
@@ -247,14 +390,14 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center mb-2">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-sm font-bold text-slate-700">Danh sách hạng mục dự án</h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onOpenQuotationPicker}
             disabled={isEditingLocked}
-            className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            className={PROJECT_TAB_SECONDARY_BUTTON_CLASS_NAME}
           >
             <span className="material-symbols-outlined text-sm text-primary">receipt_long</span>
             Lấy từ Báo giá
@@ -264,7 +407,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
               type="button"
               onClick={toggleItemImportMenu}
               disabled={isItemImportSaving || isEditingLocked}
-              className="text-xs flex items-center gap-1.5 bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-md hover:bg-slate-50 font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className={PROJECT_TAB_SECONDARY_BUTTON_CLASS_NAME}
             >
               <span className="material-symbols-outlined text-sm">upload</span>
               {isItemImportSaving ? 'Đang nhập...' : 'Nhập'}
@@ -276,7 +419,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                   type="button"
                   onClick={triggerProjectItemImport}
                   disabled={isItemImportSaving}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined text-sm">upload_file</span>
                   Nhập dữ liệu
@@ -285,7 +428,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                   type="button"
                   onClick={handleDownloadProjectItemTemplate}
                   disabled={isItemImportSaving}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-green-600 transition-colors border-t border-slate-100 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined text-sm">download</span>
                   Tải file mẫu
@@ -297,7 +440,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
             type="button"
             onClick={handleAddItemAndFocus}
             disabled={isEditingLocked}
-            className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-100 font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            className={PROJECT_TAB_ACCENT_BUTTON_CLASS_NAME}
           >
             <span className="material-symbols-outlined text-sm">add</span> Thêm hạng mục
           </button>
@@ -354,9 +497,9 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
         <table className="w-full table-fixed text-left bg-white rounded-lg shadow-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[44%]">Hạng mục</th>
+              <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[42%]">Hạng mục</th>
               <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-center whitespace-nowrap">Đơn vị tính</th>
-              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">SL</th>
+              <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[10%] text-center whitespace-nowrap">Số lượng</th>
               <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[16%] text-right whitespace-nowrap">Đơn giá</th>
               <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase w-[12%] text-right whitespace-nowrap">Thành tiền</th>
               <th className="px-2 py-3 text-xs font-bold text-slate-500 uppercase w-[8%] text-center whitespace-nowrap">Tác vụ</th>
@@ -368,6 +511,10 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                 const selectedCatalogItem = projectItemCatalogMetaByValue.get(
                   resolveProjectItemCatalogValue(item)
                 );
+                const resolvedUnit =
+                  String(item.unit || '').trim()
+                  || String(selectedCatalogItem?.unit || '').trim()
+                  || '—';
                 const isDuplicateItem = duplicateItemIds.has(item.id);
                 const duplicateFieldClassName = isDuplicateItem
                   ? 'border-rose-300 ring-1 ring-rose-200'
@@ -397,20 +544,21 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                     </td>
                     <td className="px-2 py-1.5">
                       <div className={PROJECT_ITEM_READONLY_BOX_CLASS_NAME}>
-                        <span className="line-clamp-2">{selectedCatalogItem?.unit || '—'}</span>
+                        <span className="line-clamp-2" title={resolvedUnit}>{resolvedUnit}</span>
                       </div>
                     </td>
                     <td className="px-2 py-1.5">
                       <input
                         ref={setItemFieldRef(item.id, 'quantity')}
                         aria-label={`Số lượng hạng mục dòng ${index + 1}`}
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         disabled={isEditingLocked}
                         className={`${PROJECT_ITEM_CENTER_INPUT_CLASS_NAME} ${duplicateFieldClassName}`}
-                        value={item.quantity === 0 ? '' : item.quantity}
-                        onChange={(e) => handleUpdateItem(item.id, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                        value={resolveQuantityInputValue(item.id, item.quantity)}
+                        onFocus={() => handleQuantityFocus(item.id, item.quantity)}
+                        onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                        onBlur={() => handleQuantityBlur(item.id)}
                         onKeyDown={(event) => handleItemFieldEnter(event, index, 'quantity')}
                         placeholder="0"
                       />
@@ -436,7 +584,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                           type="button"
                           onClick={() => handleCopyItemAndFocus(item.id)}
                           disabled={isEditingLocked}
-                          className="text-slate-400 hover:text-primary transition-colors p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`${PROJECT_TAB_ICON_BUTTON_CLASS_NAME} hover:bg-sky-50 hover:text-primary`}
                           title="Sao chép hạng mục"
                           aria-label={`Sao chép hạng mục dòng ${index + 1}`}
                         >
@@ -446,7 +594,7 @@ export const ProjectItemsTab: React.FC<ProjectItemsTabProps> = ({
                           type="button"
                           onClick={() => handleRemoveItem(item.id)}
                           disabled={isEditingLocked}
-                          className="text-slate-400 hover:text-red-500 transition-colors p-1 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={`${PROJECT_TAB_ICON_BUTTON_CLASS_NAME} hover:bg-rose-50 hover:text-red-500`}
                           title="Xóa hạng mục"
                           aria-label={`Xóa hạng mục dòng ${index + 1}`}
                         >
@@ -560,7 +708,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
               type="button"
               onClick={toggleRaciImportMenu}
               disabled={isRaciImportSaving}
-              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className={PROJECT_TAB_SECONDARY_BUTTON_CLASS_NAME}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>upload</span>
               {isRaciImportSaving ? 'Đang nhập...' : 'Nhập'}
@@ -572,7 +720,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                   type="button"
                   onClick={triggerProjectRaciImport}
                   disabled={isRaciImportSaving}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 14 }}>upload_file</span>
                   Nhập dữ liệu
@@ -581,7 +729,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                   type="button"
                   onClick={handleDownloadProjectRaciTemplate}
                   disabled={isRaciImportSaving}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
                   Tải file mẫu
@@ -593,7 +741,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
           <button
             type="button"
             onClick={handleAddRACI}
-            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded bg-primary text-white hover:bg-deep-teal shadow-sm transition-colors"
+            className={PROJECT_TAB_PRIMARY_BUTTON_CLASS_NAME}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>person_add</span>
             Thêm nhân sự
@@ -716,7 +864,8 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                             type="button"
                             onClick={() => handleCopyRACI(raci.id)}
                             title="Sao chép dòng này"
-                            className="rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                            aria-label="Sao chép dòng nhân sự"
+                            className={`${PROJECT_TAB_ICON_BUTTON_CLASS_NAME} hover:bg-sky-50 hover:text-blue-600`}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
                           </button>
@@ -724,7 +873,8 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
                             type="button"
                             onClick={() => handleRemoveRACI(raci.id)}
                             title="Xóa"
-                            className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-error"
+                            aria-label="Xóa dòng nhân sự"
+                            className={`${PROJECT_TAB_ICON_BUTTON_CLASS_NAME} hover:bg-rose-50 hover:text-error`}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                           </button>
@@ -746,7 +896,7 @@ export const ProjectRaciTab: React.FC<ProjectRaciTabProps> = ({
       </div>
 
       {showAccountableConfirm && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+        <div className="fixed inset-0 ui-layer-popover flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
             onClick={dismissAccountableConfirm}

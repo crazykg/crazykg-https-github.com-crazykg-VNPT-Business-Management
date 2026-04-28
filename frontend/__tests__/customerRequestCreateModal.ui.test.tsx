@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Customer, CustomerPersonnel, Employee, ProjectItemMaster, SupportServiceGroup } from '../types';
 import { CustomerRequestCreateModal } from '../components/customer-request/CustomerRequestCreateModal';
@@ -121,7 +122,7 @@ describe('CustomerRequestCreateModal UI', () => {
     expect(screen.queryByText('Field')).not.toBeInTheDocument();
     expect(screen.getByText('Thẻ')).toBeInTheDocument();
     expect(screen.getByText('Task liên quan')).toBeInTheDocument();
-    expect(screen.getByText('Đính kèm')).toBeInTheDocument();
+    expect(screen.getByText('Tệp đính kèm')).toBeInTheDocument();
     expect(screen.queryByText('Danh sách file đính kèm')).not.toBeInTheDocument();
     expect(screen.queryByText('0 file')).not.toBeInTheDocument();
     expect(screen.getByText('Chưa có file nào được tải lên.')).toBeInTheDocument();
@@ -154,8 +155,8 @@ describe('CustomerRequestCreateModal UI', () => {
     expect(modalPanel).not.toBeNull();
     expect(modalPanel?.className).toContain('h-[calc(100dvh-32px)]');
     expect(modalPanel?.className).toContain('sm:h-[calc(100dvh-48px)]');
-    expect(modalPanel?.className).toContain('rounded-none');
-    expect(modalPanel?.className).toContain('sm:rounded-3xl');
+    expect(modalPanel?.className).toContain('rounded-[var(--ui-modal-mobile-radius)]');
+    expect(modalPanel?.className).toContain('sm:rounded-[var(--ui-modal-radius)]');
   });
 
   it('shows add-customer-personnel action inside requester combobox and triggers callback', () => {
@@ -181,5 +182,28 @@ describe('CustomerRequestCreateModal UI', () => {
     fireEvent.keyDown(addCustomerPersonnelAction, { key: 'Enter' });
     fireEvent.keyDown(addCustomerPersonnelAction, { key: ' ' });
     expect(onOpenAddCustomerPersonnelModal).toHaveBeenCalledTimes(3);
+  });
+
+  it('opens inline confirm before removing a reference row', async () => {
+    const user = userEvent.setup();
+    const onRemoveReferenceTaskRow = vi.fn();
+
+    renderCreateModal({
+      formReferenceTasks: [{ local_id: 'ref-1', task_code: 'CRC-202604-0015' }],
+      onRemoveReferenceTaskRow,
+    });
+
+    await user.click(screen.getByRole('button', { name: /Ref/i }));
+    await user.click(screen.getByRole('button', { name: 'Bỏ Ref #1' }));
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText('Bỏ Ref này?')).toBeInTheDocument();
+    expect(screen.getByText('Liên kết này sẽ bị gỡ khỏi yêu cầu hiện tại. Yêu cầu gốc không bị xoá.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Bỏ Ref' }));
+
+    expect(onRemoveReferenceTaskRow).toHaveBeenCalledTimes(1);
+    expect(onRemoveReferenceTaskRow).toHaveBeenCalledWith('ref-1');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });

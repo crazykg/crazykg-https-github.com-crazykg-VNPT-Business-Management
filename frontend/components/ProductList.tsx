@@ -67,6 +67,10 @@ const PRODUCT_DESKTOP_VIEWPORT_BREAKPOINT = 1280;
 const PRODUCT_HEADER_LAYOUT_BREAKPOINT = 1280;
 const PRODUCT_FILTER_LAYOUT_BREAKPOINT = 1040;
 const PRODUCT_TABLE_LAYOUT_BREAKPOINT = 1200;
+const PRODUCT_DENSE_TOOLBAR_INPUT_CLASSNAME =
+  'h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-1 focus:ring-primary/30';
+const PRODUCT_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME =
+  '!h-8 !min-h-0 !rounded-md !border !border-slate-200 !bg-slate-50 !px-3 !py-0 !text-xs !text-slate-700 shadow-sm hover:!bg-white';
 const PRODUCT_QUERY_KEYS = {
   search: 'products_q',
   status: 'products_status',
@@ -1344,14 +1348,14 @@ export const ProductList: React.FC<ProductListProps> = ({
           >
             <div className={`min-w-0 md:col-span-2 ${isWideDesktopFilterLayout ? 'xl:col-span-1' : ''}`}>
               <div className="relative">
-                <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
+                <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={searchInput}
                   onChange={(event) => { setSearchInput(event.target.value); }}
                   placeholder="Tìm mã định danh, tên sản phẩm, phân nhóm, tên viết tắt hoặc mô tả..."
-                  className="h-8 w-full rounded border border-slate-300 bg-white pl-7 pr-3 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  className={PRODUCT_DENSE_TOOLBAR_INPUT_CLASSNAME}
                 />
               </div>
             </div>
@@ -1371,6 +1375,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                     }}
                     placeholder="Hoạt động"
                     compact
+                    triggerClassName={PRODUCT_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
                   />
                 </div>
 
@@ -1382,6 +1387,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                     onChange={(value) => { setServiceGroupFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
                     placeholder="Tất cả nhóm dịch vụ"
                     compact
+                    triggerClassName={PRODUCT_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
                   />
                 </div>
 
@@ -1393,6 +1399,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                     onChange={(value) => { setDomainFilterId(value); setCurrentPage(DEFAULT_PAGE); }}
                     placeholder="Tất cả lĩnh vực KD"
                     compact
+                    triggerClassName={PRODUCT_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
                   />
                 </div>
 

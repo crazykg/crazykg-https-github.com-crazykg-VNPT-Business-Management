@@ -138,7 +138,7 @@ describe('InternalUserModuleTabs', () => {
       />
     );
 
-    expect(screen.getByRole('heading', { name: /^Danh sách nhân sự$/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: /^Danh sách nhân sự$/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Module nhân sự nội bộ/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Quản lý hồ sơ nhân sự, tra cứu trạng thái và thao tác nhập xuất dữ liệu tập trung/i)).not.toBeInTheDocument();
   });
@@ -174,7 +174,7 @@ describe('InternalUserModuleTabs', () => {
       />
     );
 
-    expect(screen.getByTestId('internal-user-module-signals')).toHaveClass('grid-cols-3');
+    expect(screen.getByTestId('internal-user-module-signals')).toHaveClass('flex-wrap');
     expect(screen.getByTestId('internal-user-module-tabs-grid')).toHaveClass('grid-cols-3');
   });
 

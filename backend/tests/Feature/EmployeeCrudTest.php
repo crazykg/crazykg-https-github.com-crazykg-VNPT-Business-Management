@@ -24,6 +24,7 @@ class EmployeeCrudTest extends TestCase
             'user_code' => 'VNPT000001',
             'full_name' => 'Nguyen Van A',
             'email' => 'a@example.com',
+            'gmail' => 'nguyenvana@gmail.com',
             'department_id' => 1,
             'position_id' => 1,
             'phone_number' => '0909000001',
@@ -37,6 +38,8 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.user_code', 'VNPT000001')
             ->assertJsonPath('data.employee_code', 'VNPT000001')
             ->assertJsonPath('data.full_name', 'Nguyen Van A')
+            ->assertJsonPath('data.email', 'a@example.com')
+            ->assertJsonPath('data.gmail', 'nguyenvana@gmail.com')
             ->assertJsonPath('data.status', 'ACTIVE')
             ->assertJsonPath('data.phone_number', '0909000001')
             ->assertJsonPath('data.telechatbot', '123456789')
@@ -55,6 +58,7 @@ class EmployeeCrudTest extends TestCase
         $updateResponse = $this->putJson('/api/v5/employees/1', [
             'full_name' => 'Nguyen Van B',
             'user_code' => 'VNPT000009',
+            'gmail' => 'nguyenvanb@gmail.com',
             'telechatbot' => '-10099887766',
             'status' => 'TRANSFERRED',
         ]);
@@ -64,6 +68,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.full_name', 'Nguyen Van B')
             ->assertJsonPath('data.user_code', 'VNPT000009')
             ->assertJsonPath('data.employee_code', 'VNPT000009')
+            ->assertJsonPath('data.gmail', 'nguyenvanb@gmail.com')
             ->assertJsonPath('data.telechatbot', '-10099887766')
             ->assertJsonPath('data.status', 'SUSPENDED');
 
@@ -96,6 +101,7 @@ class EmployeeCrudTest extends TestCase
                     'user_code' => 'VNPT000002',
                     'full_name' => 'Employee 01',
                     'email' => 'employee01@example.com',
+                    'gmail' => 'employee01@gmail.com',
                     'department_id' => 1,
                 ],
                 [
@@ -103,6 +109,7 @@ class EmployeeCrudTest extends TestCase
                     'user_code' => 'VNPT000003',
                     'full_name' => 'Employee 02',
                     'email' => 'employee02@example.com',
+                    'gmail' => 'employee02@gmail.com',
                     'department_id' => 1,
                 ],
             ],
@@ -114,6 +121,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.failed_count', 0)
             ->assertJsonPath('data.results.0.success', true)
             ->assertJsonPath('data.results.1.success', true)
+            ->assertJsonPath('data.created.0.gmail', 'employee01@gmail.com')
             ->assertJsonPath('data.created.1.employee_code', 'VNPT000003');
     }
 
@@ -139,6 +147,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.results.0.data.username', 'vnpt000010')
             ->assertJsonPath('data.results.0.data.full_name', 'Imported Employee')
             ->assertJsonPath('data.results.0.data.email', 'vnpt000010@import.local')
+            ->assertJsonPath('data.results.0.data.gmail', null)
             ->assertJsonPath('data.results.0.data.department.id', 1);
 
         $this->assertDatabaseHas('internal_users', [
@@ -159,6 +168,7 @@ class EmployeeCrudTest extends TestCase
             'user_code' => 'VNPT100001',
             'full_name' => 'Alpha Active',
             'email' => 'alpha.active@vnpt.vn',
+            'gmail' => 'alpha.active@gmail.com',
             'department_id' => 1,
             'position_id' => 1,
             'status' => 'ACTIVE',
@@ -185,6 +195,7 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonPath('data.results.0.data.user_code', 'VNPT100001')
             ->assertJsonPath('data.results.0.data.full_name', 'Alpha Updated')
             ->assertJsonPath('data.results.0.data.email', 'alpha.active@vnpt.vn')
+            ->assertJsonPath('data.results.0.data.gmail', 'alpha.active@gmail.com')
             ->assertJsonPath('data.results.0.data.status', 'ACTIVE');
 
         $this->assertDatabaseHas('internal_users', [
@@ -193,6 +204,7 @@ class EmployeeCrudTest extends TestCase
             'username' => 'alpha.active',
             'full_name' => 'Alpha Updated',
             'email' => 'alpha.active@vnpt.vn',
+            'gmail' => 'alpha.active@gmail.com',
             'department_id' => 1,
             'phone_number' => '0909000001',
             'status' => 'ACTIVE',
@@ -209,6 +221,7 @@ class EmployeeCrudTest extends TestCase
                 'user_code' => 'VNPT100001',
                 'full_name' => 'Alpha Active',
                 'email' => 'alpha.active@vnpt.vn',
+                'gmail' => 'alpha.active@gmail.com',
                 'department_id' => 1,
                 'position_id' => 1,
                 'status' => 'ACTIVE',
@@ -222,6 +235,7 @@ class EmployeeCrudTest extends TestCase
                 'user_code' => 'VNPT100002',
                 'full_name' => 'Alpha Other Dept',
                 'email' => 'alpha.otherdept@vnpt.vn',
+                'gmail' => 'alpha.otherdept@gmail.com',
                 'department_id' => 2,
                 'position_id' => 1,
                 'status' => 'ACTIVE',
@@ -235,6 +249,7 @@ class EmployeeCrudTest extends TestCase
                 'user_code' => 'VNPT100003',
                 'full_name' => 'Beta Inactive',
                 'email' => 'beta.inactive@vnpt.vn',
+                'gmail' => 'beta.inactive@gmail.com',
                 'department_id' => 1,
                 'position_id' => 1,
                 'status' => 'INACTIVE',
@@ -250,8 +265,26 @@ class EmployeeCrudTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', 1)
             ->assertJsonPath('data.0.email', 'alpha.active@vnpt.vn')
+            ->assertJsonPath('data.0.gmail', 'alpha.active@gmail.com')
             ->assertJsonPath('data.0.status', 'ACTIVE')
             ->assertJsonPath('data.0.department.id', 1);
+    }
+
+    public function test_it_requires_gmail_domain_when_gmail_is_supplied(): void
+    {
+        $response = $this->postJson('/api/v5/internal-users', [
+            'username' => 'gmail.invalid',
+            'user_code' => 'VNPT000012',
+            'full_name' => 'Gmail Invalid',
+            'email' => 'gmail.invalid@example.com',
+            'gmail' => 'gmail.invalid@yahoo.com',
+            'department_id' => 1,
+            'status' => 'ACTIVE',
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('gmail');
     }
 
     public function test_it_requires_leave_date_when_marking_employee_as_inactive(): void
@@ -370,6 +403,7 @@ class EmployeeCrudTest extends TestCase
             $table->string('user_code', 100)->unique();
             $table->string('full_name', 255);
             $table->string('email', 255)->unique();
+            $table->string('gmail', 255)->nullable();
             $table->string('password', 255)->nullable();
             $table->unsignedBigInteger('department_id')->nullable();
             $table->unsignedBigInteger('position_id')->nullable();

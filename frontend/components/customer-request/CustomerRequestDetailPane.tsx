@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Attachment,
   YeuCauEstimate,
@@ -15,9 +15,10 @@ import type { Employee } from '../../types/employee';
 import type { ProjectItemMaster } from '../../types/project';
 import type { SupportServiceGroup } from '../../types/support';
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
-import { AttachmentManager } from '../AttachmentManager';
+import { AttachmentManager, type AttachmentManagerHandle } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { CustomerRequestQuickActionModal } from './CustomerRequestQuickActionModal';
+import { InlineRemoveConfirmButton } from './InlineRemoveConfirmButton';
 import { TagInput } from './TagInput';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import { CustomerRequestEstimatePanel } from './CustomerRequestEstimatePanel';
@@ -37,6 +38,15 @@ import {
   type ReferenceTaskFormRow,
 } from './presentation';
 import { normalizeText } from './helpers';
+import {
+  customerRequestDensePrimaryButtonClass,
+  customerRequestDenseSecondaryButtonClass,
+  customerRequestDenseSelectClass,
+  customerRequestFieldClass,
+  customerRequestNestedSurfaceClass,
+  customerRequestSelectTriggerClass,
+  customerRequestSurfaceClass,
+} from './uiClasses';
 
 type RelatedSummaryItem = {
   label: string;
@@ -164,6 +174,137 @@ const resolveWorklogMainStatusLabel = (worklog: YeuCauWorklog): string | null =>
   || null
 );
 
+const resolveWorklogAssigneeName = (worklog: YeuCauWorklog): string | null => (
+  normalizeText(worklog.assigned_user_name)
+  || normalizeText(worklog.to_user_id_name)
+  || null
+);
+
+const buildWorklogPerformerLabel = (worklog: YeuCauWorklog): string => {
+  const performerName = normalizeText(worklog.performed_by_name);
+  const performerCode = normalizeText(worklog.performed_by_code);
+
+  if (performerName && performerCode) {
+    return `${performerName} · ${performerCode}`;
+  }
+
+  return performerName || performerCode || 'Chưa xác định';
+};
+
+const buildTimelinePersonLabel = (
+  code: string | null | undefined,
+  name: string | null | undefined
+): string | null => {
+  const personCode = normalizeText(code);
+  const personName = normalizeText(name);
+
+  if (personCode && personName) {
+    return `${personCode} - ${personName}`;
+  }
+
+  return personCode || personName || null;
+};
+
+const lowerFirstTimelineLabel = (label: string | null | undefined): string | null => {
+  const value = normalizeText(label);
+  if (!value) {
+    return null;
+  }
+
+  return value.charAt(0).toLocaleLowerCase('vi-VN') + value.slice(1);
+};
+
+const shouldShowTimelineAssignee = (entry: YeuCauTimelineEntry): boolean => {
+  const statusCode = normalizeText(entry.status_code || entry.tien_trinh).toLowerCase();
+
+  return statusCode !== 'new_intake'
+    && Boolean(normalizeText(entry.nguoi_xu_ly_code) || normalizeText(entry.nguoi_xu_ly_name));
+};
+
+const buildTimelineSentence = (entry: YeuCauTimelineEntry, fallbackStatusLabel: string): string => {
+  const actorLabel = buildTimelinePersonLabel(entry.nguoi_thay_doi_code, entry.nguoi_thay_doi_name) || 'Chưa xác định';
+  const actionLabel = lowerFirstTimelineLabel(entry.trang_thai_moi || fallbackStatusLabel || entry.tien_trinh) || 'cập nhật';
+  const assigneeLabel = shouldShowTimelineAssignee(entry)
+    ? buildTimelinePersonLabel(entry.nguoi_xu_ly_code, entry.nguoi_xu_ly_name)
+    : null;
+  const timeSource = normalizeText(entry.created_at)
+    || normalizeText(entry.thay_doi_luc)
+    || normalizeText(entry.entered_at);
+  const timeLabel = timeSource ? formatDateTimeDdMmYyyy(timeSource)?.slice(0, 16) : null;
+
+  return [
+    actorLabel,
+    actionLabel,
+    assigneeLabel,
+    timeLabel,
+  ]
+    .filter(Boolean)
+    .join(' ');
+};
+
+const resolveCurrentRequestAssigneeName = (request: YeuCauProcessDetail['yeu_cau'] | null | undefined): string | null => {
+  const source = request as Record<string, unknown> | null | undefined;
+
+  return (
+    normalizeText(source?.receiver_name)
+    || normalizeText(source?.nguoi_xu_ly_name)
+    || normalizeText(source?.current_owner_name)
+    || normalizeText(source?.performer_name)
+    || normalizeText(source?.dispatcher_name)
+    || null
+  );
+};
+
+const shouldUseCurrentRequestStatusForWorklog = (
+  worklog: YeuCauWorklog,
+  request: YeuCauProcessDetail['yeu_cau'] | null | undefined
+): boolean => {
+  const currentStatusName = normalizeText(request?.current_status_name_vi);
+  if (!normalizeText(worklog.detail_status_action) || !currentStatusName) {
+    return false;
+  }
+
+  const worklogStatusCode = normalizeText(worklog.status_code).toLowerCase();
+  const worklogStatusName = normalizeText(worklog.status_name_vi).toLowerCase();
+
+  return currentStatusName.toLowerCase() !== 'tiếp nhận'
+    && (worklogStatusCode === 'new_intake' || worklogStatusName === 'tiếp nhận');
+};
+
+const buildWorklogStatusSummary = (
+  worklog: YeuCauWorklog,
+  request?: YeuCauProcessDetail['yeu_cau'] | null
+): string | null => {
+  const useCurrentRequestStatus = shouldUseCurrentRequestStatusForWorklog(worklog, request);
+  const mainStatusLabel = useCurrentRequestStatus
+    ? normalizeText(request?.current_status_name_vi) || resolveWorklogMainStatusLabel(worklog)
+    : resolveWorklogMainStatusLabel(worklog);
+  const assigneeName = resolveWorklogAssigneeName(worklog)
+    || (useCurrentRequestStatus ? resolveCurrentRequestAssigneeName(request) : null);
+
+  if (!mainStatusLabel) {
+    return assigneeName ? `Người nhận: ${assigneeName}` : null;
+  }
+
+  return assigneeName ? `${mainStatusLabel} - ${assigneeName}` : mainStatusLabel;
+};
+
+const resolveWorklogTimeLabel = (worklog: YeuCauWorklog): string | null => {
+  const value = normalizeText(worklog.work_started_at)
+    || normalizeText(worklog.created_at)
+    || normalizeText(worklog.work_ended_at)
+    || normalizeText(worklog.updated_at)
+    || normalizeText(worklog.work_date);
+
+  if (!value) {
+    return null;
+  }
+
+  return /\d{1,2}:\d{2}/.test(value)
+    ? formatDateTimeDdMmYyyy(value)
+    : formatDateDdMmYyyy(value);
+};
+
 const resolveDifficultyStatusLabel = (difficultyStatus: string | null | undefined): string | null => {
   const normalized = normalizeText(difficultyStatus).toLowerCase();
   if (!normalized || normalized === 'none') {
@@ -275,6 +416,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('hours');
   const [showDispatcherActionModal, setShowDispatcherActionModal] = useState(false);
   const [showPerformerActionModal, setShowPerformerActionModal] = useState(false);
+  const attachmentManagerRef = useRef<AttachmentManagerHandle | null>(null);
   const isFullModalPresentation = presentation === 'full_modal';
   const isFullModalUpdateLayout = isFullModalPresentation && !isCreateMode;
   const visibleDetailTabs = useMemo(
@@ -428,10 +570,25 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     },
   ];
 
-  const compactSectionCardClass = 'rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-3.5';
+  const compactSectionCardClass = `${customerRequestSurfaceClass} p-3 sm:p-3.5`;
   const compactSectionTitleClass = 'text-xs font-bold uppercase tracking-[0.12em] text-slate-500';
-  const compactSectionIconBoxClass = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md';
+  const compactSectionIconBoxClass =
+    'flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)]';
   const compactSectionHeaderClass = 'mb-2 flex items-center gap-2 border-b border-slate-100 pb-2';
+  const denseTabButtonBaseClass =
+    'group inline-flex h-8 items-center gap-1.5 rounded-[var(--ui-control-radius)] px-3 text-[13px] font-semibold leading-5 transition';
+  const taskSectionTitleClass = 'text-sm font-semibold leading-5 text-[color:var(--ui-text-default)]';
+  const taskHeaderClass = 'mb-3 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3';
+  const taskSegmentedControlClass =
+    'inline-flex items-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-1';
+  const taskActionGroupClass = 'ml-auto flex flex-wrap items-center gap-2';
+  const taskListScrollClass = 'max-h-[min(280px,40dvh)] overflow-y-auto pr-1 custom-scrollbar';
+  const railTaskListScrollClass = 'max-h-[min(240px,36dvh)] overflow-y-auto pr-1 custom-scrollbar';
+  const attachmentListScrollClass = 'max-h-[min(260px,38dvh)] custom-scrollbar';
+  const railAttachmentListScrollClass = 'max-h-[min(220px,34dvh)] custom-scrollbar';
+  const worklogListScrollClass = 'max-h-[min(280px,40dvh)] overflow-y-auto pr-1 custom-scrollbar';
+  const itemCardClass =
+    'rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)]';
 
   const renderTaskManager = (layout: 'tab' | 'rail' = 'tab') => {
     const isRailLayout = layout === 'rail';
@@ -442,193 +599,193 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           ? compactSectionCardClass
           : 'space-y-4'}
       >
-        <div className={`flex flex-col gap-2.5 ${isRailLayout ? 'mb-2 border-b border-slate-100 pb-2 sm:flex-row sm:items-center sm:justify-between' : 'xl:flex-row xl:items-center xl:justify-between'}`}>
-          <div className="flex items-center gap-2">
-            {isRailLayout ? (
-              <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>deployed_code</span>
-              </div>
-            ) : (
-              <span className="material-symbols-outlined text-[16px] text-slate-400">deployed_code</span>
-            )}
-            <h4 className={compactSectionTitleClass}>Task liên quan</h4>
+        <div className={taskHeaderClass}>
+          <div className="flex min-w-0 items-center gap-2 pr-2">
+            <div className={`${compactSectionIconBoxClass} bg-sky-50 text-sky-700`}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>deployed_code</span>
+            </div>
+            <h4 className={taskSectionTitleClass}>Task liên quan</h4>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+
+          <div className={taskSegmentedControlClass}>
           <button
             type="button"
             onClick={() => onActiveTaskTabChange('IT360')}
-            className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+            className={`${denseTabButtonBaseClass} ${
               activeTaskTab === 'IT360'
-                ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
+                ? 'bg-primary text-white shadow-[var(--ui-shadow-shell)]'
+                : 'bg-transparent text-slate-600 hover:bg-white'
             }`}
           >
-            <span className="material-symbols-outlined text-base transition-transform group-hover:scale-110">deployed_code</span>
-            Task IT360
+            IT360
+            {formIt360Tasks.length > 0 ? (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                  activeTaskTab === 'IT360' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {formIt360Tasks.length}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"
             onClick={() => onActiveTaskTabChange('REFERENCE')}
-            className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+            className={`${denseTabButtonBaseClass} ${
               activeTaskTab === 'REFERENCE'
-                ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
+                ? 'bg-primary text-white shadow-[var(--ui-shadow-shell)]'
+                : 'bg-transparent text-slate-600 hover:bg-white'
             }`}
           >
-            <span className="material-symbols-outlined text-base transition-transform group-hover:scale-110">dataset_linked</span>
-            Task tham chiếu
-          </button>
-          {/* {canEditActiveForm && !isCreateMode && onSaveRequest ? (
-            <button
-              type="button"
-              onClick={() => void onSaveRequest()}
-              disabled={isSaving}
-              className="group inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-primary/20 transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-md"
-            >
-              <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110">save</span>
-              {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
-            </button>
-          ) : null} */}
-          {canEditActiveForm ? (
-            <>
-              {/* <button
-                type="button"
-                onClick={onSaveStatusDetail}
-                disabled={isSaving}
-                className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            Ref
+            {formReferenceTasks.length > 0 ? (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                  activeTaskTab === 'REFERENCE' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                }`}
               >
-                {isSaving ? 'Đang cập nhật...' : 'Cập nhật'}
-              </button> */}
+                {formReferenceTasks.length}
+              </span>
+            ) : null}
+          </button>
+          </div>
+
+          {canEditActiveForm ? (
+            <div className={taskActionGroupClass}>
               {onSaveTaskReference ? (
                 <button
                   type="button"
                   onClick={onSaveTaskReference}
                   disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className={customerRequestDenseSecondaryButtonClass}
                 >
-                  <span className="material-symbols-outlined text-[15px]">link</span>
-                  {isSaving ? 'Đang cập nhật...' : 'Cập nhật Task/Ref'}
+                  <span className="material-symbols-outlined text-[15px]">save</span>
+                  {isSaving ? 'Đang lưu...' : 'Lưu'}
                 </button>
               ) : null}
               <button
                 type="button"
                 onClick={onAddTaskRow}
                 disabled={isSaving}
-                className="inline-flex items-center gap-1.5 rounded bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className={customerRequestDensePrimaryButtonClass}
               >
                 <span className="material-symbols-outlined text-[15px]">add</span>
-                {activeTaskTab === 'IT360' ? 'Thêm Task IT360' : 'Thêm task tham chiếu'}
+                Thêm
               </button>
-            </>
+            </div>
           ) : null}
         </div>
-        </div>
 
-        <div className={`rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white/80 shadow-inner ${isRailLayout ? 'mt-0 p-2.5' : 'p-3'}`}>
+        <div className={`${customerRequestNestedSurfaceClass} ${isRailLayout ? 'mt-0 p-2.5' : 'p-3'}`}>
         {activeTaskTab === 'IT360' ? (
-          <div className="space-y-2">
-            {formIt360Tasks.map((task, index) => (
-              <div
-                key={task.local_id}
-                className={`group rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/50 shadow-sm transition-shadow hover:shadow-md ${isRailLayout ? 'space-y-2.5 p-2.5' : 'grid gap-2.5 p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_220px_auto]'}`}
-              >
-                <div className="space-y-1.5">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Task IT360 #{index + 1}</p>
-                  <input
-                    type="text"
-                    value={task.task_code}
-                    onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
-                    placeholder={`Nhập mã task IT360 #${index + 1}`}
-                    disabled={!canEditActiveForm || isSaving}
-                    className="h-10 w-full rounded border border-slate-200 bg-white/80 px-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Link task</p>
-                  <input
-                    type="text"
-                    value={task.task_link}
-                    onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
-                    placeholder="Link task IT360"
-                    disabled={!canEditActiveForm || isSaving}
-                    className="h-10 w-full rounded border border-slate-200 bg-white/80 px-3 text-sm text-slate-900 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Trạng thái</p>
-                  <SearchableSelect
-                    value={task.status}
-                    options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
-                    onChange={(value) => onUpdateIt360TaskRow(task.local_id, 'status', value)}
-                    disabled={!canEditActiveForm || isSaving}
-                    compact
-                  />
-                </div>
-
-                <div className={`flex items-end ${isRailLayout ? 'justify-start' : 'justify-end'}`}>
-                  {canEditActiveForm ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveIt360TaskRow(task.local_id)}
-                      className="group/btn material-symbols-outlined rounded border border-transparent p-2 text-slate-400 transition-all hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 hover:shadow-sm"
-                      title="Xoá task IT360"
-                    >
-                      delete
-                    </button>
-                  ) : null}
-                </div>
+          <div className={`space-y-2 ${isRailLayout ? railTaskListScrollClass : taskListScrollClass}`}>
+            {formIt360Tasks.length === 0 ? (
+              <div className="rounded-[var(--ui-control-radius)] border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-4 text-center text-xs text-slate-400">
+                Chưa có IT360 nào. Bấm Thêm để gắn task.
               </div>
-            ))}
+            ) : (
+              formIt360Tasks.map((task, index) => (
+                <div
+                  key={task.local_id}
+                  className={`group ${itemCardClass} p-3 ${isRailLayout ? '' : ''}`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">IT360 #{index + 1}</p>
+                    {canEditActiveForm ? (
+                      <InlineRemoveConfirmButton
+                        triggerLabel={`Bỏ IT360 #${index + 1}`}
+                        confirmTitle="Bỏ IT360 này?"
+                        confirmDescription="Dòng IT360 này sẽ bị gỡ khỏi yêu cầu hiện tại. Task gốc không bị xoá."
+                        confirmActionLabel="Bỏ IT360"
+                        disabled={!canEditActiveForm || isSaving}
+                        onConfirm={() => onRemoveIt360TaskRow(task.local_id)}
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
+                    <input
+                      type="text"
+                      value={task.task_code}
+                      onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_code', event.target.value)}
+                      placeholder={`Mã IT360 #${index + 1}`}
+                      disabled={!canEditActiveForm || isSaving}
+                      className={customerRequestFieldClass}
+                    />
+                    <SearchableSelect
+                      value={task.status}
+                      options={SUPPORT_TASK_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+                      onChange={(value) => onUpdateIt360TaskRow(task.local_id, 'status', value)}
+                      disabled={!canEditActiveForm || isSaving}
+                      compact
+                      triggerClassName={customerRequestSelectTriggerClass}
+                    />
+                  </div>
+
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      value={task.task_link}
+                      onChange={(event) => onUpdateIt360TaskRow(task.local_id, 'task_link', event.target.value)}
+                      placeholder="Link task"
+                      disabled={!canEditActiveForm || isSaving}
+                      className={customerRequestFieldClass}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         ) : (
-          <div className="space-y-2">
-            {formReferenceTasks.map((task, index) => (
-              <div
-                key={task.local_id}
-                className={`grid gap-2 rounded-xl border border-slate-200 bg-white p-2.5 ${isRailLayout ? '' : 'md:grid-cols-[minmax(0,1fr)_auto]'}`}
-              >
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Task tham chiếu #{index + 1}
-                  </p>
+          <div className={`space-y-2 ${isRailLayout ? railTaskListScrollClass : taskListScrollClass}`}>
+            {formReferenceTasks.length === 0 ? (
+              <div className="rounded-[var(--ui-control-radius)] border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 py-4 text-center text-xs text-slate-400">
+                Chưa có Ref nào. Bấm Thêm để gắn liên kết.
+              </div>
+            ) : (
+              formReferenceTasks.map((task, index) => (
+                <div
+                  key={task.local_id}
+                  className={`${itemCardClass} p-3`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ref #{index + 1}</p>
+                    {canEditActiveForm ? (
+                      <InlineRemoveConfirmButton
+                        triggerLabel={`Bỏ Ref #${index + 1}`}
+                        confirmTitle="Bỏ Ref này?"
+                        confirmDescription="Liên kết này sẽ bị gỡ khỏi yêu cầu hiện tại. Yêu cầu gốc không bị xoá."
+                        confirmActionLabel="Bỏ Ref"
+                        disabled={!canEditActiveForm || isSaving}
+                        onConfirm={() => onRemoveReferenceTaskRow(task.local_id)}
+                      />
+                    ) : null}
+                  </div>
+
                   <SearchableSelect
                     value={task.task_code}
                     options={taskReferenceOptions}
                     onChange={(value) => onUpdateReferenceTaskRow(task.local_id, value)}
                     onSearchTermChange={onTaskReferenceSearchTermChange}
-                    placeholder={`Chọn task tham chiếu #${index + 1}`}
+                    placeholder={`Chọn task/YC tham chiếu #${index + 1}`}
                     searchPlaceholder="Tìm theo mã task hoặc mã yêu cầu..."
                     noOptionsText={
                       taskReferenceSearchError ||
                       (taskReferenceSearchTerm.trim() === ''
-                        ? 'Nhập mã task hoặc mã yêu cầu để lọc thêm, hoặc chọn từ danh sách gợi ý.'
+                        ? 'Nhập mã task hoặc mã yêu cầu để lọc thêm.'
                         : 'Không tìm thấy task tham chiếu')
                     }
                     searching={isTaskReferenceSearchLoading}
                     disabled={!canEditActiveForm || isSaving}
                     compact
+                    triggerClassName={customerRequestSelectTriggerClass}
                   />
                   {taskReferenceSearchError ? (
-                    <p className="text-xs text-rose-600">{taskReferenceSearchError}</p>
+                    <p className="mt-2 text-xs text-rose-600">{taskReferenceSearchError}</p>
                   ) : null}
                 </div>
-
-                <div className="flex items-end justify-end">
-                  {canEditActiveForm ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveReferenceTaskRow(task.local_id)}
-                      className="material-symbols-outlined rounded-md p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                      title="Xoá task tham chiếu"
-                    >
-                      delete
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
       </div>
@@ -645,29 +802,51 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
           ? compactSectionCardClass
           : 'space-y-3'}
       >
-        <div className={isRailLayout ? `${compactSectionHeaderClass} justify-between` : 'flex items-center justify-between gap-3'}>
-          <div className="flex items-center gap-2">
-            {isRailLayout ? (
-              <div className={`${compactSectionIconBoxClass} bg-amber-50 text-amber-700`}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>attach_file</span>
+        <div className={isRailLayout ? `${compactSectionHeaderClass} items-start justify-between` : 'flex flex-col gap-2 border-b border-slate-100 pb-2 sm:flex-row sm:items-start sm:justify-between'}>
+          <div className="flex min-w-0 items-start gap-2">
+            <div className={`${compactSectionIconBoxClass} bg-amber-50 text-amber-700`}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>attach_file</span>
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className={compactSectionTitleClass}>Tệp đính kèm</h4>
+                {formAttachments.length > 0 ? (
+                  <span className="inline-flex h-6 items-center rounded-full bg-[var(--ui-surface-subtle)] px-2 text-xs font-semibold text-[color:var(--ui-text-muted)]">
+                    {formAttachments.length} file
+                  </span>
+                ) : null}
               </div>
-            ) : null}
-            <h4 className={compactSectionTitleClass}>Tệp đính kèm</h4>
+              <p className="mt-1 text-xs leading-5 text-[color:var(--ui-text-muted)]">Ctrl/Cmd+V để dán ảnh chụp.</p>
+            </div>
           </div>
-          {canEditActiveForm && onSaveAttachmentsOnly ? (
-            <button
-              type="button"
-              onClick={() => void onSaveAttachmentsOnly()}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined text-[15px]">save</span>
-              {isSaving ? 'Đang cập nhật…' : 'Cập nhật'}
-            </button>
+          {canEditActiveForm ? (
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => attachmentManagerRef.current?.openFilePicker()}
+                disabled={isUploadingAttachment || isSaving}
+                className={customerRequestDenseSecondaryButtonClass}
+              >
+                <span className="material-symbols-outlined text-[15px]">upload</span>
+                Tải file
+              </button>
+              {onSaveAttachmentsOnly ? (
+                <button
+                  type="button"
+                  onClick={() => void onSaveAttachmentsOnly()}
+                  disabled={isSaving}
+                  className={customerRequestDensePrimaryButtonClass}
+                >
+                  <span className="material-symbols-outlined text-[15px]">save</span>
+                  {isSaving ? 'Đang cập nhật…' : 'Lưu'}
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <div className={isRailLayout ? 'mt-2' : ''}>
           <AttachmentManager
+            ref={attachmentManagerRef}
             attachments={formAttachments}
             onUpload={onUploadAttachment}
             onDelete={onDeleteAttachment}
@@ -676,12 +855,19 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             emptyStateDescription="Chưa có file đính kèm nào. Kéo thả hoặc Ctrl+V để dán ảnh."
             enableClipboardPaste
             clipboardPasteHint="Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp."
+            showClipboardPasteHint={false}
+            compact
+            showListTitle={false}
+            showSummaryMeta={false}
+            showUploadButton={false}
+            listVariant="compact-row"
+            listMaxHeightClassName={isRailLayout ? railAttachmentListScrollClass : attachmentListScrollClass}
           />
         </div>
 
         {attachmentError ? <p className="text-sm text-rose-600">{attachmentError}</p> : null}
         {!attachmentError && attachmentNotice ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+          <div className="rounded-[var(--ui-control-radius)] border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
             {attachmentNotice}
           </div>
         ) : null}
@@ -689,7 +875,7 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     );
   };
 
-  const renderTimelineTab = () => {
+  const renderTimelineContent = () => {
     if (isCreateMode) {
       return <EmptyTabState message="Timeline sẽ có sau khi yêu cầu được lưu và bắt đầu luân chuyển trạng thái." />;
     }
@@ -702,37 +888,22 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
       <div className="space-y-3">
         {timeline.map((entry, index) => {
           const meta = resolveStatusMeta(entry.tien_trinh, entry.decision_reason_label || entry.trang_thai_moi);
+          const timelineSentence = buildTimelineSentence(entry, meta.label);
           return (
-            <div key={String(entry.id ?? index)} className="group flex gap-3 rounded-2xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 p-3.5 shadow-sm transition-shadow hover:shadow-md">
+            <div
+              key={String(entry.id ?? index)}
+              className={`group flex gap-3 p-3.5 ${isFullModalPresentation ? `${customerRequestSurfaceClass}` : 'rounded-2xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 shadow-sm transition-shadow hover:shadow-md'}`}
+            >
               <div className="flex flex-col items-center">
                 <span className={`mt-1 h-3 w-3 rounded-full ring-2 ring-white ${meta.cls}`} />
                 {index < timeline.length - 1 ? <div className="mt-2 w-px flex-1 bg-gradient-to-b from-slate-200 to-slate-100" /> : null}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.cls}`}>
-                    {meta.label}
-                  </span>
-                  {entry.trang_thai_cu ? (
-                    <span className="text-xs text-slate-400">từ {entry.trang_thai_cu}</span>
-                  ) : (
-                    <span className="text-xs text-slate-400">chuyển tiếp</span>
-                  )}
-                  {entry.nguoi_xu_ly_name ? (
-                    <span className="text-xs text-slate-500">• giao cho <span className="font-medium text-slate-700">{entry.nguoi_xu_ly_name}</span></span>
-                  ) : null}
-                </div>
-                <p className="mt-1.5 text-xs text-slate-500">
-                  {[
-                    entry.nguoi_thay_doi_name,
-                    entry.nguoi_thay_doi_code,
-                    entry.created_at ? formatDateTimeDdMmYyyy(entry.created_at)?.slice(0, 16) : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+                <p className="text-sm font-semibold leading-6 text-slate-800">
+                  {timelineSentence}
                 </p>
                 {entry.ly_do ? (
-                  <p className="mt-2 rounded-xl border border-slate-100 bg-white/60 px-2.5 py-1.5 text-sm text-slate-700">
+                  <p className={`mt-2 px-2.5 py-1.5 text-sm text-slate-700 ${isFullModalPresentation ? `${customerRequestNestedSurfaceClass} rounded-[var(--ui-control-radius)]` : 'rounded-xl border border-slate-100 bg-white/60'}`}>
                     {entry.ly_do}
                   </p>
                 ) : null}
@@ -744,6 +915,55 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     );
   };
 
+  const renderTimelineTab = () => renderTimelineContent();
+
+  const renderRecentWorklogList = (worklogs: YeuCauWorklog[]) => {
+    if (worklogs.length === 0) {
+      return <EmptyTabState message="Chưa có nhật ký công việc gần đây." />;
+    }
+
+    return (
+      <div className="space-y-2.5">
+        {worklogs.map((worklog) => {
+          const statusSummary = buildWorklogStatusSummary(worklog, processDetail?.yeu_cau);
+          const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+          const timeLabel = resolveWorklogTimeLabel(worklog);
+          const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
+          const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
+          const performerLabel = buildWorklogPerformerLabel(worklog);
+
+          return (
+            <button
+              key={worklog.id}
+              type="button"
+              onClick={() => onEditWorklog(worklog)}
+              disabled={isSaving || isSubmittingWorklog}
+              className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 disabled:opacity-50"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900">{performerLabel}</p>
+                <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {[
+                  worklog.activity_type_code,
+                  statusSummary ? `Trạng thái: ${statusSummary}` : null,
+                  detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                  timeLabel,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+              {difficultySummaryLine ? (
+                <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 text-sm font-medium text-amber-700">
+                  {difficultySummaryLine}
+                </p>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
   const renderHoursTab = () => {
     if (isCreateMode || !processDetail) {
       return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh nhật ký công việc." />;
@@ -764,57 +984,20 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
     return (
       <div className={`grid min-w-0 ${isCompactHoursTab ? 'gap-3' : 'gap-4'} lg:grid-cols-[minmax(0,1fr)_336px]`}>
         <div className={isCompactHoursTab ? 'space-y-2.5' : 'space-y-3'}>
-          <div className={`rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-md shadow-slate-200/40 ${isCompactHoursTab ? 'p-3' : 'p-3.5'}`}>
-            <div className={`flex items-center gap-2 ${isCompactHoursTab ? 'mb-2.5' : 'mb-3'}`}>
-              <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
-              <h4 className={`${isCompactHoursTab ? 'text-xs tracking-[0.14em]' : 'text-sm tracking-[0.18em]'} font-bold uppercase text-slate-500`}>Nhật ký công việc gần nhất</h4>
+          <div className={`${isCompactHoursTab ? `${customerRequestSurfaceClass} p-3` : 'rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40'}`}>
+            <div className={`flex flex-wrap items-center justify-between gap-2 ${isCompactHoursTab ? 'mb-2.5' : 'mb-3'}`}>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
+                <h4 className={`${isCompactHoursTab ? 'text-xs tracking-[0.14em]' : 'text-sm tracking-[0.18em]'} font-bold uppercase text-slate-500`}>Nhật ký công việc</h4>
+              </div>
+              {caseWorklogs.length > 0 ? (
+                <span className="inline-flex h-6 items-center rounded-full bg-[var(--ui-surface-subtle)] px-2 text-xs font-semibold text-[color:var(--ui-text-muted)]">
+                  {caseWorklogs.length} dòng
+                </span>
+              ) : null}
             </div>
-            <div className={isCompactHoursTab ? 'space-y-2' : 'space-y-2.5'}>
-              {latestWorklogs.length === 0 ? (
-                <EmptyTabState message="Chưa có nhật ký công việc nào cho yêu cầu này." />
-              ) : (
-                latestWorklogs.map((worklog) => {
-                  const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
-                  const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
-                  const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
-                  const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
-
-                  return (
-                    <button
-                      key={worklog.id}
-                      type="button"
-                      onClick={() => onEditWorklog(worklog)}
-                      disabled={isSaving || isSubmittingWorklog}
-                      className={`group w-full rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/60 text-left shadow-sm transition-shadow hover:shadow-md disabled:opacity-50 ${isCompactHoursTab ? 'px-2.5 py-2' : 'px-3 py-2.5'}`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className={`${isCompactHoursTab ? 'text-[13px] leading-5' : 'text-sm'} font-semibold text-slate-900`}>
-                          {worklog.performed_by_name || 'Chưa xác định'}
-                        </p>
-                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                          {formatHoursValue(worklog.hours_spent)}
-                        </span>
-                      </div>
-                      <p className={`${isCompactHoursTab ? 'mt-1 text-[11px] leading-4' : 'mt-1.5 text-xs'} text-slate-500`}>
-                        {[
-                          worklog.activity_type_code,
-                          mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
-                          detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
-                          formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </p>
-                      {worklog.work_content ? <p className={`rounded-lg border border-slate-100 bg-white/60 px-2.5 py-1.5 text-slate-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}>{worklog.work_content}</p> : null}
-                      {difficultySummaryLine ? (
-                        <p className={`rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 font-medium text-amber-700 ${isCompactHoursTab ? 'mt-1.5 text-[13px] leading-5' : 'mt-2 text-sm'}`}>
-                          {difficultySummaryLine}
-                        </p>
-                      ) : null}
-                    </button>
-                  );
-                })
-              )}
+            <div className={latestWorklogs.length > 0 ? worklogListScrollClass : ''}>
+              {renderRecentWorklogList(latestWorklogs)}
             </div>
           </div>
         </div>
@@ -822,15 +1005,15 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
         <div className={isCompactHoursTab ? 'space-y-2.5' : 'space-y-3'}>
           {hoursPanelNode}
 
-          {hoursByActivity.length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+          {!isCompactHoursTab && hoursByActivity.length > 0 ? (
+            <div className={`${isCompactHoursTab ? `${customerRequestSurfaceClass} p-3.5` : 'rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40'}`}>
               <div className="mb-3 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] text-slate-400">category</span>
                 <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo hoạt động</h4>
               </div>
               <div className="space-y-2">
                 {hoursByActivity.map((activity) => (
-                  <div key={activity.activity_type_code || 'unknown'} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                  <div key={activity.activity_type_code || 'unknown'} className={`${isCompactHoursTab ? `${customerRequestNestedSurfaceClass}` : 'group rounded-xl border border-slate-100 bg-white/80 shadow-sm transition-shadow hover:shadow-md'} px-3 py-2.5`}>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-800">
                         {activity.activity_type_code || 'Chưa phân loại'}
@@ -846,15 +1029,15 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
             </div>
           ) : null}
 
-          {hoursByPerformer.length > 0 ? (
-            <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40">
+          {!isCompactHoursTab && hoursByPerformer.length > 0 ? (
+            <div className={`${isCompactHoursTab ? `${customerRequestSurfaceClass} p-3.5` : 'rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-3.5 shadow-md shadow-slate-200/40'}`}>
               <div className="mb-3 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] text-slate-400">people</span>
                 <h4 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">Theo người thực hiện</h4>
               </div>
               <div className="space-y-2">
                 {hoursByPerformer.map((person) => (
-                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className="group rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md">
+                  <div key={`${person.performed_by_user_id ?? 'unknown'}-${person.performed_by_name ?? ''}`} className={`${isCompactHoursTab ? `${customerRequestNestedSurfaceClass}` : 'group rounded-xl border border-slate-100 bg-white/80 shadow-sm transition-shadow hover:shadow-md'} px-3 py-2.5`}>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold text-slate-800">{person.performed_by_name || 'Chưa xác định'}</span>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
@@ -929,46 +1112,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
         <div className="rounded-2xl border border-slate-200 p-3.5">
           <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Hoạt động gần đây</h4>
-          <div className="mt-3 space-y-2.5">
-            {latestWorklogs.length === 0 ? (
-              <EmptyTabState message="Chưa có nhật ký công việc gần đây." />
-            ) : (
-              latestWorklogs.map((worklog) => {
-                const mainStatusLabel = resolveWorklogMainStatusLabel(worklog);
-                const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
-                const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
-                const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
-
-                return (
-                  <button
-                    key={worklog.id}
-                    type="button"
-                    onClick={() => onEditWorklog(worklog)}
-                    disabled={isSaving || isSubmittingWorklog}
-                    className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{worklog.performed_by_name || 'Chưa xác định'}</p>
-                      <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {[
-                        worklog.activity_type_code,
-                        mainStatusLabel ? `Trạng thái: ${mainStatusLabel}` : null,
-                        detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
-                        formatDateDdMmYyyy(worklog.work_date || worklog.work_started_at),
-                      ].filter(Boolean).join(' · ')}
-                    </p>
-                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                    {difficultySummaryLine ? (
-                      <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 text-sm font-medium text-amber-700">
-                        {difficultySummaryLine}
-                      </p>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
+          <div className="mt-3">
+            {renderRecentWorklogList(latestWorklogs)}
           </div>
         </div>
       </div>
@@ -1020,10 +1165,10 @@ const renderStatusSection = () => (
                 type="button"
                 onClick={() => onOpenDetailStatusWorklogModal('in_progress')}
                 disabled={isSaving || isSubmittingWorklog}
-                className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                className={`${customerRequestDenseSecondaryButtonClass} ${
                   isDetailInProgress
                     ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    : ''
                 }`}
               >
                 <span className="material-symbols-outlined text-[15px]">play_circle</span>
@@ -1033,10 +1178,10 @@ const renderStatusSection = () => (
                 type="button"
                 onClick={() => onOpenDetailStatusWorklogModal('paused')}
                 disabled={isSaving || isSubmittingWorklog}
-                className={`inline-flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                className={`${customerRequestDenseSecondaryButtonClass} ${
                   isDetailPaused
                     ? 'border-blue-200 bg-blue-600 text-white hover:bg-blue-700'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    : ''
                 }`}
               >
                 <span className="material-symbols-outlined text-[15px]">pause_circle</span>
@@ -1052,7 +1197,7 @@ const renderStatusSection = () => (
                   type="button"
                   onClick={onOpenTransitionModal}
                   disabled={isSaving || !canTransitionActiveRequest || !transitionStatusCode}
-                  className="inline-flex h-8 items-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+                  className={customerRequestDensePrimaryButtonClass}
                 >
                   <span className="material-symbols-outlined text-[15px]">arrow_right_alt</span>
                   Hoàn thành
@@ -1063,7 +1208,7 @@ const renderStatusSection = () => (
                   value={transitionStatusCode}
                   onChange={(event) => onTransitionStatusCodeChange(event.target.value)}
                   disabled={isSaving || !canTransitionActiveRequest}
-                  className="h-8 min-w-[168px] rounded border border-slate-200 bg-white px-3 text-xs text-slate-800 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={customerRequestDenseSelectClass}
                 >
                   {transitionOptions.length > 0 ? (
                     transitionOptions.map((option) => {
@@ -1217,10 +1362,10 @@ const renderOperationSection = () => (
               key={tab.key}
               type="button"
               onClick={() => setActiveDetailTab(tab.key)}
-              className={`group inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+              className={`${denseTabButtonBaseClass} ${
                 activeDetailTab === tab.key
-                  ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-md shadow-primary/20'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:shadow-sm'
+                  ? 'bg-primary text-white shadow-[var(--ui-shadow-shell)]'
+                  : 'border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-slate-600 hover:bg-slate-100'
               }`}
             >
               <span className="material-symbols-outlined text-[17px] transition-transform group-hover:scale-110">{tab.icon}</span>

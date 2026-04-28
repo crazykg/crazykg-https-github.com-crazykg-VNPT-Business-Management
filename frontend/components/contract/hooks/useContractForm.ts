@@ -10,7 +10,7 @@ import type {
   Project,
   ProjectItemMaster,
 } from '../../../types';
-import { parseContractItemCatalogValue } from '../contractItemCatalogUtils';
+import { parseContractItemCatalogValue, resolveContractItemCatalogValue } from '../contractItemCatalogUtils';
 
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
 
@@ -69,7 +69,10 @@ interface UseContractFormResult {
   handleDraftItemChange: (index: number, field: keyof ContractItem, value: unknown) => void;
   handleDraftProductChange: (index: number, nextProductId: string) => void;
   handleDraftVatAmountChange: (index: number, rawValue: string) => void;
-  handleImportProjectItems: (projectItems: ProjectItemMaster[]) => void;
+  handleImportProjectItems: (
+    projectItems: ProjectItemMaster[],
+    mergeMode?: 'merge' | 'replace'
+  ) => void;
   handleExpiryDateChange: (value: string) => void;
   handleRecalculateExpiryDate: () => void;
   handleToggleProjectItemsReference: () => void;
@@ -676,7 +679,10 @@ export const useContractForm = ({
     handleDraftItemVatState(index, nextVatRate, vatAmount);
   };
 
-  const handleImportProjectItems = (projectItems: ProjectItemMaster[]) => {
+  const handleImportProjectItems = (
+    projectItems: ProjectItemMaster[],
+    mergeMode: 'merge' | 'replace' = 'replace'
+  ) => {
     if (!isItemsEditable) {
       return;
     }
@@ -733,15 +739,52 @@ export const useContractForm = ({
       return;
     }
 
-    if (
-      draftItems.length > 0
-      && !window.confirm('Các hạng mục hợp đồng hiện tại sẽ được thay bằng dữ liệu lấy từ dự án. Bạn có muốn tiếp tục?')
-    ) {
-      return;
-    }
+    setDraftItems((prev) => {
+      if (mergeMode === 'replace' || prev.length === 0) {
+        return importedItems;
+      }
 
-    setDraftItems(importedItems);
-    setInlineNotice(`Đã lấy ${importedItems.length} hạng mục từ dự án vào hợp đồng.`);
+      const existing = [...prev];
+
+      importedItems.forEach((incoming) => {
+        const incomingCatalogValue = resolveContractItemCatalogValue(incoming);
+        const matchedIndex = existing.findIndex(
+          (item) => resolveContractItemCatalogValue(item) === incomingCatalogValue
+        );
+
+        if (matchedIndex < 0) {
+          existing.push(incoming);
+          return;
+        }
+
+        const current = existing[matchedIndex];
+        const newQuantity = Number(current.quantity || 0) + Number(incoming.quantity || 0);
+        const currentUnitPrice = Number(current.unit_price || 0);
+        const nextVatRate = normalizeVatRate(current.vat_rate) ?? normalizeVatRate(incoming.vat_rate);
+        const nextAmountBeforeVat = roundMoney(Math.max(0, newQuantity * currentUnitPrice));
+
+        existing[matchedIndex] = {
+          ...current,
+          product_id: current.product_id || incoming.product_id,
+          product_package_id: current.product_package_id ?? incoming.product_package_id ?? null,
+          product_code: normalizeSnapshotText(current.product_code) ?? normalizeSnapshotText(incoming.product_code),
+          product_name: normalizeSnapshotText(current.product_name) ?? normalizeSnapshotText(incoming.product_name),
+          unit: normalizeSnapshotText(incoming.unit) ?? normalizeSnapshotText(current.unit),
+          quantity: newQuantity,
+          unit_price: currentUnitPrice,
+          vat_rate: nextVatRate,
+          vat_amount: resolveEffectiveVatAmount(current.vat_amount, nextAmountBeforeVat, nextVatRate),
+        };
+      });
+
+      return existing;
+    });
+
+    setInlineNotice(
+      mergeMode === 'replace'
+        ? `Đã thay thế toàn bộ bằng ${importedItems.length} hạng mục từ dự án.`
+        : `Đã gộp ${importedItems.length} hạng mục từ dự án vào hợp đồng.`
+    );
   };
 
   const validate = (): boolean => {

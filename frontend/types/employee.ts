@@ -12,6 +12,7 @@ export interface Employee {
   username: string;
   full_name: string;
   email: string;
+  gmail?: string | null;
   phone?: string | null;
   phone_number?: string | null;
   mobile?: string | null;

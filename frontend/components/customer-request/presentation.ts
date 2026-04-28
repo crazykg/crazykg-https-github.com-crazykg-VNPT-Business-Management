@@ -1062,13 +1062,13 @@ export const filterTransitionOptionsForRequest = <T extends { process_code: stri
     );
   }
 
-  // new_intake now shows all transitions from backend (workflowa 2026-04-22)
-  // No longer filter to only assigned_to_receiver/returned_to_manager
   if (currentStatusCode !== 'new_intake') {
     return visibleProcesses;
   }
 
-  return visibleProcesses;
+  return visibleProcesses.filter((process) =>
+    ['assigned_to_receiver', 'returned_to_manager'].includes(process.process_code)
+  );
 };
 
 export const isPmMissingCustomerInfoDecisionProcessCode = (processCode: unknown): boolean =>
@@ -1622,6 +1622,28 @@ export const resolvePrimaryActionMeta = (
       hint: 'Cần có est để điều phối và theo dõi',
       cls: 'bg-slate-100 text-slate-700',
       icon: 'calculate',
+    };
+  }
+
+  const currentStatusCode = resolveRequestCurrentStatusCode(request);
+  if (roleFilter === 'performer' && currentStatusCode === 'in_progress') {
+    return {
+      kind: 'worklog',
+      label: 'Cập nhật tiến độ',
+      hint: 'Ghi nhận tiến độ xử lý yêu cầu',
+      cls: 'bg-sky-100 text-sky-700',
+      icon: 'edit_note',
+    };
+  }
+
+  if (roleFilter === 'dispatcher' && PM_MISSING_INFO_DECISION_SOURCE_STATUSES.has(currentStatusCode)) {
+    return {
+      kind: 'transition',
+      label: 'Chờ khách hàng cung cấp thông tin',
+      hint: 'Chuyển sang nhánh chờ khách hàng bổ sung',
+      cls: 'bg-rose-100 text-rose-700',
+      icon: 'assignment_return',
+      targetStatusCode: PM_MISSING_CUSTOMER_INFO_DECISION_PROCESS_CODE,
     };
   }
 

@@ -141,6 +141,291 @@ class CustomerRequestCompatibilityLookupService
         return $this->respondWithProjectItemsQuery($request, $query);
     }
 
+    public function customerFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('customers')) {
+            return $this->support->missingTable('customers');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'customers',
+            'alias' => 'c',
+            'id' => 'id',
+            'code' => 'customer_code',
+            'primary_name' => 'customer_name',
+            'fallback_name' => 'company_name',
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Khách hàng',
+        ]);
+    }
+
+    public function projectFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('projects')) {
+            return $this->support->missingTable('projects');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'projects',
+            'alias' => 'p',
+            'id' => 'id',
+            'code' => 'project_code',
+            'primary_name' => 'project_name',
+            'fallback_name' => null,
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Dự án',
+        ]);
+    }
+
+    public function productFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('products')) {
+            return $this->support->missingTable('products');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'products',
+            'alias' => 'prd',
+            'id' => 'id',
+            'code' => 'product_code',
+            'primary_name' => 'product_name',
+            'fallback_name' => null,
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Sản phẩm',
+        ]);
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     */
+    private function respondWithLookupFilterOptions(Request $request, array $config): JsonResponse
+    {
+        $page = max(1, (int) ($request->query('page', 1) ?? 1));
+        $perPage = max(1, min(50, (int) ($request->query('per_page', 30) ?? 30)));
+        $search = trim((string) ($this->support->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        $selectedIds = collect($request->query('selected_ids', []))
+            ->when(
+                ! is_array($request->query('selected_ids', [])),
+                fn ($collection) => collect([$request->query('selected_ids')])
+            )
+            ->map(fn (mixed $value): ?int => $this->support->parseNullableInt($value))
+            ->filter(fn (?int $value): bool => $value !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedRows = [];
+        if ($page === 1 && $selectedIds !== []) {
+            $selectedRows = $this->buildLookupFilterOptionsQuery($config, '')
+                ->whereIn($config['alias'].'.'.$config['id'], $selectedIds)
+                ->get()
+                ->map(fn (object $row): array => $this->serializeLookupFilterOption((array) $row, $config))
+                ->all();
+        }
+
+        $query = $this->buildLookupFilterOptionsQuery($config, $search);
+        if ($selectedIds !== []) {
+            $query->whereNotIn($config['alias'].'.'.$config['id'], $selectedIds);
+        }
+
+        $rows = $query
+            ->forPage($page, $perPage + 1)
+            ->get()
+            ->map(fn (object $row): array => $this->serializeLookupFilterOption((array) $row, $config))
+            ->all();
+
+        $hasMore = count($rows) > $perPage;
+        if ($hasMore) {
+            array_pop($rows);
+        }
+
+        $data = $page === 1 ? [...$selectedRows, ...$rows] : $rows;
+
+        return response()->json([
+            'data' => collect($data)
+                ->unique(fn (array $row): string => (string) ($row['value'] ?? ''))
+                ->values()
+                ->all(),
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'has_more' => $hasMore,
+            ],
+        ]);
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     */
+    private function buildLookupFilterOptionsQuery(array $config, string $search): mixed
+    {
+        $query = DB::table($config['table'].' as '.$config['alias'])
+            ->select([
+                $config['alias'].'.'.$config['id'].' as id',
+                $config['alias'].'.'.$config['code'].' as code',
+                $config['alias'].'.'.$config['primary_name'].' as primary_name',
+            ]);
+
+        if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
+            $query->addSelect($config['alias'].'.'.$config['fallback_name'].' as fallback_name');
+        } else {
+            $query->selectRaw('NULL as fallback_name');
+        }
+
+        if ($config['deleted_at'] !== null && $this->support->hasColumn($config['table'], $config['deleted_at'])) {
+            $query->whereNull($config['alias'].'.'.$config['deleted_at']);
+        }
+
+        if ($search !== '') {
+            $normalizedSearch = $this->normalizeDiacritics($search);
+            $like = '%'.$normalizedSearch.'%';
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $normalizedSearch);
+            $codeColumn = $config['alias'].'.'.$config['code'];
+            $primaryNameColumn = $config['alias'].'.'.$config['primary_name'];
+
+            $fallbackColumn = null;
+            if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
+                $fallbackColumn = $config['alias'].'.'.$config['fallback_name'];
+            }
+
+            $normalizedCode = $this->sqlNormalizeDiacritics($codeColumn);
+            $normalizedPrimary = $this->sqlNormalizeDiacritics($primaryNameColumn);
+
+            $query->where(function ($builder) use ($normalizedCode, $normalizedPrimary, $fallbackColumn, $like): void {
+                $builder->whereRaw($normalizedCode.' LIKE ?', [$like])
+                    ->orWhereRaw($normalizedPrimary.' LIKE ?', [$like]);
+
+                if ($fallbackColumn !== null) {
+                    $builder->orWhereRaw($this->sqlNormalizeDiacritics($fallbackColumn).' LIKE ?', [$like]);
+                }
+            });
+
+            $query->orderByRaw(
+                "CASE
+                    WHEN {$normalizedCode} = ? THEN 0
+                    WHEN {$normalizedPrimary} = ? THEN 1
+                    WHEN {$normalizedCode} LIKE ? THEN 2
+                    WHEN {$normalizedPrimary} LIKE ? THEN 3
+                    WHEN {$normalizedCode} LIKE ? THEN 4
+                    WHEN {$normalizedPrimary} LIKE ? THEN 5
+                    ELSE 6
+                END",
+                [$normalizedSearch, $normalizedSearch, $escaped.'%', $escaped.'%', '%'.$escaped.'%', '%'.$escaped.'%']
+            );
+        }
+
+        $query
+            ->orderBy($config['alias'].'.'.$config['primary_name'])
+            ->orderBy($config['alias'].'.'.$config['id']);
+
+        return $query;
+    }
+
+    /**
+     * Normalize Vietnamese diacritics for search matching.
+     * Converts "công ty" → "cong ty", "Bệnh viện" → "Benh vien", etc.
+     */
+    private function normalizeDiacritics(string $value): string
+    {
+        $normalized = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if ($normalized === false) {
+            $normalized = $value;
+        }
+
+        return strtolower(trim($normalized));
+    }
+
+    /**
+     * Generate SQL expression that strips Vietnamese diacritics from a column.
+     * Works with both MySQL and SQLite.
+     */
+    private function sqlNormalizeDiacritics(string $column): string
+    {
+        $pairs = [
+            'á'=>'a','à'=>'a','ả'=>'a','ã'=>'a','ạ'=>'a',
+            'ă'=>'a','ắ'=>'a','ằ'=>'a','ẳ'=>'a','ẵ'=>'a','ặ'=>'a',
+            'â'=>'a','ấ'=>'a','ầ'=>'a','ẩ'=>'a','ẫ'=>'a','ậ'=>'a',
+            'é'=>'e','è'=>'e','ẻ'=>'e','ẽ'=>'e','ẹ'=>'e',
+            'ê'=>'e','ế'=>'e','ề'=>'e','ể'=>'e','ễ'=>'e','ệ'=>'e',
+            'í'=>'i','ì'=>'i','ỉ'=>'i','ĩ'=>'i','ị'=>'i',
+            'ó'=>'o','ò'=>'o','ỏ'=>'o','õ'=>'o','ọ'=>'o',
+            'ô'=>'o','ố'=>'o','ồ'=>'o','ổ'=>'o','ỗ'=>'o','ộ'=>'o',
+            'ơ'=>'o','ớ'=>'o','ờ'=>'o','ở'=>'o','ỡ'=>'o','ợ'=>'o',
+            'ú'=>'u','ù'=>'u','ủ'=>'u','ũ'=>'u','ụ'=>'u',
+            'ư'=>'u','ứ'=>'u','ừ'=>'u','ử'=>'u','ữ'=>'u','ự'=>'u',
+            'ý'=>'y','ỳ'=>'y','ỷ'=>'y','ỹ'=>'y','ỵ'=>'y',
+            'đ'=>'d',
+            'Á'=>'A','À'=>'A','Ả'=>'A','Ã'=>'A','Ạ'=>'A',
+            'Ă'=>'A','Ắ'=>'A','Ằ'=>'A','Ẳ'=>'A','Ẵ'=>'A','Ặ'=>'A',
+            'Â'=>'A','Ấ'=>'A','Ầ'=>'A','Ẩ'=>'A','Ẫ'=>'A','Ậ'=>'A',
+            'É'=>'E','È'=>'E','Ẻ'=>'E','Ẽ'=>'E','Ẹ'=>'E',
+            'Ê'=>'E','Ế'=>'E','Ề'=>'E','Ể'=>'E','Ễ'=>'E','Ệ'=>'E',
+            'Í'=>'I','Ì'=>'I','Ỉ'=>'I','Ĩ'=>'I','Ị'=>'I',
+            'Ó'=>'O','Ò'=>'O','Ỏ'=>'O','Õ'=>'O','Ọ'=>'O',
+            'Ô'=>'O','Ố'=>'O','Ồ'=>'O','Ổ'=>'O',''=>'O','Ộ'=>'O',
+            'Ơ'=>'O','Ớ'=>'O','Ờ'=>'O','Ở'=>'O','Ỡ'=>'O','Ợ'=>'O',
+            'Ú'=>'U','Ù'=>'U','Ủ'=>'U','Ũ'=>'U','Ụ'=>'U',
+            'Ư'=>'U','Ứ'=>'U','Ừ'=>'U','Ử'=>'U','Ữ'=>'U','Ự'=>'U',
+            'Ý'=>'Y',''=>'Y','Ỷ'=>'Y','Ỹ'=>'Y','Ỵ'=>'Y',
+            'Đ'=>'D',
+        ];
+
+        $expr = $column;
+        foreach ($pairs as $from => $to) {
+            $expr = "REPLACE({$expr}, '{$from}', '{$to}')";
+        }
+
+        return "LOWER({$expr})";
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     * @param array<string, mixed> $row
+     * @return array{value:string, label:string, search_text:string}
+     */
+    private function serializeLookupFilterOption(array $row, array $config): array
+    {
+        $id = $this->support->parseNullableInt($row['id'] ?? null);
+        $code = trim((string) ($row['code'] ?? ''));
+        $primaryName = trim((string) ($row['primary_name'] ?? ''));
+        $fallbackName = trim((string) ($row['fallback_name'] ?? ''));
+        $name = $primaryName !== '' ? $primaryName : ($fallbackName !== '' ? $fallbackName : $config['default_label'].' #'.($id ?? '--'));
+        $label = trim(($code !== '' ? $code.' - ' : '').$name);
+
+        return [
+            'value' => (string) ($id ?? ''),
+            'label' => $label !== '' ? $label : $name,
+            'search_text' => trim(implode(' ', array_filter([$code, $primaryName, $fallbackName, $id]))),
+        ];
+    }
+
     private function supportRequestReferenceSearch(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('support_requests')) {

@@ -40,6 +40,8 @@ export interface SearchableSelectProps {
   onTriggerKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }
 
+const DEFAULT_MODAL_PORTAL_Z_INDEX = 600;
+
 const normalizeSearchableSelectToken = (value: unknown): string =>
   String(value ?? '')
     .normalize('NFD')
@@ -65,7 +67,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   triggerClassName,
   dropdownClassName,
   usePortal = true,
-  portalZIndex = 220,
+  portalZIndex = DEFAULT_MODAL_PORTAL_Z_INDEX,
   renderOptionContent,
   renderDropdownHeader,
   triggerButtonRef,
@@ -392,7 +394,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             ref={inputRef}
             type="text"
             className={`w-full pl-9 pr-3 border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm ${
-              isSmall ? 'py-1.5 text-xs' : 'py-2.5 text-[15px]'
+              isSmall ? 'h-8 py-0 text-sm' : 'py-2.5 text-[15px]'
             }`}
             placeholder={searchPlaceholder}
             value={searchTerm}
@@ -424,7 +426,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 }}
                 type="button"
                 className={`w-full px-3 rounded-md cursor-pointer transition-colors ${
-                  isSmall ? 'py-2 text-xs' : 'py-2.5 text-[15px]'
+                  isSmall ? 'py-2 text-sm' : 'py-2.5 text-[15px]'
                 } ${
                   isSelected
                     ? opt.selectedOptionClassName || 'bg-primary/10 text-primary font-semibold'
@@ -469,7 +471,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         tabIndex={disabled ? -1 : 0}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        className={`w-full ${size === 'sm' ? 'h-8 px-3 rounded' : compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
+        className={`w-full ${size === 'sm' ? 'h-8 px-3 rounded-md' : compact ? 'h-10 px-3.5 rounded-md' : 'h-[46px] px-4 rounded-lg'} border bg-white flex items-center gap-2 cursor-pointer transition-all ${
           disabled
             ? 'bg-slate-50 cursor-not-allowed text-slate-400 border-slate-200'
             : error
@@ -524,7 +526,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }}
       >
         <span
-          className={`${size === 'sm' ? 'text-xs' : 'text-[15px]'} min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900' : 'text-slate-400'}`}
+          className={`${size === 'sm' ? 'text-sm' : 'text-[15px]'} min-w-0 flex-1 truncate ${value ? selectedOption?.triggerLabelClassName || 'text-slate-900' : 'text-slate-400'}`}
           title={String(currentLabel || placeholder || 'Chọn...')}
         >
           {currentLabel || placeholder || 'Chọn...'}
@@ -565,7 +567,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
   required,
   disabled,
   usePortal = true,
-  portalZIndex = 220,
+  portalZIndex = DEFAULT_MODAL_PORTAL_Z_INDEX,
 }) => {
   const dropdownComfortHeight = 220;
   const dropdownIdealHeight = 320;
@@ -743,7 +745,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
           <input
             ref={inputRef}
             type="text"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
+            className="h-8 w-full pl-9 pr-3 py-0 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary bg-white text-slate-900 placeholder:text-slate-400 shadow-sm"
             placeholder={searchPlaceholder}
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}

@@ -141,6 +141,8 @@ export interface ContractCycleDraftInstallmentInput {
   label: string;
   expected_date: string;
   expected_amount: number;
+  expected_start_date?: string | null;
+  expected_end_date?: string | null;
 }
 
 export interface GenerateContractPaymentsPayload {
@@ -399,6 +401,8 @@ export const generateContractPayments = async (
             label: normalizeNullableText(installment.label),
             expected_date: normalizeNullableText(installment.expected_date),
             expected_amount: normalizeNumber(installment.expected_amount, 0),
+            expected_start_date: normalizeNullableText(installment.expected_start_date),
+            expected_end_date: normalizeNullableText(installment.expected_end_date),
           }))
         : undefined,
     }),

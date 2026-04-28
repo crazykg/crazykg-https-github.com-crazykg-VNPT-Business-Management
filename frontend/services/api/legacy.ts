@@ -689,7 +689,7 @@ const buildPaginatedRequestQuery = (query?: PaginatedQuery): Record<string, unkn
   if (query.sort_dir) payload.sort_dir = query.sort_dir;
 
   if (query.filters) {
-    const filters: Record<string, string | number | boolean> = {};
+    const filters: Record<string, string | number | boolean | Array<string | number>> = {};
     Object.entries(query.filters).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') return;
       filters[key] = value;

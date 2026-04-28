@@ -69,9 +69,9 @@ describe('CusPersonnelFormModal', () => {
     expect(screen.getByText('Khách hàng', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
     expect(screen.getByText('Chức vụ', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
     expect(screen.getByText('Trạng thái', { selector: 'label' })).toHaveClass('text-xs', 'font-semibold');
-    expect(within(customerField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(customerField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
   });
 
   it('renders the position dropdown in a portal so it is not clipped by the modal frame', async () => {

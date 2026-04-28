@@ -13,6 +13,13 @@ import {
   toDateTimeLocal,
   toTimeInput,
 } from './helpers';
+import {
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestReadonlyFieldClass,
+  customerRequestSelectTriggerClass,
+  customerRequestTextareaClass,
+} from './uiClasses';
 
 const PRIORITY_OPTIONS: SearchableSelectOption[] = [
   { value: 1, label: 'Thấp' },
@@ -45,6 +52,8 @@ const resolveFieldSearchPlaceholder = (field: YeuCauProcessField): string =>
   isSupportGroupField(field)
     ? 'Tìm zalo/tele...'
     : `Tìm ${resolveFieldLabel(field).toLowerCase()}...`;
+
+const compactFieldLabelClass = 'mb-1 block text-xs font-semibold text-neutral';
 
 const resolveProjectItemSelectValue = (
   value: unknown,
@@ -291,24 +300,18 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
     selectedCustomerId
   ), [field, customers, employees, customerPersonnel, supportServiceGroups, projectItems, selectedCustomerId]);
 
-  const compactFieldClassName =
-    'h-9 w-full rounded border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400';
-  const compactTextareaClassName =
-    'w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm leading-5 text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400';
+  const commonLabelClassName = density === 'compact'
+    ? compactFieldLabelClass
+    : `mb-1.5 ${customerRequestFieldLabelClass}`;
 
   const commonLabel = (
-    <label className={`${density === 'compact' ? 'mb-1' : 'mb-1.5'} block text-xs font-semibold text-neutral`}>
+    <label className={commonLabelClassName}>
       {fieldLabel}
       {field.required ? <span className="text-red-500"> *</span> : null}
     </label>
   );
 
   if (isSourceChannelField(field)) {
-    const sourceChannelInputClassName =
-      density === 'compact'
-        ? compactFieldClassName
-        : 'w-full rounded border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50';
-
     return (
       <div>
         {commonLabel}
@@ -317,7 +320,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           value={String(value ?? '')}
           disabled={disabled}
           onChange={(event) => onChange(field.name, event.target.value)}
-          className={sourceChannelInputClassName}
+          className={customerRequestFieldClass}
         />
       </div>
     );
@@ -332,9 +335,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           disabled={disabled}
           onChange={(event) => onChange(field.name, event.target.value)}
           rows={field.type === 'json_textarea' ? (density === 'compact' ? 5 : 7) : density === 'compact' ? 3 : 4}
-          className={density === 'compact'
-            ? compactTextareaClassName
-            : 'w-full rounded border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50'}
+          className={customerRequestTextareaClass}
         />
       </div>
     );
@@ -358,9 +359,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
                 onChange={(event) =>
                   onChange(field.name, combineDateWithExistingTime(event.target.value, value))
                 }
-                className={density === 'compact'
-                  ? compactFieldClassName
-                  : 'min-w-0 w-full rounded border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50'}
+                className={`min-w-0 ${customerRequestFieldClass}`}
               />
               <input
                 type="time"
@@ -368,9 +367,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
                 disabled
                 readOnly
                 aria-label={`${field.label} (giờ cố định)`}
-                className={density === 'compact'
-                  ? 'h-9 w-full rounded border border-slate-200 bg-slate-50 px-2.5 text-center text-xs font-medium tabular-nums text-slate-500 outline-none disabled:cursor-not-allowed'
-                  : 'w-full rounded border border-slate-200 bg-slate-50 px-3 py-3 text-center text-sm font-medium tabular-nums text-slate-500 outline-none disabled:cursor-not-allowed'}
+                className={customerRequestReadonlyFieldClass}
               />
             </div>
           </div>
@@ -401,9 +398,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
               isBoundedProgressField ? clampProgressPercent(event.target.value) : event.target.value
             )
           }
-          className={density === 'compact'
-            ? compactFieldClassName
-            : 'w-full rounded border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50'}
+          className={customerRequestFieldClass}
         />
       </div>
     );
@@ -422,7 +417,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
         disabled={disabled}
         compact
         denseLabel={density === 'compact'}
-        triggerClassName={density === 'compact' ? 'h-9 rounded border-slate-200 px-3 text-sm' : undefined}
+        triggerClassName={customerRequestSelectTriggerClass}
       />
     );
   }
@@ -469,7 +464,7 @@ export const ProcessFieldInput: React.FC<ProcessFieldInputProps> = React.memo(({
           disabled={disabled}
           compact
           denseLabel={density === 'compact'}
-          triggerClassName={density === 'compact' ? 'h-9 rounded border-slate-200 px-3 text-sm' : undefined}
+          triggerClassName={customerRequestSelectTriggerClass}
           rightAction={
             field.type === 'customer_personnel_select' && onOpenAddCustomerPersonnelModal
               ? {

@@ -4,6 +4,7 @@ namespace App\Services\V5\Domain;
 
 use App\Services\V5\SupportConfig\ProductUnitMasterService;
 use App\Services\V5\SupportConfig\ContractSignerMasterService;
+use App\Services\V5\SupportConfig\SupportAuthSessionPolicyService;
 use App\Services\V5\SupportConfig\SupportSlaConfigService;
 use App\Services\V5\SupportConfig\SupportRequestStatusService;
 use App\Services\V5\SupportConfig\SupportServiceGroupService;
@@ -17,6 +18,7 @@ class SupportConfigDomainService
         private readonly SupportServiceGroupService $serviceGroups,
         private readonly ProductUnitMasterService $productUnitMasters,
         private readonly ContractSignerMasterService $contractSignerMasters,
+        private readonly SupportAuthSessionPolicyService $authSessionPolicy,
         private readonly SupportRequestStatusService $requestStatuses,
         private readonly WorklogActivityTypeService $worklogActivityTypes,
         private readonly SupportSlaConfigService $slaConfigs,
@@ -62,6 +64,11 @@ class SupportConfigDomainService
         return $this->contractSignerMasters->contractSignerMasters($request);
     }
 
+    public function authSessionPolicy(): JsonResponse
+    {
+        return $this->authSessionPolicy->authSessionPolicy();
+    }
+
     public function storeProductUnitMaster(Request $request): JsonResponse
     {
         return $this->productUnitMasters->storeProductUnitMaster($request);
@@ -80,6 +87,11 @@ class SupportConfigDomainService
     public function updateContractSignerMaster(Request $request, int $id): JsonResponse
     {
         return $this->contractSignerMasters->updateContractSignerMaster($request, $id);
+    }
+
+    public function updateAuthSessionPolicy(Request $request): JsonResponse
+    {
+        return $this->authSessionPolicy->updateAuthSessionPolicy($request);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

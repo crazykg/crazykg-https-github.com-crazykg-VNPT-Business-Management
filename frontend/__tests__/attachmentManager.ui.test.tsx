@@ -39,4 +39,70 @@ describe('AttachmentManager UI', () => {
 
     fileInputClickSpy.mockRestore();
   });
+
+  it('renders compact row list without the heavy file card chrome', () => {
+    render(
+      <AttachmentManager
+        attachments={[
+          {
+            id: 'file-1',
+            fileName: '27.02_Khen thưởng 2025_C.TAM.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            fileSize: 32194,
+            fileUrl: 'https://example.test/file.xlsx',
+            driveFileId: '',
+            createdAt: '2026-04-25T00:00:00Z',
+          },
+        ]}
+        onUpload={async () => undefined}
+        onDelete={async () => undefined}
+        isUploading={false}
+        showListTitle={false}
+        showSummaryMeta={false}
+        showUploadButton={false}
+        listVariant="compact-row"
+        listMaxHeightClassName="max-h-[220px]"
+      />
+    );
+
+    expect(screen.queryByText('Danh sách file đính kèm')).not.toBeInTheDocument();
+    expect(screen.getByText('27.02_Khen thưởng 2025_C.TAM.xlsx')).toBeInTheDocument();
+    expect(screen.getByText(/Excel/i)).toBeInTheDocument();
+    expect(screen.getByText('Máy chủ nội bộ')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Mở \/ Tải file/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sao chép link/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gỡ file/i })).toBeInTheDocument();
+  });
+
+  it('keeps the default empty state card unless compact-line is requested', () => {
+    const { rerender } = render(
+      <AttachmentManager
+        attachments={[]}
+        onUpload={async () => undefined}
+        onDelete={async () => undefined}
+        isUploading={false}
+        showListTitle={false}
+        showUploadButton={false}
+      />
+    );
+
+    expect(screen.getByText('Chưa có file nào được tải lên.').closest('div')).toHaveClass('text-center');
+
+    rerender(
+      <AttachmentManager
+        attachments={[]}
+        onUpload={async () => undefined}
+        onDelete={async () => undefined}
+        isUploading={false}
+        showListTitle={false}
+        showUploadButton={false}
+        emptyStateVariant="compact-line"
+        emptyStateDescription="Chưa có file PDF"
+      />
+    );
+
+    const compactEmptyState = screen.getByText('Chưa có file nào được tải lên.').closest('div')?.parentElement;
+    expect(compactEmptyState).toHaveClass('min-h-9', 'text-left');
+    expect(screen.getByText('Chưa có file PDF')).toBeInTheDocument();
+  });
 });

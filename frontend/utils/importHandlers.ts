@@ -250,7 +250,8 @@ export const importEmployees = async (
     const username = getImportCell(row, headerIndex, ['tendangnhap', 'username', 'login']);
     const fullName = getImportCell(row, headerIndex, ['hovaten', 'hoten', 'fullname', 'name']);
     const phoneRaw = getImportCell(row, headerIndex, ['sodienthoai', 'sdt', 'sodt', 'dienthoai', 'phone', 'phonenumber', 'phone_number', 'mobile', 'tel']);
-    const email = getImportCell(row, headerIndex, ['email']);
+    const email = getImportCell(row, headerIndex, ['email', 'vnptmail', 'vnptemail']);
+    const gmail = getImportCell(row, headerIndex, ['gmail', 'googlemail']);
     const departmentCodeRaw = getImportCell(row, headerIndex, ['maphongban', 'mapb', 'departmentcode', 'deptcode']);
     const positionCode = getImportCell(row, headerIndex, ['machucvu', 'positioncode', 'positionid', 'chucvu']);
     const jobTitle = getImportCell(row, headerIndex, ['chucdanhtv', 'chucdanh', 'jobtitle', 'jobtitletv']);
@@ -260,7 +261,7 @@ export const importEmployees = async (
     const ipAddress = getImportCell(row, headerIndex, ['diachiip', 'ipaddress', 'ip']);
     const statusRaw = getImportCell(row, headerIndex, ['trangthai', 'status']);
 
-    if (!employeeCode && !username && !fullName && !phoneRaw && !email && !departmentCodeRaw && !positionCode && !jobTitle && !dateOfBirthRaw && !genderRaw && !vpnRaw && !ipAddress && !statusRaw) {
+    if (!employeeCode && !username && !fullName && !phoneRaw && !email && !gmail && !departmentCodeRaw && !positionCode && !jobTitle && !dateOfBirthRaw && !genderRaw && !vpnRaw && !ipAddress && !statusRaw) {
       continue;
     }
 
@@ -320,6 +321,9 @@ export const importEmployees = async (
         }
         if (email) {
           employeePayload.email = email;
+        }
+        if (gmail) {
+          employeePayload.gmail = gmail;
         }
         if (department) {
           employeePayload.department_id = department.id;

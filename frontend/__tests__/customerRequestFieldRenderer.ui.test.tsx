@@ -59,12 +59,54 @@ describe('CustomerRequestFieldRenderer', () => {
     );
 
     expect(container.querySelector('textarea')).toBeNull();
+    const label = screen.getByText('Kênh khác');
+    expect(label).toHaveClass('mb-1', 'text-xs', 'font-semibold', 'text-neutral');
+    expect(label).not.toHaveClass('leading-5');
     const input = container.querySelector('input');
     expect(input).not.toBeNull();
     expect(input).toHaveValue('Zalo OA');
-    expect(input).toHaveClass('h-9');
+    expect(input).toHaveClass('h-11');
+    expect(input).toHaveClass('sm:h-10');
     expect(input).toHaveClass('text-sm');
-    expect(input).toHaveClass('rounded');
+    expect(input?.className).toContain('rounded-[var(--ui-control-radius)]');
+  });
+
+  it('uses the same compact label rhythm for source channel and priority fields', () => {
+    render(
+      <div className="grid grid-cols-2 gap-2.5">
+        <ProcessFieldInput
+          field={{ name: 'source_channel', label: 'Kênh khác', type: 'textarea', required: false }}
+          value=""
+          customers={[]}
+          employees={[]}
+          customerPersonnel={[]}
+          supportServiceGroups={[]}
+          projectItems={[]}
+          selectedCustomerId=""
+          disabled={false}
+          density="compact"
+          onChange={vi.fn()}
+        />
+        <ProcessFieldInput
+          field={{ name: 'priority', label: 'Độ ưu tiên', type: 'priority', required: false }}
+          value=""
+          customers={[]}
+          employees={[]}
+          customerPersonnel={[]}
+          supportServiceGroups={[]}
+          projectItems={[]}
+          selectedCustomerId=""
+          disabled={false}
+          density="compact"
+          onChange={vi.fn()}
+        />
+      </div>
+    );
+
+    const channelLabel = screen.getByText('Kênh khác');
+    const priorityLabel = screen.getByText('Độ ưu tiên');
+    expect(channelLabel).toHaveClass('mb-1', 'text-xs', 'font-semibold', 'text-neutral');
+    expect(priorityLabel).toHaveClass('mb-1', 'text-xs', 'font-semibold', 'text-neutral');
   });
 
   it('renames support group selection to Zalo/Tele in the shared form renderer', () => {
@@ -79,8 +121,9 @@ describe('CustomerRequestFieldRenderer', () => {
     expect(screen.queryByText('Kênh tiếp nhận')).not.toBeInTheDocument();
     expect(screen.getByText('Chọn zalo/tele')).toBeInTheDocument();
     const selectTrigger = screen.getByRole('button', { name: 'Zalo/Tele' });
-    expect(selectTrigger).toHaveClass('h-9');
+    expect(selectTrigger).toHaveClass('h-11');
+    expect(selectTrigger).toHaveClass('sm:h-10');
     expect(selectTrigger).toHaveClass('text-sm');
-    expect(selectTrigger).toHaveClass('rounded');
+    expect(selectTrigger.className).toContain('rounded-[var(--ui-control-radius)]');
   });
 });

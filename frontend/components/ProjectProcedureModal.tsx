@@ -470,8 +470,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── RENDER ───────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto">
-      <div data-testid="project-procedure-modal" className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[96vh]">
+    <div className="fixed inset-0 ui-layer-modal flex items-start justify-center bg-black/40 overflow-y-auto">
+      <div
+        data-testid="project-procedure-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Thủ tục dự án ${project.project_code || project.project_name || ''}`.trim()}
+        className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[96vh]"
+      >
 
         {/* ══ Header ══ */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 rounded-t-xl shrink-0">

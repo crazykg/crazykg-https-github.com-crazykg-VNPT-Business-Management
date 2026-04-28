@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
-import type { Contract, Customer, PaginationMeta, Project } from '../types';
+import { useAuthStore } from '../shared/stores/authStore';
+import type { Contract, Customer, Department, PaginationMeta, Project } from '../types';
 
 const fetchContractDetailMock = vi.hoisted(() => vi.fn());
 
@@ -44,17 +45,43 @@ const customers: Customer[] = [
   } as Customer,
 ];
 
+const departments: Department[] = [
+  {
+    id: 10,
+    dept_code: 'P10',
+    dept_name: 'Phòng giải pháp 10',
+  } as Department,
+  {
+    id: 20,
+    dept_code: 'P20',
+    dept_name: 'Phòng giải pháp 20',
+  } as Department,
+];
+
 const paginationMeta: PaginationMeta = {
   ...DEFAULT_PAGINATION_META,
   page: 1,
   per_page: 20,
   total: 1,
   total_pages: 1,
+  kpis: {
+    sign_period_total_value: 125_000_000,
+  },
 };
 
 describe('ContractList', () => {
   beforeEach(() => {
     fetchContractDetailMock.mockReset();
+    useAuthStore.setState({
+      user: null,
+      isAuthLoading: false,
+      isLoginLoading: false,
+      passwordChangeRequired: false,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders long contract and project names without hard truncate wrappers', () => {
@@ -103,6 +130,156 @@ describe('ContractList', () => {
     const valueCell = screen.getByTestId('contract-value-cell-1');
     expect(valueCell).toHaveTextContent('18.000.000');
     expect(valueCell).not.toHaveTextContent(/18\s*tr/i);
+    expect(valueCell.closest('td')).toHaveClass('align-middle');
+    expect(screen.getByText('93022 - Trạm Y tế Xã Tân Hòa').closest('td')).toHaveClass('align-middle');
+  });
+
+  it('labels contracts without parent links as standalone instead of HĐ gốc', () => {
+    render(
+      <ContractList
+        contractsPageRows={[buildContract()]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('HĐ độc lập')).toBeInTheDocument();
+    expect(screen.queryByText('HĐ gốc')).not.toBeInTheDocument();
+    expect(screen.getByText('Hợp đồng độc lập')).toBeInTheDocument();
+  });
+
+  it('renders a compact management summary and grouped table headers for dense contract browsing', () => {
+    render(
+      <ContractList
+        contractsPageRows={[buildContract()]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('contract-management-summary')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /^Hợp đồng/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Khách hàng \/ dự án/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /^Thời hạn/i })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Tên hợp đồng/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Hiệu lực/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Hết hạn/i })).not.toBeInTheDocument();
+    expect(screen.getByText('1 hợp đồng')).toBeInTheDocument();
+    expect(screen.queryByText('1 bản ghi')).not.toBeInTheDocument();
+    expect(screen.getByText(/Tổng giá trị trong kỳ/i)).toBeInTheDocument();
+    expect(screen.getByTestId('contract-period-total-value')).toHaveTextContent('125.000.000 đ');
+    expect(screen.queryByText(/Chọn dòng để mở tác vụ nhanh/i)).not.toBeInTheDocument();
+  });
+
+  it('hydrates the custom date preset with the current month range by default', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-26T08:00:00.000Z'));
+
+    render(
+      <ContractList
+        contractsPageRows={[buildContract()]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn' }));
+
+    expect(screen.getByLabelText('Ngày ký từ')).toHaveValue('2026-04-01');
+    expect(screen.getByLabelText('Ngày ký đến')).toHaveValue('2026-04-30');
+  });
+
+  it('defaults the signer department filter to the current user department and sends it in server queries', async () => {
+    const onQueryChange = vi.fn();
+
+    useAuthStore.setState({
+      user: {
+        id: 1,
+        username: 'tester',
+        full_name: 'Tester',
+        email: 'tester@example.com',
+        status: 'ACTIVE',
+        department_id: 20,
+        roles: [],
+        permissions: [],
+        dept_scopes: [],
+      },
+      isAuthLoading: false,
+      isLoginLoading: false,
+      passwordChangeRequired: false,
+    });
+
+    render(
+      <ContractList
+        contracts={[buildContract({ id: 2, dept_id: 20 })]}
+        contractsPageRows={[buildContract({ id: 2, dept_id: 20 })]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        departments={departments}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Đơn vị ký hợp đồng' })).toHaveTextContent('Phòng giải pháp 20');
+      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        filters: expect.objectContaining({
+          dept_id: '20',
+        }),
+      }));
+    });
+  });
+
+  it('keeps the contracts filter toolbar dense without a stacked department label', () => {
+    render(
+      <ContractList
+        contractsPageRows={[buildContract()]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        departments={departments}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('contract-filter-toolbar').className).toContain('lg:grid-cols-[');
+    expect(screen.getByRole('button', { name: 'Đơn vị ký hợp đồng' })).toHaveTextContent('Tất cả đơn vị ký');
+    expect(screen.queryByText('Đơn vị ký hợp đồng')).not.toBeInTheDocument();
+  });
+
+  it('does not render a duplicate standalone period badge above the summary strip', () => {
+    render(
+      <ContractList
+        contractsPageRows={[buildContract()]}
+        paginationMeta={paginationMeta}
+        isLoading={false}
+        departments={departments}
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Kỳ: Năm 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/^Năm 2026$/)).not.toBeInTheDocument();
   });
 
   it('opens the detail drawer from the row context menu and loads full contract detail', async () => {

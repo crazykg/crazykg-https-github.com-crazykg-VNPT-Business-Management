@@ -21,6 +21,7 @@ class InternalUser extends Authenticatable
         'password',
         'full_name',
         'email',
+        'gmail',
         'status',
         'department_id',
         'position_id',

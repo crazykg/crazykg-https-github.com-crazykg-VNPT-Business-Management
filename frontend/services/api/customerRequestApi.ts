@@ -84,6 +84,21 @@ type ApiDetailStatusResponse = {
 
 type PlanListMeta = { page: number; per_page: number; total: number; total_pages: number };
 
+export type CustomerRequestFilterOptionItem = {
+  value: string;
+  label: string;
+  search_text?: string;
+};
+
+export type CustomerRequestFilterOptionPage = {
+  data: CustomerRequestFilterOptionItem[];
+  meta: {
+    page: number;
+    per_page: number;
+    has_more: boolean;
+  };
+};
+
 const buildPaginatedQueryString = (query?: PaginatedQuery): string => {
   if (!query) {
     return '';
@@ -503,6 +518,87 @@ export const fetchCustomerRequestProjectItems = async (params?: {
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return fetchList<ProjectItemMaster>(`/api/v5/customer-requests/project-items${suffix}`);
 };
+
+const fetchCustomerRequestFilterOptions = async (
+  entity: 'customers' | 'projects' | 'products',
+  params?: {
+    q?: string;
+    page?: number;
+    per_page?: number;
+    selected_ids?: Array<string | number | null | undefined>;
+  }
+): Promise<CustomerRequestFilterOptionPage> => {
+  const query = new URLSearchParams();
+  const text = normalizeNullableText(params?.q);
+  const page = normalizeNullableNumber(params?.page) ?? 1;
+  const rawPerPage = normalizeNullableNumber(params?.per_page);
+  const perPage = rawPerPage !== null && rawPerPage > 0 ? rawPerPage : 30;
+  const selectedIds = Array.from(
+    new Set(
+      (params?.selected_ids ?? [])
+        .map((value) => normalizeNullableNumber(value))
+        .filter((value): value is number => value !== null)
+    )
+  );
+
+  if (text) {
+    query.set('q', text);
+  }
+  query.set('page', String(Math.max(1, page)));
+  query.set('per_page', String(Math.min(50, Math.max(1, perPage))));
+  selectedIds.forEach((value) => {
+    query.append('selected_ids[]', String(value));
+  });
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch(`/api/v5/customer-requests/filter-options/${entity}${suffix}`, {
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+    cancelKey: `customer-request-filters:${entity}`,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_CUSTOMER_REQUEST_FILTER_OPTIONS_FAILED'));
+  }
+
+  const payload = (await res.json()) as {
+    data?: CustomerRequestFilterOptionItem[];
+    meta?: Partial<CustomerRequestFilterOptionPage['meta']>;
+  };
+
+  return {
+    data: Array.isArray(payload.data) ? payload.data : [],
+    meta: {
+      page: Number(payload.meta?.page ?? 1),
+      per_page: Number(payload.meta?.per_page ?? Math.min(50, Math.max(1, perPage))),
+      has_more: Boolean(payload.meta?.has_more),
+    },
+  };
+};
+
+export const fetchCustomerRequestCustomerFilterOptions = async (params?: {
+  q?: string;
+  page?: number;
+  per_page?: number;
+  selected_ids?: Array<string | number | null | undefined>;
+}): Promise<CustomerRequestFilterOptionPage> =>
+  fetchCustomerRequestFilterOptions('customers', params);
+
+export const fetchCustomerRequestProjectFilterOptions = async (params?: {
+  q?: string;
+  page?: number;
+  per_page?: number;
+  selected_ids?: Array<string | number | null | undefined>;
+}): Promise<CustomerRequestFilterOptionPage> =>
+  fetchCustomerRequestFilterOptions('projects', params);
+
+export const fetchCustomerRequestProductFilterOptions = async (params?: {
+  q?: string;
+  page?: number;
+  per_page?: number;
+  selected_ids?: Array<string | number | null | undefined>;
+}): Promise<CustomerRequestFilterOptionPage> =>
+  fetchCustomerRequestFilterOptions('products', params);
 
 export const fetchCustomerRequestReferenceSearch = async (params?: {
   q?: string;

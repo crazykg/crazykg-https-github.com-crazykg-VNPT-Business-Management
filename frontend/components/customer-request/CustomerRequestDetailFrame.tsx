@@ -1,6 +1,12 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { YeuCau } from '../../types/customerRequest';
+import {
+  customerRequestDenseSecondaryButtonClass,
+  customerRequestIconButtonClass,
+  customerRequestModalPanelClass,
+  customerRequestSurfaceClass,
+} from './uiClasses';
 
 type CustomerRequestDetailFrameProps = {
   mode: 'inline' | 'drawer' | 'modal';
@@ -52,6 +58,12 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
   }, [mode]);
 
   const isModalMode = mode === 'modal';
+  const shellClassName =
+    mode === 'inline'
+      ? customerRequestSurfaceClass
+      : mode === 'modal'
+      ? `h-[100dvh] w-full max-w-none border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-xl sm:h-[90dvh] ${customerRequestModalPanelClass}`
+      : 'h-full w-full max-w-[920px] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-[0_28px_72px_rgba(15,23,42,0.18)] sm:rounded-l-[var(--ui-modal-radius)]';
   const shell = (
     <div
       role={mode === 'inline' ? undefined : 'dialog'}
@@ -61,19 +73,13 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
           ? undefined
           : request?.tieu_de || request?.summary || request?.ma_yc || 'Chi tiết yêu cầu'
       }
-      className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${
-          mode === 'inline'
-            ? 'rounded-3xl border border-slate-200/80 bg-white shadow-sm'
-            : mode === 'modal'
-            ? 'h-[100dvh] w-full max-w-none rounded-none border border-slate-200 bg-white shadow-xl sm:h-[90dvh]'
-            : 'h-full w-full max-w-[920px] border border-slate-200/90 bg-white shadow-[0_28px_72px_rgba(15,23,42,0.18)]'
-        }`}
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${shellClassName}`}
       >
       <div className={`sticky top-0 z-10 border-b border-slate-100 bg-white ${isModalMode ? 'px-3 py-2 sm:px-4 lg:px-4 xl:px-5' : 'px-4 py-2.5 sm:px-5'}`}>
         <div className="flex items-center justify-between gap-2.5">
           {isModalMode ? (
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-primary/10 text-primary">
                 <span className="material-symbols-outlined text-[18px]">{icon}</span>
               </div>
               <div className="min-w-0">
@@ -105,10 +111,10 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
               <button
                 type="button"
                 onClick={onTogglePinned}
-                className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs font-semibold transition ${
+                className={`${customerRequestDenseSecondaryButtonClass} ${
                   isPinned
-                    ? 'border-amber-200 bg-amber-50 text-amber-800'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                    : ''
                 }`}
               >
                 <span className="material-symbols-outlined text-[15px]">
@@ -122,8 +128,8 @@ export const CustomerRequestDetailFrame: React.FC<CustomerRequestDetailFrameProp
               onClick={onClose}
               aria-label="Đóng"
               className={isModalMode
-                ? 'inline-flex rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600'
-                : 'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50'}
+                ? `${customerRequestIconButtonClass} border-transparent`
+                : customerRequestDenseSecondaryButtonClass}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               {isModalMode ? null : 'Đóng'}

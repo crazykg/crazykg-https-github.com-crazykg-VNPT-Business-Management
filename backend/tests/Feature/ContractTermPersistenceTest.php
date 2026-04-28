@@ -437,6 +437,192 @@ class ContractTermPersistenceTest extends TestCase
         $this->assertSame([202], collect($initialResponse->json('data'))->pluck('id')->all());
     }
 
+    public function test_it_filters_contract_index_by_signer_department(): void
+    {
+        DB::table('contracts')->insert([
+            [
+                'id' => 203,
+                'contract_code' => 'HD-DEPT-203',
+                'contract_name' => 'Hop dong don vi 10',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 10,
+                'signer_user_id' => 1,
+                'value' => 56000000,
+                'payment_cycle' => 'MONTHLY',
+                'status' => 'DRAFT',
+                'sign_date' => '2026-03-01',
+                'effective_date' => '2026-03-01',
+                'expiry_date' => '2026-05-31',
+                'term_unit' => 'MONTH',
+                'term_value' => 3,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+            [
+                'id' => 204,
+                'contract_code' => 'HD-DEPT-204',
+                'contract_name' => 'Hop dong don vi 20',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 20,
+                'signer_user_id' => 2,
+                'value' => 78000000,
+                'payment_cycle' => 'MONTHLY',
+                'status' => 'SIGNED',
+                'sign_date' => '2026-03-05',
+                'effective_date' => '2026-03-05',
+                'expiry_date' => '2026-06-04',
+                'term_unit' => 'MONTH',
+                'term_value' => 3,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+        ]);
+
+        $response = $this->getJson('/api/v5/contracts?page=1&per_page=10&filters[dept_id]=20')
+            ->assertOk();
+
+        $this->assertSame([204], collect($response->json('data'))->pluck('id')->all());
+    }
+
+    public function test_contract_index_kpis_fallback_to_total_value_when_value_is_zero(): void
+    {
+        DB::table('contracts')->insert([
+            [
+                'id' => 205,
+                'contract_code' => 'HD-TOTAL-205',
+                'contract_name' => 'Hop dong co total value 1',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 10,
+                'signer_user_id' => 1,
+                'value' => 0,
+                'total_value' => 420950000,
+                'payment_cycle' => 'MONTHLY',
+                'status' => 'DRAFT',
+                'sign_date' => '2026-04-22',
+                'effective_date' => '2026-04-22',
+                'expiry_date' => '2027-01-21',
+                'term_unit' => 'MONTH',
+                'term_value' => 9,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+            [
+                'id' => 206,
+                'contract_code' => 'HD-TOTAL-206',
+                'contract_name' => 'Hop dong co total value 2',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 10,
+                'signer_user_id' => 1,
+                'value' => 0,
+                'total_value' => 1226410000,
+                'payment_cycle' => 'QUARTERLY',
+                'status' => 'DRAFT',
+                'sign_date' => '2026-04-22',
+                'effective_date' => '2026-04-22',
+                'expiry_date' => '2028-02-21',
+                'term_unit' => 'MONTH',
+                'term_value' => 22,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+        ]);
+
+        $this->getJson('/api/v5/contracts?page=1&per_page=10&filters[sign_date_from]=2026-01-01&filters[sign_date_to]=2026-12-31')
+            ->assertOk()
+            ->assertJsonPath('meta.kpis.total_contracts', 2)
+            ->assertJsonPath('meta.kpis.sign_period_total_value', 1647360000);
+    }
+
+    public function test_contract_index_kpis_sum_total_value_when_value_column_is_absent(): void
+    {
+        if (Schema::hasColumn('contracts', 'value')) {
+            Schema::table('contracts', function (Blueprint $table): void {
+                $table->dropColumn('value');
+            });
+        }
+
+        DB::table('contracts')->insert([
+            [
+                'id' => 207,
+                'contract_code' => 'HD-TOTAL-207',
+                'contract_name' => 'Hop dong chi co total value 1',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 10,
+                'signer_user_id' => 1,
+                'total_value' => 420950000,
+                'payment_cycle' => 'MONTHLY',
+                'status' => 'SIGNED',
+                'sign_date' => '2026-04-22',
+                'effective_date' => '2026-04-22',
+                'expiry_date' => '2027-01-21',
+                'term_unit' => 'MONTH',
+                'term_value' => 9,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+            [
+                'id' => 208,
+                'contract_code' => 'HD-TOTAL-208',
+                'contract_name' => 'Hop dong chi co total value 2',
+                'customer_id' => 1,
+                'project_id' => 1,
+                'project_type_code' => null,
+                'dept_id' => 10,
+                'signer_user_id' => 1,
+                'total_value' => 1226410000,
+                'payment_cycle' => 'QUARTERLY',
+                'status' => 'DRAFT',
+                'sign_date' => '2026-04-22',
+                'effective_date' => '2026-04-22',
+                'expiry_date' => '2028-02-21',
+                'term_unit' => 'MONTH',
+                'term_value' => 22,
+                'expiry_date_manual_override' => 0,
+                'created_by' => 1,
+                'updated_by' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+                'deleted_at' => null,
+            ],
+        ]);
+
+        $this->getJson('/api/v5/contracts?page=1&per_page=1&filters[source_mode]=PROJECT&filters[sign_date_from]=2026-01-01&filters[sign_date_to]=2026-12-31')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.kpis.total_contracts', 2)
+            ->assertJsonPath('meta.kpis.sign_period_total_value', 1647360000);
+    }
+
     public function test_it_updates_signer_and_reassigns_contract_department(): void
     {
         DB::table('contracts')->insert([
@@ -761,6 +947,7 @@ class ContractTermPersistenceTest extends TestCase
             $table->unsignedBigInteger('dept_id')->nullable();
             $table->unsignedBigInteger('signer_user_id')->nullable();
             $table->decimal('value', 18, 2)->default(0);
+            $table->decimal('total_value', 18, 2)->default(0);
             $table->string('payment_cycle', 32)->nullable();
             $table->string('status', 32)->nullable();
             $table->date('sign_date')->nullable();

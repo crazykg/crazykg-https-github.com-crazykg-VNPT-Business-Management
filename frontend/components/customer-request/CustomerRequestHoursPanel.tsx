@@ -7,6 +7,11 @@ import {
   resolveSlaMeta,
   resolveWarningMeta,
 } from './presentation';
+import {
+  customerRequestDenseSecondaryButtonClass,
+  customerRequestNestedSurfaceClass,
+  customerRequestSurfaceClass,
+} from './uiClasses';
 
 type CustomerRequestHoursPanelProps = {
   request: YeuCau | null | undefined;
@@ -28,14 +33,14 @@ export const CustomerRequestHoursPanel: React.FC<CustomerRequestHoursPanelProps>
   const warningMeta = resolveWarningMeta(hoursReport?.warning_level ?? request?.warning_level);
   const slaMeta = resolveSlaMeta(request?.sla_status);
   const metricItems = [
-    { label: 'Estimate hiện hành', value: formatHoursValue(hoursReport?.estimated_hours ?? request?.estimated_hours) },
+    { label: 'Ước lượng', value: formatHoursValue(hoursReport?.estimated_hours ?? request?.estimated_hours) },
     { label: 'Thực tế', value: formatHoursValue(hoursReport?.total_hours_spent ?? request?.total_hours_spent) },
     { label: 'Còn lại', value: formatHoursValue(hoursReport?.remaining_hours) },
     { label: 'Mức sử dụng', value: formatPercentValue(hoursReport?.hours_usage_pct ?? request?.hours_usage_pct) },
   ] as const;
   const panelClassName = compact
-    ? 'rounded-2xl border border-slate-200 p-3'
-    : 'rounded-2xl border border-slate-200 p-3.5';
+    ? `${customerRequestSurfaceClass} p-3`
+    : `${customerRequestSurfaceClass} p-3.5`;
   const headerClassName = compact
     ? 'flex flex-wrap items-start justify-between gap-2'
     : 'flex flex-wrap items-start justify-between gap-2.5';
@@ -43,14 +48,14 @@ export const CustomerRequestHoursPanel: React.FC<CustomerRequestHoursPanelProps>
     ? 'text-xs font-bold uppercase tracking-[0.14em] text-slate-500'
     : 'text-sm font-bold uppercase tracking-[0.16em] text-slate-500';
   const buttonClassName = compact
-    ? 'inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2 py-1.5 text-[11px] font-semibold leading-4 text-primary transition hover:bg-primary/15 disabled:opacity-50'
-    : 'inline-flex items-center gap-1.5 rounded border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50';
+    ? `${customerRequestDenseSecondaryButtonClass} border-primary/20 bg-primary/10 text-primary hover:bg-primary/15`
+    : 'inline-flex h-10 items-center gap-1.5 rounded-[var(--ui-control-radius)] border border-primary/20 bg-primary/10 px-4 text-sm font-semibold leading-5 text-primary transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50';
   const metricGridClassName = compact
     ? 'mt-1.5 grid grid-cols-2 gap-1.5'
     : 'mt-2 grid grid-cols-2 gap-2 md:grid-cols-4';
   const metricCardClassName = compact
-    ? 'rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-1.5'
-    : 'rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2';
+    ? `${customerRequestNestedSurfaceClass} px-2.5 py-1.5`
+    : `${customerRequestNestedSurfaceClass} px-3 py-2`;
   const metricLabelClassName = compact
     ? 'min-w-0 flex-1 truncate text-[10px] font-bold uppercase tracking-[0.1em] leading-3.5 text-slate-400'
     : 'min-w-0 flex-1 truncate text-[10px] font-bold uppercase tracking-[0.12em] leading-4 text-slate-400';
@@ -70,13 +75,13 @@ export const CustomerRequestHoursPanel: React.FC<CustomerRequestHoursPanelProps>
     ? 'text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400'
     : 'text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400';
   const performerItemClassName = compact
-    ? 'rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[13px]'
-    : 'rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-sm';
+    ? `${customerRequestNestedSurfaceClass} px-2.5 py-1.5 text-[13px]`
+    : `${customerRequestNestedSurfaceClass} px-2.5 py-1.5 text-sm`;
 
   return (
     <div className={panelClassName}>
       <div className={headerClassName}>
-        <h4 className={titleClassName}>Estimate & giờ công</h4>
+        <h4 className={titleClassName}>Tổng quan giờ công</h4>
         {canAddWorklog ? (
           <button
             type="button"

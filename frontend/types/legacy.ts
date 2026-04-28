@@ -79,6 +79,7 @@ export {
 } from './support';
 export type {
   ContractSignerMaster,
+  SupportAuthSessionPolicy,
   KnownSupportRequestStatusCode,
   SupportContactPosition,
   SupportRequest,
@@ -354,6 +355,7 @@ export interface PaginationMeta {
     payment_warning_days?: number;
     new_signed_count?: number;
     new_signed_value?: number;
+    sign_period_total_value?: number;
     total_pipeline_value?: number;
     total_estimated_value?: number;
     overdue_payment_amount?: number;

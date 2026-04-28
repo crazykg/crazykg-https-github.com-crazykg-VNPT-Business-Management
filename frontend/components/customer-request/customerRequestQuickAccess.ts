@@ -17,6 +17,10 @@ export type CustomerRequestQuickFilters = {
   keyword?: string;
   customerId?: string;
   customerIds?: string[];
+  projectId?: string;
+  projectIds?: string[];
+  productId?: string;
+  productIds?: string[];
   supportGroupId?: string;
   supportGroupIds?: string[];
   priority?: string;

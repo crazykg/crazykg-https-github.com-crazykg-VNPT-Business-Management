@@ -78,6 +78,21 @@ class CustomerRequestCompatibilityService
         return $this->lookupService->projectItems($request);
     }
 
+    public function customerFilterOptions(Request $request): JsonResponse
+    {
+        return $this->lookupService->customerFilterOptions($request);
+    }
+
+    public function projectFilterOptions(Request $request): JsonResponse
+    {
+        return $this->lookupService->projectFilterOptions($request);
+    }
+
+    public function productFilterOptions(Request $request): JsonResponse
+    {
+        return $this->lookupService->productFilterOptions($request);
+    }
+
     private function decommissionedJsonResponse(): JsonResponse
     {
         return response()->json([

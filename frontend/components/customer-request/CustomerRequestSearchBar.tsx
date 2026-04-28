@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { resolveStatusMeta } from './presentation';
+import { customerRequestSearchInputClass } from './uiClasses';
 
 type SearchResultItem = {
   id: number;
@@ -121,7 +122,7 @@ export const CustomerRequestSearchBar: React.FC<CustomerRequestSearchBarProps> =
         }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+        className={customerRequestSearchInputClass}
       />
 
       {showDropdown && (

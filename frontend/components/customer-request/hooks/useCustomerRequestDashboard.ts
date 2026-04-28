@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   useCRCDashboard,
   type CRCListParams,
@@ -18,30 +18,47 @@ export const useCustomerRequestDashboard = ({
   params,
   onError,
 }: UseCustomerRequestDashboardOptions) => {
+  const lastRefetchedVersionRef = useRef(0);
+  const overviewRefetchRef = useRef<() => Promise<unknown>>(async () => undefined);
+  const creatorRefetchRef = useRef<() => Promise<unknown>>(async () => undefined);
+  const dispatcherRefetchRef = useRef<() => Promise<unknown>>(async () => undefined);
+  const performerRefetchRef = useRef<() => Promise<unknown>>(async () => undefined);
   const overviewQuery = useCRCDashboard('overview', params, { enabled: canReadRequests });
   const creatorQuery = useCRCDashboard('creator', params, { enabled: canReadRequests });
   const dispatcherQuery = useCRCDashboard('dispatcher', params, { enabled: canReadRequests });
   const performerQuery = useCRCDashboard('performer', params, { enabled: canReadRequests });
 
   useEffect(() => {
-    if (dataVersion <= 0 || !canReadRequests) {
-      return;
-    }
-
-    void Promise.all([
-      overviewQuery.refetch(),
-      creatorQuery.refetch(),
-      dispatcherQuery.refetch(),
-      performerQuery.refetch(),
-    ]);
+    overviewRefetchRef.current = overviewQuery.refetch;
+    creatorRefetchRef.current = creatorQuery.refetch;
+    dispatcherRefetchRef.current = dispatcherQuery.refetch;
+    performerRefetchRef.current = performerQuery.refetch;
   }, [
-    canReadRequests,
-    dataVersion,
     creatorQuery.refetch,
     dispatcherQuery.refetch,
     overviewQuery.refetch,
     performerQuery.refetch,
   ]);
+
+  useEffect(() => {
+    if (!canReadRequests) {
+      lastRefetchedVersionRef.current = 0;
+      return;
+    }
+
+    if (dataVersion <= 0 || lastRefetchedVersionRef.current === dataVersion) {
+      return;
+    }
+
+    lastRefetchedVersionRef.current = dataVersion;
+
+    void Promise.all([
+      overviewRefetchRef.current(),
+      creatorRefetchRef.current(),
+      dispatcherRefetchRef.current(),
+      performerRefetchRef.current(),
+    ]);
+  }, [canReadRequests, dataVersion]);
 
   useEffect(() => {
     const firstError = [

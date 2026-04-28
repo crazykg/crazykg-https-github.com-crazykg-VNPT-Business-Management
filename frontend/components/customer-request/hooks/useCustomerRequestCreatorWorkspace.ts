@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react';
-import { isRequestCanceledError } from '../../../services/v5Api';
+import { useEffect, useMemo, useRef } from 'react';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import { splitCreatorWorkspaceRows } from '../creatorWorkspace';
@@ -18,6 +17,8 @@ export const useCustomerRequestCreatorWorkspace = ({
   onError,
 }: UseCustomerRequestCreatorWorkspaceOptions) => {
   const enabled = active && canReadRequests;
+  const lastRefetchedVersionRef = useRef(0);
+  const refetchRef = useRef<() => Promise<unknown>>(async () => undefined);
   const creatorQuery = useCRCList({
     page: 1,
     per_page: 24,
@@ -29,10 +30,22 @@ export const useCustomerRequestCreatorWorkspace = ({
   }, { enabled });
 
   useEffect(() => {
-    if (dataVersion > 0 && enabled) {
-      void creatorQuery.refetch();
+    refetchRef.current = creatorQuery.refetch;
+  }, [creatorQuery.refetch]);
+
+  useEffect(() => {
+    if (!enabled) {
+      lastRefetchedVersionRef.current = 0;
+      return;
     }
-  }, [creatorQuery.refetch, dataVersion, enabled]);
+
+    if (dataVersion <= 0 || lastRefetchedVersionRef.current === dataVersion) {
+      return;
+    }
+
+    lastRefetchedVersionRef.current = dataVersion;
+    void refetchRef.current();
+  }, [dataVersion, enabled]);
 
   useEffect(() => {
     if (!creatorQuery.error || isRequestCanceledError(creatorQuery.error)) {

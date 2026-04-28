@@ -32,6 +32,16 @@ interface RevenueScheduleDraft {
   updated_at?: string | null;
 }
 
+const REVENUE_SECONDARY_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const REVENUE_PRIMARY_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const REVENUE_DANGER_BUTTON_CLASS_NAME =
+  'inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 focus:outline-none focus:ring-1 focus:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60';
+const REVENUE_INPUT_CLASS_NAME =
+  'h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30';
+const REVENUE_RIGHT_INPUT_CLASS_NAME = `${REVENUE_INPUT_CLASS_NAME} text-right font-semibold`;
+
 const roundMoney = (value: number): number => Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
 
 const parseAmountInput = (value: string): number => {
@@ -388,7 +398,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
               type="button"
               onClick={handleResetDrafts}
               disabled={!isDirty || isSaving}
-              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className={REVENUE_SECONDARY_BUTTON_CLASS_NAME}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>restart_alt</span>
               Khôi phục
@@ -397,7 +407,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
               type="button"
               onClick={handleSaveChanges}
               disabled={!isDirty || Boolean(validationMessage) || isSaving}
-              className="inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60"
+              className={REVENUE_PRIMARY_BUTTON_CLASS_NAME}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
               {isSaving ? 'Đang lưu...' : 'Lưu thay đổi phân kỳ'}
@@ -406,7 +416,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
               type="button"
               onClick={handleDeleteAll}
               disabled={isDeleting}
-              className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className={REVENUE_DANGER_BUTTON_CLASS_NAME}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
               {isDeleting ? 'Đang xóa...' : 'Xóa toàn bộ phân kỳ'}
@@ -417,7 +427,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
             type="button"
             onClick={handleGenerate}
             disabled={isGenerating || !canGenerate}
-            className="inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50"
+            className={REVENUE_PRIMARY_BUTTON_CLASS_NAME}
             title={
               !canGenerate
                 ? 'Cần có: Chu kỳ thanh toán, ngày bắt đầu, ngày kết thúc, và hạng mục dự án'
@@ -512,7 +522,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
                             type="date"
                             value={schedule.expected_date}
                             onChange={(event) => handleDateChange(index, event.target.value)}
-                            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
+                            className={REVENUE_INPUT_CLASS_NAME}
                           />
                         </td>
                         <td className="px-2 py-1.5">
@@ -522,7 +532,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
                             value={formatEditableAmount(schedule.expected_amount)}
                             onChange={(event) => handleAmountChange(index, event.target.value)}
                             disabled={isSingleRow}
-                            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                            className={`${REVENUE_RIGHT_INPUT_CLASS_NAME} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
                             title={isSingleRow ? 'Kỳ duy nhất phải giữ nguyên toàn bộ tổng phân kỳ.' : undefined}
                           />
                         </td>
@@ -532,7 +542,7 @@ export const ProjectRevenueSchedulePanel: React.FC<ProjectRevenueSchedulePanelPr
                             value={schedule.notes}
                             onChange={(event) => handleNotesChange(index, event.target.value)}
                             placeholder="Ghi chú kỳ này"
-                            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
+                            className={REVENUE_INPUT_CLASS_NAME}
                           />
                         </td>
                         <td className="px-2 py-1.5 text-xs text-slate-600">

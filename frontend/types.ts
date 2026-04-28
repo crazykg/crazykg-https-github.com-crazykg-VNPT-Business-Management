@@ -90,6 +90,7 @@ export interface PaginationMeta {
     payment_warning_days?: number;
     new_signed_count?: number;
     new_signed_value?: number;
+    sign_period_total_value?: number;
     total_pipeline_value?: number;
     total_estimated_value?: number;
     overdue_payment_amount?: number;
@@ -168,7 +169,7 @@ export interface PaginatedQuery {
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
   simple?: boolean;
-  filters?: Record<string, string | number | boolean | null | undefined>;
+  filters?: Record<string, string | number | boolean | Array<string | number> | null | undefined>;
   [key: string]: unknown;
 }
 
@@ -539,6 +540,7 @@ export interface Employee {
   username: string;
   full_name: string;
   email: string;
+  gmail?: string | null;
   phone?: string | null;
   phone_number?: string | null;
   mobile?: string | null;
@@ -1400,6 +1402,8 @@ export interface YeuCau {
   source_channel?: string | null;
   pm_id?: string | number | null;
   pm_name?: string | null;
+  accountable_user_id?: string | number | null;
+  accountable_name?: string | null;
   ba_id?: string | number | null;
   ba_name?: string | null;
   r_id?: string | number | null;
@@ -1453,6 +1457,7 @@ export type CRCStatusCode =
   | 'assigned_to_dispatcher'
   | 'dispatched'
   | 'assigned_to_performer'
+  | 'assigned_to_receiver'
   | 'in_progress'
   | 'completed'
   | 'waiting_notification'
@@ -1461,12 +1466,18 @@ export type CRCStatusCode =
   | 'not_executed'
   | 'waiting_customer_feedback'
   | 'analysis'
+  | 'analysis_completed'
+  | 'analysis_suspended'
   | 'returned_to_dispatcher'
   | 'returned_to_manager'
   | 'pending_dispatch'
   | 'coding'
+  | 'coding_in_progress'
+  | 'coding_suspended'
   | 'dms_transfer'
-  | 'dms_task_created';
+  | 'dms_task_created'
+  | 'dms_in_progress'
+  | 'dms_suspended';
 
 export type CodingPhase = 'coding' | 'coding_done' | 'upcode_pending' | 'upcode_deployed' | 'suspended';
 export type DmsPhase = 'exchange' | 'task_created' | 'in_progress' | 'completed' | 'suspended';
@@ -1785,6 +1796,7 @@ export interface ProjectItem {
   productId: string | number;
   productPackageId?: string | number | null;
   catalogValue?: string;
+  unit?: string | null;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;
@@ -2160,6 +2172,8 @@ export interface PaymentSchedule {
   milestone_name: string;
   cycle_number: number;
   expected_date: string;
+  expected_start_date?: string | null;
+  expected_end_date?: string | null;
   expected_amount: number;
   actual_paid_date?: string | null;
   actual_paid_amount: number;
@@ -2334,6 +2348,23 @@ export interface SendReminderEmailResult {
   status: 'SENT';
   message?: string;
   recipient_email: string;
+  sent_at?: string | null;
+  reminder?: {
+    id: string;
+    title: string;
+    remindDate: string;
+  };
+}
+
+export interface SendReminderTelegramPayload {
+  recipient_user_id: string | number;
+}
+
+export interface SendReminderTelegramResult {
+  status: 'SENT';
+  message?: string;
+  recipient_user_id: string;
+  recipient_name?: string;
   sent_at?: string | null;
   reminder?: {
     id: string;

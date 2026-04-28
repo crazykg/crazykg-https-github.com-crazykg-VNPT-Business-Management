@@ -2046,7 +2046,11 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
   const toolbarFieldLabelClassName =
     'mb-1 text-[9px] font-bold uppercase tracking-[0.14em] leading-none';
   const toolbarSelectTriggerClassName =
-    'h-8 rounded-lg border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 shadow-sm hover:bg-white';
+    '!h-8 !min-h-0 !rounded-md !border !border-slate-200 !bg-slate-50 !px-2.5 !py-0 !text-xs !text-slate-700 shadow-sm hover:!bg-white';
+  const quotationRowSelectTriggerClassName =
+    '!h-[30px] !min-h-0 !rounded !border !border-slate-300 !bg-white !px-2.5 !py-0 !text-xs !leading-4';
+  const quotationMobileRowSelectTriggerClassName =
+    '!h-11 !min-h-0 !rounded !border !border-slate-300 !bg-white !px-3 !py-0 !text-sm !leading-4';
 
   // ── UI-only state: row collapse + duplicate ──
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(() => new Set());
@@ -2199,7 +2203,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                     triggerClassName={toolbarSelectTriggerClassName}
                   />
                 ) : (
-                  <p className="mb-1 h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs italic leading-8 text-slate-400 shadow-sm">Bấm <strong className="font-semibold not-italic text-slate-500">Thêm mới</strong> để bắt đầu</p>
+                  <p className="mb-1 h-8 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs italic leading-8 text-slate-400 shadow-sm">Bấm <strong className="font-semibold not-italic text-slate-500">Thêm mới</strong> để bắt đầu</p>
                 )}
               </div>
             </div>
@@ -2384,7 +2388,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                           portalMaxWidth={720}
                           usePortal
                           label=""
-                          triggerClassName={`h-[30px] rounded px-2.5 text-xs leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+                          triggerClassName={`${quotationRowSelectTriggerClassName} ${isDuplicateCombination ? '!border-rose-300 ring-1 ring-rose-200' : ''}`}
                           renderOptionContent={(option, state) => {
                             const catalogItem = quotationCatalogByValue.get(String(option.value));
                             const productShortName = String(catalogItem?.productShortName || '').trim();
@@ -2650,7 +2654,7 @@ export const ProductQuotationTab: React.FC<ProductQuotationTabProps> = ({
                       portalMaxWidth={640}
                       usePortal
                       label=""
-                      triggerClassName={`h-11 rounded px-3 text-sm leading-4 ${isDuplicateCombination ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+                      triggerClassName={`${quotationMobileRowSelectTriggerClassName} ${isDuplicateCombination ? '!border-rose-300 ring-1 ring-rose-200' : ''}`}
                       renderOptionContent={(option, state) => {
                         const catalogItem = quotationCatalogByValue.get(String(option.value));
                         const productShortName = String(catalogItem?.productShortName || '').trim();

@@ -37,6 +37,7 @@ class StoreProjectRequest extends V5FormRequest
             'items.*' => ['required', 'array'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.product_package_id' => ['sometimes', 'nullable', 'integer'],
+            'items.*.unit' => ['sometimes', 'nullable', 'string', 'max:100'],
             'items.*.quantity' => ['nullable', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'raci' => ['sometimes', 'array', 'max:500'],

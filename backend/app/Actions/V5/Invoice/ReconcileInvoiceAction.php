@@ -7,9 +7,12 @@ use App\Models\Receipt;
 use App\Services\V5\CacheService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ReconcileInvoiceAction
 {
+    private const PAYMENT_OVER_AMOUNT_MESSAGE = 'Số tiền thực thu không được vượt quá số tiền dự kiến của kỳ.';
+
     public function __construct(
         private readonly V5DomainSupportService $support,
         private readonly CacheService $cache,
@@ -69,19 +72,38 @@ class ReconcileInvoiceAction
             return;
         }
 
-        $scheduleStatus = $paidAmount >= $totalAmount ? 'PAID'
-            : ($paidAmount > 0 ? 'PARTIAL' : 'INVOICED');
-
         $query = DB::table('payment_schedules')->where('invoice_id', $invoiceId);
 
         if ($this->support->hasColumn('payment_schedules', 'deleted_at')) {
             $query->whereNull('deleted_at');
         }
 
+        $scheduleExpectedAmount = $this->resolveScheduleExpectedAmount($query);
+        if ($scheduleExpectedAmount !== null && $paidAmount > $scheduleExpectedAmount) {
+            throw ValidationException::withMessages([
+                'amount' => [self::PAYMENT_OVER_AMOUNT_MESSAGE],
+            ]);
+        }
+
+        $scheduleTotalAmount = $scheduleExpectedAmount ?? $totalAmount;
+        $scheduleStatus = $paidAmount >= $scheduleTotalAmount ? 'PAID'
+            : ($paidAmount > 0 ? 'PARTIAL' : 'INVOICED');
+
         $query->update([
             'actual_paid_amount' => $paidAmount,
             'status' => $scheduleStatus,
             'updated_at' => now(),
         ]);
+    }
+
+    private function resolveScheduleExpectedAmount(\Illuminate\Database\Query\Builder $query): ?float
+    {
+        if (! $this->support->hasColumn('payment_schedules', 'expected_amount')) {
+            return null;
+        }
+
+        $expectedAmount = (float) (clone $query)->sum('expected_amount');
+
+        return $expectedAmount > 0 ? round(max(0, $expectedAmount)) : null;
     }
 }

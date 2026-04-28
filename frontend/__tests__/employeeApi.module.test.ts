@@ -26,6 +26,7 @@ describe('employeeApi module', () => {
           username: 'nv12',
           full_name: 'Nguyen Van A',
           email: 'a@vnpt.vn',
+          gmail: 'a.personal@gmail.com',
           phone: '0909888777',
           status: 'TRANSFERRED',
           department: 5,
@@ -46,6 +47,7 @@ describe('employeeApi module', () => {
       phone: '0909888777',
       phone_number: '0909888777',
       mobile: '0909888777',
+      gmail: 'a.personal@gmail.com',
       status: 'SUSPENDED',
       department_id: 5,
     });
@@ -60,6 +62,7 @@ describe('employeeApi module', () => {
           username: 'nv07',
           full_name: 'Le Thi B',
           email: 'b@vnpt.vn',
+          gmail: 'b.personal@gmail.com',
           status: 'ACTIVE',
         },
         provisioning: {
@@ -78,6 +81,7 @@ describe('employeeApi module', () => {
       username: 'nv07',
       full_name: 'Le Thi B',
       email: 'b@vnpt.vn',
+      gmail: ' b.personal@gmail.com ',
       phone: ' 0911222333 ',
       position_id: 'POS005',
     });
@@ -90,6 +94,7 @@ describe('employeeApi module', () => {
       username: 'nv07',
       phone: '0911222333',
       phone_number: '0911222333',
+      gmail: 'b.personal@gmail.com',
       position_id: 5,
       vpn_status: 'NO',
       status: 'ACTIVE',
@@ -112,6 +117,7 @@ describe('employeeApi module', () => {
               username: 'vnpt000008',
               full_name: 'Nguyen Van Sparse',
               email: 'vnpt000008@import.local',
+              gmail: 'sparse@gmail.com',
               status: 'ACTIVE',
               department_id: 1,
             },
@@ -129,6 +135,7 @@ describe('employeeApi module', () => {
     await createEmployeesBulk([{
       user_code: 'VNPT000008',
       full_name: 'Nguyen Van Sparse',
+      gmail: ' sparse@gmail.com ',
     }]);
 
     const [, init] = fetchMock.mock.calls[0] ?? [];
@@ -138,6 +145,7 @@ describe('employeeApi module', () => {
       items: [{
         user_code: 'VNPT000008',
         full_name: 'Nguyen Van Sparse',
+        gmail: 'sparse@gmail.com',
       }],
     });
   });

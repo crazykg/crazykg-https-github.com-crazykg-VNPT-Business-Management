@@ -69,48 +69,25 @@ const getEmployeePhone = (employee: Employee): string => {
 };
 
 const secondaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-8 items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
 
 const primaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex h-8 items-center gap-1.5 rounded bg-primary px-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-60';
 
 const compactInputClass =
-  'h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm leading-6 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 md:h-8 md:text-xs md:leading-5';
+  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs leading-5 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30';
 
 const compactSelectTriggerClass =
-  'h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm leading-6 text-slate-700 outline-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 md:h-8 md:text-xs md:leading-5';
+  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-xs leading-5 text-slate-700 outline-none focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
 
 const menuPanelClass = 'absolute top-full z-20 mt-2 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-fade-in';
 const menuItemClass =
   'flex items-center gap-2.5 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60';
 const tableActionButtonClass =
-  'inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors';
+  'inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-1';
 
-const renderContactLink = ({
-  href,
-  value,
-  icon,
-  ariaLabel,
-}: {
-  href: string;
-  value: string;
-  icon: 'mail' | 'call';
-  ariaLabel: string;
-}) => (
-  <div className="relative group">
-    <a
-      href={href}
-      className="flex h-7 w-7 items-center justify-center rounded border border-primary/20 bg-white text-primary transition-colors hover:bg-primary/5 hover:text-deep-teal"
-      title={value}
-      aria-label={ariaLabel}
-    >
-      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
-    </a>
-    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-deep-teal px-2 py-1 text-[10px] font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-      {value}
-    </span>
-  </div>
-);
+const summaryChipClass =
+  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded border border-slate-200 bg-slate-50/70 px-2 shadow-sm';
 
 const normalizePositionCode = (value: unknown): string => {
   const raw = String(value ?? '').trim().toUpperCase();
@@ -234,6 +211,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         String(emp.id).toLowerCase().includes(searchLower) ||
         (emp.username || '').toLowerCase().includes(searchLower) ||
         (emp.full_name || '').toLowerCase().includes(searchLower) ||
+        (emp.email || '').toLowerCase().includes(searchLower) ||
+        (emp.gmail || '').toLowerCase().includes(searchLower) ||
         getEmployeePhone(emp).toLowerCase().includes(searchLower) ||
         departmentLabel.includes(searchLower) ||
         (getPositionName(emp) || '').toLowerCase().includes(searchLower) ||
@@ -373,8 +352,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     : filteredEmployees.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
   const visibleEmployees = serverMode ? currentData : filteredEmployees;
   const filterGridClass = hideDepartmentFilter
-    ? 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_180px] xl:items-center'
-    : 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1.2fr)_220px_220px_180px] xl:items-center';
+    ? 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_220px_180px] xl:items-center'
+    : 'grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_220px_220px_180px] xl:items-center';
   const activeVisibleCount = visibleEmployees.filter((employee) => normalizeEmployeeStatus(employee.status) === 'ACTIVE').length;
   const vpnVisibleCount = visibleEmployees.filter((employee) => getVpnLabel(employee.vpn_status) === 'Có').length;
   const departmentCoverageCount = new Set(
@@ -384,27 +363,23 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   ).size;
   const summaryCards = [
     {
-      label: 'Nhân sự theo bộ lọc',
+      label: 'nhân sự',
       value: totalItems,
-      tone: 'border-transparent bg-gradient-to-r from-primary to-primary-container text-white',
       iconName: 'group',
     },
     {
-      label: 'Đang hoạt động',
+      label: 'hoạt động',
       value: activeVisibleCount,
-      tone: 'border-secondary/20 bg-secondary-fixed text-deep-teal',
       iconName: 'verified_user',
     },
     {
-      label: 'Đã bật VPN',
+      label: 'VPN',
       value: vpnVisibleCount,
-      tone: 'border-primary/10 bg-primary-container-soft text-deep-teal',
       iconName: 'lan',
     },
     {
-      label: 'Phòng ban hiện diện',
+      label: 'PB',
       value: departmentCoverageCount,
-      tone: 'border-tertiary/10 bg-tertiary-fixed text-tertiary',
       iconName: 'apartment',
     },
   ];
@@ -461,7 +436,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   const handleDownloadTemplate = () => {
     setShowImportMenu(false);
-    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Số điện thoại', 'Email', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+    const headers = ['Mã NV', 'Tên đăng nhập', 'Họ và tên', 'Số điện thoại', 'VNPT Mail', 'Gmail', 'Mã phòng ban', 'Mã chức vụ', 'Chức danh (TV)', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
     const rootDepartmentCode =
       sortedDepartments.find((department) => {
         const normalized = String(department.dept_code || '')
@@ -473,8 +448,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     const firstDepartmentCode = rootDepartmentCode;
     const secondDepartmentCode = sortedDepartments[1]?.dept_code || 'PB002';
     const sampleRows = [
-      ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', '0912345678', 'nguyenvana@vnpt.vn', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '10/08/1995', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
-      ['CTV091020', 'tranthib', 'Trần Thị B', '0987654321', 'tranthib@vnpt.vn', secondDepartmentCode, 'POS005', 'Nhân viên chăm sóc khách hàng', '22/11/1993', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
+      ['VNPT022327', 'nguyenvana', 'Nguyễn Văn A', '0912345678', 'nguyenvana@vnpt.vn', 'nguyenvana@gmail.com', firstDepartmentCode, 'POS003', 'Chuyên viên kinh doanh', '10/08/1995', 'MALE', 'YES', '10.10.1.15', 'ACTIVE'],
+      ['CTV091020', 'tranthib', 'Trần Thị B', '0987654321', 'tranthib@vnpt.vn', 'tranthib@gmail.com', secondDepartmentCode, 'POS005', 'Nhân viên chăm sóc khách hàng', '22/11/1993', 'FEMALE', 'NO', '10.10.1.28', 'INACTIVE'],
     ];
 
     const departmentSheetHeaders = ['Mã phòng ban', 'Tên phòng ban'];
@@ -527,13 +502,14 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
       const dataToExport = serverMode
         ? await exportEmployeesByCurrentQuery(buildRemoteExportQuery())
         : filteredEmployees;
-      const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Số điện thoại', 'Email', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
+      const headers = ['Mã NV', 'Tên đăng nhập', 'Họ tên', 'Số điện thoại', 'VNPT Mail', 'Gmail', 'Mã PB', 'Chức vụ', 'Chức danh', 'Ngày sinh', 'Giới tính', 'VPN', 'Địa chỉ IP', 'Trạng thái'];
       const rows = dataToExport.map((row) => [
         getEmployeeCode(row),
         row.username || '',
         row.full_name || '',
         getEmployeePhone(row),
         row.email || '',
+        row.gmail || '',
         getDepartmentCode(row),
         getPositionName(row),
         getJobTitleVi(row),
@@ -578,18 +554,28 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
   };
 
   return (
-    <div className="space-y-3 p-3 pb-6">
+    <div className="p-2 pb-4">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+        <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
                 <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
                   group
                 </span>
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-sm font-bold leading-tight text-deep-teal">Quản lý danh sách nhân sự</h2>
+              </span>
+              <h2 className="text-sm font-bold leading-tight text-deep-teal">Bảng nhân sự</h2>
+              <div data-testid="employee-list-summary-strip" className="flex min-w-0 flex-wrap items-center gap-1.5">
+                {summaryCards.map((card) => (
+                  <span
+                    key={card.label}
+                    className={`${summaryChipClass} text-[11px] font-semibold text-slate-600`}
+                  >
+                    <span className="material-symbols-outlined text-primary" style={{ fontSize: 14 }}>{card.iconName}</span>
+                    <span className="font-black text-deep-teal">{new Intl.NumberFormat('vi-VN').format(card.value)}</span>
+                    <span>{card.label}</span>
+                  </span>
+                ))}
               </div>
             </div>
 
@@ -598,7 +584,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 <div className="relative">
                   <button
                     onClick={() => setShowImportMenu(!showImportMenu)}
-                    className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                    className={`${secondaryButtonClass} min-w-[82px] justify-center`}
                   >
                     <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>upload</span>
                     Nhập
@@ -636,7 +622,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   disabled={isExporting}
-                  className={`${secondaryButtonClass} min-w-[92px] justify-center`}
+                  className={`${secondaryButtonClass} min-w-[82px] justify-center`}
                 >
                   <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>download</span>
                   {isExporting ? 'Đang xuất' : 'Xuất'}
@@ -685,40 +671,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               </button>
             </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3 p-3 xl:grid-cols-4">
-          {summaryCards.map((card) => (
-            <div
-              key={card.label}
-              className={`rounded-lg border p-3 shadow-sm ${card.tone}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.08em] opacity-80">{card.label}</p>
-                <span className={`inline-flex h-7 w-7 items-center justify-center rounded ${card.label === 'Nhân sự theo bộ lọc' ? 'bg-white/15 text-white' : 'bg-white/80 text-current'}`}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{card.iconName}</span>
-                </span>
-              </div>
-              <p className="mt-2 text-xl font-black leading-none">{new Intl.NumberFormat('vi-VN').format(card.value)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-100 bg-slate-50/70 p-3">
-          <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-secondary/15">
-                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>filter_alt</span>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-700">Bộ lọc và tra cứu</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={filterGridClass}>
+          <div data-testid="employee-list-filter-row" className={`${filterGridClass} mt-2`}>
             <div className="relative min-w-[200px]">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral" style={{ fontSize: 16 }}>
                 search
@@ -728,7 +682,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className={`pl-9 ${compactInputClass}`}
-                placeholder="Tìm kiếm theo mã, tên đăng nhập, họ tên"
+                placeholder="Tìm mã, tên, tài khoản..."
               />
             </div>
             {!hideDepartmentFilter ? (
@@ -750,7 +704,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 value={emailFilter}
                 onChange={(e) => handleEmailFilterChange(e.target.value)}
                 className={`pl-9 ${compactInputClass}`}
-                placeholder="Email"
+                placeholder="VNPT Mail"
               />
             </div>
             <SearchableSelect
@@ -766,26 +720,19 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
         <div className="flex flex-col bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[1240px] w-full text-left">
+            <table className="min-w-[1120px] w-full text-left">
               <thead className="border-b border-slate-200 bg-slate-50/90">
                 <tr>
                   {[
-                    { label: 'MÃ NV', width: 'min-w-[170px]', key: 'user_code' },
-                    { label: 'TÊN ĐĂNG NHẬP', width: 'min-w-[170px]', key: 'username' },
-                    { label: 'HỌ TÊN', width: 'min-w-[210px]', key: 'full_name' },
-                    { label: 'PHÒNG BAN', width: 'min-w-[220px]', key: 'department_id' },
-                    { label: 'LIÊN HỆ', width: 'min-w-[150px]', key: 'email' },
-                    { label: 'CHỨC VỤ', width: 'min-w-[170px]', key: 'position_name' },
-                    { label: 'CHỨC DANH', width: 'min-w-[220px]', key: 'job_title_vi' },
-                    { label: 'NGÀY SINH', width: 'min-w-[130px]', key: 'date_of_birth' },
-                    { label: 'GIỚI TÍNH', width: 'min-w-[110px]', key: 'gender' },
-                    { label: 'VPN', width: 'min-w-[100px]', key: 'vpn_status' },
-                    { label: 'ĐỊA CHỈ IP', width: 'min-w-[140px]', key: 'ip_address' },
-                    { label: 'TRẠNG THÁI', width: 'min-w-[150px]', key: 'status' },
+                    { label: 'NHÂN SỰ', width: 'w-[132px]', key: 'user_code' },
+                    { label: 'TÀI KHOẢN', width: 'min-w-[220px]', key: 'username' },
+                    { label: 'HỌ TÊN', width: 'min-w-[240px]', key: 'full_name' },
+                    { label: 'PHÒNG BAN / CHỨC DANH', width: 'min-w-[270px]', key: 'department_id' },
+                    { label: 'TRUY CẬP', width: 'min-w-[190px]', key: 'status' },
                   ].map((col) => (
                     <th
                       key={col.label}
-                      className={`px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral ${col.width} cursor-pointer select-none transition-colors hover:bg-slate-100`}
+                      className={`px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral ${col.width} cursor-pointer select-none transition-colors hover:bg-slate-100`}
                       onClick={() => handleSort(col.key as keyof Employee)}
                     >
                       <div className="flex items-center gap-1">
@@ -794,7 +741,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                       </div>
                     </th>
                   ))}
-                  <th className="sticky right-0 z-10 bg-slate-50/95 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)]">
+                  <th className="sticky right-0 z-10 w-[124px] bg-slate-50/95 px-3 py-2 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)]">
                     THAO TÁC
                   </th>
                 </tr>
@@ -803,75 +750,83 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                 {currentData.length > 0 ? (
                   currentData.map((emp) => (
                     <tr key={emp.id} className="group transition-colors hover:bg-slate-50/90">
-                      <td className="min-w-[170px] px-4 py-3">
-                        <div className="space-y-0.5">
+                      <td className="align-middle px-3 py-2">
+                        <div className="flex min-h-[46px] flex-col justify-center">
                           <p className="font-mono text-xs font-bold text-deep-teal">{getEmployeeCode(emp)}</p>
-                          <p className="text-[10px] text-slate-400">ID: {emp.id}</p>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-700">{emp.username}</td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-900">{emp.full_name}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{getDepartmentLabel(emp)}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {(() => {
-                          const phone = getEmployeePhone(emp);
-                          const email = String(emp.email || '').trim();
-
-                          if (!phone && !email) {
-                            return <span>--</span>;
-                          }
-
-                          return (
-                            <div className="flex items-center gap-1.5">
-                              {email ? (
-                                renderContactLink({
-                                  href: `mailto:${email}`,
-                                  value: email,
-                                  icon: 'mail',
-                                  ariaLabel: `Gửi email ${email}`,
-                                })
-                              ) : null}
-                              {phone ? (
-                                renderContactLink({
-                                  href: `tel:${phone.replace(/[^\d+]/g, '')}`,
-                                  value: phone,
-                                  icon: 'call',
-                                  ariaLabel: `Gọi ${phone}`,
-                                })
-                              ) : null}
-                            </div>
-                          );
-                        })()}
+                      <td className="align-middle px-3 py-2">
+                        <div className="flex min-h-[46px] flex-col justify-center gap-0.5">
+                          <p className="truncate text-sm font-semibold text-slate-800" title={emp.username || ''}>
+                            {emp.username || '--'}
+                          </p>
+                          {emp.email ? (
+                            <a href={`mailto:${emp.email}`} className="block max-w-[210px] truncate text-[11px] font-semibold text-primary hover:text-deep-teal" title={emp.email}>
+                              {emp.email}
+                            </a>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">Chưa có VNPT Mail</span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{getPositionName(emp)}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{getJobTitleVi(emp)}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{formatDateDdMmYyyy(emp.date_of_birth || null)}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{getGenderLabel(emp.gender)}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            getVpnLabel(emp.vpn_status) === 'Có'
-                              ? 'bg-primary/10 text-primary'
-                              : getVpnLabel(emp.vpn_status) === 'Không'
-                                ? 'bg-slate-100 text-slate-500'
-                                : 'bg-surface-container text-neutral'
-                          }`}
-                        >
-                          {getVpnLabel(emp.vpn_status)}
-                        </span>
+                      <td className="align-middle px-3 py-2">
+                        <div className="flex min-h-[46px] flex-col justify-center gap-0.5">
+                          <p className="truncate text-sm font-semibold text-slate-900" title={emp.full_name || ''}>
+                            {emp.full_name || '--'}
+                          </p>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                            {emp.gmail ? (
+                              <a href={`mailto:${emp.gmail}`} className="max-w-[150px] truncate font-semibold text-slate-600 hover:text-primary" title={emp.gmail}>
+                                {emp.gmail}
+                              </a>
+                            ) : null}
+                            {getEmployeePhone(emp) ? (
+                              <a href={`tel:${getEmployeePhone(emp).replace(/[^\d+]/g, '')}`} className="font-mono font-semibold text-slate-600 hover:text-primary">
+                                {getEmployeePhone(emp)}
+                              </a>
+                            ) : null}
+                            {!emp.gmail && !getEmployeePhone(emp) ? <span>Chưa có liên hệ</span> : null}
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-sm text-slate-600">{emp.ip_address || '--'}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusBadgeClass(emp.status)}`}>
-                          {getStatusLabel(emp.status)}
-                        </span>
+                      <td className="align-middle px-3 py-2">
+                        <div className="flex min-h-[46px] flex-col justify-center gap-0.5">
+                          <p className="line-clamp-1 text-sm font-semibold text-slate-700" title={getDepartmentLabel(emp)}>
+                            {getDepartmentLabel(emp)}
+                          </p>
+                          <p className="line-clamp-1 text-[11px] text-slate-500" title={`${getPositionName(emp)} • ${getJobTitleVi(emp)}`}>
+                            {getPositionName(emp)} • {getJobTitleVi(emp)}
+                          </p>
+                        </div>
                       </td>
-                      <td className="sticky right-0 bg-white px-4 py-3 text-right shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)] transition-colors group-hover:bg-slate-50/90">
+                      <td className="align-middle px-3 py-2">
+                        <div className="flex min-h-[46px] flex-col justify-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                getVpnLabel(emp.vpn_status) === 'Có'
+                                  ? 'bg-primary/10 text-primary'
+                                  : getVpnLabel(emp.vpn_status) === 'Không'
+                                    ? 'bg-slate-100 text-slate-500'
+                                    : 'bg-surface-container text-neutral'
+                              }`}
+                            >
+                              VPN {getVpnLabel(emp.vpn_status)}
+                            </span>
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusBadgeClass(emp.status)}`}>
+                              {getStatusLabel(emp.status)}
+                            </span>
+                          </div>
+                          <p className="font-mono text-[11px] text-slate-500">{emp.ip_address || '--'}</p>
+                        </div>
+                      </td>
+                      <td className="sticky right-0 bg-white px-3 py-2 text-right align-middle shadow-[-10px_0_12px_-12px_rgba(15,23,42,0.18)] transition-colors group-hover:bg-slate-50/90">
                         <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => onOpenModal('ADD_USER_DEPT_HISTORY', emp)}
                             className={`${tableActionButtonClass} hover:border-primary/20 hover:bg-primary/5 hover:text-primary`}
                             title="Luân chuyển"
+                            aria-label={`Luân chuyển ${emp.full_name || getEmployeeCode(emp)}`}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>sync_alt</span>
                           </button>
@@ -879,6 +834,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                             onClick={() => onOpenModal('EDIT_EMPLOYEE', emp)}
                             className={`${tableActionButtonClass} hover:border-secondary/30 hover:bg-secondary-fixed hover:text-deep-teal`}
                             title="Chỉnh sửa"
+                            aria-label={`Chỉnh sửa ${emp.full_name || getEmployeeCode(emp)}`}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
                           </button>
@@ -886,6 +842,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                             onClick={() => onOpenModal('DELETE_EMPLOYEE', emp)}
                             className={`${tableActionButtonClass} hover:border-error/20 hover:bg-error/10 hover:text-error`}
                             title="Xóa"
+                            aria-label={`Xóa ${emp.full_name || getEmployeeCode(emp)}`}
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
                           </button>
@@ -895,7 +852,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={13} className="px-6 py-10 text-center text-slate-500">
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-3 py-6">
                         <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 34 }}>
                           {isLoading ? 'hourglass_top' : 'search_off'}

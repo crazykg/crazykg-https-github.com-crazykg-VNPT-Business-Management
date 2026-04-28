@@ -268,21 +268,29 @@ class ContractPaymentGenerationTest extends TestCase
                 [
                     'label' => 'Kỳ mở đầu',
                     'expected_date' => '2026-04-11',
+                    'expected_start_date' => '2026-04-11',
+                    'expected_end_date' => '2026-07-14',
                     'expected_amount' => 4000000,
                 ],
                 [
                     'label' => 'Kỳ tăng tốc',
                     'expected_date' => '2026-07-15',
+                    'expected_start_date' => '2026-07-15',
+                    'expected_end_date' => '2026-10-14',
                     'expected_amount' => 5000000,
                 ],
                 [
                     'label' => 'Kỳ vận hành',
                     'expected_date' => '2026-10-15',
+                    'expected_start_date' => '2026-10-15',
+                    'expected_end_date' => '2027-01-10',
                     'expected_amount' => 4000000,
                 ],
                 [
                     'label' => 'Kỳ kết thúc',
                     'expected_date' => '2027-01-11',
+                    'expected_start_date' => '2027-01-11',
+                    'expected_end_date' => '2027-01-11',
                     'expected_amount' => 5000000,
                 ],
             ],
@@ -292,21 +300,29 @@ class ContractPaymentGenerationTest extends TestCase
             ->assertJsonPath('meta.generated_count', 4)
             ->assertJsonPath('data.0.milestone_name', 'Kỳ mở đầu')
             ->assertJsonPath('data.0.expected_date', '2026-04-11')
+            ->assertJsonPath('data.0.expected_start_date', '2026-04-11')
+            ->assertJsonPath('data.0.expected_end_date', '2026-07-14')
             ->assertJsonPath('data.0.expected_amount', 4000000)
             ->assertJsonPath('data.1.milestone_name', 'Kỳ tăng tốc')
             ->assertJsonPath('data.1.expected_date', '2026-07-15')
+            ->assertJsonPath('data.1.expected_start_date', '2026-07-15')
+            ->assertJsonPath('data.1.expected_end_date', '2026-10-14')
             ->assertJsonPath('data.1.expected_amount', 5000000)
             ->assertJsonPath('data.3.milestone_name', 'Kỳ kết thúc')
             ->assertJsonPath('data.3.expected_date', '2027-01-11')
+            ->assertJsonPath('data.3.expected_start_date', '2027-01-11')
+            ->assertJsonPath('data.3.expected_end_date', '2027-01-11')
             ->assertJsonPath('data.3.expected_amount', 5000000);
 
         $storedRows = DB::table('payment_schedules')
             ->where('contract_id', $contractId)
             ->orderBy('cycle_number')
-            ->get(['milestone_name', 'expected_date', 'expected_amount'])
+            ->get(['milestone_name', 'expected_date', 'expected_start_date', 'expected_end_date', 'expected_amount'])
             ->map(fn (object $row): array => [
                 'milestone_name' => $row->milestone_name,
                 'expected_date' => $row->expected_date,
+                'expected_start_date' => $row->expected_start_date,
+                'expected_end_date' => $row->expected_end_date,
                 'expected_amount' => (float) $row->expected_amount,
             ])
             ->all();
@@ -315,21 +331,29 @@ class ContractPaymentGenerationTest extends TestCase
             [
                 'milestone_name' => 'Kỳ mở đầu',
                 'expected_date' => '2026-04-11',
+                'expected_start_date' => '2026-04-11',
+                'expected_end_date' => '2026-07-14',
                 'expected_amount' => 4000000.0,
             ],
             [
                 'milestone_name' => 'Kỳ tăng tốc',
                 'expected_date' => '2026-07-15',
+                'expected_start_date' => '2026-07-15',
+                'expected_end_date' => '2026-10-14',
                 'expected_amount' => 5000000.0,
             ],
             [
                 'milestone_name' => 'Kỳ vận hành',
                 'expected_date' => '2026-10-15',
+                'expected_start_date' => '2026-10-15',
+                'expected_end_date' => '2027-01-10',
                 'expected_amount' => 4000000.0,
             ],
             [
                 'milestone_name' => 'Kỳ kết thúc',
                 'expected_date' => '2027-01-11',
+                'expected_start_date' => '2027-01-11',
+                'expected_end_date' => '2027-01-11',
                 'expected_amount' => 5000000.0,
             ],
         ], $storedRows);
@@ -676,6 +700,8 @@ class ContractPaymentGenerationTest extends TestCase
             $table->string('milestone_name', 255)->nullable();
             $table->unsignedInteger('cycle_number');
             $table->date('expected_date')->nullable();
+            $table->date('expected_start_date')->nullable();
+            $table->date('expected_end_date')->nullable();
             $table->decimal('expected_amount', 18, 2)->default(0);
             $table->date('actual_paid_date')->nullable();
             $table->decimal('actual_paid_amount', 18, 2)->default(0);

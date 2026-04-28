@@ -3,6 +3,7 @@ import {
   Contract,
   ContractAggregateKpis,
   Customer,
+  Department,
   ModalType,
   PaginatedQuery,
   PaginationMeta,
@@ -13,6 +14,7 @@ import { CONTRACT_STATUSES } from '../constants';
 import { useEscKey } from '../hooks/useEscKey';
 import { useModuleShortcuts } from '../hooks/useModuleShortcuts';
 import { useAuthStore, useContractStore } from '../shared/stores';
+import { useFilterStore } from '../shared/stores/filterStore';
 import { hasPermission } from '../utils/authorization';
 import { PaginationControls } from './PaginationControls';
 import { SearchableSelect } from './SearchableSelect';
@@ -20,8 +22,14 @@ import { exportCsv, exportExcel, exportPdfTable, isoDateStamp } from '../utils/e
 import { ContractRevenueView } from './contract-revenue/ContractRevenueView';
 import { fetchContractDetail } from '../services/api/contractApi';
 import { formatVietnameseCurrencyValue } from '../utils/vietnameseCurrency';
+import {
+  DateRangePresetPicker,
+  getDefaultCustomDateRange,
+  resolveDateRangePresetLabel,
+  resolveDateRangePresetRange,
+  type DateRangePresetValue,
+} from './DateRangePresetPicker';
 
-type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
 type ContractViewMode = 'CONTRACTS' | 'REVENUE';
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
 type ContractContextMenuState = {
@@ -45,6 +53,7 @@ const matchesContractSourceMode = (
 
 interface ContractListQuery extends PaginatedQuery {
   filters?: {
+    dept_id?: string;
     status?: string;
     type?: string;
     sign_date_from?: string;
@@ -58,6 +67,7 @@ interface ContractListProps {
   contractsPageRows?: Contract[];
   paginationMeta?: PaginationMeta;
   isLoading?: boolean;
+  departments?: Department[];
   projects: Project[];
   customers: Customer[];
   onOpenModal: (type: ModalType, item?: Contract) => void;
@@ -85,71 +95,17 @@ const clampPercent = (value: number): number => {
   return Math.max(0, Math.min(100, Math.round(value)));
 };
 
-const safePercent = (part: number, total: number): number => {
-  if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) {
-    return 0;
-  }
-  return clampPercent((part / total) * 100);
-};
-
 const resolveContractValue = (contract: Contract): number => {
   const numeric = Number(contract.value ?? contract.total_value ?? 0);
   return Number.isFinite(numeric) ? numeric : 0;
 };
-
-function resolvePresetDates(
-  preset: PeriodPreset,
-  customFrom: string,
-  customTo: string
-): { dateFrom: string | null; dateTo: string | null; label: string } {
-  const today = new Date();
-  const y = today.getFullYear();
-  const m = today.getMonth(); // 0-indexed
-
-  if (preset === 'this_month') {
-    const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
-    const end = new Date(y, m + 1, 0).toISOString().slice(0, 10);
-    return { dateFrom: start, dateTo: end, label: `Tháng ${m + 1}/${y}` };
-  }
-
-  if (preset === 'last_month') {
-    const d = new Date(y, m - 1, 1);
-    const ly = d.getFullYear();
-    const lm = d.getMonth();
-    const start = `${ly}-${String(lm + 1).padStart(2, '0')}-01`;
-    const end = new Date(ly, lm + 1, 0).toISOString().slice(0, 10);
-    return { dateFrom: start, dateTo: end, label: `Tháng ${lm + 1}/${ly}` };
-  }
-
-  if (preset === 'this_quarter') {
-    const q = Math.floor(m / 3);
-    const startMonth = q * 3;
-    const start = `${y}-${String(startMonth + 1).padStart(2, '0')}-01`;
-    const end = new Date(y, startMonth + 3, 0).toISOString().slice(0, 10);
-    return { dateFrom: start, dateTo: end, label: `Quý ${q + 1}/${y}` };
-  }
-
-  if (preset === 'this_year') {
-    return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31`, label: `Năm ${y}` };
-  }
-
-  // custom
-  const label =
-    customFrom && customTo
-      ? `${customFrom} → ${customTo}`
-      : customFrom
-        ? `Từ ${customFrom}`
-        : customTo
-          ? `Đến ${customTo}`
-          : 'Tùy chọn';
-  return { dateFrom: customFrom || null, dateTo: customTo || null, label };
-}
 
 export const ContractList: React.FC<ContractListProps> = ({
   contracts: contractsProp,
   contractsPageRows: contractsPageRowsProp,
   paginationMeta,
   isLoading,
+  departments = [],
   projects = [],
   customers = [],
   onOpenModal,
@@ -176,14 +132,17 @@ export const ContractList: React.FC<ContractListProps> = ({
   const handleContractsPageQueryChange = onQueryChange ?? storeHandleContractsPageQueryChange;
   const exportContractsByCurrentQuery = onExportContracts ?? storeExportContractsByCurrentQuery;
   const serverMode = Boolean(contractsPageMeta);
+  const filterTabKey = fixedSourceMode === 'INITIAL' ? 'passContractsPage' : 'contractsPage';
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<'' | 'STANDALONE' | 'ADDENDUM'>('');
   const [viewMode, setViewMode] = useState<ContractViewMode>('CONTRACTS');
-  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('this_year');
-  const [customDateFrom, setCustomDateFrom] = useState('');
-  const [customDateTo, setCustomDateTo] = useState('');
+  const defaultCustomDateRange = useMemo(() => getDefaultCustomDateRange(), []);
+  const [periodPreset, setPeriodPreset] = useState<DateRangePresetValue>('this_year');
+  const [customDateFrom, setCustomDateFrom] = useState(defaultCustomDateRange.from);
+  const [customDateTo, setCustomDateTo] = useState(defaultCustomDateRange.to);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Contract; direction: 'asc' | 'desc' } | null>(null);
@@ -205,6 +164,7 @@ export const ContractList: React.FC<ContractListProps> = ({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   const detailRequestVersionRef = useRef(0);
+  const hasUserAdjustedDepartmentFilterRef = useRef(false);
 
   useModuleShortcuts({
     onNew: () => onOpenModal('ADD_CONTRACT'),
@@ -225,7 +185,8 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   const showActionColumn = canEdit || canDelete;
   const showProjectColumn = fixedSourceMode !== 'PROJECT';
-  const tableColSpan = (showProjectColumn ? 9 : 8) + (showActionColumn ? 1 : 0);
+  const denseFilterTriggerClassName = 'h-8 rounded-md border-slate-200 bg-slate-50 text-sm focus:border-primary';
+  const tableColSpan = 6 + (showActionColumn ? 1 : 0);
   const sourceColumnLabel = fixedSourceMode === 'INITIAL' ? 'Nguồn' : 'Dự án';
   const contractTitle = fixedSourceMode === 'PROJECT'
     ? 'Hợp đồng theo dự án'
@@ -248,13 +209,58 @@ export const ContractList: React.FC<ContractListProps> = ({
   const emptyStateHint = fixedSourceMode === 'INITIAL'
     ? 'Bắt đầu bằng cách thêm mới hợp đồng đầu kỳ đầu tiên.'
     : 'Bắt đầu bằng cách thêm mới hợp đồng đầu tiên.';
+  const contractDepartmentOptions = useMemo(
+    () => [
+      { value: '', label: 'Tất cả đơn vị ký' },
+      ...[...departments]
+        .sort((left, right) =>
+          `${left.dept_code || ''} ${left.dept_name || ''}`.localeCompare(
+            `${right.dept_code || ''} ${right.dept_name || ''}`,
+            'vi'
+          )
+        )
+        .map((department) => ({
+          value: String(department.id),
+          label: department.dept_name || department.dept_code || `Đơn vị #${department.id}`,
+          searchText: `${department.dept_code || ''} ${department.dept_name || ''}`.trim(),
+        })),
+    ],
+    [departments]
+  );
+  const initialDepartmentFilter = useMemo(() => {
+    const availableDepartmentIds = new Set(
+      contractDepartmentOptions.map((option) => String(option.value)).filter((value) => value !== '')
+    );
+    const storedQuery = useFilterStore.getState().getTabFilter(filterTabKey) as ContractListQuery;
+    const storedDepartmentId = String(storedQuery.filters?.dept_id ?? '').trim();
+    if (storedDepartmentId && availableDepartmentIds.has(storedDepartmentId)) {
+      return storedDepartmentId;
+    }
+
+    const authDepartmentId = String(authUser?.department_id ?? '').trim();
+    return authDepartmentId && availableDepartmentIds.has(authDepartmentId) ? authDepartmentId : '';
+  }, [authUser, contractDepartmentOptions, filterTabKey]);
+  const normalizedInitialDepartmentFilter = String(initialDepartmentFilter || '').trim();
+  const normalizedDepartmentFilter = String(departmentFilter || '').trim();
   const hasActiveFilter =
     searchInput.trim() !== '' ||
+    normalizedDepartmentFilter !== normalizedInitialDepartmentFilter ||
     statusFilter !== '' ||
     typeFilter !== '' ||
     (periodPreset === 'custom' && (customDateFrom !== '' || customDateTo !== ''));
+  const tableColumns: Array<{ label: string; key: keyof Contract; align?: 'left' | 'right' }> = [
+    { label: 'Hợp đồng', key: 'contract_code' },
+    { label: showProjectColumn ? 'Khách hàng / dự án' : 'Khách hàng', key: 'customer_id' },
+    { label: 'Chu kỳ', key: 'payment_cycle' },
+    { label: 'Giá trị', key: 'value', align: 'right' },
+    { label: 'Thời hạn', key: 'effective_date' },
+    { label: 'Trạng thái', key: 'status' },
+  ];
 
-  const { dateFrom, dateTo, label: periodLabel } = resolvePresetDates(periodPreset, customDateFrom, customDateTo);
+  const resolvedPeriodRange = resolveDateRangePresetRange(periodPreset, customDateFrom, customDateTo);
+  const dateFrom = resolvedPeriodRange.from || null;
+  const dateTo = resolvedPeriodRange.to || null;
+  const periodLabel = resolveDateRangePresetLabel(periodPreset, customDateFrom, customDateTo);
 
   const getProjectName = (id: string | number | null | undefined) => {
     const normalizedId = String(id ?? '').trim();
@@ -321,6 +327,9 @@ export const ContractList: React.FC<ContractListProps> = ({
           customerName.includes(searchLower) ||
           projectName.includes(searchLower) ||
           paymentCycle.includes(searchLower);
+        const matchesDepartment = normalizedDepartmentFilter
+          ? String(contract.dept_id ?? '').trim() === normalizedDepartmentFilter
+          : true;
         const matchesStatus = statusFilter ? contract.status === statusFilter : true;
         const matchesType =
           typeFilter === ''
@@ -329,7 +338,7 @@ export const ContractList: React.FC<ContractListProps> = ({
               ? contract.parent_contract_id != null
               : contract.parent_contract_id == null;
 
-        return matchesSearch && matchesStatus && matchesType;
+        return matchesSearch && matchesDepartment && matchesStatus && matchesType;
       });
 
     if (sortConfig !== null) {
@@ -380,7 +389,7 @@ export const ContractList: React.FC<ContractListProps> = ({
     }
 
     return result;
-  }, [serverMode, contracts, debouncedSearchTerm, statusFilter, sortConfig, projects, customers, typeFilter, fixedSourceMode]);
+  }, [serverMode, contracts, debouncedSearchTerm, normalizedDepartmentFilter, statusFilter, sortConfig, projects, customers, typeFilter, fixedSourceMode]);
 
   const statusFilterOptions = useMemo(
     () => [
@@ -407,12 +416,6 @@ export const ContractList: React.FC<ContractListProps> = ({
     return 0;
   })();
 
-  const expiryWarningDays = (() => {
-    const value = Number(contractsPageMeta?.kpis?.expiry_warning_days);
-    if (Number.isFinite(value) && value > 0) return Math.floor(value);
-    return 30;
-  })();
-
   const draftCount = aggregateKpis?.draftCount ?? (contracts || []).filter((contract) => contract.status === 'DRAFT').length;
   const renewedCount = aggregateKpis?.renewedCount ?? (contracts || []).filter((contract) => contract.status === 'RENEWED').length;
   const collectionRate = clampPercent(aggregateKpis?.collectionRate ?? 0);
@@ -420,7 +423,63 @@ export const ContractList: React.FC<ContractListProps> = ({
   const newSignedValue = aggregateKpis?.newSignedValue ?? 0;
   const actualCollectedValue = aggregateKpis?.actualCollectedValue ?? 0;
   const overduePaymentAmount = aggregateKpis?.overduePaymentAmount ?? 0;
-  const newSignedPercent = safePercent(newSignedCount, totalContractsKpi);
+  const signPeriodTotalValue = (() => {
+    if (serverMode) {
+      const value = Number(contractsPageMeta?.kpis?.sign_period_total_value);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    }
+
+    return (contracts || [])
+      .filter((contract) => matchesContractSourceMode(contract, fixedSourceMode))
+      .filter((contract) => {
+        const projectName = getProjectName(contract.project_id).toLowerCase();
+        const customerName = getCustomerName(contract.customer_id).toLowerCase();
+        const contractCode = String(contract.contract_code || '').toLowerCase();
+        const contractName = String(contract.contract_name || '').toLowerCase();
+        const paymentCycle = getPaymentCycleLabel(contract.payment_cycle).toLowerCase();
+        const signDate = String(contract.sign_date || '').slice(0, 10);
+
+        const matchesSearch =
+          debouncedSearchTerm.trim() === '' ||
+          contractCode.includes(debouncedSearchTerm.trim().toLowerCase()) ||
+          contractName.includes(debouncedSearchTerm.trim().toLowerCase()) ||
+          customerName.includes(debouncedSearchTerm.trim().toLowerCase()) ||
+          projectName.includes(debouncedSearchTerm.trim().toLowerCase()) ||
+          paymentCycle.includes(debouncedSearchTerm.trim().toLowerCase());
+        const matchesDepartment = normalizedDepartmentFilter
+          ? String(contract.dept_id ?? '').trim() === normalizedDepartmentFilter
+          : true;
+        const matchesStatus = statusFilter ? contract.status === statusFilter : true;
+        const matchesType =
+          typeFilter === ''
+            ? true
+            : typeFilter === 'ADDENDUM'
+              ? contract.parent_contract_id != null
+              : contract.parent_contract_id == null;
+        const matchesDateFrom = !dateFrom || (signDate !== '' && signDate >= dateFrom);
+        const matchesDateTo = !dateTo || (signDate !== '' && signDate <= dateTo);
+
+        return matchesSearch && matchesDepartment && matchesStatus && matchesType && matchesDateFrom && matchesDateTo;
+      })
+      .reduce((sum, contract) => sum + resolveContractValue(contract), 0);
+  })();
+
+  useEffect(() => {
+    if (hasUserAdjustedDepartmentFilterRef.current) {
+      return;
+    }
+
+    setDepartmentFilter((currentValue) => {
+      const normalizedCurrent = String(currentValue || '').trim();
+      if (normalizedCurrent === normalizedInitialDepartmentFilter) {
+        return currentValue;
+      }
+      if (normalizedCurrent !== '' && normalizedCurrent !== normalizedInitialDepartmentFilter) {
+        return currentValue;
+      }
+      return normalizedInitialDepartmentFilter;
+    });
+  }, [normalizedInitialDepartmentFilter]);
 
   useEffect(() => {
     if (searchInput === debouncedSearchTerm) {
@@ -439,7 +498,7 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, periodPreset, customDateFrom, customDateTo]);
+  }, [normalizedDepartmentFilter, statusFilter, typeFilter, periodPreset, customDateFrom, customDateTo]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -460,13 +519,14 @@ export const ContractList: React.FC<ContractListProps> = ({
       sort_dir: sortConfig?.direction || 'desc',
       filters: {
         source_mode: fixedSourceMode,
+        dept_id: normalizedDepartmentFilter || undefined,
         status: statusFilter,
         type: typeFilter || undefined,
         sign_date_from: dateFrom ?? undefined,
         sign_date_to: dateTo ?? undefined,
       },
     });
-  }, [viewMode, serverMode, handleContractsPageQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, statusFilter, typeFilter, sortConfig, dateFrom, dateTo, fixedSourceMode]);
+  }, [viewMode, serverMode, handleContractsPageQueryChange, currentPage, rowsPerPage, debouncedSearchTerm, normalizedDepartmentFilter, statusFilter, typeFilter, sortConfig, dateFrom, dateTo, fixedSourceMode]);
 
   const currentData = serverMode
     ? (contractsPageRows || [])
@@ -476,14 +536,16 @@ export const ContractList: React.FC<ContractListProps> = ({
   const isFilterNoMatch = !isContractsPageLoading && !isEmptyData && currentData.length === 0;
 
   const resetFilters = () => {
+    hasUserAdjustedDepartmentFilterRef.current = false;
     setSearchInput('');
     setDebouncedSearchTerm('');
+    setDepartmentFilter(normalizedInitialDepartmentFilter);
     setStatusFilter('');
     setTypeFilter('');
     setCurrentPage(1);
     setPeriodPreset('this_year');
-    setCustomDateFrom('');
-    setCustomDateTo('');
+    setCustomDateFrom(defaultCustomDateRange.from);
+    setCustomDateTo(defaultCustomDateRange.to);
   };
 
   const goToPage = (page: number) => {
@@ -582,16 +644,9 @@ export const ContractList: React.FC<ContractListProps> = ({
   };
 
   const renderLoadingKpis = () => (
-    <div
-      className="mb-4 grid gap-3"
-      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
-    >
-      {Array.from({ length: 7 }).map((_, index) => (
-        <div key={`contract-kpi-skel-${index}`} className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
-          <div className="h-3 w-20 rounded bg-slate-200 animate-pulse" />
-          <div className="mt-2 h-6 w-16 rounded bg-slate-200 animate-pulse" />
-          <div className="mt-1.5 h-2 w-full rounded bg-slate-200 animate-pulse" />
-        </div>
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={`contract-kpi-skel-${index}`} className="h-7 w-28 rounded-md bg-slate-200 animate-pulse" />
       ))}
     </div>
   );
@@ -602,7 +657,13 @@ export const ContractList: React.FC<ContractListProps> = ({
         {Array.from({ length: tableColSpan }).map((__, cellIndex) => (
           <td key={`contract-skeleton-${index}-${cellIndex}`} className="px-3 py-2">
             <div className={`h-3.5 rounded bg-slate-200 animate-pulse ${
-              cellIndex === 1 ? 'w-32' : cellIndex === tableColSpan - 1 ? 'w-12 ml-auto' : 'w-20'
+              cellIndex === 0
+                ? 'w-40'
+                : cellIndex === 1
+                  ? 'w-36'
+                  : cellIndex === tableColSpan - 1 && showActionColumn
+                    ? 'ml-auto w-12'
+                    : 'w-20'
             }`} />
           </td>
         ))}
@@ -611,100 +672,108 @@ export const ContractList: React.FC<ContractListProps> = ({
 
   return (
     <div className="p-3 pb-6">
-      {/* ── Page header ── */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>description</span>
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-deep-teal leading-tight">{currentPageTitle}</h2>
-            <p className="text-[11px] text-slate-400 leading-tight">{pageDescription}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* View toggle */}
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setViewMode('CONTRACTS')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
-                viewMode === 'CONTRACTS' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-              }`}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
-              Hợp đồng
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('REVENUE')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
-                viewMode === 'REVENUE' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-              }`}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>bar_chart</span>
-              Doanh thu
-            </button>
-          </div>
-
-          {/* Export + Add (contracts only) */}
-          {viewMode === 'CONTRACTS' && (
-            <>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowExportMenu((current) => !current)}
-                  disabled={isExporting}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
-                    {isExporting ? 'progress_activity' : 'download'}
+      <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>description</span>
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">{currentPageTitle}</h2>
+                {viewMode === 'CONTRACTS' && (
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                    {totalItems.toLocaleString('vi-VN')} HĐ
                   </span>
-                  {isExporting ? 'Đang xuất...' : 'Xuất dữ liệu'}
-                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>expand_more</span>
-                </button>
-                {showExportMenu && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
-                    <div className="absolute top-full right-0 mt-1.5 w-40 bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden flex flex-col">
-                      <button type="button" onClick={() => void handleExport('excel')} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất Excel</button>
-                      <button type="button" onClick={() => void handleExport('csv')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất CSV</button>
-                      <button type="button" onClick={() => void handleExport('pdf')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất PDF</button>
-                    </div>
-                  </>
                 )}
               </div>
-              {canAdd && (
-                <button
-                  type="button"
-                  onClick={() => onOpenModal('ADD_CONTRACT')}
-                  title="Thêm hợp đồng (Ctrl+N / ⌘N)"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal shadow-sm"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                  {addButtonLabel}
-                </button>
-              )}
-            </>
-          )}
+              <p className="mt-0.5 text-[11px] leading-tight text-slate-400">{pageDescription}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setViewMode('CONTRACTS')}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  viewMode === 'CONTRACTS' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>description</span>
+                Hợp đồng
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('REVENUE')}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  viewMode === 'REVENUE' ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>bar_chart</span>
+                Doanh thu
+              </button>
+            </div>
+
+            {viewMode === 'CONTRACTS' && (
+              <>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowExportMenu((current) => !current)}
+                    disabled={isExporting}
+                    className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                      {isExporting ? 'progress_activity' : 'download'}
+                    </span>
+                    {isExporting ? 'Đang xuất...' : 'Xuất dữ liệu'}
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>expand_more</span>
+                  </button>
+                  {showExportMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                      <div className="absolute right-0 top-full z-20 mt-1.5 flex w-40 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                        <button type="button" onClick={() => void handleExport('excel')} className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất Excel</button>
+                        <button type="button" onClick={() => void handleExport('csv')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất CSV</button>
+                        <button type="button" onClick={() => void handleExport('pdf')} className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 hover:text-primary">Xuất PDF</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                {canAdd && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenModal('ADD_CONTRACT')}
+                    title="Thêm hợp đồng (Ctrl+N / ⌘N)"
+                    className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                    {addButtonLabel}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── Filter bar ── */}
-      <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
         <div className="flex flex-col gap-2">
           {viewMode === 'CONTRACTS' && (
-            <div className="flex flex-col items-center gap-2 md:flex-row">
-              <div className="relative w-full md:flex-1">
+            <div
+              data-testid="contract-filter-toolbar"
+              className="grid gap-2 md:grid-cols-2 lg:grid-cols-[minmax(220px,1.7fr)_minmax(180px,1fr)_minmax(150px,0.85fr)_minmax(140px,0.8fr)] lg:items-stretch"
+            >
+              <div className="relative min-w-0 w-full">
                 <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>search</span>
                 <input
                   ref={searchInputRef}
                   type="text"
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder={showProjectColumn ? 'Tìm theo mã/tên hợp đồng, khách hàng, dự án...' : 'Tìm theo mã/tên hợp đồng, khách hàng...'}
-                  className="w-full h-8 rounded border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary placeholder:text-slate-400"
+                  placeholder={showProjectColumn ? 'Tìm mã/tên HĐ, khách hàng, dự án...' : 'Tìm mã/tên HĐ, khách hàng...'}
+                  className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-8 pr-8 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
                 />
                 {searchInput && (
                   <button
@@ -717,230 +786,162 @@ export const ContractList: React.FC<ContractListProps> = ({
                 )}
               </div>
               <SearchableSelect
-                className="w-full md:w-48"
+                compact
+                className="w-full"
+                value={normalizedDepartmentFilter}
+                onChange={(value) => {
+                  hasUserAdjustedDepartmentFilterRef.current = true;
+                  setDepartmentFilter(value);
+                }}
+                options={contractDepartmentOptions}
+                placeholder="Đơn vị ký hợp đồng"
+                triggerClassName={denseFilterTriggerClassName}
+              />
+              <SearchableSelect
+                compact
+                className="w-full"
                 value={statusFilter}
                 onChange={setStatusFilter}
                 options={statusFilterOptions}
                 placeholder="Tất cả trạng thái"
-                triggerClassName="h-8 text-xs border-slate-200 bg-slate-50 focus:border-primary"
+                triggerClassName={denseFilterTriggerClassName}
               />
               <SearchableSelect
-                className="w-full md:w-40"
+                compact
+                className="w-full"
                 value={typeFilter}
                 onChange={(v) => setTypeFilter(v as '' | 'STANDALONE' | 'ADDENDUM')}
                 options={[
                   { value: '', label: 'Tất cả loại' },
-                  { value: 'STANDALONE', label: 'HĐ gốc' },
+                  { value: 'STANDALONE', label: 'HĐ độc lập' },
                   { value: 'ADDENDUM', label: 'Phụ lục / Gia hạn' },
                 ]}
                 placeholder="Tất cả loại"
-                triggerClassName="h-8 text-xs border-slate-200 bg-slate-50 focus:border-primary"
+                triggerClassName={denseFilterTriggerClassName}
               />
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="shrink-0 text-[11px] font-semibold text-neutral">
-              {viewMode === 'CONTRACTS' ? 'Kỳ ngày ký:' : 'Kỳ doanh thu:'}
-            </span>
-            <div className="flex shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-50">
-              {([
-                { value: 'this_month', label: 'T.này' },
-                { value: 'last_month', label: 'T.trước' },
-                { value: 'this_quarter', label: 'Quý này' },
-                { value: 'this_year', label: 'Năm này' },
-                { value: 'custom', label: 'Tùy chọn' },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setPeriodPreset(opt.value)}
-                  className={`whitespace-nowrap border-r border-slate-200 px-2.5 py-1 text-[11px] font-semibold transition-colors last:border-r-0 ${
-                    periodPreset === opt.value ? 'bg-primary text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            {periodPreset === 'custom' && (
-              <>
-                <input
-                  type="date"
-                  value={customDateFrom}
-                  onChange={(event) => setCustomDateFrom(event.target.value)}
-                  className="h-8 w-32 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30"
-                />
-                <span className="text-xs text-slate-400">→</span>
-                <input
-                  type="date"
-                  value={customDateTo}
-                  onChange={(event) => setCustomDateTo(event.target.value)}
-                  className="h-8 w-32 rounded border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:ring-1 focus:ring-primary/30"
-                />
-              </>
-            )}
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <DateRangePresetPicker
+              size="dense"
+              label={viewMode === 'CONTRACTS' ? 'Kỳ ngày ký:' : 'Kỳ doanh thu:'}
+              value={periodPreset}
+              onPresetChange={setPeriodPreset}
+              dateFrom={customDateFrom}
+              dateTo={customDateTo}
+              onDateFromChange={setCustomDateFrom}
+              onDateToChange={setCustomDateTo}
+              dateFromLabel={viewMode === 'CONTRACTS' ? 'Ngày ký từ' : 'Ngày doanh thu từ'}
+              dateToLabel={viewMode === 'CONTRACTS' ? 'Ngày ký đến' : 'Ngày doanh thu đến'}
+            />
+
             {hasActiveFilter && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-error"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>filter_list_off</span>
-                Xóa lọc
-              </button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-error"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>filter_list_off</span>
+                  Xóa lọc
+                </button>
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── KPI cards ── */}
       {viewMode === 'CONTRACTS' && (isContractsPageLoading ? renderLoadingKpis() : (
-        <div className="mb-3">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontSize: 14 }}>date_range</span>
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-              Kỳ: {periodLabel}
-            </span>
-            <span className="hidden text-[10px] text-slate-400 sm:inline">· lọc theo ngày ký</span>
+        <div
+          data-testid="contract-management-summary"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm"
+        >
+          <span className="inline-flex h-7 items-center rounded-full bg-primary/10 px-2.5 text-[10px] font-bold text-primary">
+            Kỳ: {periodLabel}
+          </span>
+          <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-500">Tổng</span>
+            <span className="font-bold text-deep-teal">{totalContractsKpi.toLocaleString('vi-VN')}</span>
           </div>
-
-          <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
-          >
-            {/* Tổng HĐ */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-              <p className="truncate text-[11px] font-semibold text-neutral">Tổng hợp đồng</p>
-              <p className="mt-1 text-xl font-black text-deep-teal">{totalContractsKpi.toLocaleString('vi-VN')}</p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-400">
-                {draftCount} nháp · {renewedCount} gia hạn
-                {(() => {
-                  const rate = contractsPageMeta?.kpis?.continuity_rate;
-                  if (rate == null) return null;
-                  return (
-                    <span className="ml-1 font-medium text-success" title="Tỷ lệ tiếp tục">
-                      · {rate}% tiếp tục
-                    </span>
-                  );
-                })()}
-              </p>
-            </div>
-
-            {/* Ký kết trong kỳ */}
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
-              <p className="truncate text-[11px] font-semibold text-emerald-700">Ký kết trong kỳ</p>
-              <p className="mt-1 text-xl font-black text-emerald-800">{newSignedCount.toLocaleString('vi-VN')}</p>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-emerald-200">
-                <div className="h-full rounded-full bg-success transition-all" style={{ width: `${newSignedPercent}%` }} />
-              </div>
-            </div>
-
-            {/* Giá trị ký trong kỳ */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-[11px] font-semibold text-neutral">Giá trị HĐ ký trong kỳ</p>
-              <p className="mt-1 text-sm font-black text-deep-teal leading-tight">{formatCurrency(newSignedValue)}</p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-400">{periodLabel}</p>
-            </div>
-
-            {/* Tổng GT HĐ đang ký */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2 xl:col-span-1">
-              <p className="truncate text-[11px] font-semibold text-neutral">Tổng GT HĐ đang ký</p>
-              <p className="mt-1 text-sm font-black text-deep-teal leading-tight">{formatCurrency(aggregateKpis?.signedTotalValue ?? 0)}</p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-400">toàn bộ HĐ có trạng thái Đã ký</p>
-            </div>
-
-            {/* Sắp đến kỳ thanh toán */}
-            {(() => {
-              const upcomingCount = contractsPageMeta?.kpis?.upcoming_payment_contracts ?? 0;
-              const warningDays = contractsPageMeta?.kpis?.payment_warning_days ?? 30;
-              const hasUpcoming = upcomingCount > 0;
-              return (
-                <div className={`rounded-lg border p-3 shadow-sm ${hasUpcoming ? 'border-secondary/30 bg-secondary/5' : 'border-slate-200 bg-white'}`}>
-                  <div className="flex items-center justify-between">
-                    <p className={`truncate text-[11px] font-semibold ${hasUpcoming ? 'text-secondary' : 'text-neutral'}`}>
-                      Sắp đến kỳ TT
-                    </p>
-                    <span className={`material-symbols-outlined ${hasUpcoming ? 'text-secondary' : 'text-slate-300'}`} style={{ fontSize: 15 }}>payments</span>
-                  </div>
-                  <p className={`mt-1 text-xl font-black ${hasUpcoming ? 'text-deep-teal' : 'text-deep-teal'}`}>
-                    {upcomingCount}
-                  </p>
-                  <p className={`mt-0.5 truncate text-[10px] ${hasUpcoming ? 'text-secondary' : 'text-slate-400'}`}>
-                    trong {warningDays} ngày tới
-                  </p>
-                </div>
-              );
-            })()}
-
-            {/* Sắp hết hiệu lực */}
-            <div className={`rounded-lg border p-3 shadow-sm ${expiringSoonContractsKpi > 0 ? 'border-warning/30 bg-warning/5' : 'border-slate-200 bg-white'}`}>
-              <div className="flex items-center justify-between">
-                <p className={`truncate text-[11px] font-semibold ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-neutral'}`}>
-                  Sắp hết hiệu lực
-                </p>
-                <span className={`material-symbols-outlined ${expiringSoonContractsKpi > 0 ? 'text-warning' : 'text-slate-300'}`} style={{ fontSize: 15 }}>schedule</span>
-              </div>
-              <p className={`mt-1 text-xl font-black ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-deep-teal'}`}>
-                {expiringSoonContractsKpi}
-              </p>
-              <p className={`mt-0.5 truncate text-[10px] ${expiringSoonContractsKpi > 0 ? 'text-tertiary' : 'text-slate-400'}`}>
-                trong {expiryWarningDays} ngày tới
-              </p>
-            </div>
-
-            {/* Quá hạn TT */}
-            <div className={`rounded-lg border p-3 shadow-sm ${overduePaymentAmount > 0 ? 'border-error/20 bg-error/5' : 'border-slate-200 bg-white'}`}>
-              <div className="flex items-center justify-between">
-                <p className={`truncate text-[11px] font-semibold ${overduePaymentAmount > 0 ? 'text-error' : 'text-neutral'}`}>
-                  Quá hạn TT
-                </p>
-                <span className={`material-symbols-outlined ${overduePaymentAmount > 0 ? 'text-error' : 'text-slate-300'}`} style={{ fontSize: 15 }}>money_off</span>
-              </div>
-              <p className={`mt-1 text-sm font-black leading-tight ${overduePaymentAmount > 0 ? 'text-error' : 'text-deep-teal'}`}>
-                {formatCurrency(overduePaymentAmount)}
-              </p>
-              <p className={`mt-0.5 truncate text-[10px] ${overduePaymentAmount > 0 ? 'text-error' : 'text-slate-400'}`}>
-                {overduePaymentAmount > 0 ? 'cần đôn đốc thu' : 'không có quá hạn'}
-              </p>
-            </div>
+          <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] text-emerald-700">
+            <span className="font-semibold">Ký mới</span>
+            <span className="font-bold text-emerald-800">{newSignedCount.toLocaleString('vi-VN')}</span>
+          </div>
+          <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-500">GT ký</span>
+            <span className="font-bold text-deep-teal">{formatCurrencyLabel(newSignedValue)}</span>
+          </div>
+          <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-500">Thực thu</span>
+            <span className="font-bold text-deep-teal">{formatCurrencyLabel(actualCollectedValue)}</span>
+            <span className="text-[10px] text-slate-400">({collectionRate}%)</span>
+          </div>
+          <div className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] ${expiringSoonContractsKpi > 0 ? 'border-warning/30 bg-warning/5 text-tertiary' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+            <span className="font-semibold">Sắp hết hạn</span>
+            <span className="font-bold">{expiringSoonContractsKpi.toLocaleString('vi-VN')}</span>
+          </div>
+          <div className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] ${overduePaymentAmount > 0 ? 'border-error/20 bg-error/5 text-error' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+            <span className="font-semibold">Quá hạn TT</span>
+            <span className="font-bold">{formatCurrencyLabel(overduePaymentAmount)}</span>
+          </div>
+          <div className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-500">Nháp / gia hạn</span>
+            <span className="font-bold text-deep-teal">{draftCount}</span>
+            <span className="text-slate-300">/</span>
+            <span className="font-bold text-deep-teal">{renewedCount}</span>
           </div>
         </div>
       ))}
 
-      {/* ── Table / Revenue view ── */}
       <div>
         {viewMode === 'CONTRACTS' ? (
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-deep-teal">Danh sách hợp đồng</span>
+                <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-inset ring-slate-200">
+                  {totalItems.toLocaleString('vi-VN')} hợp đồng
+                </span>
+                {showProjectColumn && (
+                  <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
+                    Gom theo khách hàng / dự án
+                  </span>
+                )}
+                {hasActiveFilter && (
+                  <span className="inline-flex items-center rounded-full bg-secondary/10 px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                    Đang lọc
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col items-start gap-0.5 text-left sm:items-end sm:text-right">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Tổng giá trị trong kỳ
+                </span>
+                <span
+                  data-testid="contract-period-total-value"
+                  className="text-sm font-semibold text-deep-teal"
+                >
+                  {formatCurrencyLabel(signPeriodTotalValue)}
+                </span>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
-              <table
-                className={`w-full border-collapse text-left ${
-                  showProjectColumn
-                    ? (showActionColumn ? 'min-w-[1120px]' : 'min-w-[1040px]')
-                    : (showActionColumn ? 'min-w-[920px]' : 'min-w-[860px]')
-                }`}
-              >
+              <table className={`w-full min-w-[860px] border-collapse text-left ${showActionColumn ? 'xl:min-w-[940px]' : ''}`}>
                 <thead className="border-y border-slate-200 bg-slate-50">
                   <tr>
-                    {[
-                      { label: 'Mã HĐ', key: 'contract_code' },
-                      { label: 'Tên hợp đồng', key: 'contract_name' },
-                      { label: 'Khách hàng', key: 'customer_id' },
-                      ...(showProjectColumn ? [{ label: sourceColumnLabel, key: 'project_id' as keyof Contract }] : []),
-                      { label: 'Chu kỳ', key: 'payment_cycle' },
-                      { label: 'Giá trị HĐ', key: 'value' },
-                      { label: 'Hiệu lực', key: 'effective_date' },
-                      { label: 'Hết hạn', key: 'expiry_date' },
-                      { label: 'Trạng thái', key: 'status' },
-                    ].map((col) => (
+                    {tableColumns.map((col) => (
                       <th
                         key={col.key}
-                        className="cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100"
-                        onClick={() => handleSort(col.key as keyof Contract)}
+                        className={`cursor-pointer select-none px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 transition-colors hover:bg-slate-100 ${
+                          col.align === 'right' ? 'text-right' : ''
+                        }`}
+                        onClick={() => handleSort(col.key)}
                       >
-                        <div className="flex items-center gap-0.5">
+                        <div className={`flex items-center gap-0.5 ${col.align === 'right' ? 'justify-end' : ''}`}>
                           <span className="text-deep-teal">{col.label}</span>
-                          {renderSortIcon(col.key as keyof Contract)}
+                          {renderSortIcon(col.key)}
                         </div>
                       </th>
                     ))}
@@ -975,53 +976,81 @@ export const ContractList: React.FC<ContractListProps> = ({
                             : 'hover:bg-slate-50/70'
                         }`}
                       >
-                        <td className="whitespace-nowrap px-3 py-2 text-xs font-mono font-bold text-slate-600">
-                          {item.contract_code}
-                          {item.parent_contract_id != null && (
-                            <span
-                              className="ml-1.5 inline-flex items-center rounded bg-deep-teal/10 px-1 py-0.5 text-[10px] font-bold leading-none text-deep-teal"
-                              title="Phụ lục / Gia hạn"
+                        <td className="px-3 py-2 align-top">
+                          <div className={`${showProjectColumn ? 'min-w-[260px] max-w-[380px]' : 'min-w-[300px] max-w-[440px]'}`}>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="whitespace-nowrap text-[11px] font-mono font-bold text-slate-600">
+                                {item.contract_code}
+                              </span>
+                              {item.parent_contract_id != null && (
+                                <span
+                                  className="inline-flex items-center rounded bg-deep-teal/10 px-1 py-0.5 text-[10px] font-bold leading-none text-deep-teal"
+                                  title="Phụ lục / Gia hạn"
+                                >
+                                  PL
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              className="mt-0.5 whitespace-normal break-words text-xs font-semibold leading-snug text-slate-900"
+                              title={item.contract_name}
+                              data-testid={`contract-name-cell-${item.id}`}
                             >
-                              PL
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 align-top text-xs font-semibold text-slate-900">
-                          <div
-                            className={`whitespace-normal break-words leading-snug ${
-                              showProjectColumn ? 'min-w-[240px] max-w-[360px]' : 'min-w-[300px] max-w-[460px]'
-                            }`}
-                            title={item.contract_name}
-                            data-testid={`contract-name-cell-${item.id}`}
-                          >
-                            {item.contract_name}
+                              {item.contract_name}
+                            </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-xs text-slate-600">
-                          <div className="max-w-[180px] truncate" title={getCustomerName(item.customer_id)}>{getCustomerName(item.customer_id)}</div>
-                        </td>
-                        {showProjectColumn && (
-                          <td className="px-3 py-2 align-top text-xs text-slate-600">
-                            <div
-                              className="min-w-[220px] max-w-[340px] whitespace-normal break-words leading-snug"
-                              title={getProjectName(item.project_id)}
-                              data-testid={`contract-project-cell-${item.id}`}
-                            >
-                              {getProjectName(item.project_id)}
+                        <td className="px-3 py-2 align-middle text-xs text-slate-600">
+                          <div className="min-w-[220px] max-w-[320px]">
+                            <div className="whitespace-normal break-words font-medium leading-snug text-slate-700" title={getCustomerName(item.customer_id)}>
+                              {getCustomerName(item.customer_id)}
                             </div>
-                          </td>
-                        )}
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-600">{getPaymentCycleLabel(item.payment_cycle)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs font-bold text-slate-900" data-testid={`contract-value-cell-${item.id}`}>
-                          {formatCurrencyLabel(resolveContractValue(item))}
+                            {showProjectColumn && (
+                              <div
+                                className="mt-0.5 whitespace-normal break-words text-[11px] leading-snug text-slate-500"
+                                title={getProjectName(item.project_id)}
+                                data-testid={`contract-project-cell-${item.id}`}
+                              >
+                                {getProjectName(item.project_id)}
+                              </div>
+                            )}
+                          </div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.effective_date || null)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatDate(item.expiry_date || null)}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusColor(item.status)}`}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{getStatusIcon(item.status)}</span>
-                            {getStatusLabel(item.status)}
-                          </span>
+                        <td className="whitespace-nowrap px-3 py-2 align-top text-xs text-slate-600">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-slate-700">{getPaymentCycleLabel(item.payment_cycle)}</span>
+                            <span className="text-[11px] text-slate-400">
+                              {item.parent_contract_id != null ? 'Phụ lục / Gia hạn' : 'HĐ độc lập'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 align-middle text-right text-xs">
+                          <div className="font-bold text-slate-900" data-testid={`contract-value-cell-${item.id}`}>
+                            {formatCurrencyLabel(resolveContractValue(item))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 align-top text-xs text-slate-500">
+                          <div className="min-w-[180px] whitespace-nowrap">
+                            <div>
+                              <span className="font-medium text-slate-400">Ký:</span>{' '}
+                              {formatDate(item.sign_date || null)}
+                            </div>
+                            <div className="mt-0.5">
+                              <span className="font-medium text-slate-400">HL:</span>{' '}
+                              {formatDate(item.effective_date || null)} → {formatDate(item.expiry_date || null)}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${getStatusColor(item.status)}`}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{getStatusIcon(item.status)}</span>
+                              {getStatusLabel(item.status)}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {item.parent_contract_id != null ? 'Phụ lục đang theo HĐ cha' : 'Hợp đồng độc lập'}
+                            </span>
+                          </div>
                         </td>
                         {showActionColumn && (
                           <td className="sticky right-0 w-[72px] min-w-[72px] bg-white px-2.5 py-2 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.08)]">
@@ -1030,7 +1059,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('EDIT_CONTRACT', item)}
-                                  className="rounded p-0.5 text-slate-400 transition-colors hover:text-primary hover:bg-slate-100"
+                                  className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
                                   title="Chỉnh sửa"
                                 >
                                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
@@ -1040,7 +1069,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onOpenModal('DELETE_CONTRACT', item)}
-                                  className="rounded p-0.5 text-slate-400 transition-colors hover:text-error hover:bg-slate-100"
+                                  className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-error"
                                   title="Xóa"
                                 >
                                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
@@ -1064,7 +1093,7 @@ export const ContractList: React.FC<ContractListProps> = ({
                             <button
                               type="button"
                               onClick={() => onOpenModal('ADD_CONTRACT')}
-                              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-deep-teal shadow-sm"
+                              className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-deep-teal"
                             >
                               <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
                               {addButtonLabel}

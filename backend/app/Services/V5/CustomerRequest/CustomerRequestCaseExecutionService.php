@@ -34,6 +34,7 @@ class CustomerRequestCaseExecutionService
         $rows = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
             ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_cases as request_case', 'request_case.id', '=', 'wl.request_case_id')
             ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
                 $join->on('catalog.status_code', '=', 'instance.status_code')
                     ->where('catalog.is_active', 1);
@@ -49,7 +50,11 @@ class CustomerRequestCaseExecutionService
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'instance.status_code as instance_status_code',
+                'instance.status_table as instance_status_table',
+                'instance.status_row_id as instance_status_row_id',
                 'catalog.status_name_vi as status_name_vi',
+                'request_case.workflow_definition_id as workflow_definition_id',
             ])
             ->get()
             ->map(fn (object $row): array => $this->readModelService->serializeWorklogRow($row))
@@ -178,18 +183,14 @@ class CustomerRequestCaseExecutionService
     {
         $workContent = $this->support->normalizeNullableString($request->input('work_content')) ?? '';
 
-        $statusInstanceId = $this->support->parseNullableInt($request->input('status_instance_id'))
-            ?? $this->support->parseNullableInt($case->current_status_instance_id);
-        if ($statusInstanceId === null) {
-            return response()->json(['message' => 'Yêu cầu chưa có trạng thái hiện tại để ghi worklog.'], 422);
-        }
-
-        $statusInstance = CustomerRequestStatusInstance::query()
-            ->whereKey($statusInstanceId)
-            ->where('request_case_id', $case->id)
-            ->first();
+        $requestedStatusInstanceId = $this->support->parseNullableInt($request->input('status_instance_id'));
+        $statusInstance = $this->resolveWorklogStatusInstance($case, $requestedStatusInstanceId);
         if ($statusInstance === null) {
-            return response()->json(['message' => 'status_instance_id không hợp lệ.'], 422);
+            if ($requestedStatusInstanceId !== null) {
+                return response()->json(['message' => 'status_instance_id không hợp lệ.'], 422);
+            }
+
+            return response()->json(['message' => 'Yêu cầu chưa có trạng thái hiện tại để ghi worklog.'], 422);
         }
 
         $startedAt = $this->readQueryService->normalizeDateTime($request->input('work_started_at'));
@@ -256,6 +257,7 @@ class CustomerRequestCaseExecutionService
         $row = DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
             ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_cases as request_case', 'request_case.id', '=', 'wl.request_case_id')
             ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
                 $join->on('catalog.status_code', '=', 'instance.status_code')
                     ->where('catalog.is_active', 1);
@@ -265,7 +267,11 @@ class CustomerRequestCaseExecutionService
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'instance.status_code as instance_status_code',
+                'instance.status_table as instance_status_table',
+                'instance.status_row_id as instance_status_row_id',
                 'catalog.status_name_vi as status_name_vi',
+                'request_case.workflow_definition_id as workflow_definition_id',
             ])
             ->first();
 
@@ -322,6 +328,48 @@ class CustomerRequestCaseExecutionService
                 'total_hours_spent' => round($totalHoursSpent, 2),
             ]
             : $this->readModelService->buildHoursReportPayload($case);
+    }
+
+    private function resolveWorklogStatusInstance(CustomerRequestCase $case, ?int $requestedStatusInstanceId): ?CustomerRequestStatusInstance
+    {
+        $requestedInstance = null;
+        if ($requestedStatusInstanceId !== null) {
+            $requestedInstance = CustomerRequestStatusInstance::query()
+                ->whereKey($requestedStatusInstanceId)
+                ->where('request_case_id', $case->id)
+                ->first();
+
+            if ($requestedInstance === null) {
+                return null;
+            }
+
+            if ((bool) $requestedInstance->is_current) {
+                return $requestedInstance;
+            }
+        }
+
+        $currentInstance = CustomerRequestStatusInstance::query()
+            ->where('request_case_id', $case->id)
+            ->where('is_current', 1)
+            ->orderByDesc('id')
+            ->first();
+        if ($currentInstance !== null) {
+            return $currentInstance;
+        }
+
+        $caseStatusInstanceId = $this->support->parseNullableInt($case->current_status_instance_id);
+        if ($caseStatusInstanceId !== null && $caseStatusInstanceId !== $requestedStatusInstanceId) {
+            $caseInstance = CustomerRequestStatusInstance::query()
+                ->whereKey($caseStatusInstanceId)
+                ->where('request_case_id', $case->id)
+                ->first();
+
+            if ($caseInstance !== null) {
+                return $caseInstance;
+            }
+        }
+
+        return $requestedInstance;
     }
 
     /**

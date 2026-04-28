@@ -22,12 +22,16 @@ export interface MilestoneInstallmentDraft {
 export interface MilestonePreviewRow {
   milestoneName: string;
   expectedDate: string;
+  expectedStartDate?: string;
+  expectedEndDate?: string;
   expectedAmount: number;
   tone: MilestonePreviewTone;
 }
 
 export interface CycleDraftInstallmentDraft extends Omit<ContractCycleDraftInstallmentInput, 'expected_amount'> {
   expected_amount: string;
+  expected_start_date?: string;
+  expected_end_date?: string;
 }
 
 export const todayIsoDate = (): string => new Date().toISOString().slice(0, 10);
@@ -284,13 +288,38 @@ export const buildCyclePreviewRows = (
 ): MilestonePreviewRow[] => {
   const expectedDates = buildExpectedPaymentDatesForCycle(cycle, startIso, endIso);
   const expectedAmounts = buildAllocatedExpectedAmounts(totalAmount, expectedDates.length);
+  const fallbackEndIso = parseIsoDate(endIso) ? String(endIso) : null;
 
-  return expectedDates.map((expectedDate, index) => ({
-    milestoneName: buildPaymentMilestoneName(cycle, index + 1, investmentModeCode),
-    expectedDate,
-    expectedAmount: roundMoney(expectedAmounts[index] || 0),
-    tone: 'INSTALLMENT',
-  }));
+  return expectedDates.map((expectedDate, index) => {
+    const nextExpectedDate = expectedDates[index + 1];
+    const parsedStartDate = parseIsoDate(expectedDate);
+    const parsedNextExpectedDate = parseIsoDate(nextExpectedDate);
+    const parsedFallbackEndDate = parseIsoDate(fallbackEndIso);
+    const expectedStartDate = parsedStartDate ? expectedDate : '';
+
+    let expectedEndDate = expectedStartDate;
+    if (parsedNextExpectedDate) {
+      const inclusiveEndDate = addUtcDays(parsedNextExpectedDate, -1);
+      expectedEndDate = toIsoDate(
+        parsedStartDate && inclusiveEndDate.getTime() < parsedStartDate.getTime()
+          ? parsedStartDate
+          : inclusiveEndDate
+      );
+    } else if (parsedFallbackEndDate) {
+      expectedEndDate = parsedStartDate && parsedFallbackEndDate.getTime() < parsedStartDate.getTime()
+        ? expectedStartDate
+        : fallbackEndIso as string;
+    }
+
+    return {
+      milestoneName: buildPaymentMilestoneName(cycle, index + 1, investmentModeCode),
+      expectedDate,
+      expectedStartDate,
+      expectedEndDate,
+      expectedAmount: roundMoney(expectedAmounts[index] || 0),
+      tone: 'INSTALLMENT',
+    };
+  });
 };
 
 export const buildCycleDraftInstallments = (
@@ -299,6 +328,8 @@ export const buildCycleDraftInstallments = (
   label: String(row.milestoneName || '').trim(),
   expected_date: String(row.expectedDate || '').trim(),
   expected_amount: formatPercentageString(roundMoney(row.expectedAmount)),
+  expected_start_date: String(row.expectedStartDate || '').trim() || undefined,
+  expected_end_date: String(row.expectedEndDate || '').trim() || undefined,
 }));
 
 const buildMilestoneInstallmentPreviewDates = (

@@ -255,3 +255,21 @@ FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME = 'internal_users'
   AND COLUMN_NAME = 'telechatbot';
+
+-- ----------------------------------------------------------------------------
+-- 4) Migration bookkeeping
+-- ----------------------------------------------------------------------------
+START TRANSACTION;
+
+INSERT INTO `migrations` (`migration`, `batch`)
+SELECT `src`.`migration`, `src`.`batch`
+FROM (
+    SELECT '2026_04_19_100000_add_telegram_settings_to_integration_settings' AS `migration`, 125 AS `batch`
+    UNION ALL
+    SELECT '2026_04_19_100100_add_telechatbot_to_internal_users_table', 125
+) AS `src`
+LEFT JOIN `migrations` AS `m`
+  ON `m`.`migration` = `src`.`migration`
+WHERE `m`.`migration` IS NULL;
+
+COMMIT;

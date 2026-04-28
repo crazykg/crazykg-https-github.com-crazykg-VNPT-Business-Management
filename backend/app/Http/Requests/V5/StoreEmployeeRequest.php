@@ -23,6 +23,7 @@ class StoreEmployeeRequest extends V5FormRequest
             'user_code' => ['nullable', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
+            'gmail' => ['nullable', 'email', 'max:255', 'regex:/^[^@\s]+@gmail\.com$/i'],
             'status' => ['nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['required', 'integer'],
             'position_id' => ['nullable', 'integer'],
@@ -50,6 +51,9 @@ class StoreEmployeeRequest extends V5FormRequest
         }
         if ($this->support()->hasColumn($employeeTable, 'email')) {
             $rules['email'][] = Rule::unique($employeeTable, 'email');
+        }
+        if ($this->support()->hasColumn($employeeTable, 'gmail')) {
+            $rules['gmail'][] = Rule::unique($employeeTable, 'gmail');
         }
 
         return $rules;

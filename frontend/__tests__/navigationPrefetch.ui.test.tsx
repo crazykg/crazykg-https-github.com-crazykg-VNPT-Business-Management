@@ -1,10 +1,11 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FeeCollectionHub } from '../components/FeeCollectionHub';
 import { RevenueManagementHub } from '../components/RevenueManagementHub';
 import { queryClient } from '../shared/queryClient';
 import { queryKeys } from '../shared/queryKeys';
+import { useFeeCollectionStore } from '../shared/stores/feeCollectionStore';
 import { useRevenueStore } from '../shared/stores/revenueStore';
 import type { Department } from '../types';
 
@@ -49,6 +50,11 @@ describe('navigation prefetch', () => {
     vi.clearAllMocks();
     vi.spyOn(queryClient, 'prefetchQuery').mockResolvedValue(undefined as never);
     window.sessionStorage.clear();
+    useFeeCollectionStore.setState({
+      activeView: 'DASHBOARD',
+      periodFrom: '2026-04-01',
+      periodTo: '2026-04-30',
+    });
     useRevenueStore.setState({
       activeView: 'OVERVIEW',
       reportTab: 'department',
@@ -61,6 +67,10 @@ describe('navigation prefetch', () => {
       year: 2026,
       feeCollectionAvailable: false,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('cleans legacy revenue query params on mount while preserving the screen state', () => {
@@ -128,6 +138,33 @@ describe('navigation prefetch', () => {
         sort_dir: 'desc',
       }),
     }));
+  });
+
+  it('hydrates fee-collection custom preset with the current month range instead of the active preset range', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-26T08:00:00.000Z'));
+    useFeeCollectionStore.setState({
+      activeView: 'DASHBOARD',
+      periodFrom: '2026-01-01',
+      periodTo: '2026-12-31',
+    });
+
+    render(
+      <FeeCollectionHub
+        contracts={[]}
+        customers={[]}
+        currentUser={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn' }));
+
+    expect(screen.getByLabelText('Kỳ thu từ')).toHaveValue('2026-04-01');
+    expect(screen.getByLabelText('Kỳ thu đến')).toHaveValue('2026-04-30');
+    expect(useFeeCollectionStore.getState()).toMatchObject({
+      periodFrom: '2026-04-01',
+      periodTo: '2026-04-30',
+    });
   });
 
   it('prefetches revenue overview and forecast queries on hover without preloading report', () => {

@@ -75,6 +75,7 @@ const normalizeEmployeeRecord = (payload: Partial<Employee> & Record<string, unk
     username: String(payload.username ?? normalizedEmployeeCode),
     full_name: String(payload.full_name ?? ''),
     email: String(normalizeNullableText(payload.email) ?? ''),
+    gmail: normalizeNullableText(payload.gmail),
     phone_number: normalizedPhone,
     phone: normalizedPhone,
     mobile: normalizedPhone,
@@ -130,6 +131,7 @@ const buildEmployeeRequestPayload = (payload: Partial<Employee>) => {
     phone_number: normalizedPhone,
     phone: normalizedPhone,
     email: payload.email,
+    gmail: normalizeNullableText(payload.gmail),
     status: payload.status || 'ACTIVE',
     job_title_raw: normalizeNullableText(payload.job_title_raw),
     date_of_birth: normalizeNullableText(payload.date_of_birth),
@@ -175,6 +177,13 @@ const buildEmployeeBulkImportRequestPayload = (payload: Partial<Employee>) => {
     const email = normalizeNullableText(payload.email);
     if (email) {
       requestPayload.email = email;
+    }
+  }
+
+  if (hasOwn(payload, 'gmail')) {
+    const gmail = normalizeNullableText(payload.gmail);
+    if (gmail) {
+      requestPayload.gmail = gmail;
     }
   }
 
@@ -367,6 +376,7 @@ export const updateEmployee = async (id: string | number, payload: Partial<Emplo
       phone_number: normalizedPhone,
       phone: normalizedPhone,
       email: payload.email,
+      gmail: normalizeNullableText(payload.gmail),
       status: payload.status,
       job_title_raw: normalizeNullableText(payload.job_title_raw),
       date_of_birth: normalizeNullableText(payload.date_of_birth),
