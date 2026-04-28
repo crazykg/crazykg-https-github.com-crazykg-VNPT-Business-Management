@@ -203,28 +203,6 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
       name: processDetail?.yeu_cau?.created_by_name || processDetail?.yeu_cau?.nguoi_tao_name,
       time: null,
     },
-    {
-      icon: '📥',
-      label: 'Người tiếp nhận',
-      name: processDetail?.yeu_cau?.received_by_name,
-      time: processDetail?.yeu_cau?.received_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.received_at) : null,
-    },
-    ...(currentHandlerName
-      ? [{
-          icon: '👤',
-          label: 'Người xử lý hiện tại',
-          name: currentHandlerName,
-          time: processDetail?.yeu_cau?.current_entered_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.current_entered_at) : null,
-        }]
-      : []),
-    ...(shouldShowSelectedReceiver
-      ? [{
-          icon: '🎯',
-          label: 'Người nhận sau chuyển',
-          name: selectedReceiverName,
-          time: 'Theo form đang chọn',
-        }]
-      : []),
   ];
 
   return createPortal(

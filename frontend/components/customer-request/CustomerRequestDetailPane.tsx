@@ -917,6 +917,53 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
   const renderTimelineTab = () => renderTimelineContent();
 
+  const renderRecentWorklogList = (worklogs: YeuCauWorklog[]) => {
+    if (worklogs.length === 0) {
+      return <EmptyTabState message="Chưa có nhật ký công việc gần đây." />;
+    }
+
+    return (
+      <div className="space-y-2.5">
+        {worklogs.map((worklog) => {
+          const statusSummary = buildWorklogStatusSummary(worklog, processDetail?.yeu_cau);
+          const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
+          const timeLabel = resolveWorklogTimeLabel(worklog);
+          const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
+          const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
+          const performerLabel = buildWorklogPerformerLabel(worklog);
+
+          return (
+            <button
+              key={worklog.id}
+              type="button"
+              onClick={() => onEditWorklog(worklog)}
+              disabled={isSaving || isSubmittingWorklog}
+              className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 disabled:opacity-50"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900">{performerLabel}</p>
+                <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {[
+                  worklog.activity_type_code,
+                  statusSummary ? `Trạng thái: ${statusSummary}` : null,
+                  detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
+                  timeLabel,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
+              {difficultySummaryLine ? (
+                <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 text-sm font-medium text-amber-700">
+                  {difficultySummaryLine}
+                </p>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
   const renderHoursTab = () => {
     if (isCreateMode || !processDetail) {
       return <EmptyTabState message="Giờ công sẽ hiển thị sau khi yêu cầu được lưu và bắt đầu phát sinh nhật ký công việc." />;
@@ -943,14 +990,14 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
                 <span className="material-symbols-outlined text-[18px] text-slate-400">history</span>
                 <h4 className={`${isCompactHoursTab ? 'text-xs tracking-[0.14em]' : 'text-sm tracking-[0.18em]'} font-bold uppercase text-slate-500`}>Nhật ký công việc</h4>
               </div>
-              {timeline.length > 0 ? (
+              {caseWorklogs.length > 0 ? (
                 <span className="inline-flex h-6 items-center rounded-full bg-[var(--ui-surface-subtle)] px-2 text-xs font-semibold text-[color:var(--ui-text-muted)]">
-                  {timeline.length} dòng
+                  {caseWorklogs.length} dòng
                 </span>
               ) : null}
             </div>
-            <div className={timeline.length > 0 ? worklogListScrollClass : ''}>
-              {renderTimelineContent()}
+            <div className={latestWorklogs.length > 0 ? worklogListScrollClass : ''}>
+              {renderRecentWorklogList(latestWorklogs)}
             </div>
           </div>
         </div>
@@ -1065,48 +1112,8 @@ export const CustomerRequestDetailPane: React.FC<CustomerRequestDetailPaneProps>
 
         <div className="rounded-2xl border border-slate-200 p-3.5">
           <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">Hoạt động gần đây</h4>
-          <div className="mt-3 space-y-2.5">
-            {latestWorklogs.length === 0 ? (
-              <EmptyTabState message="Chưa có nhật ký công việc gần đây." />
-            ) : (
-              latestWorklogs.map((worklog) => {
-                const statusSummary = buildWorklogStatusSummary(worklog, processDetail?.yeu_cau);
-                const detailStatusLabel = resolveWorklogDetailStatusLabel(worklog.detail_status_action);
-                const timeLabel = resolveWorklogTimeLabel(worklog);
-                const difficultyStatusLabel = resolveDifficultyStatusLabel(worklog.difficulty_status);
-                const difficultySummaryLine = buildDifficultySummaryLine(worklog, difficultyStatusLabel);
-                const performerLabel = buildWorklogPerformerLabel(worklog);
-
-                return (
-                  <button
-                    key={worklog.id}
-                    type="button"
-                    onClick={() => onEditWorklog(worklog)}
-                    disabled={isSaving || isSubmittingWorklog}
-                    className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{performerLabel}</p>
-                      <span className="text-xs text-slate-500">{formatHoursValue(worklog.hours_spent)}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {[
-                        worklog.activity_type_code,
-                        statusSummary ? `Trạng thái: ${statusSummary}` : null,
-                        detailStatusLabel ? `Chi tiết: ${detailStatusLabel}` : null,
-                        timeLabel,
-                      ].filter(Boolean).join(' · ')}
-                    </p>
-                    {worklog.work_content ? <p className="mt-2 text-sm text-slate-700">{worklog.work_content}</p> : null}
-                    {difficultySummaryLine ? (
-                      <p className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5 text-sm font-medium text-amber-700">
-                        {difficultySummaryLine}
-                      </p>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
+          <div className="mt-3">
+            {renderRecentWorklogList(latestWorklogs)}
           </div>
         </div>
       </div>

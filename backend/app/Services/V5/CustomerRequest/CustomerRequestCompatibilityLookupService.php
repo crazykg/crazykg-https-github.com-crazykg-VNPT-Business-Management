@@ -295,31 +295,40 @@ class CustomerRequestCompatibilityLookupService
         }
 
         if ($search !== '') {
-            $like = '%'.$search.'%';
-            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
+            $normalizedSearch = $this->normalizeDiacritics($search);
+            $like = '%'.$normalizedSearch.'%';
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $normalizedSearch);
             $codeColumn = $config['alias'].'.'.$config['code'];
             $primaryNameColumn = $config['alias'].'.'.$config['primary_name'];
 
-            $query->where(function ($builder) use ($codeColumn, $config, $like, $primaryNameColumn): void {
-                $builder->where($codeColumn, 'like', $like)
-                    ->orWhere($primaryNameColumn, 'like', $like);
+            $fallbackColumn = null;
+            if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
+                $fallbackColumn = $config['alias'].'.'.$config['fallback_name'];
+            }
 
-                if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
-                    $builder->orWhere($config['alias'].'.'.$config['fallback_name'], 'like', $like);
+            $normalizedCode = $this->sqlNormalizeDiacritics($codeColumn);
+            $normalizedPrimary = $this->sqlNormalizeDiacritics($primaryNameColumn);
+
+            $query->where(function ($builder) use ($normalizedCode, $normalizedPrimary, $fallbackColumn, $like): void {
+                $builder->whereRaw($normalizedCode.' LIKE ?', [$like])
+                    ->orWhereRaw($normalizedPrimary.' LIKE ?', [$like]);
+
+                if ($fallbackColumn !== null) {
+                    $builder->orWhereRaw($this->sqlNormalizeDiacritics($fallbackColumn).' LIKE ?', [$like]);
                 }
             });
 
             $query->orderByRaw(
                 "CASE
-                    WHEN UPPER({$codeColumn}) = UPPER(?) THEN 0
-                    WHEN UPPER({$primaryNameColumn}) = UPPER(?) THEN 1
-                    WHEN UPPER({$codeColumn}) LIKE UPPER(?) THEN 2
-                    WHEN UPPER({$primaryNameColumn}) LIKE UPPER(?) THEN 3
-                    WHEN UPPER({$codeColumn}) LIKE UPPER(?) THEN 4
-                    WHEN UPPER({$primaryNameColumn}) LIKE UPPER(?) THEN 5
+                    WHEN {$normalizedCode} = ? THEN 0
+                    WHEN {$normalizedPrimary} = ? THEN 1
+                    WHEN {$normalizedCode} LIKE ? THEN 2
+                    WHEN {$normalizedPrimary} LIKE ? THEN 3
+                    WHEN {$normalizedCode} LIKE ? THEN 4
+                    WHEN {$normalizedPrimary} LIKE ? THEN 5
                     ELSE 6
                 END",
-                [$search, $search, $escaped.'%', $escaped.'%', '%'.$escaped.'%', '%'.$escaped.'%']
+                [$normalizedSearch, $normalizedSearch, $escaped.'%', $escaped.'%', '%'.$escaped.'%', '%'.$escaped.'%']
             );
         }
 
@@ -328,6 +337,63 @@ class CustomerRequestCompatibilityLookupService
             ->orderBy($config['alias'].'.'.$config['id']);
 
         return $query;
+    }
+
+    /**
+     * Normalize Vietnamese diacritics for search matching.
+     * Converts "công ty" → "cong ty", "Bệnh viện" → "Benh vien", etc.
+     */
+    private function normalizeDiacritics(string $value): string
+    {
+        $normalized = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if ($normalized === false) {
+            $normalized = $value;
+        }
+
+        return strtolower(trim($normalized));
+    }
+
+    /**
+     * Generate SQL expression that strips Vietnamese diacritics from a column.
+     * Works with both MySQL and SQLite.
+     */
+    private function sqlNormalizeDiacritics(string $column): string
+    {
+        $pairs = [
+            'á'=>'a','à'=>'a','ả'=>'a','ã'=>'a','ạ'=>'a',
+            'ă'=>'a','ắ'=>'a','ằ'=>'a','ẳ'=>'a','ẵ'=>'a','ặ'=>'a',
+            'â'=>'a','ấ'=>'a','ầ'=>'a','ẩ'=>'a','ẫ'=>'a','ậ'=>'a',
+            'é'=>'e','è'=>'e','ẻ'=>'e','ẽ'=>'e','ẹ'=>'e',
+            'ê'=>'e','ế'=>'e','ề'=>'e','ể'=>'e','ễ'=>'e','ệ'=>'e',
+            'í'=>'i','ì'=>'i','ỉ'=>'i','ĩ'=>'i','ị'=>'i',
+            'ó'=>'o','ò'=>'o','ỏ'=>'o','õ'=>'o','ọ'=>'o',
+            'ô'=>'o','ố'=>'o','ồ'=>'o','ổ'=>'o','ỗ'=>'o','ộ'=>'o',
+            'ơ'=>'o','ớ'=>'o','ờ'=>'o','ở'=>'o','ỡ'=>'o','ợ'=>'o',
+            'ú'=>'u','ù'=>'u','ủ'=>'u','ũ'=>'u','ụ'=>'u',
+            'ư'=>'u','ứ'=>'u','ừ'=>'u','ử'=>'u','ữ'=>'u','ự'=>'u',
+            'ý'=>'y','ỳ'=>'y','ỷ'=>'y','ỹ'=>'y','ỵ'=>'y',
+            'đ'=>'d',
+            'Á'=>'A','À'=>'A','Ả'=>'A','Ã'=>'A','Ạ'=>'A',
+            'Ă'=>'A','Ắ'=>'A','Ằ'=>'A','Ẳ'=>'A','Ẵ'=>'A','Ặ'=>'A',
+            'Â'=>'A','Ấ'=>'A','Ầ'=>'A','Ẩ'=>'A','Ẫ'=>'A','Ậ'=>'A',
+            'É'=>'E','È'=>'E','Ẻ'=>'E','Ẽ'=>'E','Ẹ'=>'E',
+            'Ê'=>'E','Ế'=>'E','Ề'=>'E','Ể'=>'E','Ễ'=>'E','Ệ'=>'E',
+            'Í'=>'I','Ì'=>'I','Ỉ'=>'I','Ĩ'=>'I','Ị'=>'I',
+            'Ó'=>'O','Ò'=>'O','Ỏ'=>'O','Õ'=>'O','Ọ'=>'O',
+            'Ô'=>'O','Ố'=>'O','Ồ'=>'O','Ổ'=>'O',''=>'O','Ộ'=>'O',
+            'Ơ'=>'O','Ớ'=>'O','Ờ'=>'O','Ở'=>'O','Ỡ'=>'O','Ợ'=>'O',
+            'Ú'=>'U','Ù'=>'U','Ủ'=>'U','Ũ'=>'U','Ụ'=>'U',
+            'Ư'=>'U','Ứ'=>'U','Ừ'=>'U','Ử'=>'U','Ữ'=>'U','Ự'=>'U',
+            'Ý'=>'Y',''=>'Y','Ỷ'=>'Y','Ỹ'=>'Y','Ỵ'=>'Y',
+            'Đ'=>'D',
+        ];
+
+        $expr = $column;
+        foreach ($pairs as $from => $to) {
+            $expr = "REPLACE({$expr}, '{$from}', '{$to}')";
+        }
+
+        return "LOWER({$expr})";
     }
 
     /**

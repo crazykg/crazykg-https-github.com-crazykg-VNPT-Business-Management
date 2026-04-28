@@ -326,10 +326,6 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   }, [isAsync, isOpen, loadAsyncOptions, selectedOptions.length, values.length, selectedValuesKey]);
 
   const filteredOptions = useMemo(() => {
-    if (isAsync) {
-      return activeOptions;
-    }
-
     const keyword = normalizeToken(searchTerm);
     if (!keyword) {
       return activeOptions;
@@ -339,7 +335,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
       const haystack = normalizeToken(option.searchText ?? `${option.label} ${option.value}`);
       return haystack.includes(keyword);
     });
-  }, [activeOptions, isAsync, searchTerm]);
+  }, [activeOptions, searchTerm]);
 
   const handleOptionsScroll = useCallback(() => {
     if (!isAsync || isLoadingAsyncOptions || !asyncHasMore || !optionsScrollRef.current) {
@@ -359,7 +355,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   const rowVirtualizer = useVirtualizer({
     count: filteredOptions.length,
     getScrollElement: () => optionsScrollRef.current,
-    estimateSize: () => 44,
+    estimateSize: () => 64,
     overscan: 8,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
@@ -367,7 +363,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
     ? virtualRows
     : filteredOptions.map((_, index) => ({
         index,
-        start: index * 44,
+        start: index * 64,
       }));
 
   const toggleOption = (optionValue: string) => {
@@ -480,7 +476,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                         key={optionValue}
                         type="button"
                         disabled={option.disabled}
-                        className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
+                        className={`flex min-h-16 items-center justify-between gap-3 rounded-md px-3 py-2.5 text-sm leading-5 transition-colors ${
                           option.disabled
                             ? 'cursor-not-allowed text-slate-300'
                             : isSelected
@@ -501,7 +497,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                           toggleOption(optionValue);
                         }}
                       >
-                        <span className="text-left">{option.label}</span>
+                        <span className="line-clamp-2 min-w-0 flex-1 text-left">{option.label}</span>
                         {isSelected ? <span aria-hidden="true" className="material-symbols-outlined text-sm">check</span> : null}
                       </button>
                     );
@@ -573,7 +569,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                       key={optionValue}
                       type="button"
                       disabled={option.disabled}
-                      className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition-colors ${
+                      className={`flex min-h-16 items-center justify-between gap-3 rounded-md px-3 py-2.5 text-sm leading-5 transition-colors ${
                         option.disabled
                           ? 'cursor-not-allowed text-slate-300'
                           : isSelected
@@ -594,7 +590,7 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                         toggleOption(optionValue);
                       }}
                     >
-                      <span className="text-left">{option.label}</span>
+                      <span className="line-clamp-2 min-w-0 flex-1 text-left">{option.label}</span>
                       {isSelected ? <span aria-hidden="true" className="material-symbols-outlined text-sm">check</span> : null}
                     </button>
                   );
