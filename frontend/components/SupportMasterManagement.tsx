@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import {
+import type {
   Customer,
   Department,
   Employee,
@@ -19,11 +19,16 @@ import {
   WorklogActivityTypeOption,
   WorkCalendarDay,
 } from '../types';
+import type { SupportAuthSessionPolicy } from '../types/support';
 import {
   fetchMonthlyCalendars,
   updateCalendarDay,
   generateCalendarYear,
 } from '../services/v5Api';
+import {
+  fetchSupportAuthSessionPolicy,
+  updateSupportAuthSessionPolicy,
+} from '../services/api/supportConfigApi';
 import { PaginationControls } from './PaginationControls';
 import ProductSalesConfigList from './ProductSalesConfigList';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
@@ -33,6 +38,7 @@ type MasterType =
   | 'contact_position'
   | 'product_unit'
   | 'contract_signer'
+  | 'auth_session_policy'
   | 'product_sales_config'
   | 'status'
   | 'project_type'
@@ -627,6 +633,14 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [workflowStatusTransitions, setWorkflowStatusTransitions] = useState<WorkflowStatusTransition[]>([]);
   const [workflowFormFieldConfigs, setWorkflowFormFieldConfigs] = useState<WorkflowFormFieldConfig[]>([]);
   const [isWorkflowConfigLoading, setIsWorkflowConfigLoading] = useState(false);
+  const [authSessionPolicy, setAuthSessionPolicy] = useState<SupportAuthSessionPolicy | null>(null);
+  const [authSessionPolicyDraftEnabled, setAuthSessionPolicyDraftEnabled] = useState(true);
+  const [isAuthSessionPolicyLoading, setIsAuthSessionPolicyLoading] = useState(false);
+  const [isAuthSessionPolicySaving, setIsAuthSessionPolicySaving] = useState(false);
+  const [authSessionPolicyError, setAuthSessionPolicyError] = useState('');
+
+  const canReadAuthSessionPolicy = canReadStatuses;
+  const canWriteAuthSessionPolicy = canWriteStatuses;
 
   const customerOptions = useMemo<SearchableSelectOption[]>(() => {
     const options: SearchableSelectOption[] = customers.map((item) => ({
@@ -833,6 +847,9 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadStatuses) {
       options.push({ value: 'status', label: 'Trạng thái hỗ trợ' });
     }
+    if (canReadAuthSessionPolicy) {
+      options.push({ value: 'auth_session_policy', label: 'Phiên đăng nhập nhiều tab' });
+    }
 
     if (canReadProjectTypes) {
       options.push({ value: 'project_type', label: 'Loại dự án - quản lý dự án' });
@@ -854,6 +871,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     canReadProducts,
     canReadProductUnitMasters,
     canReadContractSigners,
+    canReadAuthSessionPolicy,
     canReadStatuses,
     canReadProjectTypes,
     canReadWorklogActivityTypes,
@@ -870,6 +888,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? canWriteProductUnitMasters
       : masterType === 'contract_signer'
         ? canWriteContractSigners
+      : masterType === 'auth_session_policy'
+        ? canWriteAuthSessionPolicy
       : masterType === 'product_sales_config'
         ? canWriteProducts
       : masterType === 'status'
@@ -883,6 +903,9 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       : masterType === 'work_calendar'
         ? canWriteWorkCalendar
         : canWriteStatuses;
+
+  const authSessionPolicyDirty = authSessionPolicy !== null
+    && authSessionPolicyDraftEnabled !== (authSessionPolicy.same_browser_multi_tab_enabled !== false);
 
   const nextStatusSortOrder = useMemo(() => {
     const maxSort = (supportRequestStatuses || []).reduce((max, item) => {
@@ -957,6 +980,42 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       setMasterType(fallback as MasterType);
     }
   }, [masterOptions, masterType]);
+
+  useEffect(() => {
+    if (!canReadAuthSessionPolicy) {
+      return;
+    }
+
+    let active = true;
+    setIsAuthSessionPolicyLoading(true);
+    setAuthSessionPolicyError('');
+
+    void fetchSupportAuthSessionPolicy()
+      .then((record) => {
+        if (!active) {
+          return;
+        }
+
+        setAuthSessionPolicy(record);
+        setAuthSessionPolicyDraftEnabled(record.same_browser_multi_tab_enabled !== false);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+
+        setAuthSessionPolicyError(error instanceof Error ? error.message : 'Không thể tải cấu hình phiên đăng nhập.');
+      })
+      .finally(() => {
+        if (active) {
+          setIsAuthSessionPolicyLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canReadAuthSessionPolicy]);
 
   const loadWorkflowConfigs = async (): Promise<void> => {
     // DISABLED: Old workflow config loading - replaced by new Workflow Management module
@@ -1218,10 +1277,12 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       ? filteredGroups.length
       : masterType === 'contact_position'
         ? filteredContactPositions.length
-        : masterType === 'product_unit'
+      : masterType === 'product_unit'
           ? filteredProductUnits.length
         : masterType === 'contract_signer'
           ? filteredContractSignerMasters.length
+        : masterType === 'auth_session_policy'
+          ? 1
         : masterType === 'product_sales_config'
           ? filteredProductSalesConfigs.length
         : masterType === 'status'
@@ -1904,6 +1965,47 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
   const supportSlaStatusEditable = formMode === 'ADD' ? true : Boolean(editingSupportSlaConfig?.is_status_editable ?? false);
 
+  const handleResetAuthSessionPolicyDraft = () => {
+    if (!authSessionPolicy) {
+      return;
+    }
+
+    setAuthSessionPolicyDraftEnabled(authSessionPolicy.same_browser_multi_tab_enabled !== false);
+    setAuthSessionPolicyError('');
+  };
+
+  const handleSaveAuthSessionPolicy = async () => {
+    if (!canWriteAuthSessionPolicy) {
+      setAuthSessionPolicyError('Bạn chưa có quyền cập nhật cấu hình phiên đăng nhập.');
+      return;
+    }
+
+    setIsAuthSessionPolicySaving(true);
+    setAuthSessionPolicyError('');
+
+    try {
+      const updated = await updateSupportAuthSessionPolicy({
+        same_browser_multi_tab_enabled: authSessionPolicyDraftEnabled,
+      });
+
+      setAuthSessionPolicy(updated);
+      setAuthSessionPolicyDraftEnabled(updated.same_browser_multi_tab_enabled !== false);
+      onNotify?.(
+        'success',
+        'Cấu hình phiên đăng nhập',
+        updated.same_browser_multi_tab_enabled !== false
+          ? 'Đã bật đăng nhập nhiều tab trong cùng trình duyệt.'
+          : 'Đã tắt đăng nhập nhiều tab trong cùng trình duyệt.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể lưu cấu hình phiên đăng nhập.';
+      setAuthSessionPolicyError(message);
+      onNotify?.('error', 'Lưu cấu hình thất bại', message);
+    } finally {
+      setIsAuthSessionPolicySaving(false);
+    }
+  };
+
   return (
     <div
       className="min-w-0 p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
@@ -1913,10 +2015,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         <div>
           <h2 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">Quản lý danh mục hỗ trợ</h2>
           <p className="text-slate-600 text-sm mt-1">
-            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, danh mục sản phẩm, người ký hợp đồng, trạng thái hỗ trợ, SLA và lịch làm việc.
+            Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, danh mục sản phẩm, người ký hợp đồng, trạng thái hỗ trợ, SLA, lịch làm việc và chính sách phiên đăng nhập.
           </p>
         </div>
-        {masterType !== 'work_calendar' && masterType !== 'product_sales_config' && (
+        {masterType !== 'work_calendar' && masterType !== 'product_sales_config' && masterType !== 'auth_session_policy' && (
           <button
             type="button"
             disabled={!canWriteCurrentMaster}
@@ -1989,6 +2091,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Tìm kiếm danh mục..."
+              disabled={masterType === 'auth_session_policy'}
               className="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
             />
           </div>
@@ -2002,6 +2105,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               { value: 'inactive', label: 'Ngưng hoạt động' },
             ]}
             placeholder="Lọc hoạt động"
+            disabled={masterType === 'auth_session_policy'}
           />
         </div>
       </div>
@@ -2231,6 +2335,93 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                 )}
               </tbody>
             </table>
+          ) : masterType === 'auth_session_policy' ? (
+            <div className="p-5 md:p-6 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                      Chính sách phiên đăng nhập
+                    </p>
+                    <h3 className="text-sm font-bold leading-tight text-slate-800">
+                      Cho phép 1 tài khoản dùng nhiều tab trong cùng trình duyệt
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Khi bật, các tab cùng trình duyệt sẽ phối hợp làm mới phiên đăng nhập để tránh đá nhau lúc refresh token.
+                      Khi tắt, từng tab sẽ tự xử lý phiên riêng và không còn tối ưu cho chế độ nhiều tab.
+                    </p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={authSessionPolicyDraftEnabled}
+                      onChange={(event) => setAuthSessionPolicyDraftEnabled(event.target.checked)}
+                      disabled={!canWriteAuthSessionPolicy || isAuthSessionPolicyLoading || isAuthSessionPolicySaving}
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:opacity-50"
+                    />
+                    <span className="text-sm font-semibold text-slate-800">
+                      {authSessionPolicyDraftEnabled ? 'Đang bật nhiều tab' : 'Đang tắt nhiều tab'}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Phạm vi</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">Cùng 1 trình duyệt</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Không mở rộng sang trình duyệt khác hoặc thiết bị khác.</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Nguồn áp dụng</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {authSessionPolicy?.source === 'DB' ? 'Đang dùng cấu hình đã lưu' : 'Đang dùng mặc định hệ thống'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">Mặc định hiện tại là cho phép nhiều tab để tránh mất phiên khi làm việc song song.</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Cập nhật gần nhất</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {authSessionPolicy?.updated_by_name || 'Chưa có bản ghi'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {authSessionPolicy?.updated_at
+                        ? String(authSessionPolicy.updated_at)
+                        : 'Chưa có thời điểm cập nhật trong cơ sở dữ liệu.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {isAuthSessionPolicyLoading ? (
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-600">
+                  Đang tải cấu hình phiên đăng nhập...
+                </div>
+              ) : authSessionPolicyError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {authSessionPolicyError}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetAuthSessionPolicyDraft}
+                  disabled={!authSessionPolicyDirty || isAuthSessionPolicySaving}
+                  className="h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Khôi phục
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAuthSessionPolicy}
+                  disabled={isAuthSessionPolicyLoading || isAuthSessionPolicySaving || !authSessionPolicyDirty || !canWriteAuthSessionPolicy}
+                  className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isAuthSessionPolicySaving ? 'Đang lưu...' : 'Lưu cấu hình'}
+                </button>
+              </div>
+            </div>
           ) : masterType === 'product_sales_config' ? (
             <ProductSalesConfigList
               products={pagedProductSalesConfigs}

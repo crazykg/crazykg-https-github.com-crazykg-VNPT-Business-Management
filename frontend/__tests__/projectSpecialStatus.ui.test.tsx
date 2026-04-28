@@ -137,6 +137,7 @@ describe('Project special statuses UI', () => {
         status: 'TAM_NGUNG',
         status_reason: 'Chờ cấp vốn',
         investment_mode: 'DAU_TU',
+        start_date: '2026-03-24',
       },
       {
         id: 2,
@@ -146,6 +147,7 @@ describe('Project special statuses UI', () => {
         status: 'HUY',
         status_reason: 'Ngừng theo đề nghị khách hàng',
         investment_mode: 'DAU_TU',
+        start_date: '2026-03-24',
       },
     ];
 
@@ -167,6 +169,7 @@ describe('Project special statuses UI', () => {
 
     await user.click(screen.getByRole('button', { name: 'Tất cả trạng thái' }));
     await user.click(screen.getByRole('button', { name: 'Huỷ' }));
+    await user.click(screen.getByTitle('Tìm kiếm (Enter)'));
 
     expect(screen.getByText('Du an huy')).toBeInTheDocument();
     expect(screen.queryByText('Du an tam ngung')).not.toBeInTheDocument();
@@ -268,6 +271,7 @@ describe('Project special statuses UI', () => {
         customer_id: 1,
         status: 'CHUAN_BI',
         investment_mode: 'DAU_TU',
+        start_date: '2026-03-24',
       },
     ];
 

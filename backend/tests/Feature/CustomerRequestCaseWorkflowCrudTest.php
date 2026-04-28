@@ -162,6 +162,109 @@ class CustomerRequestCaseWorkflowCrudTest extends TestCase
         );
     }
 
+    public function test_worklog_payload_includes_status_recipient_snapshot(): void
+    {
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'assign_pm',
+                'dispatcher_user_id' => 2,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'updated_by' => 2,
+            'to_status_code' => 'assigned_to_receiver',
+            'status_payload' => [
+                'from_user_id' => 2,
+                'to_user_id' => 3,
+                'progress_percent' => 10,
+                'notes' => 'PM giao xử lý theo WorkflowA.',
+            ],
+        ])->assertOk();
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/worklogs", [
+            'updated_by' => 2,
+            'performed_by_user_id' => 2,
+            'work_content' => 'PM giao R xử lý.',
+            'work_started_at' => '2026-03-17 08:00:00',
+            'work_ended_at' => '2026-03-17 09:00:00',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.status_code', 'assigned_to_receiver')
+            ->assertJsonPath('data.status_name_vi', 'Giao R thực hiện')
+            ->assertJsonPath('data.from_user_id', 2)
+            ->assertJsonPath('data.from_user_id_name', 'Người tiếp nhận')
+            ->assertJsonPath('data.to_user_id', 3)
+            ->assertJsonPath('data.to_user_id_name', 'Người xử lý')
+            ->assertJsonPath('data.assigned_user_id', 3)
+            ->assertJsonPath('data.assigned_user_name', 'Người xử lý')
+            ->assertJsonPath('data.work_started_at', '2026-03-17 08:00:00');
+
+        $this->getJson("/api/v5/customer-request-cases/{$caseId}/worklogs")
+            ->assertOk()
+            ->assertJsonPath('data.0.to_user_id_name', 'Người xử lý')
+            ->assertJsonPath('data.0.assigned_user_name', 'Người xử lý');
+
+        $this->getJson("/api/v5/customer-request-cases/{$caseId}/timeline")
+            ->assertOk()
+            ->assertJsonPath('data.0.status_code', 'assigned_to_receiver')
+            ->assertJsonPath('data.0.nguoi_xu_ly_code', 'U003')
+            ->assertJsonPath('data.0.nguoi_xu_ly_name', 'Người xử lý');
+    }
+
+    public function test_detail_status_worklog_uses_current_instance_when_case_pointer_is_stale(): void
+    {
+        $detailStatusMigration = require base_path('database/migrations/2026_04_09_210000_add_detail_status_and_worklog_fields_for_crc.php');
+        $detailStatusMigration->up();
+
+        $created = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'dispatch_route' => 'assign_pm',
+                'dispatcher_user_id' => 2,
+            ],
+        ]))->assertCreated();
+
+        $caseId = (int) $created->json('data.request_case.id');
+        $initialInstanceId = (int) $created->json('data.status_instance.id');
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/transition", [
+            'updated_by' => 2,
+            'to_status_code' => 'assigned_to_receiver',
+            'status_payload' => [
+                'from_user_id' => 2,
+                'to_user_id' => 3,
+                'progress_percent' => 10,
+                'notes' => 'PM giao xử lý theo WorkflowA.',
+            ],
+        ])->assertOk();
+
+        $assignedInstanceId = (int) DB::table('customer_request_status_instances')
+            ->where('request_case_id', $caseId)
+            ->where('status_code', 'assigned_to_receiver')
+            ->value('id');
+
+        DB::table('customer_request_cases')
+            ->where('id', $caseId)
+            ->update(['current_status_instance_id' => $initialInstanceId]);
+
+        $this->postJson("/api/v5/customer-request-cases/{$caseId}/detail-status-worklog", [
+            'updated_by' => 2,
+            'performed_by_user_id' => 2,
+            'detail_status_action' => 'in_progress',
+            'work_content' => 'Bắt đầu xử lý theo người nhận.',
+            'work_started_at' => '2026-03-17 08:00:00',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.status_instance_id', $assignedInstanceId)
+            ->assertJsonPath('data.status_code', 'assigned_to_receiver')
+            ->assertJsonPath('data.status_name_vi', 'Giao R thực hiện')
+            ->assertJsonPath('data.to_user_id_name', 'Người xử lý')
+            ->assertJsonPath('data.assigned_user_name', 'Người xử lý')
+            ->assertJsonPath('data.detail_status_action', 'in_progress');
+    }
+
     public function test_store_case_accepts_dispatcher_assignment_in_master_payload(): void
     {
         $this->postJson('/api/v5/customer-request-cases', $this->createPayload([

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { INVESTMENT_MODES } from '../../constants';
 import type { Customer, Project, ProjectTypeOption } from '../../types';
 import { FormSelect, SearchableSelect, type SearchableSelectOption } from './selectPrimitives';
@@ -151,7 +151,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
             <button
               type="button"
               onClick={() => onViewProcedure(data)}
-              className="shrink-0 inline-flex items-center gap-1 h-8 px-2.5 rounded text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 transition-colors whitespace-nowrap"
+              className="shrink-0 inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors whitespace-nowrap hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>format_list_numbered</span>
               Xem thủ tục
@@ -171,7 +171,7 @@ export const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               rows={3}
               maxLength={2000}
               aria-invalid={Boolean(errors.status_reason)}
-              className={`w-full rounded border bg-white px-3 py-2 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 ${errors.status_reason ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
+              className={`w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30 ${errors.status_reason ? 'border-error ring-1 ring-error/30' : 'border-slate-300'}`}
             />
             {errors.status_reason ? (
               <p className="text-[11px] text-error mt-0.5">{errors.status_reason}</p>
@@ -315,6 +315,44 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
   submitDisabledMessage,
   type,
 }) => {
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonRefs = useRef<Partial<Record<ProjectFormActiveTab, HTMLButtonElement | null>>>({});
+
+  useEffect(() => {
+    const tabStrip = tabStripRef.current;
+    const activeButton = tabButtonRefs.current[activeTab];
+    if (!tabStrip || !activeButton) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const alignActiveTab = () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (activeTab === 'info') {
+        tabStrip.scrollLeft = 0;
+      }
+
+      activeButton.scrollIntoView({
+        block: 'nearest',
+        inline: activeTab === 'info' ? 'start' : 'nearest',
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      alignActiveTab();
+      window.requestAnimationFrame(alignActiveTab);
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activeTab]);
+
   return (
     <>
       <ModalWrapper
@@ -326,15 +364,23 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
         disableClose={disableClose}
         disableBackdropClose={disableBackdropClose}
       >
-        <div className="flex border-b border-slate-200">
+        <div ref={tabStripRef} className="flex overflow-x-auto border-b border-slate-200 bg-white px-2 custom-scrollbar sm:flex-wrap sm:overflow-visible">
           <button
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            type="button"
+            ref={(node) => {
+              tabButtonRefs.current.info = node;
+            }}
+            className={`inline-flex h-10 shrink-0 items-center border-b-2 px-3 text-xs font-bold transition-colors whitespace-nowrap ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
             onClick={() => onTabSwitch('info')}
           >
             Thông tin chung
           </button>
           <button
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+            type="button"
+            ref={(node) => {
+              tabButtonRefs.current.items = node;
+            }}
+            className={`inline-flex h-10 shrink-0 items-center border-b-2 px-3 text-xs font-bold transition-colors whitespace-nowrap ${
               !isPersistedProject && activeTab !== 'items'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'items'
@@ -347,7 +393,11 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
             Hạng mục dự án ({itemCount})
           </button>
           <button
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+            type="button"
+            ref={(node) => {
+              tabButtonRefs.current.raci = node;
+            }}
+            className={`inline-flex h-10 shrink-0 items-center border-b-2 px-3 text-xs font-bold transition-colors whitespace-nowrap ${
               !isPersistedProject && activeTab !== 'raci'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'raci'
@@ -360,7 +410,11 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
             Đội ngũ dự án ({raciCount})
           </button>
           <button
-            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors ${
+            type="button"
+            ref={(node) => {
+              tabButtonRefs.current.revenue_schedules = node;
+            }}
+            className={`inline-flex h-10 shrink-0 items-center border-b-2 px-3 text-xs font-bold transition-colors whitespace-nowrap ${
               !isPersistedProject && activeTab !== 'revenue_schedules'
                 ? 'border-transparent text-slate-400 cursor-not-allowed'
                 : activeTab === 'revenue_schedules'
@@ -375,18 +429,17 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
         </div>
 
         {!isPersistedProject ? (
-          <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs text-slate-500">
             Lưu dự án thành công để mở tab Hạng mục dự án và Đội ngũ dự án.
           </div>
         ) : null}
 
         <div className="p-4">
           {content}
-          <div className="pb-20"></div>
         </div>
 
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 absolute bottom-0 left-0 right-0 z-[60]">
-          <div className="min-h-[18px] flex-1 text-xs">
+        <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/90">
+          <div aria-live="polite" className="min-h-[18px] flex-1 text-xs">
             {saveNotice.status === 'success' ? (
               <p className="text-emerald-700 font-medium">
                 {saveNotice.message} Lần gần nhất: {new Date(saveNotice.timestamp).toLocaleTimeString('vi-VN')}.
@@ -398,17 +451,18 @@ export const ProjectFormLayout: React.FC<ProjectFormLayoutProps> = ({
           </div>
           <div className="flex justify-end gap-2">
             <button
+              type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Hủy
             </button>
             <button
+              type="button"
               onClick={() => void onSubmit()}
               disabled={isSubmitting || isSubmitDisabled}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-white shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
               title={isSubmitDisabled ? submitDisabledMessage || undefined : undefined}
             >
               <span className={`material-symbols-outlined ${isSubmitting ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>

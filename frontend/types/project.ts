@@ -45,6 +45,7 @@ export interface ProjectItem {
   productId: string | number;
   productPackageId?: string | number | null;
   catalogValue?: string;
+  unit?: string | null;
   quantity: number;
   unitPrice: number;
   discountPercent: number | string;

@@ -16,6 +16,12 @@ import { AttachmentManager } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { ProcessFieldInput } from './CustomerRequestFieldRenderer';
 import {
+  customerRequestFieldClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestSelectTriggerClass,
+} from './uiClasses';
+import {
   STATUS_COLOR_MAP,
   SUPPORT_TASK_STATUS_OPTIONS,
   type CustomerRequestTaskSource,
@@ -73,6 +79,28 @@ type CustomerRequestTransitionModalProps = {
   caseContextReferenceTasks?: ReferenceTaskFormRow[];
 };
 
+const normalizeTransitionText = (value: unknown): string =>
+  String(value ?? '').trim();
+
+const resolveTransitionUserName = (
+  userId: unknown,
+  employees: Employee[],
+  projectRaciRows: ProjectRaciRow[],
+): string | null => {
+  const normalizedUserId = normalizeTransitionText(userId);
+  if (!normalizedUserId) {
+    return null;
+  }
+
+  const employee = employees.find((item) => String(item.id) === normalizedUserId);
+  if (employee) {
+    return employee.full_name || employee.username || employee.user_code || null;
+  }
+
+  const raciRow = projectRaciRows.find((item) => String(item.user_id) === normalizedUserId);
+  return raciRow?.full_name || raciRow?.username || raciRow?.user_code || null;
+};
+
 
 export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionModalProps> = ({
   show,
@@ -101,9 +129,9 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
   onClose,
   onConfirm,
   modalTimeline,
-  modalHandlerUserId: _modalHandlerUserId,
+  modalHandlerUserId,
   onModalHandlerUserIdChange: _onModalHandlerUserIdChange,
-  projectRaciRows: _projectRaciRows,
+  projectRaciRows,
   employees,
   customers,
   customerPersonnel,
@@ -156,6 +184,48 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
   const ctxIt360 = (caseContextIt360Tasks ?? []).filter((t) => t.task_code.trim() || t.id != null);
   const ctxRef = (caseContextReferenceTasks ?? []).filter((t) => t.task_code.trim() || t.id != null);
   const hasCaseContext = ctxAttachments.length > 0 || ctxIt360.length > 0 || ctxRef.length > 0;
+  const selectedReceiverUserId =
+    normalizeTransitionText(modalStatusPayload.to_user_id)
+    || normalizeTransitionText(modalStatusPayload.performer_user_id)
+    || normalizeTransitionText(modalHandlerUserId);
+  const selectedReceiverName = resolveTransitionUserName(selectedReceiverUserId, employees, projectRaciRows);
+  const currentHandlerName =
+    processDetail?.yeu_cau?.current_owner_name
+    || processDetail?.yeu_cau?.nguoi_xu_ly_name
+    || processDetail?.yeu_cau?.receiver_name
+    || null;
+  const shouldShowSelectedReceiver =
+    selectedReceiverName !== null && selectedReceiverName !== currentHandlerName;
+  const roleSummaryItems = [
+    {
+      icon: '📝',
+      label: 'Người nhập',
+      name: processDetail?.yeu_cau?.created_by_name || processDetail?.yeu_cau?.nguoi_tao_name,
+      time: null,
+    },
+    {
+      icon: '📥',
+      label: 'Người tiếp nhận',
+      name: processDetail?.yeu_cau?.received_by_name,
+      time: processDetail?.yeu_cau?.received_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.received_at) : null,
+    },
+    ...(currentHandlerName
+      ? [{
+          icon: '👤',
+          label: 'Người xử lý hiện tại',
+          name: currentHandlerName,
+          time: processDetail?.yeu_cau?.current_entered_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.current_entered_at) : null,
+        }]
+      : []),
+    ...(shouldShowSelectedReceiver
+      ? [{
+          icon: '🎯',
+          label: 'Người nhận sau chuyển',
+          name: selectedReceiverName,
+          time: 'Theo form đang chọn',
+        }]
+      : []),
+  ];
 
   return createPortal(
     <div
@@ -342,7 +412,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                             onChange={(event) => onUpdateModalIt360Task(task.local_id, 'task_code', event.target.value)}
                             disabled={isTransitioning}
                             placeholder="VD: IT360-0001"
-                            className="h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                            className={customerRequestFieldClass}
                           />
                         </div>
                         <div>
@@ -353,7 +423,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                             onChange={(event) => onUpdateModalIt360Task(task.local_id, 'task_link', event.target.value)}
                             disabled={isTransitioning}
                             placeholder="https://..."
-                            className="h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                            className={customerRequestFieldClass}
                           />
                         </div>
                         <div>
@@ -364,6 +434,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                             onChange={(value) => onUpdateModalIt360Task(task.local_id, 'status', value)}
                             disabled={isTransitioning}
                             compact
+                            triggerClassName={customerRequestSelectTriggerClass}
                           />
                         </div>
                         <div className="flex items-end justify-end">
@@ -371,7 +442,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                             type="button"
                             onClick={() => onRemoveModalIt360Task(task.local_id)}
                             disabled={isTransitioning}
-                            className="material-symbols-outlined rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                            className="material-symbols-outlined inline-flex h-10 w-10 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                           >
                             delete
                           </button>
@@ -403,6 +474,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                           searching={isTaskReferenceSearchLoading}
                           disabled={isTransitioning}
                           compact
+                          triggerClassName={customerRequestSelectTriggerClass}
                         />
                       </div>
                       <div className="flex items-end justify-end">
@@ -410,7 +482,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                           type="button"
                           onClick={() => onRemoveModalReferenceTask(task.local_id)}
                           disabled={isTransitioning}
-                          className="material-symbols-outlined rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                          className="material-symbols-outlined inline-flex h-10 w-10 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                         >
                           delete
                         </button>
@@ -461,20 +533,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">👤 Vai trò</p>
               <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3 text-xs">
-                {[
-                  {
-                    icon: '📝',
-                    label: 'Người nhập',
-                    name: processDetail?.yeu_cau?.created_by_name || processDetail?.yeu_cau?.nguoi_tao_name,
-                    time: null,
-                  },
-                  {
-                    icon: '📥',
-                    label: 'Người tiếp nhận',
-                    name: processDetail?.yeu_cau?.received_by_name,
-                    time: processDetail?.yeu_cau?.received_at ? formatDateTimeDdMmYyyy(processDetail.yeu_cau.received_at) : null,
-                  },
-                ].map((item) => (
+                {roleSummaryItems.map((item) => (
                   <div key={item.label} className="flex items-start gap-1.5">
                     <span className="mt-0.5 text-sm">{item.icon}</span>
                     <div>
@@ -498,6 +557,8 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                 ) : (
                   modalTimeline.map((entry, index) => {
                     const meta = resolveStatusMeta(entry.tien_trinh, entry.decision_reason_label || entry.trang_thai_moi);
+                    const assignedName = entry.nguoi_xu_ly_name || null;
+                    const actorName = entry.nguoi_chuyen_name || entry.nguoi_thay_doi_name || null;
 
                     return (
                       <div key={String(entry.id ?? index)} className="flex gap-2">
@@ -508,7 +569,8 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
                         <div className="min-w-0 pb-2">
                           <p className="text-[11px] font-semibold text-slate-700">{meta.label}</p>
                           <p className="truncate text-[10px] text-slate-500">
-                            {entry.nguoi_chuyen_name || entry.nguoi_xu_ly_name || entry.nguoi_thay_doi_name || '--'}
+                            {assignedName ? `giao cho ${assignedName}` : (actorName || '--')}
+                            {assignedName && actorName ? ` · bởi ${actorName}` : ''}
                             {entry.thay_doi_luc ? ` · ${formatDateTimeDdMmYyyy(entry.thay_doi_luc)}` : ''}
                           </p>
                           {entry.ly_do ? (
@@ -529,7 +591,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             type="button"
             onClick={onClose}
             disabled={isTransitioning}
-            className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className={customerRequestSecondaryButtonClass}
           >
             Huỷ
           </button>
@@ -537,7 +599,7 @@ export const CustomerRequestTransitionModal: React.FC<CustomerRequestTransitionM
             type="button"
             onClick={onConfirm}
             disabled={isTransitioning}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-50"
+            className={customerRequestPrimaryButtonClass}
           >
             <span className="material-symbols-outlined text-[16px]">
               {isTransitioning ? 'progress_activity' : 'swap_horiz'}

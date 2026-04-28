@@ -241,6 +241,57 @@ class CustomerRequestCompatibilityLookupTest extends TestCase
             ->assertJsonPath('data.1.project_code', 'PA-01');
     }
 
+    public function test_customer_filter_options_prepend_selected_rows_and_keep_search_paging(): void
+    {
+        $this->setUpCommonSchema();
+
+        DB::table('customers')->insert([
+            ['id' => 11, 'customer_code' => 'BV-01', 'customer_name' => 'Bệnh viện Alpha', 'company_name' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 12, 'customer_code' => 'BV-02', 'customer_name' => 'Bệnh viện Beta', 'company_name' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 13, 'customer_code' => 'DN-01', 'customer_name' => 'Doanh nghiệp Gamma', 'company_name' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->actingAs(InternalUser::query()->findOrFail(1));
+
+        $this->getJson('/api/v5/customer-requests/filter-options/customers?q=BV&page=1&per_page=1&selected_ids[]=13')
+            ->assertOk()
+            ->assertJsonPath('data.0.value', '13')
+            ->assertJsonPath('data.0.label', 'DN-01 - Doanh nghiệp Gamma')
+            ->assertJsonPath('data.1.value', '11')
+            ->assertJsonPath('meta.page', 1)
+            ->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.has_more', true);
+    }
+
+    public function test_project_and_product_filter_options_return_expected_option_shape(): void
+    {
+        $this->setUpCommonSchema();
+
+        DB::table('projects')->insert([
+            ['id' => 1, 'project_code' => 'DA-01', 'project_name' => 'EMR Alpha', 'customer_id' => 1, 'dept_id' => 10, 'deleted_at' => null],
+            ['id' => 2, 'project_code' => 'DA-02', 'project_name' => 'Lab Beta', 'customer_id' => 1, 'dept_id' => 10, 'deleted_at' => null],
+        ]);
+
+        DB::table('products')->insert([
+            ['id' => 1, 'product_code' => 'SP-01', 'product_name' => 'VNPT HIS', 'unit' => 'gói', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'product_code' => 'SP-02', 'product_name' => 'LIS', 'unit' => 'gói', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->actingAs(InternalUser::query()->findOrFail(1));
+
+        $this->getJson('/api/v5/customer-requests/filter-options/projects?q=emr')
+            ->assertOk()
+            ->assertJsonPath('data.0.value', '1')
+            ->assertJsonPath('data.0.label', 'DA-01 - EMR Alpha')
+            ->assertJsonPath('meta.has_more', false);
+
+        $this->getJson('/api/v5/customer-requests/filter-options/products?q=his')
+            ->assertOk()
+            ->assertJsonPath('data.0.value', '1')
+            ->assertJsonPath('data.0.label', 'SP-01 - VNPT HIS')
+            ->assertJsonPath('meta.has_more', false);
+    }
+
     private function setUpCommonSchema(): void
     {
         foreach ([

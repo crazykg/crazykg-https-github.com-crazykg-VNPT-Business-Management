@@ -30,6 +30,7 @@ class CustomerRequestCaseReadModelService
         return DB::table('customer_request_worklogs as wl')
             ->leftJoin('internal_users as performer', 'performer.id', '=', 'wl.performed_by_user_id')
             ->leftJoin('customer_request_status_instances as instance', 'instance.id', '=', 'wl.status_instance_id')
+            ->leftJoin('customer_request_cases as request_case', 'request_case.id', '=', 'wl.request_case_id')
             ->leftJoin('customer_request_status_catalogs as catalog', function ($join): void {
                 $join->on('catalog.status_code', '=', 'instance.status_code')
                     ->where('catalog.is_active', 1);
@@ -41,7 +42,11 @@ class CustomerRequestCaseReadModelService
                 'wl.*',
                 'performer.full_name as performed_by_name',
                 'performer.user_code as performed_by_code',
+                'instance.status_code as instance_status_code',
+                'instance.status_table as instance_status_table',
+                'instance.status_row_id as instance_status_row_id',
                 'catalog.status_name_vi as status_name_vi',
+                'request_case.workflow_definition_id as workflow_definition_id',
             ])
             ->get()
             ->map(fn (object $row): array => $this->serializeWorklogRow($row))
@@ -153,7 +158,15 @@ class CustomerRequestCaseReadModelService
         $totalHoursSpent = $this->normalizeNullableDecimal($record['total_hours_spent'] ?? null) ?? 0.0;
         $hoursUsagePct = $this->calculateHoursUsagePct($estimatedHours, $totalHoursSpent);
         $warningLevel = $this->resolveWarningLevel($estimatedHours, $totalHoursSpent);
+        $projectId = $this->support->parseNullableInt($record['effective_project_id'] ?? ($record['project_id'] ?? null));
+        $accountableUserId = $this->support->parseNullableInt($record['accountable_user_id'] ?? null);
+        $accountableName = $this->normalizeNullableString($record['accountable_name'] ?? null);
         $dispatcherUserId = $this->support->parseNullableInt($record['dispatcher_user_id'] ?? null);
+        $dispatcherName = $this->normalizeNullableString($record['dispatcher_name'] ?? null);
+        $recordPmId = $this->support->parseNullableInt($record['pm_id'] ?? null);
+        $recordPmName = $this->normalizeNullableString($record['pm_name'] ?? null);
+        $pmUserId = $accountableUserId ?? $recordPmId ?? $dispatcherUserId;
+        $pmName = $accountableName ?? $recordPmName ?? $dispatcherName;
         $performerUserId = $this->support->parseNullableInt($record['performer_user_id'] ?? null);
         $isSimpleMode = request()?->query('simple') === '1';
 
@@ -195,9 +208,13 @@ class CustomerRequestCaseReadModelService
             'khach_hang_id' => $this->support->parseNullableInt($record['customer_id'] ?? null),
             'customer_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
             'khach_hang_name' => $this->normalizeNullableString($record['customer_name'] ?? null),
-            'project_id' => $this->support->parseNullableInt($record['project_id'] ?? null),
+            'project_id' => $projectId,
             'project_item_id' => $this->support->parseNullableInt($record['project_item_id'] ?? null),
             'product_id' => $this->support->parseNullableInt($record['product_id'] ?? null),
+            'accountable_user_id' => $accountableUserId,
+            'accountable_name' => $accountableName,
+            'pm_id' => $pmUserId,
+            'pm_name' => $pmName,
             'customer_personnel_id' => $this->support->parseNullableInt($record['customer_personnel_id'] ?? null),
             'requester_name' => $this->normalizeNullableString($record['requester_name'] ?? null)
                 ?? $this->normalizeNullableString($record['requester_name_snapshot'] ?? null),
@@ -206,7 +223,7 @@ class CustomerRequestCaseReadModelService
             'received_by_user_id' => $this->support->parseNullableInt($record['received_by_user_id'] ?? null),
             'received_by_name' => $this->normalizeNullableString($record['received_by_name'] ?? null),
             'dispatcher_user_id' => $dispatcherUserId,
-            'dispatcher_name' => $this->normalizeNullableString($record['dispatcher_name'] ?? null),
+            'dispatcher_name' => $dispatcherName,
             'performer_user_id' => $performerUserId,
             'performer_name' => $this->normalizeNullableString($record['performer_name'] ?? null),
             'receiver_user_id' => $receiverUserId,
@@ -406,13 +423,22 @@ class CustomerRequestCaseReadModelService
     public function serializeWorklogRow(object|array $row): array
     {
         $record = is_object($row) ? (array) $row : $row;
+        $statusCode = $this->normalizeNullableString($record['status_code'] ?? null)
+            ?? $this->normalizeNullableString($record['instance_status_code'] ?? null);
+        $statusUsers = $this->resolveWorklogStatusUsers($record, $statusCode);
 
         return [
             'id' => (int) ($record['id'] ?? 0),
             'request_case_id' => $this->support->parseNullableInt($record['request_case_id'] ?? null),
             'status_instance_id' => $this->support->parseNullableInt($record['status_instance_id'] ?? null),
-            'status_code' => $this->normalizeNullableString($record['status_code'] ?? null),
+            'status_code' => $statusCode,
             'status_name_vi' => $this->normalizeNullableString($record['status_name_vi'] ?? null),
+            'from_user_id' => $statusUsers['from_user_id'],
+            'from_user_id_name' => $statusUsers['from_user_id_name'],
+            'to_user_id' => $statusUsers['to_user_id'],
+            'to_user_id_name' => $statusUsers['to_user_id_name'],
+            'assigned_user_id' => $statusUsers['assigned_user_id'],
+            'assigned_user_name' => $statusUsers['assigned_user_name'],
             'performed_by_user_id' => $this->support->parseNullableInt($record['performed_by_user_id'] ?? null),
             'performed_by_name' => $this->normalizeNullableString($record['performed_by_name'] ?? null),
             'performed_by_code' => $this->normalizeNullableString($record['performed_by_code'] ?? null),
@@ -431,6 +457,85 @@ class CustomerRequestCaseReadModelService
             'hours_spent' => isset($record['hours_spent']) ? (float) $record['hours_spent'] : null,
             'created_at' => $this->normalizeNullableString($record['created_at'] ?? null),
             'updated_at' => $this->normalizeNullableString($record['updated_at'] ?? null),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @return array{from_user_id:int|null,from_user_id_name:string|null,to_user_id:int|null,to_user_id_name:string|null,assigned_user_id:int|null,assigned_user_name:string|null}
+     */
+    private function resolveWorklogStatusUsers(array $record, ?string $statusCode): array
+    {
+        $empty = [
+            'from_user_id' => null,
+            'from_user_id_name' => null,
+            'to_user_id' => null,
+            'to_user_id_name' => null,
+            'assigned_user_id' => null,
+            'assigned_user_name' => null,
+        ];
+
+        if ($statusCode === null || $statusCode === '') {
+            return $empty;
+        }
+
+        $workflowDefinitionId = $this->support->parseNullableInt($record['workflow_definition_id'] ?? null);
+        $statusMeta = $this->metadataService->getStatusMeta($statusCode, $workflowDefinitionId);
+        $statusTable = $this->normalizeNullableString($record['instance_status_table'] ?? null)
+            ?? $this->normalizeNullableString($record['status_table'] ?? null)
+            ?? $this->normalizeNullableString($statusMeta['table_name'] ?? null);
+        $statusRowId = $this->support->parseNullableInt($record['instance_status_row_id'] ?? null)
+            ?? $this->support->parseNullableInt($record['status_row_id'] ?? null);
+
+        $statusRowData = [];
+        if ($statusTable !== null && $statusRowId !== null) {
+            $statusRow = $this->loadStatusRow($statusTable, $statusRowId);
+            if ($statusRow !== null) {
+                $statusRowData = $this->serializeStatusRow([
+                    'status_code' => $statusCode,
+                    'status_name_vi' => $statusMeta['status_name_vi'] ?? ($record['status_name_vi'] ?? $statusCode),
+                    'table_name' => $statusTable,
+                    'form_fields' => $statusMeta['form_fields'] ?? [],
+                ], $statusRow)['data'] ?? [];
+            }
+        }
+
+        $fromUserId = $this->support->parseNullableInt($statusRowData['from_user_id'] ?? ($record['from_user_id'] ?? null));
+        $fromUserName = $this->normalizeNullableString($statusRowData['from_user_id_name'] ?? ($record['from_user_id_name'] ?? null));
+        $toUserId = $this->support->parseNullableInt($statusRowData['to_user_id'] ?? ($record['to_user_id'] ?? null));
+        $toUserName = $this->normalizeNullableString($statusRowData['to_user_id_name'] ?? ($record['to_user_id_name'] ?? null));
+
+        if ($fromUserName === null && $fromUserId !== null) {
+            $fromUserName = $this->lookupName('internal_users', $fromUserId, 'full_name');
+        }
+        if ($toUserName === null && $toUserId !== null) {
+            $toUserName = $this->lookupName('internal_users', $toUserId, 'full_name');
+        }
+
+        $handlerField = $this->normalizeNullableString($statusMeta['handler_field'] ?? null);
+        $handlerUserId = null;
+        $handlerUserName = null;
+        if ($handlerField !== null) {
+            $handlerUserId = $this->support->parseNullableInt($statusRowData[$handlerField] ?? null);
+            $handlerUserName = $this->normalizeNullableString($statusRowData[$handlerField.'_name'] ?? null);
+        }
+        if ($handlerUserName === null && $handlerUserId !== null) {
+            $handlerUserName = $this->lookupName('internal_users', $handlerUserId, 'full_name');
+        }
+
+        $assignedUserId = $handlerUserId ?? $toUserId;
+        $assignedUserName = $handlerUserName ?? $toUserName;
+        if ($assignedUserName === null && $assignedUserId !== null) {
+            $assignedUserName = $this->lookupName('internal_users', $assignedUserId, 'full_name');
+        }
+
+        return [
+            'from_user_id' => $fromUserId,
+            'from_user_id_name' => $fromUserName,
+            'to_user_id' => $toUserId,
+            'to_user_id_name' => $toUserName,
+            'assigned_user_id' => $assignedUserId,
+            'assigned_user_name' => $assignedUserName,
         ];
     }
 
@@ -646,6 +751,10 @@ class CustomerRequestCaseReadModelService
             'customer_name' => $case['customer_name'] ?? null,
             'project_name' => $case['project_name'] ?? null,
             'dispatcher_name' => $case['dispatcher_name'] ?? null,
+            'accountable_user_id' => $case['accountable_user_id'] ?? null,
+            'accountable_name' => $case['accountable_name'] ?? null,
+            'pm_id' => $case['pm_id'] ?? null,
+            'pm_name' => $case['pm_name'] ?? null,
             'performer_name' => $case['performer_name'] ?? null,
             'nguoi_xu_ly_id' => $case['nguoi_xu_ly_id'] ?? null,
             'nguoi_xu_ly_name' => $case['nguoi_xu_ly_name'] ?? null,

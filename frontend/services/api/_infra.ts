@@ -81,6 +81,7 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
   const overdue = Number(kpisRaw?.overdue);
   const totalEstimatedValue = Number(kpisRaw?.total_estimated_value);
   const totalContracts = Number(kpisRaw?.total_contracts);
+  const signPeriodTotalValue = Number(kpisRaw?.sign_period_total_value);
   const signedContracts = Number(kpisRaw?.signed);
   const draftContracts = Number(kpisRaw?.draft);
   const renewedContracts = Number(kpisRaw?.renewed);
@@ -148,6 +149,10 @@ const normalizePaginationMeta = (meta?: Partial<PaginationMeta> | null): Paginat
           ? totalEstimatedValue
           : undefined,
       total_contracts: Number.isFinite(totalContracts) && totalContracts >= 0 ? Math.floor(totalContracts) : undefined,
+      sign_period_total_value:
+        Number.isFinite(signPeriodTotalValue) && signPeriodTotalValue >= 0
+          ? signPeriodTotalValue
+          : undefined,
       signed: Number.isFinite(signedContracts) && signedContracts >= 0 ? Math.floor(signedContracts) : undefined,
       draft: Number.isFinite(draftContracts) && draftContracts >= 0 ? Math.floor(draftContracts) : undefined,
       renewed: Number.isFinite(renewedContracts) && renewedContracts >= 0 ? Math.floor(renewedContracts) : undefined,

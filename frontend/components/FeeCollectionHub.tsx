@@ -13,33 +13,12 @@ import { FeeCollectionDashboard } from './fee-collection/FeeCollectionDashboard'
 import { InvoiceList } from './fee-collection/InvoiceList';
 import { ReceiptList } from './fee-collection/ReceiptList';
 import { DebtAgingReport } from './fee-collection/DebtAgingReport';
-
-interface PeriodPreset {
-  label: string;
-  from: string;
-  to: string;
-}
-
-function buildPresets(): PeriodPreset[] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const firstDay = (year: number, month: number) => new Date(year, month, 1);
-  const lastDay = (year: number, month: number) => new Date(year, month + 1, 0);
-
-  const prevM = m === 0 ? 11 : m - 1;
-  const prevY = m === 0 ? y - 1 : y;
-  const qStart = Math.floor(m / 3) * 3;
-
-  return [
-    { label: 'Tháng này', from: fmt(firstDay(y, m)), to: fmt(lastDay(y, m)) },
-    { label: 'Tháng trước', from: fmt(firstDay(prevY, prevM)), to: fmt(lastDay(prevY, prevM)) },
-    { label: 'Quý này', from: fmt(firstDay(y, qStart)), to: fmt(lastDay(y, qStart + 2)) },
-    { label: 'Năm này', from: `${y}-01-01`, to: `${y}-12-31` },
-  ];
-}
+import {
+  DateRangePresetPicker,
+  getDefaultCustomDateRange,
+  resolveDateRangePresetRange,
+  type DateRangePresetValue,
+} from './DateRangePresetPicker';
 
 interface FeeCollectionHubProps {
   contracts: Contract[];
@@ -58,6 +37,14 @@ const SUB_VIEWS: { id: FeeCollectionSubView; label: string; icon: string }[] = [
   { id: 'DEBT_REPORT', label: 'Báo cáo công nợ', icon: 'analytics' },
 ];
 
+const PRESET_VALUES: DateRangePresetValue[] = ['this_month', 'last_month', 'this_quarter', 'this_year'];
+
+const resolvePresetValueFromRange = (from: string, to: string): DateRangePresetValue =>
+  PRESET_VALUES.find((preset) => {
+    const range = resolveDateRangePresetRange(preset, '', '');
+    return range.from === from && range.to === to;
+  }) ?? 'custom';
+
 export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   contracts, customers, currentUser, addToast,
   canAdd: canAddProp, canEdit: canEditProp, canDelete: canDeleteProp,
@@ -65,7 +52,7 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   const canAdd = canAddProp ?? hasPermission(currentUser, 'fee_collection.write');
   const canEdit = canEditProp ?? hasPermission(currentUser, 'fee_collection.write');
   const canDelete = canDeleteProp ?? hasPermission(currentUser, 'fee_collection.delete');
-  const presets = useMemo(() => buildPresets(), []);
+  const defaultCustomDateRange = useMemo(() => getDefaultCustomDateRange(), []);
   const {
     activeView,
     periodFrom,
@@ -78,15 +65,39 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   // Invoice filter carry-over from Dashboard navigation
   const [invoiceCustomerFilter, setInvoiceCustomerFilter] = useState('');
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('');
+  const [customDateFrom, setCustomDateFrom] = useState(defaultCustomDateRange.from);
+  const [customDateTo, setCustomDateTo] = useState(defaultCustomDateRange.to);
+  const [periodPreset, setPeriodPreset] = useState<DateRangePresetValue>(() => resolvePresetValueFromRange(periodFrom, periodTo));
 
   useEffect(() => {
     syncFromUrl();
   }, [syncFromUrl]);
 
-  const selectedPreset = useMemo(
-    () => presets.find((preset) => preset.from === periodFrom && preset.to === periodTo)?.label ?? '',
-    [periodFrom, periodTo, presets]
-  );
+  useEffect(() => {
+    const inferredPreset = resolvePresetValueFromRange(periodFrom, periodTo);
+
+    if (periodPreset === 'custom') {
+      const isTrackingCustomRange = periodFrom === customDateFrom && periodTo === customDateTo;
+      if (!isTrackingCustomRange) {
+        setPeriodPreset(inferredPreset);
+      }
+    } else if (periodPreset !== inferredPreset) {
+      setPeriodPreset(inferredPreset);
+    }
+
+    if (inferredPreset === 'custom') {
+      setCustomDateFrom(periodFrom || defaultCustomDateRange.from);
+      setCustomDateTo(periodTo || defaultCustomDateRange.to);
+    }
+  }, [
+    customDateFrom,
+    customDateTo,
+    defaultCustomDateRange.from,
+    defaultCustomDateRange.to,
+    periodFrom,
+    periodPreset,
+    periodTo,
+  ]);
 
   const handleViewChange = useCallback((v: FeeCollectionSubView) => {
     setActiveView(v);
@@ -150,9 +161,17 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
     }
   }, [invoiceCustomerFilter, invoiceStatusFilter, periodFrom, periodTo]);
 
-  const handlePreset = useCallback((p: PeriodPreset) => {
-    setPeriod(p.from, p.to);
-  }, [setPeriod]);
+  const handlePresetChange = useCallback((preset: DateRangePresetValue) => {
+    setPeriodPreset(preset);
+
+    if (preset === 'custom') {
+      setPeriod(customDateFrom, customDateTo);
+      return;
+    }
+
+    const range = resolveDateRangePresetRange(preset, customDateFrom, customDateTo);
+    setPeriod(range.from, range.to);
+  }, [customDateFrom, customDateTo, setPeriod]);
 
   const onNotify = useCallback((type: 'success' | 'error', title: string, message: string) => {
     addToast?.(type, title, message);
@@ -165,12 +184,18 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
   }, [handleViewChange]);
 
   const handlePeriodFromChange = useCallback((value: string) => {
-    setPeriod(value, periodTo);
-  }, [periodTo, setPeriod]);
+    setCustomDateFrom(value);
+    if (periodPreset === 'custom') {
+      setPeriod(value, customDateTo);
+    }
+  }, [customDateTo, periodPreset, setPeriod]);
 
   const handlePeriodToChange = useCallback((value: string) => {
-    setPeriod(periodFrom, value);
-  }, [periodFrom, setPeriod]);
+    setCustomDateTo(value);
+    if (periodPreset === 'custom') {
+      setPeriod(customDateFrom, value);
+    }
+  }, [customDateFrom, periodPreset, setPeriod]);
 
   const showPeriodSelector = useMemo(() => activeView === 'DASHBOARD', [activeView]);
 
@@ -291,38 +316,18 @@ export const FeeCollectionHub: React.FC<FeeCollectionHubProps> = ({
               </div>
 
               <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  {presets.map((p) => (
-                    <button
-                      key={p.label}
-                      onClick={() => handlePreset(p)}
-                      className={[
-                        'inline-flex items-center rounded border px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        selectedPreset === p.label
-                          ? 'border-primary/20 bg-primary-container-soft text-deep-teal'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-                      ].join(' ')}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_auto_140px] sm:items-center">
-                  <input
-                    type="date"
-                    value={periodFrom}
-                    onChange={(e) => handlePeriodFromChange(e.target.value)}
-                    className="h-8 rounded border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
-                  />
-                  <span className="text-center text-xs font-semibold text-slate-400">đến</span>
-                  <input
-                    type="date"
-                    value={periodTo}
-                    onChange={(e) => handlePeriodToChange(e.target.value)}
-                    className="h-8 rounded border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/30"
-                  />
-                </div>
+                <DateRangePresetPicker
+                  size="dense"
+                  label="Chu kỳ:"
+                  value={periodPreset}
+                  onPresetChange={handlePresetChange}
+                  dateFrom={customDateFrom}
+                  dateTo={customDateTo}
+                  onDateFromChange={handlePeriodFromChange}
+                  onDateToChange={handlePeriodToChange}
+                  dateFromLabel="Kỳ thu từ"
+                  dateToLabel="Kỳ thu đến"
+                />
               </div>
             </div>
           ) : null}

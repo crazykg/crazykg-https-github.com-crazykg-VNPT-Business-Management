@@ -224,6 +224,9 @@ class V5DomainRouteBindingTest extends TestCase
             ['GET', 'api/v5/customer-requests/export', 'App\Http\Controllers\Api\V5\CustomerRequestController@export', 'permission:support_requests.export'],
             ['GET', 'api/v5/customer-requests/receivers', 'App\Http\Controllers\Api\V5\CustomerRequestController@receivers', 'permission:support_requests.read'],
             ['GET', 'api/v5/customer-requests/project-items', 'App\Http\Controllers\Api\V5\CustomerRequestController@projectItems', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer-requests/filter-options/customers', 'App\Http\Controllers\Api\V5\CustomerRequestController@customerFilterOptions', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer-requests/filter-options/projects', 'App\Http\Controllers\Api\V5\CustomerRequestController@projectFilterOptions', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer-requests/filter-options/products', 'App\Http\Controllers\Api\V5\CustomerRequestController@productFilterOptions', 'permission:support_requests.read'],
             ['GET', 'api/v5/customer_requests', 'App\Http\Controllers\Api\V5\CustomerRequestController@index', 'permission:support_requests.read'],
             ['GET', 'api/v5/customer_requests/dashboard_summary', 'App\Http\Controllers\Api\V5\CustomerRequestController@dashboardSummary', 'permission:support_requests.read'],
             ['GET', 'api/v5/customer_requests/dashboard_summary/export', 'App\Http\Controllers\Api\V5\CustomerRequestController@exportDashboardSummary', 'permission:support_requests.export'],
@@ -237,6 +240,9 @@ class V5DomainRouteBindingTest extends TestCase
             ['GET', 'api/v5/customer_requests/export', 'App\Http\Controllers\Api\V5\CustomerRequestController@export', 'permission:support_requests.export'],
             ['GET', 'api/v5/customer_requests/receivers', 'App\Http\Controllers\Api\V5\CustomerRequestController@receivers', 'permission:support_requests.read'],
             ['GET', 'api/v5/customer_requests/project_items', 'App\Http\Controllers\Api\V5\CustomerRequestController@projectItems', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer_requests/filter_options/customers', 'App\Http\Controllers\Api\V5\CustomerRequestController@customerFilterOptions', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer_requests/filter_options/projects', 'App\Http\Controllers\Api\V5\CustomerRequestController@projectFilterOptions', 'permission:support_requests.read'],
+            ['GET', 'api/v5/customer_requests/filter_options/products', 'App\Http\Controllers\Api\V5\CustomerRequestController@productFilterOptions', 'permission:support_requests.read'],
         ];
 
         foreach ($expectations as [$method, $uri, $expectedAction, $expectedPermission]) {

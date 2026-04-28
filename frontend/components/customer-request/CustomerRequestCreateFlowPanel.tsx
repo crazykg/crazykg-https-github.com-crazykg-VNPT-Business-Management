@@ -3,6 +3,11 @@ import type { Employee } from '../../types/employee';
 import type { ProjectItemMaster } from '../../types/project';
 import { SearchableSelect } from '../SearchableSelect';
 import type { CustomerRequestCreateFlowDraft, CreateRequestHandlingMode } from './createFlow';
+import {
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestSelectTriggerClass,
+} from './uiClasses';
 
 type CustomerRequestCreateFlowPanelProps = {
   draft: CustomerRequestCreateFlowDraft;
@@ -56,6 +61,8 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
   layoutVariant = 'detail',
 }) => {
   const isModal = layoutVariant === 'modal';
+  const fieldLabelClass = `mb-1 ${customerRequestFieldLabelClass}`;
+  const fieldInputClass = customerRequestFieldClass;
 
   const employeeOptions = useMemo(
     () =>
@@ -93,7 +100,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
           </div>
           <div className="flex flex-col gap-2.5">
             <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-700">Giờ ước lượng</label>
+              <label className={fieldLabelClass}>Giờ ước lượng</label>
               <div className="relative">
                 <input
                   type="number"
@@ -102,7 +109,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                   value={draft.initialEstimatedHours}
                   disabled={disabled}
                   onChange={(event) => onChange({ initialEstimatedHours: event.target.value })}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                  className={`${fieldInputClass} pr-12`}
                   placeholder="4.0"
                 />
                 <span className="pointer-events-none absolute inset-y-0 right-4 inline-flex items-center text-sm font-semibold text-slate-400">
@@ -111,13 +118,13 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-semibold text-slate-700">Ghi chú ước lượng</label>
+              <label className={fieldLabelClass}>Ghi chú ước lượng</label>
               <input
                 type="text"
                 value={draft.estimateNote}
                 disabled={disabled}
                 onChange={(event) => onChange({ estimateNote: event.target.value })}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                className={fieldInputClass}
                 placeholder="Ghi chú ước lượng ban đầu..."
               />
             </div>
@@ -171,6 +178,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                 disabled={disabled}
                 compact
                 denseLabel
+                triggerClassName={customerRequestSelectTriggerClass}
               />
             ) : (
               <SearchableSelect
@@ -183,6 +191,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                 disabled={disabled}
                 compact
                 denseLabel
+                triggerClassName={customerRequestSelectTriggerClass}
               />
             )}
 
@@ -237,7 +246,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
 
           <div className="mt-4 grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Giờ ước lượng</label>
+              <label className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Giờ ước lượng</label>
               <div className="relative">
                 <input
                   type="number"
@@ -246,7 +255,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                   value={draft.initialEstimatedHours}
                   disabled={disabled}
                   onChange={(event) => onChange({ initialEstimatedHours: event.target.value })}
-                  className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                  className={`${customerRequestFieldClass} pr-12`}
                   placeholder="4.0"
                 />
                 <span className="pointer-events-none absolute inset-y-0 right-4 inline-flex items-center text-sm font-semibold text-slate-400">
@@ -256,13 +265,13 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">Ghi chú ước lượng</label>
+              <label className={`mb-1.5 ${customerRequestFieldLabelClass}`}>Ghi chú ước lượng</label>
               <input
                 type="text"
                 value={draft.estimateNote}
                 disabled={disabled}
                 onChange={(event) => onChange({ estimateNote: event.target.value })}
-                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-100"
+                className={customerRequestFieldClass}
                 placeholder="Ví dụ: Phần import dữ liệu tương đối quen, chưa tính test UAT."
               />
             </div>
@@ -318,6 +327,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                 searchPlaceholder="Tìm người xử lý..."
                 disabled={disabled}
                 compact
+                triggerClassName={customerRequestSelectTriggerClass}
               />
             ) : (
               <SearchableSelect
@@ -329,6 +339,7 @@ export const CustomerRequestCreateFlowPanel: React.FC<CustomerRequestCreateFlowP
                 searchPlaceholder="Tìm PM điều phối..."
                 disabled={disabled}
                 compact
+                triggerClassName={customerRequestSelectTriggerClass}
               />
             )}
 

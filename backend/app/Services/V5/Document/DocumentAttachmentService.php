@@ -94,7 +94,7 @@ class DocumentAttachmentService
             ], 500);
         }
 
-        $attachmentId = DB::table('attachments')->insertGetId([
+        $attachmentPayload = [
             'reference_type' => $referenceType,
             'reference_id' => $referenceId,
             'file_name' => (string) $uploadResult['fileName'],
@@ -109,7 +109,11 @@ class DocumentAttachmentService
             'updated_by' => $actorId,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        $attachmentId = DB::table('attachments')->insertGetId(
+            $this->filterAttachmentPayload($attachmentPayload)
+        );
 
         return response()->json([
             'data' => [
@@ -127,6 +131,19 @@ class DocumentAttachmentService
                 'warningMessage' => $uploadResult['warningMessage'] ?? null,
             ],
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function filterAttachmentPayload(array $payload): array
+    {
+        return array_filter(
+            $payload,
+            fn (string $column): bool => $this->support->hasColumn('attachments', $column),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     public function deleteUploadedAttachment(Request $request): JsonResponse

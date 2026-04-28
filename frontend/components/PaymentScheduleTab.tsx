@@ -9,6 +9,7 @@ const DATE_INPUT_MIN = '1900-01-01';
 const DATE_INPUT_MAX = '9999-12-31';
 const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PAYMENT_OVER_AMOUNT_MESSAGE = 'Số tiền thực thu không được vượt quá số tiền dự kiến của kỳ.';
 
 interface PaymentScheduleTabProps {
   contractCode?: string;
@@ -57,17 +58,23 @@ const TIMELINE_NODE_STYLES: Record<PaymentScheduleStatus, string> = {
   CANCELLED: 'border-slate-200 bg-slate-50',
 };
 
-const summaryCardClass =
-  'rounded-lg border border-slate-200 bg-white/90 px-3 py-3 shadow-sm';
+const summaryMetricClass =
+  'inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap';
 
 const compactButtonClass =
-  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-[13px] font-semibold leading-5 text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50';
 
 const primaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-60';
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[13px] font-semibold leading-5 text-white shadow-sm transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-60';
 
 const compactInputClass =
   'h-8 rounded border border-slate-300 bg-white px-3 text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:bg-slate-100 disabled:text-slate-500';
+const segmentedButtonClass =
+  'inline-flex h-8 items-center rounded-md px-2.5 text-[13px] font-semibold leading-5 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/30';
+const dangerButtonClass =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-error/20 bg-white px-2.5 text-[13px] font-semibold leading-5 text-error transition-colors hover:bg-error/5 disabled:opacity-50';
+const solidDangerButtonClass =
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-error px-2.5 text-[13px] font-semibold leading-5 text-white transition-colors hover:bg-error/90 focus:outline-none focus:ring-1 focus:ring-error/20';
 
 const modalShellClass =
   'relative w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl animate-fade-in';
@@ -75,11 +82,19 @@ const modalShellClass =
 const sectionTitleClass = 'text-sm font-bold leading-5 text-deep-teal';
 const cardLabelClass = 'text-xs font-semibold uppercase tracking-wide leading-4 text-slate-500';
 const cardValueBaseClass = 'text-base font-bold leading-6';
-const tableHeaderClass = 'px-4 py-3 text-left text-xs font-bold uppercase tracking-wide leading-4 text-slate-500';
-const tableHeaderRightClass = 'px-4 py-3 text-right text-xs font-bold uppercase tracking-wide leading-4 text-slate-500';
-const rowPrimaryTextClass = 'text-sm font-medium leading-5 text-slate-900';
-const rowMutedTextClass = 'text-sm font-medium leading-5 text-slate-600';
+const tableHeaderClass = 'sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wide leading-4 text-slate-500';
+const tableHeaderCenterClass = 'sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-2 py-1.5 text-center text-[10px] font-bold uppercase tracking-wide leading-4 text-slate-500';
+const tableHeaderRightClass = 'sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-2 py-1.5 text-right text-[10px] font-bold uppercase tracking-wide leading-4 text-slate-500';
+const rowPrimaryTextClass = 'align-middle text-[13px] font-medium leading-4 text-slate-900';
+const rowMutedTextClass = 'align-middle text-[13px] font-medium leading-4 text-slate-600';
 const rowMetaTextClass = 'text-xs font-medium leading-4 text-slate-500';
+const scheduleTableClass = 'w-full min-w-[1390px] table-fixed border-collapse';
+const statusHeaderClass = `${tableHeaderClass} w-[112px]`;
+const statusCellClass = 'w-[112px] px-2 py-2 align-middle';
+const actionHeaderClass = `${tableHeaderRightClass} w-[104px]`;
+const actionCellBaseClass = 'w-[104px] px-2 py-2 text-right align-middle';
+const iconActionButtonClass =
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50';
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(value || 0);
@@ -101,11 +116,35 @@ const formatDateTime = (value?: string | null): string => {
   return parsed.toLocaleString('vi-VN');
 };
 
-const parseAmount = (rawValue: string): number => {
-  const normalized = rawValue.replace(/[^\d.-]/g, '');
-  const parsed = Number(normalized);
+const parseAmount = (rawValue: unknown): number => {
+  if (typeof rawValue === 'number') {
+    return Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
+  }
+
+  const trimmed = String(rawValue ?? '').trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  const normalized = trimmed.replace(/\s/g, '');
+  const isNegative = normalized.startsWith('-');
+  const unsignedValue = normalized.replace(/^-/, '');
+  const decimalMatch = unsignedValue.match(/^(.+)([.,])(\d{1,2})$/);
+
+  if (decimalMatch) {
+    const integerDigits = decimalMatch[1].replace(/\D/g, '') || '0';
+    const parsedDecimal = Number(`${integerDigits}.${decimalMatch[3]}`);
+    if (Number.isFinite(parsedDecimal)) {
+      return Math.round(isNegative ? -parsedDecimal : parsedDecimal);
+    }
+  }
+
+  const digitOnlyValue = `${isNegative ? '-' : ''}${unsignedValue.replace(/\D/g, '')}`;
+  const parsed = Number(digitOnlyValue);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const toWholeVndAmount = (value: unknown): number => Math.max(0, parseAmount(value));
 
 const formatAmountDraft = (rawValue: string | number): string => {
   const normalized = String(rawValue ?? '').trim();
@@ -203,15 +242,23 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   const summary = useMemo(() => {
     return schedules.reduce(
       (acc, item) => {
-        acc.expected += Number(item.expected_amount || 0);
-        acc.actual += Number(item.actual_paid_amount || 0);
+        const expectedAmount = Number(item.expected_amount || 0);
+        const actualPaidAmount = Number(item.actual_paid_amount || 0);
+        const expectedComparableAmount = Math.round(Math.max(0, expectedAmount));
+
+        acc.expected += expectedAmount;
+        acc.actual += actualPaidAmount;
+        if (actualPaidAmount > expectedComparableAmount) {
+          acc.overpaid += actualPaidAmount - expectedComparableAmount;
+          acc.overpaidCount += 1;
+        }
         if (item.status === 'OVERDUE') {
-          const overdueGap = Math.max(0, Number(item.expected_amount || 0) - Number(item.actual_paid_amount || 0));
+          const overdueGap = Math.max(0, expectedAmount - actualPaidAmount);
           acc.overdue += overdueGap;
         }
         return acc;
       },
-      { expected: 0, actual: 0, overdue: 0 }
+      { expected: 0, actual: 0, overdue: 0, overpaid: 0, overpaidCount: 0 }
     );
   }, [schedules]);
 
@@ -247,6 +294,26 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
     return sortedSchedules;
   }, [filter, sortedSchedules]);
 
+  const scheduleFilterCounts = useMemo(() => {
+    return sortedSchedules.reduce(
+      (acc, item) => {
+        const status = String(item.status || '').trim().toUpperCase();
+        acc.ALL += 1;
+        if (status === 'PENDING' || status === 'INVOICED') {
+          acc.PENDING += 1;
+        }
+        if (status === 'PAID' || status === 'PARTIAL') {
+          acc.PAID += 1;
+        }
+        if (status === 'OVERDUE') {
+          acc.OVERDUE += 1;
+        }
+        return acc;
+      },
+      { ALL: 0, PENDING: 0, PAID: 0, OVERDUE: 0 } as Record<PaymentScheduleFilter, number>
+    );
+  }, [sortedSchedules]);
+
   const currentCycleId = useMemo(() => {
     const candidates = sortedSchedules.filter((item) => item.status !== 'PAID' && item.status !== 'CANCELLED');
     if (candidates.length === 0) {
@@ -272,6 +339,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   const paidPercent = summary.expected > 0 ? Math.min(100, (summary.actual / summary.expected) * 100) : 0;
   const overduePercent = summary.expected > 0 ? Math.min(100, (summary.overdue / summary.expected) * 100) : 0;
   const remainingPercent = Math.max(0, 100 - paidPercent - overduePercent);
+  const hasLegacyOverpaidSchedules = summary.overpaidCount > 0;
   const hasScheduleMismatch = contractAmount > 0 && Math.abs(summary.expected - contractAmount) > 0.5;
   const hasNoSchedules = sortedSchedules.length === 0;
   const canRenderGenerateSchedulesCta = Boolean(onGenerateSchedules);
@@ -421,7 +489,14 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
       return;
     }
 
-    const status: PaymentScheduleStatus = parsedAmount >= Number(confirmingItem.expected_amount || 0) ? 'PAID' : 'PARTIAL';
+    const expectedComparableAmount = toWholeVndAmount(confirmingItem.expected_amount);
+    const paidComparableAmount = toWholeVndAmount(parsedAmount);
+    if (paidComparableAmount > expectedComparableAmount) {
+      setFormError(PAYMENT_OVER_AMOUNT_MESSAGE);
+      return;
+    }
+
+    const status: PaymentScheduleStatus = paidComparableAmount >= expectedComparableAmount ? 'PAID' : 'PARTIAL';
 
     setSubmittingId(confirmingItem.id);
     setFormError('');
@@ -443,8 +518,10 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
   };
 
   const previewAmount = parseAmount(actualAmount);
+  const previewComparableAmount = toWholeVndAmount(previewAmount);
+  const expectedPreviewAmount = confirmingItem ? toWholeVndAmount(confirmingItem.expected_amount) : 0;
   const previewStatus: PaymentScheduleStatus | null = confirmingItem
-    ? (previewAmount >= Number(confirmingItem.expected_amount || 0) ? 'PAID' : previewAmount > 0 ? 'PARTIAL' : null)
+    ? (previewComparableAmount >= expectedPreviewAmount ? 'PAID' : previewAmount > 0 ? 'PARTIAL' : null)
     : null;
 
   const handleExportXls = () => {
@@ -516,90 +593,48 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 leading-5">
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className={summaryMetricClass}>
               <span className={cardLabelClass}>Dự kiến thu:</span>
               <span className={`${cardValueBaseClass} text-slate-900`}>{formatCurrency(summary.expected)}</span>
-            </div>
-          </div>
-          <span
-            className="material-symbols-outlined rounded-full bg-primary/10 p-2 text-primary"
-            style={{ fontSize: 18 }}
-          >
-            payments
-          </span>
-        </div>
-        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 leading-5">
-              <span className={cardLabelClass}>Đã thu thực tế:</span>
-              <span className={`${cardValueBaseClass} text-success`}>{formatCurrency(summary.actual)}</span>
-            </div>
-          </div>
-          <span
-            className="material-symbols-outlined rounded-full bg-success/10 p-2 text-success"
-            style={{ fontSize: 18 }}
-          >
-            verified
-          </span>
-        </div>
-        <div className={`${summaryCardClass} flex items-center justify-between gap-3`}>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 leading-5">
+            </span>
+            <span className={summaryMetricClass}>
+              <span className={cardLabelClass}>Đã thu:</span>
+              <span className={`${cardValueBaseClass} ${hasLegacyOverpaidSchedules ? 'text-warning' : 'text-success'}`}>{formatCurrency(summary.actual)}</span>
+              {hasLegacyOverpaidSchedules && (
+                <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold leading-4 text-warning">
+                  Thu vượt dữ liệu
+                </span>
+              )}
+            </span>
+            <span className={summaryMetricClass}>
               <span className={cardLabelClass}>Còn phải thu:</span>
               <span className={`${cardValueBaseClass} text-warning`}>{formatCurrency(Math.max(0, summary.expected - summary.actual))}</span>
-            </div>
+            </span>
           </div>
-          <span
-            className="material-symbols-outlined rounded-full bg-warning/10 p-2 text-warning"
-            style={{ fontSize: 18 }}
-          >
-            calendar_clock
-          </span>
+
+          <div className="flex min-w-0 flex-col gap-1 xl:w-[360px]">
+            <div className="flex h-2 overflow-hidden rounded-full border border-slate-100 bg-slate-100">
+              <div style={{ width: `${paidPercent}%` }} className="bg-success" />
+              <div style={{ width: `${remainingPercent}%` }} className="bg-warning" />
+              <div style={{ width: `${overduePercent}%` }} className="bg-error" />
+            </div>
+            <p className={rowMetaTextClass}>
+              {hasLegacyOverpaidSchedules
+                ? `Thu vượt ${formatCurrency(summary.overpaid)} ở ${summary.overpaidCount} kỳ (${formatCurrency(summary.actual)} / ${formatCurrency(summary.expected)})`
+                : `Đã thu ${Math.round(paidPercent)}% (${formatCurrency(summary.actual)} / ${formatCurrency(summary.expected)})`}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm space-y-2">
-        <div className="h-2.5 rounded-full overflow-hidden border border-slate-100 bg-slate-100 flex">
-          <div style={{ width: `${paidPercent}%` }} className="bg-success transition-all" />
-          <div style={{ width: `${remainingPercent}%` }} className="bg-warning transition-all" />
-          <div style={{ width: `${overduePercent}%` }} className="bg-error transition-all" />
-        </div>
-        <p className={rowMetaTextClass}>
-          Đã thu {Math.round(paidPercent)}% ({formatCurrency(summary.actual)} / {formatCurrency(summary.expected)})
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-xl">
-        <div className="px-4 py-3 border-b border-slate-200 space-y-3">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-2 border-b border-slate-200 px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className={sectionTitleClass}>Danh sách kỳ thanh toán</p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleExportXls}
-                className={compactButtonClass}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
-                Xuất Excel
-              </button>
-              {onRefresh && (
-                <button
-                  type="button"
-                  onClick={() => onRefresh()}
-                  className={compactButtonClass}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
-                  Làm mới
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={sectionTitleClass}>Danh sách kỳ thanh toán</p>
               {[
                 { key: 'ALL', label: 'All' },
                 { key: 'PENDING', label: 'Chờ thu' },
@@ -609,14 +644,24 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                 <button
                   key={item.key}
                   type="button"
+                  aria-label={`${item.label} ${scheduleFilterCounts[item.key as PaymentScheduleFilter]}`}
                   onClick={() => setFilter(item.key as PaymentScheduleFilter)}
-                  className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                  className={`${segmentedButtonClass} h-7 gap-1 px-2 ${
                     filter === item.key
                       ? 'bg-primary text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {item.label}
+                  <span>{item.label}</span>
+                  <span
+                    className={`inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4 ${
+                      filter === item.key
+                        ? 'bg-white/20 text-white'
+                        : 'bg-white text-slate-500'
+                    }`}
+                  >
+                    {scheduleFilterCounts[item.key as PaymentScheduleFilter]}
+                  </span>
                 </button>
               ))}
             </div>
@@ -624,8 +669,28 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={handleExportXls}
+                aria-label="Xuất Excel"
+                title="Xuất Excel"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>
+              </button>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={() => onRefresh()}
+                  aria-label="Làm mới"
+                  title="Làm mới"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+                </button>
+              )}
+              <button
+                type="button"
                 onClick={() => setViewMode('TABLE')}
-                className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                className={`${segmentedButtonClass} h-7 px-2 ${
                   viewMode === 'TABLE'
                     ? 'bg-primary text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -636,7 +701,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('TIMELINE')}
-                className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                className={`${segmentedButtonClass} h-7 px-2 ${
                   viewMode === 'TIMELINE'
                     ? 'bg-primary text-white shadow-sm'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -656,19 +721,36 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
             Đang tải dòng tiền...
           </div>
         ) : viewMode === 'TABLE' ? (
-          <div className="max-h-[48vh] overflow-auto">
-            <table className="w-full min-w-[1180px] border-collapse">
+          <div className="max-h-[56vh] overflow-auto">
+            <table className={scheduleTableClass}>
+              <colgroup>
+                <col className="w-[56px]" />
+                <col className="w-[230px]" />
+                <col className="w-[96px]" />
+                <col className="w-[96px]" />
+                <col className="w-[96px]" />
+                <col className="w-[124px]" />
+                <col className="w-[96px]" />
+                <col className="w-[124px]" />
+                <col className="w-[112px]" />
+                <col className="w-[170px]" />
+                <col className="w-[64px]" />
+                <col className="w-[104px]" />
+              </colgroup>
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
+                  <th className={tableHeaderCenterClass}>TT</th>
                   <th className={tableHeaderClass}>Kỳ</th>
-                  <th className={tableHeaderClass}>Ngày dự kiến</th>
-                  <th className={tableHeaderClass}>Số tiền dự kiến</th>
-                  <th className={tableHeaderClass}>Ngày thực thu</th>
-                  <th className={tableHeaderClass}>Số tiền thực thu</th>
-                  <th className={tableHeaderClass}>Trạng thái</th>
+                  <th className={tableHeaderClass}>Từ ngày</th>
+                  <th className={tableHeaderClass}>Đến ngày</th>
+                  <th className={tableHeaderClass}>Dự kiến thu</th>
+                  <th className={tableHeaderClass}>Tiền dự kiến</th>
+                  <th className={tableHeaderClass}>Ngày thu</th>
+                  <th className={tableHeaderClass}>Thực thu</th>
+                  <th className={statusHeaderClass}>Trạng thái</th>
                   <th className={tableHeaderClass}>Người xác nhận</th>
                   <th className={tableHeaderClass}>Hồ sơ</th>
-                  <th className={tableHeaderRightClass}>Thao tác</th>
+                  <th className={actionHeaderClass}>Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -689,54 +771,78 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                       : isCurrentCycle
                       ? 'bg-primary/5 hover:bg-primary/10'
                       : 'hover:bg-slate-50';
+                    const actionCellClass = item.status === 'OVERDUE'
+                      ? 'bg-error/5 group-hover:bg-error/10'
+                      : isCurrentCycle
+                      ? 'bg-primary/5 group-hover:bg-primary/10'
+                      : 'bg-white group-hover:bg-slate-50';
+                    const expectedStartDate = String(item.expected_start_date || item.expected_date || '').trim();
+                    const expectedEndDate = String(item.expected_end_date || item.expected_date || '').trim();
                     const attachmentCount = item.attachments?.length ?? 0;
                     const hasAttachments = attachmentCount > 0;
                     const milestoneTone = resolveMilestoneBadgeTone(item.milestone_name);
+                    const shouldRenderMilestoneMeta = (item.status === 'OVERDUE' && overdueDays > 0)
+                      || (isCurrentCycle && item.status !== 'OVERDUE');
 
                     return (
-                      <tr key={item.id} className={`transition-colors ${rowClass}`}>
-                        <td className={`px-4 py-3 ${rowPrimaryTextClass}`}>
-                          <div className="flex items-center gap-1.5">
-                            {item.status === 'OVERDUE' && (
-                              <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>
-                                warning
-                              </span>
-                            )}
-                            {milestoneTone ? (
-                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold leading-4 ${milestoneTone}`}>
-                                {item.milestone_name}
-                              </span>
-                            ) : (
-                              <span>{item.milestone_name}</span>
-                            )}
-                            <span className="text-xs font-medium leading-4 text-slate-400">#{item.cycle_number}</span>
-                            {hasAttachments && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-semibold leading-4 text-secondary">
-                                <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
-                                {attachmentCount}
-                              </span>
+                      <tr key={item.id} className={`group transition-colors ${rowClass}`}>
+                        <td className="whitespace-nowrap px-2 py-2 text-center align-middle">
+                          <span className="inline-flex min-w-7 justify-center rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold leading-4 text-slate-500">
+                            #{item.cycle_number}
+                          </span>
+                        </td>
+                        <td className={`min-w-[210px] px-3 py-2 ${rowPrimaryTextClass}`}>
+                          <div className="space-y-1">
+                            <div className="flex items-start gap-2">
+                              {item.status === 'OVERDUE' && (
+                                <span className="material-symbols-outlined mt-0.5 shrink-0 text-error" style={{ fontSize: 14 }}>
+                                  warning
+                                </span>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                {milestoneTone ? (
+                                  <span className={`inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-semibold leading-4 ${milestoneTone}`}>
+                                    {item.milestone_name}
+                                  </span>
+                                ) : (
+                                  <p className="line-clamp-2 break-words text-[13px] font-semibold leading-4 text-slate-900">
+                                    {item.milestone_name}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {shouldRenderMilestoneMeta && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {item.status === 'OVERDUE' && overdueDays > 0 && (
+                                  <span className="inline-flex items-center rounded-full bg-error/10 px-2 py-0.5 text-xs font-semibold leading-4 text-error">
+                                    Quá hạn {overdueDays} ngày
+                                  </span>
+                                )}
+                                {isCurrentCycle && item.status !== 'OVERDUE' && (
+                                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold leading-4 text-primary">
+                                    Kỳ hiện tại
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
-                          {item.status === 'OVERDUE' && overdueDays > 0 && (
-                            <p className="mt-1 text-xs font-medium leading-4 text-error">Quá hạn {overdueDays} ngày</p>
-                          )}
-                          {isCurrentCycle && item.status !== 'OVERDUE' && (
-                            <p className="mt-1 text-xs font-medium leading-4 text-primary">Kỳ hiện tại</p>
-                          )}
                         </td>
-                        <td className={`px-4 py-3 ${rowMutedTextClass}`}>{formatDate(item.expected_date)}</td>
-                        <td className="px-4 py-3 text-sm font-medium leading-5 text-slate-900">{formatCurrency(item.expected_amount)}</td>
-                        <td className={`px-4 py-3 ${rowMutedTextClass}`}>{formatDate(item.actual_paid_date)}</td>
-                        <td className="px-4 py-3 text-sm font-medium leading-5 text-slate-900">{formatCurrency(item.actual_paid_amount)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium leading-4 ${STATUS_STYLES[item.status]}`}>
+                        <td className={`whitespace-nowrap px-2 py-2 ${rowMutedTextClass}`}>{formatDate(expectedStartDate)}</td>
+                        <td className={`whitespace-nowrap px-2 py-2 ${rowMutedTextClass}`}>{formatDate(expectedEndDate)}</td>
+                        <td className={`whitespace-nowrap px-2 py-2 ${rowMutedTextClass}`}>{formatDate(item.expected_date)}</td>
+                        <td className="whitespace-nowrap px-2 py-2 align-middle text-[13px] font-medium leading-4 text-slate-900">{formatCurrency(item.expected_amount)}</td>
+                        <td className={`whitespace-nowrap px-2 py-2 ${rowMutedTextClass}`}>{formatDate(item.actual_paid_date)}</td>
+                        <td className="whitespace-nowrap px-2 py-2 align-middle text-[13px] font-medium leading-4 text-slate-900">{formatCurrency(item.actual_paid_amount)}</td>
+                        <td className={statusCellClass}>
+                          <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium leading-4 ${STATUS_STYLES[item.status]}`}>
                             {STATUS_LABELS[item.status]}
                           </span>
                         </td>
-                        <td className={`px-4 py-3 ${rowMutedTextClass}`}>
+                        <td className={`px-2 py-2 ${rowMutedTextClass}`}>
                           {item.confirmed_by_name ? (
-                            <div className="space-y-1">
-                              <span className="inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold leading-4 text-success">
+                            <div className="space-y-0.5">
+                              <span className="inline-flex max-w-[150px] items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold leading-4 text-success">
                                 <span className="material-symbols-outlined text-[14px] leading-none">verified_user</span>
                                 <span className="truncate">{item.confirmed_by_name}</span>
                               </span>
@@ -746,34 +852,36 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                             <span className="text-xs font-medium leading-4 text-slate-400">--</span>
                           )}
                         </td>
-                        <td className={`px-4 py-3 ${rowMutedTextClass}`}>
+                        <td className={`px-2 py-2 ${rowMutedTextClass}`}>
                           {hasAttachments ? (
-                            <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/10 px-2.5 py-1 text-xs font-semibold leading-4 text-secondary">
-                                <span className="material-symbols-outlined text-[14px] leading-none">attach_file</span>
-                                {attachmentCount} file
-                              </span>
-                              <p className={rowMetaTextClass}>
-                                {attachmentCount === 1 ? 'Đã đính kèm hồ sơ nghiệm thu' : 'Có hồ sơ nghiệm thu đi kèm'}
-                              </p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => startConfirm(item)}
+                              aria-label={`Mở hồ sơ nghiệm thu: ${attachmentCount} file`}
+                              title={`Mở hồ sơ nghiệm thu (${attachmentCount} file)`}
+                              className="inline-flex h-7 min-w-[44px] items-center justify-center gap-1 rounded-full bg-secondary/10 px-2 text-xs font-bold leading-4 text-secondary transition-colors hover:bg-secondary/15 focus:outline-none focus:ring-1 focus:ring-secondary/30"
+                            >
+                              <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">attach_file</span>
+                              {attachmentCount}
+                            </button>
                           ) : (
                             <span className="text-xs font-medium leading-4 text-slate-400">--</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className={`${actionCellBaseClass} ${actionCellClass}`}>
                           {canViewDetails || canDelete ? (
-                            <div className="flex justify-end gap-2">
+                            <div className="flex justify-end gap-1.5">
                               {canViewDetails ? (
                                 <button
                                   type="button"
                                   onClick={() => startConfirm(item)}
-                                  className={primaryButtonClass}
+                                  aria-label={`${canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'} ${item.milestone_name}`}
+                                  title={canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
+                                  className={`${iconActionButtonClass} border-primary/20 text-primary hover:bg-primary/10`}
                                 >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                                    payments
+                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }} aria-hidden="true">
+                                    {canConfirm ? 'payments' : 'visibility'}
                                   </span>
-                                  {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
                                 </button>
                               ) : null}
                               {canDelete ? (
@@ -783,12 +891,13 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                                     void handleDeleteSchedule(item);
                                   }}
                                   disabled={String(deletingId || '') === String(item.id)}
-                                  className="inline-flex items-center gap-1.5 rounded border border-error/20 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-error transition-colors hover:bg-error/5 disabled:opacity-50"
+                                  aria-label={`Xóa kỳ ${item.milestone_name}`}
+                                  title="Xóa kỳ"
+                                  className={`${iconActionButtonClass} border-error/20 text-error hover:bg-error/10`}
                                 >
                                   <span className={`material-symbols-outlined ${String(deletingId || '') === String(item.id) ? 'animate-spin' : ''}`} style={{ fontSize: 15 }} aria-hidden="true">
                                     {String(deletingId || '') === String(item.id) ? 'progress_activity' : 'delete'}
                                   </span>
-                                  {String(deletingId || '') === String(item.id) ? 'Đang xóa' : 'Xóa kỳ'}
                                 </button>
                               ) : null}
                             </div>
@@ -801,7 +910,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-sm font-medium leading-5 text-slate-500">
+                    <td colSpan={12} className="px-4 py-8 text-center text-sm font-medium leading-5 text-slate-500">
                       {filter === 'ALL' ? (
                         <div className="flex flex-col items-center gap-3">
                           <span>Chưa có kỳ thanh toán nào cho hợp đồng này.</span>
@@ -906,10 +1015,15 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                               </span>
                             )}
                             {attachmentCount > 0 && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-semibold leading-4 text-secondary">
-                                <span className="material-symbols-outlined text-[13px] leading-none">attach_file</span>
-                                {attachmentCount} file
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => startConfirm(item)}
+                                aria-label={`Mở hồ sơ nghiệm thu: ${attachmentCount} file`}
+                                className="inline-flex h-7 items-center gap-1 rounded-full bg-secondary/10 px-2 text-xs font-semibold leading-4 text-secondary transition-colors hover:bg-secondary/15 focus:outline-none focus:ring-1 focus:ring-secondary/30"
+                              >
+                                <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">attach_file</span>
+                                {attachmentCount}
+                              </button>
                             )}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -934,10 +1048,6 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                           {item.confirmed_by_name && (
                             <p className="mt-1 text-xs font-medium leading-4 text-slate-500">Người xác nhận: {item.confirmed_by_name}</p>
                           )}
-                          {(item.attachments || []).length > 0 && (
-                            <p className="mt-1 text-xs font-medium leading-4 text-slate-500">{(item.attachments || []).length} file nghiệm thu</p>
-                          )}
-
                           {canViewDetails || canDelete ? (
                             <div className="mt-3 flex flex-wrap gap-2">
                               {canViewDetails ? (
@@ -946,7 +1056,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                                   onClick={() => startConfirm(item)}
                                   className={primaryButtonClass}
                                 >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }} aria-hidden="true">
                                     payments
                                   </span>
                                   {canConfirm ? 'Xác nhận thu tiền' : 'Xem thu tiền'}
@@ -959,7 +1069,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                                     void handleDeleteSchedule(item);
                                   }}
                                   disabled={String(deletingId || '') === String(item.id)}
-                                  className="inline-flex items-center gap-1.5 rounded border border-error/20 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-error transition-colors hover:bg-error/5 disabled:opacity-50"
+                                  className={dangerButtonClass}
                                 >
                                   <span className={`material-symbols-outlined ${String(deletingId || '') === String(item.id) ? 'animate-spin' : ''}`} style={{ fontSize: 15 }} aria-hidden="true">
                                     {String(deletingId || '') === String(item.id) ? 'progress_activity' : 'delete'}
@@ -1005,7 +1115,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
               <button
                 type="button"
                 onClick={confirmRemoveAttachment}
-                className="inline-flex items-center gap-1.5 rounded bg-error px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-white transition-colors hover:bg-error/90"
+                className={solidDangerButtonClass}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
                   delete
@@ -1033,7 +1143,7 @@ export const PaymentScheduleTab: React.FC<PaymentScheduleTabProps> = ({
                   </p>
                 </div>
               </div>
-              <button onClick={cancelConfirm} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+              <button onClick={cancelConfirm} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-1 focus:ring-primary/30">
                 <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
               </button>
             </div>

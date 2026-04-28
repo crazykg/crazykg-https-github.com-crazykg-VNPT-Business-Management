@@ -182,6 +182,8 @@ const buildGeneratePayload = ({
       ? normalizedCycleDraftInstallments.map((installment) => ({
           label: installment.label,
           expected_date: installment.expected_date,
+          expected_start_date: installment.expected_start_date || null,
+          expected_end_date: installment.expected_end_date || null,
           expected_amount: installment.expected_amount,
         }))
       : undefined,
@@ -617,11 +619,19 @@ export const useContractPaymentGeneration = ({
   ]);
 
   const normalizedCycleDraftInstallments = useMemo<ContractCycleDraftInstallmentInput[]>(
-    () => cycleDraftRows.map((row) => ({
-      label: String(row.label || '').trim(),
-      expected_date: String(row.expected_date || '').trim(),
-      expected_amount: roundMoney(parseDraftExpectedAmount(row.expected_amount)),
-    })),
+    () => cycleDraftRows.map((row) => {
+      const expectedStartDate = String(row.expected_start_date || '').trim();
+      const expectedEndDate = String(row.expected_end_date || '').trim();
+      const expectedDate = expectedStartDate || String(row.expected_date || '').trim();
+
+      return {
+        label: String(row.label || '').trim(),
+        expected_date: expectedDate,
+        expected_amount: roundMoney(parseDraftExpectedAmount(row.expected_amount)),
+        expected_start_date: expectedStartDate || undefined,
+        expected_end_date: expectedEndDate || undefined,
+      };
+    }),
     [cycleDraftRows]
   );
 
@@ -674,9 +684,23 @@ export const useContractPaymentGeneration = ({
       return `Tên kỳ ở dòng ${missingLabelIndex + 1} không được để trống.`;
     }
 
-    const invalidDateIndex = normalizedCycleDraftInstallments.findIndex((row) => !parseIsoDate(row.expected_date));
-    if (invalidDateIndex >= 0) {
-      return `Ngày dự kiến ở dòng ${invalidDateIndex + 1} không hợp lệ.`;
+    const invalidStartDateIndex = normalizedCycleDraftInstallments.findIndex((row) => !parseIsoDate(row.expected_start_date || row.expected_date));
+    if (invalidStartDateIndex >= 0) {
+      return `Từ ngày dự kiến ở dòng ${invalidStartDateIndex + 1} không hợp lệ.`;
+    }
+
+    const invalidEndDateIndex = normalizedCycleDraftInstallments.findIndex((row) => !parseIsoDate(row.expected_end_date || ''));
+    if (invalidEndDateIndex >= 0) {
+      return `Đến ngày dự kiến ở dòng ${invalidEndDateIndex + 1} không hợp lệ.`;
+    }
+
+    const invalidRangeIndex = normalizedCycleDraftInstallments.findIndex((row) => {
+      const startDate = parseIsoDate(row.expected_start_date || row.expected_date);
+      const endDate = parseIsoDate(row.expected_end_date || '');
+      return Boolean(startDate && endDate && endDate.getTime() < startDate.getTime());
+    });
+    if (invalidRangeIndex >= 0) {
+      return `Đến ngày dự kiến ở dòng ${invalidRangeIndex + 1} phải lớn hơn hoặc bằng Từ ngày dự kiến.`;
     }
 
     const invalidAmountIndex = normalizedCycleDraftInstallments.findIndex((row) => row.expected_amount <= 0);
@@ -727,7 +751,11 @@ export const useContractPaymentGeneration = ({
     setIsCycleDraftDirty(true);
     setCycleDraftRows((prev) => prev.map((row, rowIndex) => (
       rowIndex === index
-        ? { ...row, [field]: value }
+        ? {
+            ...row,
+            [field]: value,
+            ...(field === 'expected_start_date' ? { expected_date: value } : {}),
+          }
         : row
     )));
   };
@@ -735,7 +763,11 @@ export const useContractPaymentGeneration = ({
   const handleAddCycleDraftRow = () => {
     const nextIndex = cycleDraftRows.length + 1;
     const fallbackStartDate = resolveContractGenerationStartIso(formData) || todayIsoDate();
-    const lastExpectedDate = cycleDraftRows[cycleDraftRows.length - 1]?.expected_date || fallbackStartDate;
+    const lastRow = cycleDraftRows[cycleDraftRows.length - 1];
+    const lastExpectedDate = lastRow?.expected_end_date
+      || lastRow?.expected_start_date
+      || lastRow?.expected_date
+      || fallbackStartDate;
 
     setCyclePreviewTab('EDIT');
     setIsCycleDraftDirty(true);
@@ -744,6 +776,8 @@ export const useContractPaymentGeneration = ({
       {
         label: buildPaymentMilestoneName(normalizedCycle, nextIndex, selectedProjectInvestmentModeCode),
         expected_date: lastExpectedDate,
+        expected_start_date: lastExpectedDate,
+        expected_end_date: lastExpectedDate,
         expected_amount: '0',
       },
     ]);

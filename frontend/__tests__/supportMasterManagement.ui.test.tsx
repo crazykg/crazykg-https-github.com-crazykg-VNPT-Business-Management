@@ -19,6 +19,8 @@ const supportConfigApiMocks = vi.hoisted(() => ({
   fetchMonthlyCalendars: vi.fn(),
   generateCalendarYear: vi.fn(),
   updateCalendarDay: vi.fn(),
+  fetchSupportAuthSessionPolicy: vi.fn(),
+  updateSupportAuthSessionPolicy: vi.fn(),
 }));
 
 const productApiMocks = vi.hoisted(() => ({
@@ -57,6 +59,7 @@ import { SupportMasterManagement } from '../components/SupportMasterManagement';
 import type {
   ContractSignerMaster,
   ProductUnitMaster,
+  SupportAuthSessionPolicy,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
@@ -307,6 +310,15 @@ const workCalendarDays: WorkCalendarDay[] = [
   },
 ];
 
+const supportAuthSessionPolicy: SupportAuthSessionPolicy = {
+  provider: 'AUTH_SESSION_POLICY',
+  same_browser_multi_tab_enabled: true,
+  updated_at: '2026-04-25 10:20:30',
+  updated_by: 1,
+  updated_by_name: 'System Admin',
+  source: 'DB',
+};
+
 const noopAsync = vi.fn(async () => {
   throw new Error('Not implemented in test');
 });
@@ -393,6 +405,11 @@ describe('SupportMasterManagement', () => {
       skipped: 0,
     });
     supportConfigApiMocks.updateCalendarDay.mockResolvedValue(workCalendarDays[0]);
+    supportConfigApiMocks.fetchSupportAuthSessionPolicy.mockResolvedValue(supportAuthSessionPolicy);
+    supportConfigApiMocks.updateSupportAuthSessionPolicy.mockResolvedValue({
+      ...supportAuthSessionPolicy,
+      same_browser_multi_tab_enabled: false,
+    });
     productApiMocks.fetchProductTargetSegments.mockResolvedValue({
       data: productTargetSegments,
       meta: { table_available: true },
@@ -418,6 +435,42 @@ describe('SupportMasterManagement', () => {
     expect(await screen.findByText('1 phân khúc')).toBeInTheDocument();
     expect(screen.getByText('Y tế • Bệnh viện (Công lập)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cấu hình bán sản phẩm' })).toBeInTheDocument();
+  });
+
+  it('loads and saves same-browser multi-tab session policy from support master management', async () => {
+    const user = userEvent.setup();
+    const notifyMock = vi.fn();
+
+    renderSupportMasterManagement({
+      canReadStatuses: true,
+      canWriteStatuses: true,
+      onNotify: notifyMock,
+    });
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.fetchSupportAuthSessionPolicy).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
+    await user.click(await screen.findByRole('button', { name: /phiên đăng nhập nhiều tab/i }));
+
+    expect(await screen.findByText('Cho phép 1 tài khoản dùng nhiều tab trong cùng trình duyệt')).toBeInTheDocument();
+    expect(screen.getByText('System Admin')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /đang bật nhiều tab/i }));
+    await user.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.updateSupportAuthSessionPolicy).toHaveBeenCalledWith({
+        same_browser_multi_tab_enabled: false,
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'success',
+      'Cấu hình phiên đăng nhập',
+      'Đã tắt đăng nhập nhiều tab trong cùng trình duyệt.'
+    );
   });
 
   it('shows and creates contract signer masters with ownership department mapping', async () => {

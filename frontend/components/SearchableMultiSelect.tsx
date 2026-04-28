@@ -9,6 +9,18 @@ export interface SearchableMultiSelectOption {
   searchText?: string;
 }
 
+export interface SearchableMultiSelectAsyncLoadParams {
+  page: number;
+  perPage: number;
+  query: string;
+  selectedValues: string[];
+}
+
+export interface SearchableMultiSelectAsyncLoadResult {
+  options: SearchableMultiSelectOption[];
+  hasMore?: boolean;
+}
+
 interface SearchableMultiSelectProps {
   values: Array<string | number>;
   options: SearchableMultiSelectOption[];
@@ -27,6 +39,11 @@ interface SearchableMultiSelectProps {
   selectedSummaryFormatter?: (selectedOptions: SearchableMultiSelectOption[]) => string;
   usePortal?: boolean;
   portalZIndex?: number;
+  asyncLoader?: (
+    params: SearchableMultiSelectAsyncLoadParams
+  ) => Promise<SearchableMultiSelectAsyncLoadResult>;
+  asyncDebounceMs?: number;
+  asyncPerPage?: number;
 }
 
 const normalizeToken = (value: unknown): string =>
@@ -54,6 +71,9 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   selectedSummaryFormatter,
   usePortal = true,
   portalZIndex = 2000,
+  asyncLoader,
+  asyncDebounceMs = 300,
+  asyncPerPage = 30,
 }) {
   const dropdownComfortHeight = 220;
   const dropdownIdealHeight = 320;
@@ -69,15 +89,90 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
   const dropdownRef = useRef<HTMLDivElement>(null);
   const optionsScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const asyncRequestIdRef = useRef(0);
   const canUsePortal = usePortal && typeof document !== 'undefined';
+  const isAsync = typeof asyncLoader === 'function';
+  const [asyncOptions, setAsyncOptions] = useState<SearchableMultiSelectOption[]>([]);
+  const [asyncPage, setAsyncPage] = useState(1);
+  const [asyncHasMore, setAsyncHasMore] = useState(false);
+  const [isLoadingAsyncOptions, setIsLoadingAsyncOptions] = useState(false);
+  const externalOptionsRef = useRef(options);
+  const selectedValuesRef = useRef((values || []).map(String));
+
+  useEffect(() => {
+    externalOptionsRef.current = options;
+  }, [options]);
+
+  useEffect(() => {
+    selectedValuesRef.current = (values || []).map(String);
+  }, [values]);
 
   const selectedSet = useMemo(() => new Set((values || []).map((item) => String(item))), [values]);
+  const mergedOptions = useMemo(() => {
+    const dedup = new Map<string, SearchableMultiSelectOption>();
+
+    [...options, ...asyncOptions].forEach((option) => {
+      dedup.set(String(option.value), option);
+    });
+
+    return Array.from(dedup.values());
+  }, [asyncOptions, options]);
+  const activeOptions = isAsync ? mergedOptions : options;
   const selectedOptions = useMemo(() => {
-    const optionMap = new Map(options.map((option) => [String(option.value), option]));
+    const optionMap = new Map(activeOptions.map((option) => [String(option.value), option]));
     return (values || [])
       .map((item) => optionMap.get(String(item)))
       .filter((option): option is SearchableMultiSelectOption => Boolean(option));
-  }, [options, values]);
+  }, [activeOptions, values]);
+  const selectedValuesKey = useMemo(
+    () => (values || []).map(String).slice().sort().join('|'),
+    [values]
+  );
+
+  const loadAsyncOptions = useCallback(async (
+    page: number,
+    query: string,
+    mode: 'replace' | 'append'
+  ) => {
+    if (!asyncLoader) {
+      return;
+    }
+
+    const requestId = ++asyncRequestIdRef.current;
+    setIsLoadingAsyncOptions(true);
+
+    try {
+      const result = await asyncLoader({
+        page,
+        perPage: asyncPerPage,
+        query,
+        selectedValues: selectedValuesRef.current,
+      });
+
+      if (requestId !== asyncRequestIdRef.current) {
+        return;
+      }
+
+      setAsyncHasMore(Boolean(result.hasMore));
+      setAsyncPage(page);
+      setAsyncOptions((previous) => {
+        const dedup = new Map<string, SearchableMultiSelectOption>();
+        const source = mode === 'append'
+          ? [...externalOptionsRef.current, ...previous, ...result.options]
+          : [...externalOptionsRef.current, ...result.options];
+
+        source.forEach((option) => {
+          dedup.set(String(option.value), option);
+        });
+
+        return Array.from(dedup.values());
+      });
+    } finally {
+      if (requestId === asyncRequestIdRef.current) {
+        setIsLoadingAsyncOptions(false);
+      }
+    }
+  }, [asyncLoader, asyncPerPage]);
 
   const resolveDropdownPlacement = useCallback(() => {
     if (!wrapperRef.current) {
@@ -208,17 +303,58 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
     };
   }, [canUsePortal, isOpen, options.length, searchTerm, syncPortalPlacement]);
 
-  const filteredOptions = useMemo(() => {
-    const keyword = normalizeToken(searchTerm);
-    if (!keyword) {
-      return options;
+  useEffect(() => {
+    if (!isAsync || !isOpen) {
+      return;
     }
 
-    return options.filter((option) => {
+    const timer = window.setTimeout(() => {
+      void loadAsyncOptions(1, searchTerm.trim(), 'replace');
+    }, asyncDebounceMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [asyncDebounceMs, isAsync, isOpen, loadAsyncOptions, searchTerm, selectedValuesKey]);
+
+  useEffect(() => {
+    if (!isAsync || isOpen || selectedOptions.length === values.length) {
+      return;
+    }
+
+    void loadAsyncOptions(1, '', 'replace');
+  }, [isAsync, isOpen, loadAsyncOptions, selectedOptions.length, values.length, selectedValuesKey]);
+
+  const filteredOptions = useMemo(() => {
+    if (isAsync) {
+      return activeOptions;
+    }
+
+    const keyword = normalizeToken(searchTerm);
+    if (!keyword) {
+      return activeOptions;
+    }
+
+    return activeOptions.filter((option) => {
       const haystack = normalizeToken(option.searchText ?? `${option.label} ${option.value}`);
       return haystack.includes(keyword);
     });
-  }, [options, searchTerm]);
+  }, [activeOptions, isAsync, searchTerm]);
+
+  const handleOptionsScroll = useCallback(() => {
+    if (!isAsync || isLoadingAsyncOptions || !asyncHasMore || !optionsScrollRef.current) {
+      return;
+    }
+
+    const container = optionsScrollRef.current;
+    const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
+
+    if (remaining > 48) {
+      return;
+    }
+
+    void loadAsyncOptions(asyncPage + 1, searchTerm.trim(), 'append');
+  }, [asyncHasMore, asyncPage, isAsync, isLoadingAsyncOptions, loadAsyncOptions, searchTerm]);
 
   const rowVirtualizer = useVirtualizer({
     count: filteredOptions.length,
@@ -250,8 +386,11 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
       : `Đã chọn ${selectedOptions.length}`
     : placeholder;
 
+  const hasCustomTriggerHeight = /\b(?:h-|min-h-)/.test(triggerClassName);
   const baseTriggerClass =
-    'w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-left text-sm text-slate-900 transition focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed';
+    `w-full rounded-[var(--ui-control-radius)] border border-slate-300 bg-white text-left text-sm text-slate-900 transition focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed ${
+      hasCustomTriggerHeight ? 'px-2.5 py-0' : 'min-h-[44px] px-4 py-2'
+    }`;
   const mergedTriggerClass = `${baseTriggerClass} ${error ? 'border-red-500 ring-1 ring-red-500' : ''} ${triggerClassName}`.trim();
 
   return (
@@ -313,7 +452,12 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                 />
               </div>
             </div>
-            <div ref={optionsScrollRef} className="overflow-y-auto p-1 custom-scrollbar" style={{ maxHeight: optionsMaxHeight }}>
+            <div
+              ref={optionsScrollRef}
+              onScroll={handleOptionsScroll}
+              className="overflow-y-auto p-1 custom-scrollbar"
+              style={{ maxHeight: optionsMaxHeight }}
+            >
               {filteredOptions.length > 0 ? (
                 <div
                   style={{
@@ -363,12 +507,20 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                     );
                   })}
                 </div>
+              ) : isLoadingAsyncOptions ? (
+                <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-slate-400">
+                  <span aria-hidden="true" className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                  <span>Đang tải dữ liệu...</span>
+                </div>
               ) : (
                 <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
                   <span aria-hidden="true" className="material-symbols-outlined text-2xl">search_off</span>
                   <span>{noOptionsText}</span>
                 </div>
               )}
+              {filteredOptions.length > 0 && isLoadingAsyncOptions ? (
+                <div className="px-3 py-2 text-xs font-semibold text-slate-400">Đang tải thêm...</div>
+              ) : null}
             </div>
           </div>,
           document.body
@@ -393,7 +545,12 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
               />
             </div>
           </div>
-          <div ref={optionsScrollRef} className="overflow-y-auto p-1 custom-scrollbar" style={{ maxHeight: optionsMaxHeight }}>
+          <div
+            ref={optionsScrollRef}
+            onScroll={handleOptionsScroll}
+            className="overflow-y-auto p-1 custom-scrollbar"
+            style={{ maxHeight: optionsMaxHeight }}
+          >
             {filteredOptions.length > 0 ? (
               <div
                 style={{
@@ -443,12 +600,20 @@ export const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = React
                   );
                 })}
               </div>
+            ) : isLoadingAsyncOptions ? (
+              <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-slate-400">
+                <span aria-hidden="true" className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                <span>Đang tải dữ liệu...</span>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-400">
                 <span aria-hidden="true" className="material-symbols-outlined text-2xl">search_off</span>
                 <span>{noOptionsText}</span>
               </div>
             )}
+            {filteredOptions.length > 0 && isLoadingAsyncOptions ? (
+              <div className="px-3 py-2 text-xs font-semibold text-slate-400">Đang tải thêm...</div>
+            ) : null}
           </div>
           </div>
         ))

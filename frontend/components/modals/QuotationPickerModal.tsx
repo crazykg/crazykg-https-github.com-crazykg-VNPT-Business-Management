@@ -17,6 +17,14 @@ interface QuotationPickerModalProps {
 const formatMoney = (value: number): string =>
   value.toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
+const formatQuantity = (value: number): string =>
+  Number.isFinite(value)
+    ? value.toLocaleString('vi-VN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+      })
+    : '0';
+
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '';
   const d = new Date(value);
@@ -211,12 +219,14 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
     const newItems: ProjectItem[] = selectedEligibleItems.map((item, idx) => {
       const qty = Number(item.quantity) || 1;
       const price = Number(item.unit_price) || 0;
+      const unit = String(item.unit || '').trim() || null;
       return {
         id: `ITEM_QUO_${quotationDetail.id}_${item.id ?? idx}_${Date.now()}`,
         productId: String(item.product_id),
         productPackageId: item.package_id ?? null,
         product_id: item.product_id ?? null,
         product_package_id: item.package_id ?? null,
+        unit,
         quantity: qty,
         unitPrice: price,
         unit_price: price,
@@ -232,10 +242,10 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
   }, [mergeMode, onConfirm, quotationDetail, selectedEligibleItems]);
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 ui-layer-popover flex items-center justify-center bg-black/40 p-4">
       <div
         data-testid="quotation-picker-modal"
-        className="flex max-h-[90vh] w-full max-w-[50.5rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-[92rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-3">
@@ -276,7 +286,7 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
 
           <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* Danh sách bên trái */}
-            <div className="flex w-56 shrink-0 flex-col border-r border-slate-100">
+            <div className="flex w-64 shrink-0 flex-col border-r border-slate-100 xl:w-72">
               <div className="border-b border-slate-100 bg-slate-50/60 px-3 py-1.5">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {isLoadingList ? 'Đang tải...' : `${filteredList.length} báo giá`}
@@ -361,7 +371,7 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
                         Không có hạng mục nào khớp sản phẩm trong hệ thống.
                       </p>
                     ) : (
-                      <table className="w-full text-left">
+                      <table className="w-full min-w-[56rem] text-left">
                         <thead className="sticky top-0 bg-slate-50/95 backdrop-blur-sm">
                           <tr className="border-b border-slate-200">
                             <th className="px-2 py-1.5 text-center">
@@ -374,11 +384,24 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
                                 className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary/30"
                               />
                             </th>
-                            {['#', 'Sản phẩm', 'ĐVT', 'SL', 'Đơn giá', 'Thành tiền'].map((h) => (
-                              <th key={h} className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                                {h}
-                              </th>
-                            ))}
+                            <th className="px-2 py-1.5 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              #
+                            </th>
+                            <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              Sản phẩm
+                            </th>
+                            <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              ĐVT
+                            </th>
+                            <th className="px-2 py-1.5 text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              Số lượng
+                            </th>
+                            <th className="px-2 py-1.5 text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              Đơn giá
+                            </th>
+                            <th className="px-2 py-1.5 text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              Thành tiền
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -410,7 +433,7 @@ export const QuotationPickerModal: React.FC<QuotationPickerModalProps> = ({
                                   )}
                                 </td>
                                 <td className="px-2 py-1.5 text-xs text-slate-600">{item.unit ?? '—'}</td>
-                                <td className="px-2 py-1.5 text-right text-xs text-slate-800">{qty}</td>
+                                <td className="px-2 py-1.5 text-right text-xs text-slate-800">{formatQuantity(qty)}</td>
                                 <td className="px-2 py-1.5 text-right text-xs text-slate-800">{formatMoney(price)}</td>
                                 <td className="px-2 py-1.5 text-right text-xs font-semibold text-slate-900">{formatMoney(total)}</td>
                               </tr>

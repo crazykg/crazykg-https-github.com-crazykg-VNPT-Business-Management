@@ -7,6 +7,16 @@ import { AGE_RANGE_ERROR_MESSAGE, normalizeDateInputToIso } from './dateFieldUti
 import { FormSelect } from './selectPrimitives';
 import { FormInput, ModalWrapper } from './shared';
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GMAIL_PATTERN = /^[^\s@]+@gmail\.com$/i;
+type EmployeeFormErrors = {
+  department_id?: string;
+  date_of_birth?: string;
+  leave_date?: string;
+  email?: string;
+  gmail?: string;
+};
+
 export interface EmployeeFormModalProps {
   type: 'ADD' | 'EDIT';
   data?: Employee | null;
@@ -54,6 +64,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
     full_name: data?.full_name || '',
     phone_number: data?.phone_number || data?.phone || data?.mobile || '',
     email: data?.email || '',
+    gmail: data?.gmail || '',
     job_title_raw: data?.job_title_vi || data?.job_title_raw || '',
     date_of_birth: formatFormDateValue(data?.date_of_birth || ''),
     leave_date: formatFormDateValue(data?.leave_date || ''),
@@ -64,7 +75,7 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
     department_id: data?.department_id || '',
     position_id: data?.position_id || '',
   });
-  const [formErrors, setFormErrors] = useState<{ department_id?: string; date_of_birth?: string; leave_date?: string }>({});
+  const [formErrors, setFormErrors] = useState<EmployeeFormErrors>({});
   const isInactiveStatus = formData.status === 'INACTIVE';
 
   const positionOptions = useMemo(() => {
@@ -106,7 +117,37 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
           onChange={(e: any) => setFormData({ ...formData, phone_number: e.target.value })}
           placeholder="0912345678"
         />
-        <FormInput label="Email" labelClassName={fieldLabelClassName} inputClassName={fieldInputClassName} value={formData.email} onChange={(e: any) => setFormData({ ...formData, email: e.target.value })} placeholder="email@vnpt.vn" required />
+        <FormInput
+          label="VNPT Mail"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
+          type="email"
+          value={formData.email}
+          onChange={(e: any) => {
+            setFormData({ ...formData, email: e.target.value });
+            if (formErrors.email) {
+              setFormErrors((prev) => ({ ...prev, email: undefined }));
+            }
+          }}
+          placeholder="email@vnpt.vn"
+          required
+          error={formErrors.email}
+        />
+        <FormInput
+          label="Gmail"
+          labelClassName={fieldLabelClassName}
+          inputClassName={fieldInputClassName}
+          type="email"
+          value={formData.gmail}
+          onChange={(e: any) => {
+            setFormData({ ...formData, gmail: e.target.value });
+            if (formErrors.gmail) {
+              setFormErrors((prev) => ({ ...prev, gmail: undefined }));
+            }
+          }}
+          placeholder="email@gmail.com"
+          error={formErrors.gmail}
+        />
         <FormSelect
           label="Phòng ban tham chiếu"
           labelClassName={fieldLabelClassName}
@@ -172,51 +213,46 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
           placeholder="192.168.1.10"
           disabled={type === 'EDIT'}
         />
-
-        <div className="col-span-1 lg:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-          <FormSelect
-            label="Trạng thái"
+        <FormSelect
+          label="Trạng thái"
+          labelClassName={fieldLabelClassName}
+          size="sm"
+          value={formData.status}
+          onChange={(e: any) => {
+            const nextStatus = normalizeEmployeeStatusValue(e.target.value);
+            setFormData((prev) => ({
+              ...prev,
+              status: nextStatus,
+              leave_date: nextStatus === 'INACTIVE' ? prev.leave_date || '' : '',
+            }));
+            if (formErrors.leave_date) {
+              setFormErrors((prev) => ({ ...prev, leave_date: undefined }));
+            }
+          }}
+          options={[
+            { value: 'ACTIVE', label: 'Hoạt động' },
+            { value: 'INACTIVE', label: 'Nghỉ việc' },
+            { value: 'SUSPENDED', label: 'Luân chuyển' },
+          ]}
+        />
+        {isInactiveStatus ? (
+          <FormInput
+            label="Ngày nghỉ việc"
             labelClassName={fieldLabelClassName}
-            size="sm"
-            value={formData.status}
+            inputClassName={fieldInputClassName}
+            type="text"
+            value={String(formData.leave_date || '')}
             onChange={(e: any) => {
-              const nextStatus = normalizeEmployeeStatusValue(e.target.value);
-              setFormData((prev) => ({
-                ...prev,
-                status: nextStatus,
-                leave_date: nextStatus === 'INACTIVE' ? prev.leave_date || '' : '',
-              }));
+              setFormData({ ...formData, leave_date: e.target.value || '' });
               if (formErrors.leave_date) {
                 setFormErrors((prev) => ({ ...prev, leave_date: undefined }));
               }
             }}
-            options={[
-              { value: 'ACTIVE', label: 'Hoạt động' },
-              { value: 'INACTIVE', label: 'Nghỉ việc' },
-              { value: 'SUSPENDED', label: 'Luân chuyển' },
-            ]}
+            placeholder="dd/mm/yyyy"
+            required
+            error={formErrors.leave_date}
           />
-          {isInactiveStatus ? (
-            <FormInput
-              label="Ngày nghỉ việc"
-              labelClassName={fieldLabelClassName}
-              inputClassName={fieldInputClassName}
-              type="text"
-              value={String(formData.leave_date || '')}
-              onChange={(e: any) => {
-                setFormData({ ...formData, leave_date: e.target.value || '' });
-                if (formErrors.leave_date) {
-                  setFormErrors((prev) => ({ ...prev, leave_date: undefined }));
-                }
-              }}
-              placeholder="dd/mm/yyyy"
-              required
-              error={formErrors.leave_date}
-            />
-          ) : (
-            <div></div>
-          )}
-        </div>
+        ) : null}
       </div>
       <div className="flex items-center justify-end gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-shrink-0">
         <button onClick={onClose} className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">Hủy</button>
@@ -234,10 +270,22 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         ) : null}
         <button
           onClick={() => {
-            const nextErrors: { department_id?: string; date_of_birth?: string; leave_date?: string } = {};
+            const nextErrors: EmployeeFormErrors = {};
 
             if (!String(formData.department_id || '').trim()) {
               nextErrors.department_id = 'Nhân sự bắt buộc thuộc một phòng ban.';
+            }
+
+            const normalizedEmail = String(formData.email || '').trim();
+            if (!normalizedEmail) {
+              nextErrors.email = 'VNPT Mail là bắt buộc.';
+            } else if (!EMAIL_PATTERN.test(normalizedEmail)) {
+              nextErrors.email = 'VNPT Mail không hợp lệ.';
+            }
+
+            const normalizedGmail = String(formData.gmail || '').trim();
+            if (normalizedGmail && !GMAIL_PATTERN.test(normalizedGmail)) {
+              nextErrors.gmail = 'Gmail phải có định dạng @gmail.com.';
             }
 
             const normalizedDateOfBirth = normalizeDateInputToIso(String(formData.date_of_birth || ''));
@@ -265,6 +313,8 @@ export const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
               ...formData,
               date_of_birth: normalizedDateOfBirth,
               leave_date: normalizedLeaveDate,
+              email: normalizedEmail,
+              gmail: normalizedGmail || null,
               phone_number: String(formData.phone_number || '').trim() || null,
             });
           }}

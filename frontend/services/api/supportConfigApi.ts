@@ -3,12 +3,14 @@ import type { DepartmentWeekOption, DepartmentWeeklySchedule, WorkCalendarDay } 
 import type {
   ContractSignerMaster,
   ProductUnitMaster,
+  SupportAuthSessionPolicy,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
   SupportSlaConfigOption,
   WorklogActivityTypeOption,
 } from '../../types/support';
+import { setSameBrowserMultiTabEnabled } from '../../shared/api/apiFetch';
 import {
   apiFetch,
   fetchList,
@@ -57,6 +59,20 @@ export const fetchProductUnitMasters = async (includeInactive = false): Promise<
 export const fetchContractSignerMasters = async (includeInactive = false): Promise<ContractSignerMaster[]> => {
   const query = includeInactive ? '?include_inactive=1' : '';
   return fetchList<ContractSignerMaster>(`/api/v5/contract-signer-masters${query}`);
+};
+
+export const fetchSupportAuthSessionPolicy = async (): Promise<SupportAuthSessionPolicy> => {
+  const res = await apiFetch('/api/v5/support-auth-session-policy', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_AUTH_SESSION_POLICY_FAILED'));
+  }
+
+  const record = await parseItemJson<SupportAuthSessionPolicy>(res);
+  setSameBrowserMultiTabEnabled(record.same_browser_multi_tab_enabled !== false);
+  return record;
 };
 
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
@@ -292,6 +308,29 @@ export const updateContractSignerMaster = async (
   }
 
   return parseItemJson<ContractSignerMaster>(res);
+};
+
+export const updateSupportAuthSessionPolicy = async (payload: {
+  same_browser_multi_tab_enabled: boolean;
+  updated_by?: string | number | null;
+}): Promise<SupportAuthSessionPolicy> => {
+  const res = await apiFetch('/api/v5/support-auth-session-policy', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      same_browser_multi_tab_enabled: Boolean(payload.same_browser_multi_tab_enabled),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_AUTH_SESSION_POLICY_FAILED'));
+  }
+
+  const record = await parseItemJson<SupportAuthSessionPolicy>(res);
+  setSameBrowserMultiTabEnabled(record.same_browser_multi_tab_enabled !== false);
+  return record;
 };
 
 export const createSupportContactPositionsBulk = async (

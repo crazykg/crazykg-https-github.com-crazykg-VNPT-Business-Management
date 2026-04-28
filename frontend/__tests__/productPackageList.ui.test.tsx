@@ -114,6 +114,11 @@ describe('ProductPackageList UI', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Gói cước Sản phẩm' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Tìm mã gói, tên gói hoặc sản phẩm...')).toHaveClass('h-8', 'rounded-md', 'bg-slate-50');
+    expect(screen.getByRole('button', { name: 'Hoạt động' }).className).toContain('!h-8');
+    expect(screen.getByRole('button', { name: 'Hoạt động' }).className).toContain('!text-xs');
+    expect(screen.getByText('Dòng/trang')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '15' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Lĩnh vực KD')).not.toBeInTheDocument();
     expect(screen.queryByText('Nhà cung cấp')).not.toBeInTheDocument();
     expect(screen.queryByText('SP001')).not.toBeInTheDocument();
@@ -149,6 +154,7 @@ describe('ProductPackageList UI', () => {
 
     await user.clear(screen.getByPlaceholderText('Tìm mã gói, tên gói hoặc sản phẩm...'));
     await user.click(screen.getByRole('button', { name: 'Sản phẩm cha' }));
+    expect(screen.getByText(/SP001 - Gói HIS cơ bản/i)).toHaveClass('truncate', 'text-xs');
     await user.click(screen.getByRole('button', { name: /SP001 - Gói HIS cơ bản/i }));
 
     expect(screen.getAllByText('PKG-HIS-01').length).toBeGreaterThan(0);
@@ -241,7 +247,7 @@ describe('ProductPackageList UI', () => {
     expect(exportSpies.exportPdfTable).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the price column right-aligned after shrinking the desktop table layout', () => {
+  it('renders the compact master rows without the previous wide desktop columns', () => {
     render(
       <ProductPackageList
         productPackages={productPackages}
@@ -253,11 +259,44 @@ describe('ProductPackageList UI', () => {
       />
     );
 
-    expect(screen.getByText('Mô tả')).toBeInTheDocument();
-    expect(screen.getByText('Đơn giá (Trước VAT)')).toHaveClass('text-right');
+    expect(screen.getByText('Gói cước')).toBeInTheDocument();
+    expect(screen.getAllByText('Sản phẩm cha').length).toBeGreaterThan(0);
+    expect(screen.getByText('Giá / ĐVT')).toHaveClass('text-right');
+    expect(screen.getByText('Trạng thái')).toBeInTheDocument();
     expect(screen.getAllByText('2.500.000 đ')[0]).toHaveClass('text-right', 'whitespace-nowrap', 'tabular-nums');
     expect(screen.getAllByText('Áp dụng tuyến huyện')[0]).toBeInTheDocument();
-    expect(screen.getByText('Sản phẩm/Dịch vụ')).toBeInTheDocument();
-    expect(screen.getAllByText('PKG-HIS-01')[0]).toHaveClass('align-middle');
+    expect(screen.queryByText('Mô tả')).not.toBeInTheDocument();
+    expect(screen.getAllByText('PKG-HIS-01')[0]).toHaveClass('text-deep-teal');
+  });
+
+  it('paginates compact rows with the default 15 packages per page', async () => {
+    const user = userEvent.setup();
+    const manyPackages: ProductPackage[] = Array.from({ length: 16 }, (_, index) => ({
+      ...productPackages[0],
+      id: 100 + index,
+      package_code: `PKG-PAGE-${String(index + 1).padStart(2, '0')}`,
+      package_name: `Gói phân trang ${index + 1}`,
+      description: `Mô tả phân trang ${index + 1}`,
+    }));
+
+    render(
+      <ProductPackageList
+        productPackages={manyPackages}
+        products={products}
+        businesses={businesses}
+        vendors={vendors}
+        onOpenModal={vi.fn()}
+        canImport
+      />
+    );
+
+    expect(screen.getByText(/Hiển thị/)).toBeInTheDocument();
+    expect(screen.getByText('1-15')).toBeInTheDocument();
+    expect(screen.queryAllByText('PKG-PAGE-16')).toHaveLength(0);
+
+    await user.click(screen.getByTitle('Trang sau'));
+
+    expect(screen.getAllByText('PKG-PAGE-16').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('PKG-PAGE-01')).toHaveLength(0);
   });
 });

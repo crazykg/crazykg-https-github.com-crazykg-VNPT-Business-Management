@@ -74,6 +74,39 @@ describe('contractApi module', () => {
     expect(String(url)).toContain('filters%5Bstatus%5D=SIGNED');
   });
 
+  it('preserves filtered contract period total from paginated contract list meta', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        data: [],
+        meta: {
+          page: 1,
+          per_page: 20,
+          total: 2,
+          total_pages: 1,
+          kpis: {
+            total_contracts: 2,
+            sign_period_total_value: 1647360000,
+          },
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const result = await fetchContractsPage({
+      page: 1,
+      per_page: 20,
+      filters: {
+        sign_date_from: '2026-01-01',
+        sign_date_to: '2026-12-31',
+      },
+    });
+
+    expect(result.meta.kpis?.total_contracts).toBe(2);
+    expect(result.meta.kpis?.sign_period_total_value).toBe(1647360000);
+  });
+
   it('normalizes contract payload fields before create', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ data: { id: 1, contract_code: 'HD001' } }), {
@@ -332,11 +365,15 @@ describe('contractApi module', () => {
         {
           label: 'Phí dịch vụ kỳ 1 (quý)',
           expected_date: '2026-04-11',
+          expected_start_date: '2026-04-11',
+          expected_end_date: '2026-07-10',
           expected_amount: 4500000.25,
         },
         {
           label: 'Phí dịch vụ kỳ 2 (quý)',
           expected_date: '2026-07-15',
+          expected_start_date: '2026-07-11',
+          expected_end_date: '2026-10-10',
           expected_amount: 4499999.75,
         },
       ],
@@ -351,11 +388,15 @@ describe('contractApi module', () => {
         {
           label: 'Phí dịch vụ kỳ 1 (quý)',
           expected_date: '2026-04-11',
+          expected_start_date: '2026-04-11',
+          expected_end_date: '2026-07-10',
           expected_amount: 4500000.25,
         },
         {
           label: 'Phí dịch vụ kỳ 2 (quý)',
           expected_date: '2026-07-15',
+          expected_start_date: '2026-07-11',
+          expected_end_date: '2026-10-10',
           expected_amount: 4499999.75,
         },
       ],

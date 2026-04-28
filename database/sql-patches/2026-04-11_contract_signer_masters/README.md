@@ -19,7 +19,6 @@ Already covered by existing SQL patch sets:
 - `2026_04_09_210000_add_detail_status_and_worklog_fields_for_crc`
   - `database/sql-patches/2026-04-10_crc_detail_status_worklog/2026-04-10_01_add_detail_status_and_worklog_fields_for_crc.sql`
 - `2026_04_13_133559_create_product_packages_table`
-- `2026_04_13_163026_modify_product_package_foreign_key_in_project_items`
 - `2026_04_13_163842_fix_product_package_foreign_key_constraint`
 - `2026_04_13_225500_add_product_package_id_to_project_items_table`
   - `database/sql-patches/2026-04-10_from_vnpt_business_db_2026-02-24_175408_product_package_surface/`

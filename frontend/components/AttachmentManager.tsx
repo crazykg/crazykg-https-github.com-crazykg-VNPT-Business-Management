@@ -15,9 +15,13 @@ interface AttachmentManagerProps {
   showSummaryMeta?: boolean;
   enableClipboardPaste?: boolean;
   clipboardPasteHint?: string;
+  showClipboardPasteHint?: boolean;
   uploadButtonClassName?: string;
   showUploadButton?: boolean;
   showListTitle?: boolean;
+  listVariant?: 'card' | 'compact-row';
+  listMaxHeightClassName?: string;
+  emptyStateVariant?: 'card' | 'compact-line';
 }
 
 export type AttachmentManagerHandle = {
@@ -112,12 +116,6 @@ const getAttachmentOpenLinkLabel = (attachment: Attachment) => {
   return 'Mở / Tải file';
 };
 
-const getAttachmentLinkText = (attachment: Attachment) => {
-  if (isGoogleDriveAttachment(attachment)) return 'Link mở file trên Google Drive';
-  // B2 và Local: hiện tên file thực để người dùng biết đang mở file nào
-  return attachment.fileName || 'Mở file';
-};
-
 const CLIPBOARD_IMAGE_EXTENSION_MAP: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/jpg': 'jpg',
@@ -182,9 +180,13 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
   showSummaryMeta = true,
   enableClipboardPaste = false,
   clipboardPasteHint = 'Click vào khung rồi Ctrl/Cmd+V để dán ảnh chụp.',
+  showClipboardPasteHint = true,
   uploadButtonClassName,
   showUploadButton = true,
   showListTitle = true,
+  listVariant = 'card',
+  listMaxHeightClassName = '',
+  emptyStateVariant = 'card',
 }, ref) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef = useRef<HTMLDivElement>(null);
@@ -280,6 +282,12 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
 
   const shouldShowSummaryMeta = showSummaryMeta && (attachments.length > 0 || Boolean(helperText));
   const shouldRenderHeader = showListTitle || shouldShowSummaryMeta || showUploadButton;
+  const shouldShowClipboardPasteHint =
+    enableClipboardPaste && !disabled && showClipboardPasteHint && String(clipboardPasteHint || '').trim() !== '';
+  const isCompactRowList = listVariant === 'compact-row';
+  const listContainerClassName = isCompactRowList
+    ? `space-y-1.5 overflow-y-auto rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${listMaxHeightClassName}`
+    : `space-y-2 rounded-xl border border-slate-200 bg-white outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${compact ? 'p-2' : 'p-3'} ${disabled ? 'bg-slate-50' : ''}`;
 
   // Khi disabled và chưa có file → không render gì cả (tránh hộp rỗng)
   if (disabled && attachments.length === 0) {
@@ -355,23 +363,97 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
           onPaste={(event) => {
             void handlePaste(event);
           }}
-          className={`space-y-2 rounded-xl border border-slate-200 bg-white outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${
-            compact ? 'p-2' : 'p-3'
-          } ${
-            disabled ? 'bg-slate-50' : ''
-          }`}
+          className={listContainerClassName}
         >
-          {enableClipboardPaste && !disabled ? (
-            <div className={`rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 text-xs text-slate-500 ${
-              compact ? 'py-1' : 'py-2'
-            }`}>
+          {shouldShowClipboardPasteHint ? (
+            <div className={isCompactRowList
+              ? 'px-1 py-1 text-xs leading-5 text-[color:var(--ui-text-muted)]'
+              : `rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 text-xs text-slate-500 ${compact ? 'py-1' : 'py-2'}`
+            }>
               {clipboardPasteHint}
             </div>
           ) : null}
 
           {attachments.map((file) => {
             const linkLabel = getAttachmentOpenLinkLabel(file);
-            const linkText = getAttachmentLinkText(file);
+            const extensionLabel = getAttachmentExtensionLabel(file);
+            const providerLabel = getAttachmentProviderLabel(file);
+
+            if (isCompactRowList) {
+              return (
+                <div
+                  key={file.id}
+                  className="flex min-w-0 items-start gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] px-2.5 py-2 transition hover:border-[var(--ui-border)] hover:bg-[var(--ui-surface-bg)]"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-[17px]">{getMimeIcon(file)}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold leading-5 text-[color:var(--ui-text-default)]" title={file.fileName}>
+                      {file.fileName}
+                    </p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-[color:var(--ui-text-muted)]">
+                      <span className="font-semibold uppercase text-[color:var(--ui-text-default)]">{extensionLabel}</span>
+                      <span>{providerLabel}</span>
+                      <span>{formatSize(file.fileSize)}</span>
+                      {String(file.fileUrl || '').trim() !== '' ? (
+                        <a
+                          href={file.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-primary underline-offset-2 hover:underline"
+                        >
+                          Mở file
+                        </a>
+                      ) : null}
+                    </div>
+                    {file.warningMessage ? (
+                      <p className="mt-1 rounded-[var(--ui-control-radius)] border border-yellow-200 bg-yellow-50 px-2 py-1 text-xs leading-5 text-yellow-700">
+                        {file.warningMessage}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {String(file.fileUrl || '').trim() !== '' ? (
+                      <>
+                        <a
+                          href={file.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${linkLabel}: ${file.fileName}`}
+                          title={linkLabel}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                        >
+                          <span className="material-symbols-outlined text-[17px]">open_in_new</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void copyAttachmentLink(file)}
+                          aria-label={`Sao chép link ${file.fileName}`}
+                          title={copiedLinkId === String(file.id) ? 'Đã sao chép' : 'Sao chép link'}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                        >
+                          <span className="material-symbols-outlined text-[17px]">
+                            {copiedLinkId === String(file.id) ? 'check' : 'content_copy'}
+                          </span>
+                        </button>
+                      </>
+                    ) : null}
+                    {!disabled ? (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(file.id)}
+                        aria-label={`Gỡ file ${file.fileName}`}
+                        title="Gỡ file khỏi yêu cầu"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-subtle)] transition hover:border-rose-200 hover:bg-[var(--ui-danger-bg)] hover:text-[var(--ui-danger-fg)]"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">close</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div
@@ -438,7 +520,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                               className="block truncate text-[11px] text-blue-600 underline-offset-2 hover:underline"
                               title={file.fileUrl}
                             >
-                              {linkText}
+                              {isGoogleDriveAttachment(file) ? 'Link mở file trên Google Drive' : file.fileName || 'Mở file'}
                             </a>
                           </div>
                         ) : null}
@@ -464,6 +546,19 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
             );
           })}
         </div>
+      ) : emptyStateVariant === 'compact-line' ? (
+        <div
+          ref={pasteZoneRef}
+          tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          onPaste={(event) => { void handlePaste(event); }}
+          className="flex min-h-9 items-center gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1.5 text-left outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+        >
+          <span className="material-symbols-outlined shrink-0 text-[16px] text-[color:var(--ui-text-muted)]">upload_file</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold leading-5 text-[color:var(--ui-text-default)]">Chưa có file nào được tải lên.</p>
+            <p className="truncate text-xs leading-4 text-[color:var(--ui-text-muted)]">{emptyStateDescription}</p>
+          </div>
+        </div>
       ) : (
         <div
           ref={pasteZoneRef}
@@ -480,7 +575,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
           </div>
           <p className={`font-semibold text-slate-600 ${compact ? 'mt-1 text-[13px]' : 'mt-1.5 text-sm'}`}>Chưa có file nào được tải lên.</p>
           <p className={`text-slate-500 ${compact ? 'mt-0.5 text-[11px]' : 'mt-1 text-xs'}`}>{emptyStateDescription}</p>
-          {enableClipboardPaste && !disabled ? (
+          {shouldShowClipboardPasteHint ? (
             <p className={`font-medium text-primary ${compact ? 'mt-1 text-[11px]' : 'mt-2 text-xs'}`}>{clipboardPasteHint}</p>
           ) : null}
         </div>

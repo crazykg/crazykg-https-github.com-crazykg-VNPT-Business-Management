@@ -40,6 +40,7 @@ class ContractPaymentService
 
     private const ATTACHMENT_SIGNED_URL_TTL_MINUTES = 15;
     private const BACKBLAZE_B2_STORAGE_DISK = 'backblaze_b2';
+    private const PAYMENT_OVER_AMOUNT_MESSAGE = 'Số tiền thực thu không được vượt quá số tiền dự kiến của kỳ.';
 
     public function __construct(
         private readonly V5DomainSupportService $support,
@@ -158,6 +159,17 @@ class ContractPaymentService
                 ? ($updates['actual_paid_amount'] ?? 0)
                 : ($current['actual_paid_amount'] ?? 0)
         );
+        $expectedComparableAmount = round(max(0.0, (float) ($current['expected_amount'] ?? 0)));
+
+        if ($isPaymentConfirmationMutation && $resolvedActualPaidAmount > $expectedComparableAmount) {
+            return response()->json([
+                'message' => self::PAYMENT_OVER_AMOUNT_MESSAGE,
+                'errors' => [
+                    'actual_paid_amount' => [self::PAYMENT_OVER_AMOUNT_MESSAGE],
+                ],
+            ], 422);
+        }
+
         $hasConfirmedPayment = in_array($resolvedStatus, ['PAID', 'PARTIAL'], true)
             || $resolvedActualPaidAmount > 0
             || $resolvedActualPaidDate !== null;
@@ -312,6 +324,8 @@ class ContractPaymentService
             'draft_installments' => ['sometimes', 'array'],
             'draft_installments.*.label' => ['required_with:draft_installments', 'string', 'max:255'],
             'draft_installments.*.expected_date' => ['required_with:draft_installments', 'date'],
+            'draft_installments.*.expected_start_date' => ['sometimes', 'nullable', 'date'],
+            'draft_installments.*.expected_end_date' => ['sometimes', 'nullable', 'date'],
             'draft_installments.*.expected_amount' => ['required_with:draft_installments', 'numeric', 'gt:0'],
         ]);
 
@@ -392,6 +406,8 @@ class ContractPaymentService
             'milestone_name',
             'cycle_number',
             'expected_date',
+            'expected_start_date',
+            'expected_end_date',
             'expected_amount',
             'actual_paid_date',
             'actual_paid_amount',
@@ -462,6 +478,8 @@ class ContractPaymentService
             'milestone_name' => (string) ($record['milestone_name'] ?? ''),
             'cycle_number' => (int) ($record['cycle_number'] ?? 1),
             'expected_date' => (string) ($record['expected_date'] ?? ''),
+            'expected_start_date' => $record['expected_start_date'] ?? null,
+            'expected_end_date' => $record['expected_end_date'] ?? null,
             'expected_amount' => (float) ($record['expected_amount'] ?? 0),
             'actual_paid_date' => $record['actual_paid_date'] ?? null,
             'actual_paid_amount' => (float) ($record['actual_paid_amount'] ?? 0),
@@ -794,6 +812,8 @@ class ContractPaymentService
         foreach ($scheduleSpecs as $index => $scheduleSpec) {
             $cycleNumber = $index + 1;
             $expectedDate = (string) ($scheduleSpec['expected_date'] ?? $startDate);
+            $expectedStartDate = $this->normalizeDateFilter($scheduleSpec['expected_start_date'] ?? null);
+            $expectedEndDate = $this->normalizeDateFilter($scheduleSpec['expected_end_date'] ?? null);
             $expectedAmount = (float) ($scheduleSpec['expected_amount'] ?? 0);
 
             $row = [
@@ -810,6 +830,12 @@ class ContractPaymentService
 
             if ($this->support->hasColumn('payment_schedules', 'project_id')) {
                 $row['project_id'] = $projectId;
+            }
+            if ($this->support->hasColumn('payment_schedules', 'expected_start_date')) {
+                $row['expected_start_date'] = $expectedStartDate;
+            }
+            if ($this->support->hasColumn('payment_schedules', 'expected_end_date')) {
+                $row['expected_end_date'] = $expectedEndDate;
             }
             if ($this->support->hasColumn('payment_schedules', 'created_at')) {
                 $row['created_at'] = $now;
@@ -1217,7 +1243,13 @@ class ContractPaymentService
 
     /**
      * @param array<int, mixed> $draftInstallments
-     * @return array<int, array{milestone_name:string,expected_date:string,expected_amount:float}>
+     * @return array<int, array{
+     *   milestone_name:string,
+     *   expected_date:string,
+     *   expected_start_date:?string,
+     *   expected_end_date:?string,
+     *   expected_amount:float
+     * }>
      */
     private function buildEvenDraftPaymentSchedule(
         float $totalAmount,
@@ -1249,6 +1281,8 @@ class ContractPaymentService
             return [
                 'milestone_name' => (string) ($row['label'] ?? ''),
                 'expected_date' => (string) ($row['expected_date'] ?? ''),
+                'expected_start_date' => isset($row['expected_start_date']) ? (string) $row['expected_start_date'] : null,
+                'expected_end_date' => isset($row['expected_end_date']) ? (string) $row['expected_end_date'] : null,
                 'expected_amount' => round(max(0, (float) ($row['expected_amount'] ?? 0)), 2),
             ];
         }, $normalizedDraftInstallments);
@@ -1288,7 +1322,13 @@ class ContractPaymentService
 
     /**
      * @param array<int, mixed> $draftInstallments
-     * @return array<int, array{label:string,expected_date:string,expected_amount:float}>
+     * @return array<int, array{
+     *   label:string,
+     *   expected_date:string,
+     *   expected_start_date:?string,
+     *   expected_end_date:?string,
+     *   expected_amount:float
+     * }>
      */
     private function normalizeEvenDraftInstallments(
         array $draftInstallments,
@@ -1331,9 +1371,24 @@ class ContractPaymentService
                 ]);
             }
 
+            $expectedStartDate = $this->normalizeDateFilter($installment['expected_start_date'] ?? null);
+            $expectedEndDate = $this->normalizeDateFilter($installment['expected_end_date'] ?? null);
+
+            if (
+                $expectedStartDate !== null
+                && $expectedEndDate !== null
+                && $expectedEndDate < $expectedStartDate
+            ) {
+                throw ValidationException::withMessages([
+                    "draft_installments.{$index}.expected_end_date" => ['Đến ngày dự kiến phải lớn hơn hoặc bằng Từ ngày dự kiến.'],
+                ]);
+            }
+
             $normalized[] = [
                 'label' => $label,
                 'expected_date' => $expectedDate,
+                'expected_start_date' => $expectedStartDate,
+                'expected_end_date' => $expectedEndDate,
                 'expected_amount' => round(max(0, $expectedAmount), 2),
             ];
         }

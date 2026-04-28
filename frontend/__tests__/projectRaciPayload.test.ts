@@ -123,6 +123,6 @@ describe('Project RACI payload normalization', () => {
     await vi.advanceTimersByTimeAsync(5001);
 
     await rejection;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

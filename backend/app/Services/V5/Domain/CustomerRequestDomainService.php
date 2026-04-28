@@ -77,4 +77,19 @@ class CustomerRequestDomainService
     {
         return $this->compatibility->projectItems($request);
     }
+
+    public function customerFilterOptions(Request $request): JsonResponse
+    {
+        return $this->compatibility->customerFilterOptions($request);
+    }
+
+    public function projectFilterOptions(Request $request): JsonResponse
+    {
+        return $this->compatibility->projectFilterOptions($request);
+    }
+
+    public function productFilterOptions(Request $request): JsonResponse
+    {
+        return $this->compatibility->productFilterOptions($request);
+    }
 }

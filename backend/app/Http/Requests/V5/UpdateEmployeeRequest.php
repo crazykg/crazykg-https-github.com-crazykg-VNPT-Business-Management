@@ -24,6 +24,7 @@ class UpdateEmployeeRequest extends V5FormRequest
             'user_code' => ['sometimes', 'required', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255'],
+            'gmail' => ['sometimes', 'nullable', 'email', 'max:255', 'regex:/^[^@\s]+@gmail\.com$/i'],
             'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['sometimes', 'required', 'integer'],
             'position_id' => ['sometimes', 'nullable', 'integer'],
@@ -50,6 +51,9 @@ class UpdateEmployeeRequest extends V5FormRequest
         }
         if ($this->support()->hasColumn($employeeTable, 'email')) {
             $rules['email'][] = Rule::unique($employeeTable, 'email')->ignore($employeeId);
+        }
+        if ($this->support()->hasColumn($employeeTable, 'gmail')) {
+            $rules['gmail'][] = Rule::unique($employeeTable, 'gmail')->ignore($employeeId);
         }
 
         return $rules;

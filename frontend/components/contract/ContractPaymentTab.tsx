@@ -14,6 +14,8 @@ interface MilestoneInstallmentDraftLike {
 interface MilestonePreviewRowLike {
   milestoneName: string;
   expectedDate: string;
+  expectedStartDate?: string;
+  expectedEndDate?: string;
   expectedAmount: number;
   tone: 'ADVANCE' | 'INSTALLMENT' | 'RETENTION';
 }
@@ -22,6 +24,8 @@ interface CycleDraftInstallmentDraftLike {
   label: string;
   expected_date: string;
   expected_amount: string;
+  expected_start_date?: string;
+  expected_end_date?: string;
 }
 
 interface ContractPaymentTabProps {
@@ -116,16 +120,22 @@ interface ContractPaymentTabProps {
 }
 
 const compactControlClass =
-  'h-8 rounded border border-slate-300 bg-white px-3 text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
+  'h-8 rounded-md border border-slate-300 bg-white px-3 text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
 
 const secondaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[13px] font-semibold leading-5 text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
 
 const primaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50';
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-semibold leading-5 text-white shadow-sm transition-colors hover:bg-deep-teal disabled:opacity-50';
 
 const draftInputClass =
-  'h-8 w-full rounded border border-slate-300 bg-white px-3 text-sm font-medium leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30';
+  'h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30';
+const segmentedButtonClass =
+  'inline-flex h-8 items-center rounded-md px-2.5 text-[13px] font-semibold leading-5 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/30';
+const readonlyDraftValueClass =
+  'inline-flex h-8 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium leading-5 text-slate-600';
+const dangerButtonClass =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-error/20 bg-error/10 px-3 text-[13px] font-semibold leading-5 text-error transition-colors hover:bg-error/15 focus:outline-none focus:ring-1 focus:ring-error/20';
 
 const sectionTitleClass = 'text-sm font-bold leading-5 text-slate-700';
 const fieldLabelClass = 'text-xs font-semibold uppercase tracking-wide leading-4 text-slate-500';
@@ -135,7 +145,17 @@ const rowPrimaryTextClass = 'text-sm font-medium leading-5 text-on-surface';
 const rowMutedTextClass = 'text-sm font-medium leading-5 text-slate-600';
 const rowMetaTextClass = 'text-xs font-medium leading-4 text-slate-500';
 const inlineSummaryValueClass = 'ml-2 text-sm font-medium leading-5 text-slate-800';
+const summaryPillClass = 'inline-flex min-w-0 items-center overflow-hidden whitespace-nowrap';
+const summarySeparatorClass = 'hidden h-4 w-px shrink-0 bg-slate-200 lg:inline-flex';
 const cardValueClass = 'text-base font-bold leading-6 text-on-surface';
+const allocationToolbarFieldClass = 'flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2';
+const toolbarCompactFieldClass = 'flex w-full flex-col gap-1 sm:w-[120px]';
+const toolbarLabelClass = 'shrink-0 whitespace-nowrap text-xs font-semibold leading-4 text-neutral';
+const toolbarReadonlyValueClass =
+  'inline-flex h-8 w-full items-center rounded-md border border-secondary/20 bg-secondary/10 px-3 text-sm font-semibold leading-5 text-secondary';
+const cyclePreviewTableClass = 'w-full table-fixed border-collapse';
+const cycleDraftTableClass = 'w-full table-fixed border-collapse';
+const cycleDraftDeleteButtonClass = `${dangerButtonClass} h-8 w-8 justify-center px-0`;
 
 const normalizeDraftMoneyInput = (value: string): string => String(value ?? '').replace(/[^\d]/g, '');
 
@@ -222,13 +242,21 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
   }, [hasCollectedSchedules]);
   const lockedCycleReferenceRows = React.useMemo(() => {
     if (!hasCollectedSchedules) {
-      return [] as Array<{ milestoneName: string; expectedDate: string; expectedAmount: number }>;
+      return [] as Array<{
+        milestoneName: string;
+        expectedDate: string;
+        expectedStartDate: string;
+        expectedEndDate: string;
+        expectedAmount: number;
+      }>;
     }
 
     if (schedules.length > 0) {
       return schedules.map((item, index) => ({
         milestoneName: String(item.milestone_name || '').trim() || `Kỳ ${index + 1}`,
         expectedDate: String(item.expected_date || '').trim(),
+        expectedStartDate: String(item.expected_start_date || item.expected_date || '').trim(),
+        expectedEndDate: String(item.expected_end_date || item.expected_date || '').trim(),
         expectedAmount: Number(item.expected_amount || 0),
       }));
     }
@@ -236,6 +264,8 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
     return cyclePreview.rows.map((row) => ({
       milestoneName: row.milestoneName,
       expectedDate: row.expectedDate,
+      expectedStartDate: String(row.expectedStartDate || row.expectedDate || '').trim(),
+      expectedEndDate: String(row.expectedEndDate || row.expectedDate || '').trim(),
       expectedAmount: row.expectedAmount,
     }));
   }, [cyclePreview.rows, hasCollectedSchedules, schedules]);
@@ -257,28 +287,56 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
       : 'border-primary/15 bg-primary/10 text-primary';
 
   return (
-    <div className="space-y-2.5 px-4 py-3">
-      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h3 className={`inline-flex items-center gap-2 ${sectionTitleClass}`}>
-            <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-              payments
+    <div className="space-y-2 px-3 py-2">
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 leading-5">
+            <h3 className={`inline-flex items-center gap-1.5 ${sectionTitleClass} shrink-0`}>
+              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 15 }}>
+                payments
+              </span>
+              Dòng tiền hợp đồng
+            </h3>
+            <span className={summarySeparatorClass} aria-hidden="true" />
+            <span className={`${summaryPillClass} shrink-0`}>
+              <span className={fieldLabelClass}>Mã HĐ:</span>
+              <span className={`${inlineSummaryValueClass} max-w-[160px] truncate`}>{contractCode || '--'}</span>
             </span>
-            Dòng tiền hợp đồng
-          </h3>
-        </div>
+            <span className={summarySeparatorClass} aria-hidden="true" />
+            <span className={`${summaryPillClass} min-w-[180px] flex-1`}>
+              <span className={`${fieldLabelClass} shrink-0`}>Tên HĐ:</span>
+              <span className={`${inlineSummaryValueClass} min-w-0 truncate`}>{contractName || '--'}</span>
+            </span>
+            <span className={summarySeparatorClass} aria-hidden="true" />
+            <span className={`${summaryPillClass} shrink-0`}>
+              <span className={fieldLabelClass}>Chu kỳ:</span>
+              <span className={inlineSummaryValueClass}>
+                {allocationMode === 'MILESTONE' ? 'Theo mốc nghiệm thu' : paymentCycleLabel}
+              </span>
+            </span>
+            <span className={summarySeparatorClass} aria-hidden="true" />
+            <span className={`${summaryPillClass} max-w-[260px] flex-1`}>
+              <span className={`${fieldLabelClass} shrink-0`}>Hình thức:</span>
+              <span className={`${inlineSummaryValueClass} min-w-0 truncate`}>{investmentModeLabel}</span>
+            </span>
+            <span className={summarySeparatorClass} aria-hidden="true" />
+            <span className={`${summaryPillClass} shrink-0`}>
+              <span className={fieldLabelClass}>Giá trị:</span>
+              <span className={inlineSummaryValueClass}>{formatCurrency(contractValueNumber)} đ</span>
+            </span>
+          </div>
 
-        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
           <div
-            className="flex flex-col gap-1 min-w-[180px]"
+            className={allocationToolbarFieldClass}
             title={allocationModeLockMessage || undefined}
           >
-            <label className="text-xs font-semibold leading-4 text-neutral">Cách phân bổ</label>
+            <label className={toolbarLabelClass}>Cách phân bổ</label>
             <select
               value={allocationMode}
               onChange={(event) => onAllocationModeChange(event.target.value as ContractPaymentAllocationMode)}
               disabled={isAllocationModeSelectionDisabled}
-              className={`min-w-[180px] ${compactControlClass}`}
+              className={`w-full sm:w-[180px] ${compactControlClass}`}
             >
               {allocationModeOptions.map((item) => (
                 <option key={item.value} value={item.value}>
@@ -289,8 +347,8 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
           </div>
 
           {allocationMode === 'MILESTONE' && (
-            <div className="flex flex-col gap-1 w-[120px]">
-              <label className="text-xs font-semibold leading-4 text-neutral">Tạm ứng (%)</label>
+            <div className={toolbarCompactFieldClass}>
+              <label className={toolbarLabelClass}>Tạm ứng (%)</label>
               <input
                 type="number"
                 min={0}
@@ -304,8 +362,8 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
 
           {allocationMode === 'MILESTONE' && (
             <>
-              <div className="flex flex-col gap-1 w-[120px]">
-                <label className="text-xs font-semibold leading-4 text-neutral">Giữ lại (%)</label>
+              <div className={toolbarCompactFieldClass}>
+                <label className={toolbarLabelClass}>Giữ lại (%)</label>
                 <input
                   type="number"
                   min={0}
@@ -316,8 +374,8 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 />
               </div>
               {milestoneInputMode === 'AUTO' ? (
-                <div className="flex flex-col gap-1 w-[120px]">
-                  <label className="text-xs font-semibold leading-4 text-neutral">Số đợt</label>
+                <div className={toolbarCompactFieldClass}>
+                  <label className={toolbarLabelClass}>Số đợt</label>
                   <input
                     type="number"
                     min={1}
@@ -328,9 +386,9 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                   />
                 </div>
               ) : (
-                <div className="flex flex-col gap-1 min-w-[120px]">
-                  <label className="text-xs font-semibold leading-4 text-neutral">Đợt custom</label>
-                  <div className="inline-flex h-8 items-center rounded border border-secondary/20 bg-secondary/10 px-3 text-sm font-semibold leading-5 text-secondary">
+                <div className={toolbarCompactFieldClass}>
+                  <label className={toolbarLabelClass}>Đợt custom</label>
+                  <div className={toolbarReadonlyValueClass}>
                     {Math.max(0, milestoneInstallments.length)} đợt
                   </div>
                 </div>
@@ -339,14 +397,14 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
           )}
 
           <div
-            className="inline-flex"
+            className="w-full sm:inline-flex sm:w-auto"
             title={generateButtonLockMessage || undefined}
           >
             <button
               type="button"
               onClick={onGenerateSchedules}
               disabled={isGenerateButtonDisabled}
-              className={primaryButtonClass}
+              className={`${primaryButtonClass} w-full justify-center sm:w-auto`}
             >
               {isGenerating && (
                 <span className="material-symbols-outlined animate-spin" style={{ fontSize: 15 }}>
@@ -358,134 +416,74 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
           </div>
         </div>
       </div>
-
-      <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
-        <div className="space-y-1.5">
-          <div className="rounded-lg border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
-            <div className="flex flex-col gap-1.5 leading-5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1">
-              <div className="min-w-0">
-                <span className={fieldLabelClass}>Mã HĐ:</span>
-                <span className={`${inlineSummaryValueClass} break-words`}>{contractCode || '--'}</span>
-              </div>
-              <span className="hidden lg:inline text-slate-200">|</span>
-              <div className="min-w-0 flex-1">
-                <span className={fieldLabelClass}>Tên HĐ:</span>
-                <span className={`${inlineSummaryValueClass} break-words`}>{contractName || '--'}</span>
-              </div>
-              <span className="hidden lg:inline text-slate-200">|</span>
-              <div className="min-w-0 whitespace-nowrap">
-                <span className={fieldLabelClass}>Giá trị:</span>
-                <span className={inlineSummaryValueClass}>
-                  {formatCurrency(contractValueNumber)} đ
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
-            <div className="flex flex-col gap-1.5 leading-5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1">
-              <div className="min-w-0">
-                <span className={fieldLabelClass}>Chu kỳ:</span>
-                <span className={inlineSummaryValueClass}>
-                  {allocationMode === 'MILESTONE' ? 'Theo mốc nghiệm thu' : paymentCycleLabel}
-                </span>
-              </div>
-              <span className="hidden lg:inline text-slate-200">|</span>
-              <div className="min-w-0 flex-1">
-                <span className={fieldLabelClass}>Hình thức:</span>
-                <span className={`${inlineSummaryValueClass} break-words`}>{investmentModeLabel}</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {showCyclePreview && (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 sm:px-5">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded border border-primary/20 bg-white px-2.5 py-1 text-xs font-bold uppercase tracking-wide leading-4 text-primary shadow-sm">
-                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>
-                    calendar_month
-                  </span>
-                  Dự thảo kỳ thanh toán
-                </div>
-                <div className="rounded-lg border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
-                  <div className="flex flex-col gap-1.5 leading-5 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1">
-                    <div className="min-w-0">
-                      <span className={fieldLabelClass}>Chu kỳ:</span>
-                      <span className={`${cardValueClass} ml-2`}>{paymentCycleLabel}</span>
-                    </div>
-                    <span className="hidden lg:inline text-slate-200">|</span>
-                    <div className="min-w-0">
-                      <span className={fieldLabelClass}>Số kỳ:</span>
-                      <span className={`${cardValueClass} ml-2`}>
-                        {cycleSummaryRowCount} kỳ
-                      </span>
-                    </div>
-                    <span className="hidden lg:inline text-slate-200">|</span>
-                    <div className="min-w-0">
-                      <span className={fieldLabelClass}>Tổng tạm tính:</span>
-                      <span className={`${cardValueClass} ml-2`}>
-                        {formatPreviewMoney(cycleSummaryTotal)} đ
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 leading-5">
+              <span className="inline-flex items-center gap-1.5 rounded border border-primary/20 bg-white px-2 py-1 text-xs font-bold uppercase tracking-wide leading-4 text-primary shadow-sm">
+                <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                  calendar_month
+                </span>
+                Dự thảo kỳ thanh toán
+              </span>
+              <span className={`${summaryPillClass} shrink-0`}>
+                <span className={fieldLabelClass}>Chu kỳ:</span>
+                <span className={`${cardValueClass} ml-1.5`}>{paymentCycleLabel}</span>
+              </span>
+              <span className={`${summaryPillClass} shrink-0`}>
+                <span className={fieldLabelClass}>Số kỳ:</span>
+                <span className={`${cardValueClass} ml-1.5`}>{cycleSummaryRowCount} kỳ</span>
+              </span>
+              <span className={`${summaryPillClass} shrink-0`}>
+                <span className={fieldLabelClass}>Tổng:</span>
+                <span className={`${cardValueClass} ml-1.5`}>{formatPreviewMoney(cycleSummaryTotal)} đ</span>
+              </span>
+            </div>
 
-              <div className="flex flex-wrap items-center gap-2 xl:max-w-[320px] xl:justify-end">
-                <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-white px-2.5 py-1 text-xs font-semibold leading-4 text-primary">
-                  {paymentCycleLabel}
-                </span>
-                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4 ${
-                  hasCollectedSchedules
-                    ? 'border-slate-300 bg-slate-100 text-slate-700'
-                    : cycleDraftStatusLabel === 'Đã chỉnh tay'
-                    ? 'border-secondary/20 bg-secondary/10 text-secondary'
-                    : isPreviewDirty
-                      ? 'border-warning/20 bg-warning/10 text-warning'
-                      : 'border-success/20 bg-success/10 text-success'
-                }`}>
-                  {hasCollectedSchedules ? 'Đã xác nhận thu tiền' : cycleDraftStatusLabel}
-                </span>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4 ${
+                hasCollectedSchedules
+                  ? 'border-slate-300 bg-slate-100 text-slate-700'
+                  : cycleDraftStatusLabel === 'Đã chỉnh tay'
+                  ? 'border-secondary/20 bg-secondary/10 text-secondary'
+                  : isPreviewDirty
+                    ? 'border-warning/20 bg-warning/10 text-warning'
+                    : 'border-success/20 bg-success/10 text-success'
+              }`}>
+                {hasCollectedSchedules ? 'Đã xác nhận thu tiền' : cycleDraftStatusLabel}
+              </span>
+              {hasCollectedSchedules && (
+                <button
+                  type="button"
+                  onClick={() => setIsLockedCyclePreviewExpanded((current) => !current)}
+                  className={secondaryButtonClass}
+                  aria-expanded={isLockedCyclePreviewExpanded}
+                >
+                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                    {isLockedCyclePreviewExpanded ? 'expand_less' : 'expand_more'}
+                  </span>
+                  {isLockedCyclePreviewExpanded ? 'Ẩn tham chiếu' : 'Xem tham chiếu'}
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="p-3.5 sm:p-4">
-            <div className="rounded-lg border border-slate-200 bg-slate-50/85 p-2.5">
+          <div className={hasCollectedSchedules && !isLockedCyclePreviewExpanded ? 'hidden' : 'p-2'}>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/85 p-2">
               {hasCollectedSchedules ? (
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="inline-flex items-center gap-2 self-start rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold leading-4 text-slate-700">
-                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                        lock
-                      </span>
-                      {lockedCycleReferenceCount} kỳ tham chiếu
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsLockedCyclePreviewExpanded((current) => !current)}
-                      className={secondaryButtonClass}
-                      aria-expanded={isLockedCyclePreviewExpanded}
-                    >
-                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
-                        {isLockedCyclePreviewExpanded ? 'expand_less' : 'expand_more'}
-                      </span>
-                      {isLockedCyclePreviewExpanded ? 'Ẩn tham chiếu' : 'Xem tham chiếu'}
-                    </button>
-                  </div>
-
+                <div>
                   {isLockedCyclePreviewExpanded && (
                     <div className="overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                      <table className="w-full min-w-[620px] border-collapse">
+                      <table className="w-full min-w-[880px] border-collapse">
                         <thead className="border-b border-slate-200 bg-slate-50">
                           <tr>
-                            <th className={tableHeaderClass}>Kỳ tham chiếu</th>
-                            <th className={tableHeaderClass}>Ngày dự kiến</th>
-                            <th className={tableHeaderRightClass}>Số tiền dự kiến</th>
+                            <th className={`${tableHeaderClass} whitespace-nowrap`}>Kỳ tham chiếu</th>
+                            <th className={`${tableHeaderClass} whitespace-nowrap`}>Từ ngày</th>
+                            <th className={`${tableHeaderClass} whitespace-nowrap`}>Đến ngày</th>
+                            <th className={`${tableHeaderClass} whitespace-nowrap`}>Dự kiến thu</th>
+                            <th className={`${tableHeaderRightClass} whitespace-nowrap`}>Tiền dự kiến</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -496,8 +494,10 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                   {row.milestoneName}
                                 </span>
                               </td>
-                              <td className={`px-3 py-2.5 ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedDate)}</td>
-                              <td className="px-3 py-2.5 text-right text-sm font-medium leading-5 text-on-surface">{formatPreviewMoney(row.expectedAmount)} đ</td>
+                              <td className={`whitespace-nowrap px-3 py-2.5 ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedStartDate)}</td>
+                              <td className={`whitespace-nowrap px-3 py-2.5 ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedEndDate)}</td>
+                              <td className={`whitespace-nowrap px-3 py-2.5 ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedDate)}</td>
+                              <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm font-medium leading-5 text-on-surface">{formatPreviewMoney(row.expectedAmount)} đ</td>
                             </tr>
                           ))}
                         </tbody>
@@ -512,7 +512,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                       <button
                         type="button"
                         onClick={() => onCyclePreviewTabChange('PROPOSAL')}
-                        className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                        className={`${segmentedButtonClass} ${
                           cyclePreviewTab === 'PROPOSAL'
                             ? 'bg-primary text-white shadow-sm'
                             : 'text-slate-600 hover:bg-slate-50'
@@ -523,7 +523,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                       <button
                         type="button"
                         onClick={() => onCyclePreviewTabChange('EDIT')}
-                        className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                        className={`${segmentedButtonClass} ${
                           cyclePreviewTab === 'EDIT'
                             ? 'bg-primary text-white shadow-sm'
                             : 'text-slate-600 hover:bg-slate-50'
@@ -577,11 +577,18 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                           {cyclePreview.error}
                         </div>
                       ) : (
-                        <div className="overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                          <table className="w-full min-w-[620px] border-collapse">
+                        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                          <table className={cyclePreviewTableClass}>
+                            <colgroup>
+                              <col className="w-[36%]" />
+                              <col className="w-[20%]" />
+                              <col className="w-[20%]" />
+                              <col className="w-[24%]" />
+                            </colgroup>
                             <thead className="border-b border-slate-200 bg-slate-50">
                               <tr>
                                 <th className={tableHeaderClass}>Kỳ đề xuất</th>
+                                <th className={tableHeaderClass}>Từ ngày dự kiến</th>
                                 <th className={tableHeaderClass}>Ngày dự kiến</th>
                                 <th className={tableHeaderRightClass}>Số tiền dự kiến</th>
                               </tr>
@@ -590,12 +597,15 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                               {cyclePreview.rows.map((row, index) => (
                                 <tr key={`${row.milestoneName}-${row.expectedDate}-${index}`}>
                                   <td className={`px-3 py-2.5 ${rowPrimaryTextClass}`}>
-                                    <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold leading-4 text-primary">
+                                    <span className="inline-flex max-w-full items-center rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold leading-4 text-primary">
                                       {row.milestoneName}
                                     </span>
                                   </td>
-                                  <td className={`px-3 py-2.5 ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedDate)}</td>
-                                  <td className="px-3 py-2.5 text-right text-sm font-medium leading-5 text-on-surface">{formatPreviewMoney(row.expectedAmount)} đ</td>
+                                  <td className={`px-3 py-2.5 whitespace-nowrap ${rowMutedTextClass}`}>
+                                    {row.expectedStartDate ? formatDisplayDate(row.expectedStartDate) : '--'}
+                                  </td>
+                                  <td className={`px-3 py-2.5 whitespace-nowrap ${rowMutedTextClass}`}>{formatDisplayDate(row.expectedDate)}</td>
+                                  <td className="px-3 py-2.5 text-right text-sm font-medium leading-5 text-on-surface whitespace-nowrap">{formatPreviewMoney(row.expectedAmount)} đ</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -604,12 +614,20 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                       )
                     ) : (
                       <div className="space-y-3">
-                        <div className="overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                          <table className="w-full min-w-[940px] border-collapse">
+                        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                          <table className={cycleDraftTableClass}>
+                            <colgroup>
+                              <col className="w-[24%]" />
+                              <col className="w-[19%]" />
+                              <col className="w-[19%]" />
+                              <col className="w-[28%]" />
+                              <col className="w-[10%]" />
+                            </colgroup>
                             <thead className="border-b border-slate-200 bg-slate-50">
                               <tr>
                                 <th className={tableHeaderClass}>Kỳ chỉnh sửa</th>
-                                <th className={tableHeaderClass}>Ngày dự kiến</th>
+                                <th className={tableHeaderClass}>Từ ngày dự kiến</th>
+                                <th className={tableHeaderClass}>Đến ngày dự kiến</th>
                                 <th className={tableHeaderRightClass}>Số tiền dự kiến</th>
                                 <th className={tableHeaderRightClass}>Thao tác</th>
                               </tr>
@@ -617,7 +635,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                             <tbody className="divide-y divide-slate-100">
                               {cycleDraftRows.length === 0 ? (
                                 <tr>
-                                  <td colSpan={4} className="px-3 py-5 text-center text-sm font-medium leading-5 text-slate-500">
+                                  <td colSpan={5} className="px-3 py-5 text-center text-sm font-medium leading-5 text-slate-500">
                                     Chưa có kỳ dự thảo nào. Hãy thêm dòng hoặc lấy lại từ đề xuất.
                                   </td>
                                 </tr>
@@ -630,15 +648,23 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                         value={row.label}
                                         onChange={(event) => onCycleDraftRowChange(index, 'label', event.target.value)}
                                         placeholder={`Phí dịch vụ kỳ ${index + 1}`}
-                                        className={draftInputClass}
+                                        className={`${draftInputClass} min-w-0`}
                                       />
                                     </td>
                                     <td className="px-3 py-2.5">
                                       <input
                                         type="date"
-                                        value={row.expected_date}
-                                        onChange={(event) => onCycleDraftRowChange(index, 'expected_date', event.target.value)}
-                                        className={draftInputClass}
+                                        value={row.expected_start_date || row.expected_date || ''}
+                                        onChange={(event) => onCycleDraftRowChange(index, 'expected_start_date', event.target.value)}
+                                        className={`${draftInputClass} min-w-0`}
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2.5">
+                                      <input
+                                        type="date"
+                                        value={row.expected_end_date || row.expected_start_date || row.expected_date || ''}
+                                        onChange={(event) => onCycleDraftRowChange(index, 'expected_end_date', event.target.value)}
+                                        className={`${draftInputClass} min-w-0`}
                                       />
                                     </td>
                                     <td className="px-3 py-2.5">
@@ -653,19 +679,20 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                             normalizeDraftMoneyInput(event.target.value)
                                           )
                                         }
-                                        className={`${draftInputClass} text-right`}
+                                        className={`${draftInputClass} min-w-0 text-right`}
                                       />
                                     </td>
                                     <td className="px-3 py-2.5 text-right">
                                       <button
                                         type="button"
                                         onClick={() => onRemoveCycleDraftRow(index)}
-                                        className="inline-flex items-center gap-1.5 rounded border border-error/20 bg-error/10 px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-error hover:bg-error/15"
+                                        title={`Xóa kỳ chỉnh sửa ${index + 1}`}
+                                        aria-label={`Xóa kỳ chỉnh sửa ${index + 1}`}
+                                        className={cycleDraftDeleteButtonClass}
                                       >
-                                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: 15 }} aria-hidden="true">
                                           delete
                                         </span>
-                                        Xóa
                                       </button>
                                     </td>
                                   </tr>
@@ -740,7 +767,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 <button
                   type="button"
                   onClick={() => onMilestoneInputModeChange('AUTO')}
-                  className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                  className={`${segmentedButtonClass} ${
                     milestoneInputMode === 'AUTO'
                       ? 'bg-primary text-white shadow-sm'
                       : 'text-slate-600 hover:bg-white'
@@ -751,7 +778,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                 <button
                   type="button"
                   onClick={() => onMilestoneInputModeChange('CUSTOM')}
-                  className={`rounded px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] transition-colors ${
+                  className={`${segmentedButtonClass} ${
                     milestoneInputMode === 'CUSTOM'
                       ? 'bg-primary text-white shadow-sm'
                       : 'text-slate-600 hover:bg-white'
@@ -862,7 +889,7 @@ export const ContractPaymentTab: React.FC<ContractPaymentTabProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onRemoveMilestoneInstallment(index)}
-                                  className="inline-flex items-center gap-1.5 rounded border border-error/20 bg-error/10 px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-error hover:bg-error/15"
+                                  className={dangerButtonClass}
                                 >
                                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
                                     delete

@@ -2,6 +2,7 @@
 
 namespace App\Services\V5\CustomerRequest;
 
+use App\Events\V5\CaseTransitioned;
 use App\Models\CustomerRequestCase;
 use App\Models\CustomerRequestStatusInstance;
 use App\Services\V5\Domain\CustomerRequestCaseRegistry;
@@ -43,9 +44,7 @@ class CustomerRequestCaseWriteService
      */
     public function store(Request $request, callable $buildStatusDetailData): JsonResponse
     {
-        $msg = '[CRC STORE] START - payload keys: ' . json_encode(array_keys($request->all()));
         Log::debug('crc.store.start', ['payload_keys' => array_keys($request->all())]);
-        error_log($msg);
 
         if (($missing = $this->readQueryService->missingTablesResponse()) !== null) {
             Log::debug('crc.store.missing_tables');
@@ -61,6 +60,11 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Dữ liệu yêu cầu không hợp lệ.', 'errors' => $masterErrors], 422);
         }
 
+        $actorId = $this->readQueryService->resolveActorId($request);
+        if (! $this->canAccessCaseDepartmentScope($masterPayload, $actorId)) {
+            return response()->json(['message' => 'Bạn không có quyền tạo yêu cầu cho dự án này.'], 403);
+        }
+
         $workflowDefinitionId = $this->metadataService->resolveWorkflowDefinitionId(
             $this->support->parseNullableInt($masterPayload['workflow_definition_id'] ?? null)
         );
@@ -73,9 +77,8 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Thiếu cấu hình trạng thái mở đầu.'], 500);
         }
 
-        $actorId = $this->readQueryService->resolveActorId($request);
         $statusSource = $this->extractStatusPayload($request);
-        foreach (['dispatch_route', 'dispatcher_user_id', 'performer_user_id', 'summary', 'description'] as $fallbackField) {
+        foreach (['dispatch_route', 'dispatcher_user_id', 'performer_user_id', 'project_id', 'summary', 'description'] as $fallbackField) {
             if (! array_key_exists($fallbackField, $statusSource) && array_key_exists($fallbackField, $masterPayload)) {
                 $statusSource[$fallbackField] = $masterPayload[$fallbackField];
             }
@@ -157,11 +160,12 @@ class CustomerRequestCaseWriteService
             'case_id' => $createdCase->id,
         ]);
         $serializedCase = $this->readModelService->serializeCaseModel($createdCase);
+        $detailData = $buildStatusDetailData($createdCase, (string) $createdCase->current_status_code, $actorId);
         Log::debug('crc.store.before_response');
 
         return response()->json([
             'data' => [
-                ...$serializedCase,
+                ...$detailData,
                 'request_case' => $serializedCase,
             ],
         ], 201);
@@ -202,14 +206,9 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Dữ liệu yêu cầu không hợp lệ.', 'errors' => $masterErrors], 422);
         }
 
-        $statusSource = $this->extractStatusPayload($request);
-        [$statusPayload, $statusErrors] = $this->normalizeStatusPayload($statusDefinition, $statusSource, $case, $actorId);
-        if ($statusErrors !== []) {
-            return response()->json(['message' => 'Dữ liệu trạng thái không hợp lệ.', 'errors' => $statusErrors], 422);
-        }
-
         $targetStatusCode = (string) $statusDefinition['status_code'];
         $currentStatusCode = (string) $case->current_status_code;
+        $statusSource = $this->extractStatusPayload($request);
         $transitionDecisionMetadata = [];
 
         if ($targetStatusCode !== $currentStatusCode) {
@@ -237,6 +236,11 @@ class CustomerRequestCaseWriteService
                     'errors' => $decisionErrors,
                 ], 422);
             }
+        }
+
+        [$statusPayload, $statusErrors] = $this->normalizeStatusPayload($statusDefinition, $statusSource, $case, $actorId);
+        if ($statusErrors !== []) {
+            return response()->json(['message' => 'Dữ liệu trạng thái không hợp lệ.', 'errors' => $statusErrors], 422);
         }
 
         $updatedCase = DB::transaction(function () use ($case, $masterPatch, $statusDefinition, $statusPayload, $actorId, $request, $currentStatusCode, $targetStatusCode, $transitionDecisionMetadata): CustomerRequestCase {
@@ -278,6 +282,10 @@ class CustomerRequestCaseWriteService
             return $fresh;
         });
 
+        if ($targetStatusCode !== $currentStatusCode) {
+            CaseTransitioned::dispatch($updatedCase, $targetStatusCode, $actorId);
+        }
+
         return response()->json([
             'data' => $buildStatusDetailData($updatedCase, (string) $updatedCase->current_status_code, $actorId),
         ]);
@@ -305,7 +313,14 @@ class CustomerRequestCaseWriteService
             return response()->json(['message' => 'Yêu cầu không tồn tại hoặc bạn không có quyền xem.'], 404);
         }
 
-        // Cho phép chuyển sang cùng status (re-transition) - useful để update handler, notes, v.v.
+        if ($targetStatusCode === (string) $case->current_status_code) {
+            return response()->json([
+                'message' => 'Không thể chuyển sang chính trạng thái hiện tại.',
+                'errors' => [
+                    'to_status_code' => ['Không thể chuyển sang chính trạng thái hiện tại.'],
+                ],
+            ], 422);
+        }
 
         return $this->saveStatus($request, $id, $targetStatusCode, $buildStatusDetailData);
     }
@@ -535,6 +550,14 @@ class CustomerRequestCaseWriteService
             return true;
         }
 
+        if (! $this->canAccessCaseDepartmentScope([
+            'project_id' => $this->support->parseNullableInt($case->project_id),
+            'department_id' => $this->support->parseNullableInt($case->department_id ?? null),
+            'dept_id' => $this->support->parseNullableInt($case->dept_id ?? null),
+        ], $userId)) {
+            return false;
+        }
+
         $allowedUserIds = array_filter([
             $this->support->parseNullableInt($case->created_by),
             $this->support->parseNullableInt($case->received_by_user_id),
@@ -549,6 +572,30 @@ class CustomerRequestCaseWriteService
         $projectId = $this->support->parseNullableInt($case->project_id);
 
         return $projectId !== null && in_array($projectId, $this->readQueryService->projectIdsForUserByRaciRoles($userId), true);
+    }
+
+    /**
+     * @param array<string, mixed> $caseScope
+     */
+    private function canAccessCaseDepartmentScope(array $caseScope, ?int $userId): bool
+    {
+        if ($userId === null || $this->userAccess->isAdmin($userId)) {
+            return true;
+        }
+
+        $projectId = $this->support->parseNullableInt($caseScope['project_id'] ?? null);
+        if ($projectId !== null && in_array($projectId, $this->readQueryService->projectIdsForUserByRaciRoles($userId), true)) {
+            return true;
+        }
+
+        $departmentId = $this->support->resolveDepartmentIdForTableRecord('customer_request_cases', $caseScope);
+        if ($departmentId === null) {
+            return true;
+        }
+
+        $allowedDepartmentIds = $this->userAccess->resolveDepartmentIdsForUser($userId);
+
+        return $allowedDepartmentIds === null || in_array($departmentId, $allowedDepartmentIds, true);
     }
 
     /**
@@ -673,6 +720,12 @@ class CustomerRequestCaseWriteService
             }
 
             if ($resolvedToUserId === null) {
+                $resolvedToUserId = $this->resolveProjectAccountableUserId(
+                    $this->support->parseNullableInt($source['project_id'] ?? ($case?->project_id ?? null))
+                );
+            }
+
+            if ($resolvedToUserId === null) {
                 $resolvedToUserId = $actorId;
             }
             $source['to_user_id'] = $resolvedToUserId;
@@ -697,8 +750,23 @@ class CustomerRequestCaseWriteService
         }
 
         $explicitCurrentHandlerId = $this->support->parseNullableInt($source['nguoi_xu_ly_id'] ?? null);
+        $explicitPerformerId = $this->support->parseNullableInt($source['performer_user_id'] ?? null);
+        if ($statusCode === 'new_intake' && $explicitPerformerId !== null && ! array_key_exists('to_user_id', $source)) {
+            $source['to_user_id'] = $explicitPerformerId;
+        }
         if ($statusCode === 'pending_dispatch' && array_key_exists('dispatch_notes', $source) && ! array_key_exists('dispatch_note', $source)) {
             $source['dispatch_note'] = $source['dispatch_notes'];
+        }
+        if (in_array($statusCode, ['assigned_to_receiver', 'in_progress'], true)) {
+            if (array_key_exists('performer_user_id', $source) && ! array_key_exists('to_user_id', $source)) {
+                $source['to_user_id'] = $source['performer_user_id'];
+            }
+            if (array_key_exists('processing_content', $source) && ! array_key_exists('notes', $source)) {
+                $source['notes'] = $source['processing_content'];
+            }
+        }
+        if ($statusCode === 'returned_to_manager' && array_key_exists('return_reason', $source) && ! array_key_exists('notes', $source)) {
+            $source['notes'] = $source['return_reason'];
         }
         unset($source['handler_user_id']);
 
@@ -750,6 +818,9 @@ class CustomerRequestCaseWriteService
         if ($explicitCurrentHandlerId !== null) {
             $filteredPayload['nguoi_xu_ly_id'] = $explicitCurrentHandlerId;
         }
+        if ($statusCode === 'new_intake' && $explicitPerformerId !== null) {
+            $filteredPayload['performer_user_id'] = $explicitPerformerId;
+        }
 
         return [$filteredPayload, $errors];
     }
@@ -773,13 +844,46 @@ class CustomerRequestCaseWriteService
 
         $normalized['from_user_id'] = $this->support->parseNullableInt($normalized['from_user_id'] ?? null)
             ?? $actorId;
-        $normalized['to_user_id'] = $this->support->parseNullableInt($normalized['to_user_id'] ?? null);
+        $normalized['to_user_id'] = $this->support->parseNullableInt($normalized['to_user_id'] ?? null)
+            ?? $this->resolveDefaultToUserId($statusCode, $case, $actorId)
+            ?? ($statusCode === 'returned_to_manager' ? $this->support->parseNullableInt($case?->dispatcher_user_id ?? null) : null)
+            ?? ($statusCode === 'returned_to_manager' ? $this->support->parseNullableInt($case?->received_by_user_id ?? null) : null)
+            ?? ($statusCode === 'not_executed' ? $actorId : null);
 
         $normalized['notes'] = $this->normalizeNullableString($normalized['notes'] ?? null);
+        if ($normalized['notes'] === null) {
+            $normalized['notes'] = $statusCode === 'returned_to_manager'
+                ? 'Chuyển trả quản lý'
+                : 'Cập nhật trạng thái';
+        }
 
         if (in_array($statusCode, ['completed', 'customer_notified'], true) && $normalized['completed_at'] === null) {
             $normalized['completed_at'] = now()->format('Y-m-d H:i:s');
         }
+    }
+
+    private function resolveDefaultToUserId(string $statusCode, ?CustomerRequestCase $case, ?int $actorId): ?int
+    {
+        return match ($statusCode) {
+            'assigned_to_receiver' => $this->support->parseNullableInt($case?->performer_user_id)
+                ?? $this->support->parseNullableInt($case?->nguoi_xu_ly_id)
+                ?? $this->resolveProjectAccountableUserId($this->support->parseNullableInt($case?->project_id))
+                ?? $this->support->parseNullableInt($case?->received_by_user_id)
+                ?? $actorId,
+            'in_progress', 'analysis', 'coding', 'dms_transfer' => $this->support->parseNullableInt($case?->performer_user_id)
+                ?? $this->support->parseNullableInt($case?->nguoi_xu_ly_id)
+                ?? $this->resolveProjectAccountableUserId($this->support->parseNullableInt($case?->project_id))
+                ?? $this->support->parseNullableInt($case?->received_by_user_id)
+                ?? $actorId,
+            'analysis_completed', 'analysis_suspended',
+            'coding_in_progress', 'coding_suspended',
+            'dms_task_created', 'dms_in_progress', 'dms_suspended',
+            'completed', 'customer_notified' => $this->support->parseNullableInt($case?->nguoi_xu_ly_id)
+                ?? $this->support->parseNullableInt($case?->performer_user_id)
+                ?? $this->support->parseNullableInt($case?->received_by_user_id)
+                ?? $actorId,
+            default => null,
+        };
     }
 
     private function resolveHandlerFieldDefaultValue(
@@ -822,21 +926,32 @@ class CustomerRequestCaseWriteService
 
     private function resolveNotificationHandlerUserId(?CustomerRequestCase $case, ?int $actorId): ?int
     {
-        $caseProjectId = $this->support->parseNullableInt($case?->project_id);
-        if ($caseProjectId !== null) {
-            $raciRows = $this->support->fetchProjectRaciAssignmentsByProjectIds([$caseProjectId]);
-            $accountable = collect($raciRows)->first(
-                static fn (array $row): bool =>
-                    (int) ($row['project_id'] ?? 0) === $caseProjectId
-                    && (string) ($row['raci_role'] ?? '') === 'A'
-            );
-            $handlerUserId = $this->support->parseNullableInt($accountable['user_id'] ?? null);
-            if ($handlerUserId !== null) {
-                return $handlerUserId;
-            }
+        $handlerUserId = $this->resolveProjectAccountableUserId($this->support->parseNullableInt($case?->project_id));
+        if ($handlerUserId !== null) {
+            return $handlerUserId;
         }
 
         return $this->support->parseNullableInt($case?->received_by_user_id) ?? $actorId;
+    }
+
+    private function resolveProjectAccountableUserId(?int $projectId): ?int
+    {
+        if ($projectId === null) {
+            return null;
+        }
+
+        foreach ($this->support->fetchProjectRaciAssignmentsByProjectIds([$projectId]) as $row) {
+            if ((int) ($row['project_id'] ?? 0) !== $projectId || (string) ($row['raci_role'] ?? '') !== 'A') {
+                continue;
+            }
+
+            $userId = $this->support->parseNullableInt($row['user_id'] ?? null);
+            if ($userId !== null) {
+                return $userId;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1477,7 +1592,9 @@ class CustomerRequestCaseWriteService
 
     private function assertTransitionAllowed(CustomerRequestCase $case, string $fromStatusCode, string $toStatusCode): void
     {
-        // Cho phép chuyển sang cùng status (re-transition) - useful để update handler, notes, v.v.
+        if ($fromStatusCode === $toStatusCode) {
+            throw new \RuntimeException('Không thể chuyển sang chính trạng thái hiện tại.');
+        }
 
         if (! $this->isTransitionAllowedForCase($case, $fromStatusCode, $toStatusCode)) {
             throw new \RuntimeException('Không thể chuyển sang trạng thái đích từ trạng thái hiện tại.');

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectFormModal } from '../components/modals';
-import type { ProcedureTemplate, Project } from '../types';
+import type { ProcedureTemplate, Product, ProductPackage, Project } from '../types';
 
 const PROJECT_FORM_SUBMIT_TIMEOUT_MS = 16000;
 const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
@@ -11,6 +11,8 @@ const fetchProjectImplementationUnitOptionsMock = vi.hoisted(() => vi.fn());
 const fetchProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
 const generateProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
 const syncProjectRevenueSchedulesMock = vi.hoisted(() => vi.fn());
+const fetchProductQuotationsPageMock = vi.hoisted(() => vi.fn());
+const fetchProductQuotationMock = vi.hoisted(() => vi.fn());
 
 fetchProcedureTemplatesMock.mockResolvedValue([
   {
@@ -26,6 +28,8 @@ fetchProjectImplementationUnitOptionsMock.mockResolvedValue([]);
 fetchProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
 generateProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
 syncProjectRevenueSchedulesMock.mockResolvedValue({ data: [] });
+fetchProductQuotationsPageMock.mockResolvedValue({ data: [] });
+fetchProductQuotationMock.mockResolvedValue(null);
 
 vi.mock('../services/v5Api', () => ({
   fetchProcedureTemplates: fetchProcedureTemplatesMock,
@@ -49,6 +53,11 @@ vi.mock('../services/api/projectApi', async () => {
       fetchProjectImplementationUnitOptionsMock,
   };
 });
+
+vi.mock('../services/api/productApi', () => ({
+  fetchProductQuotationsPage: fetchProductQuotationsPageMock,
+  fetchProductQuotation: fetchProductQuotationMock,
+}));
 
 const baseProjectData: Project = {
   id: 300,
@@ -339,6 +348,160 @@ describe('ProjectFormModal save payload', () => {
     expect(Array.isArray(payload.items)).toBe(true);
     expect(payload.items).toHaveLength(2);
     expect(payload.raci).toBeUndefined();
+  });
+
+  it('keeps the quotation unit snapshot when merging imported items into an existing project item', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    fetchProductQuotationsPageMock.mockResolvedValue({
+      data: [
+        {
+          id: 501,
+          recipient_name: 'Bệnh viện Sản - Nhi Hậu Giang',
+          total_amount: 48000000,
+          updated_at: '2026-04-26T10:00:00Z',
+        },
+      ],
+    });
+    fetchProductQuotationMock.mockResolvedValue({
+      id: 501,
+      recipient_name: 'Bệnh viện Sản - Nhi Hậu Giang',
+      items: [
+        {
+          id: 9001,
+          product_id: 11,
+          package_id: 101,
+          quantity: 24,
+          unit_price: 2000000,
+          unit: '4 Máy/Tháng',
+        },
+      ],
+    });
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          items: [
+            {
+              id: 'ITEM_1',
+              productId: '11',
+              productPackageId: '101',
+              product_id: 11,
+              product_package_id: 101,
+              quantity: 12,
+              unitPrice: 500000,
+              unit_price: 500000,
+              discountPercent: 0,
+              discountAmount: 0,
+              lineTotal: 6000000,
+              line_total: 6000000,
+            },
+          ],
+        }}
+        initialTab="items"
+        customers={[]}
+        products={[
+          {
+            id: 11,
+            product_code: 'XN01',
+            product_name: 'Thuê phần mềm quản lý xét nghiệm',
+          } as Product,
+        ]}
+        productPackages={[
+          {
+            id: 101,
+            product_id: 11,
+            package_code: 'PKG-XN',
+            package_name: 'Thuê phần mềm quản lý xét nghiệm',
+            unit: 'Máy/Tháng',
+          } as ProductPackage,
+        ]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Lấy từ Báo giá/i }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: /Bệnh viện Sản - Nhi Hậu Giang/i,
+      })
+    );
+
+    expect(await screen.findByText('4 Máy/Tháng')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Lấy 1 hạng mục/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('4 Máy/Tháng')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.items?.[0]?.unit).toBe('4 Máy/Tháng');
+    expect(payload.items?.[0]?.quantity).toBe(36);
+  });
+
+  it('formats item quantity with thousand separators while preserving numeric save payload', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const baseItem = baseProjectData.items?.[0];
+
+    expect(baseItem).toBeDefined();
+
+    render(
+      <ProjectFormModal
+        type="EDIT"
+        data={{
+          ...baseProjectData,
+          items: [
+            {
+              ...baseItem!,
+              quantity: 45000,
+              lineTotal: 450000000000,
+              line_total: 450000000000,
+            },
+          ],
+        }}
+        initialTab="items"
+        customers={[]}
+        products={[]}
+        employees={[]}
+        departments={[]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const quantityInput = screen.getByLabelText('Số lượng hạng mục dòng 1');
+    expect(quantityInput).toHaveValue('45.000');
+
+    await user.click(quantityInput);
+    await user.clear(quantityInput);
+    await user.type(quantityInput, '1234,75');
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Số lượng hạng mục dòng 1')).toHaveValue('1.234,75');
+    });
+
+    await user.click(screen.getByText('Cập nhật').closest('button') as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = onSave.mock.calls[0][0] as Partial<Project>;
+    expect(payload.items?.[0]?.quantity).toBe(1234.75);
   });
 
   it('warns but still saves when copied items duplicate the same product in one project', async () => {

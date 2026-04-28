@@ -36,6 +36,7 @@ const makeRequest = (partial?: Partial<YeuCau>): YeuCau => ({
   dispatcher_name: partial?.dispatcher_name ?? 'Trần PM',
   performer_name: partial?.performer_name ?? 'Ngô Dev',
   nguoi_xu_ly_name: partial?.nguoi_xu_ly_name ?? 'Ngô Dev',
+  accountable_name: partial?.accountable_name ?? 'Mai Quản lý',
   project_name: partial?.project_name ?? 'SOC Dashboard',
   received_at: partial?.received_at ?? '2026-03-20 08:00:00',
   created_at: partial?.created_at ?? '2026-03-20 08:00:00',
@@ -121,6 +122,7 @@ describe('CustomerRequestListPane UI', () => {
     const onRequestPriorityFilterChange = vi.fn();
     const onRequestEntityFilterChange = vi.fn();
     const onSubmitKeywordSearch = vi.fn();
+    const onToggleMissingEstimate = vi.fn();
 
     const rows = [
       makeRequest({ nguoi_xu_ly_name: 'Phan Văn Rở' }),
@@ -146,20 +148,39 @@ describe('CustomerRequestListPane UI', () => {
       onRequestPriorityFilterChange,
       onRequestEntityFilterChange,
       onSubmitKeywordSearch,
+      onToggleMissingEstimate,
     };
 
     const { rerender } = render(<CustomerRequestListPane {...props} />);
 
     expect(screen.getByText('Mã yêu cầu')).toBeInTheDocument();
     expect(screen.getByText('Tên yêu cầu')).toBeInTheDocument();
+    expect(screen.getByText('Người nhập yêu cầu')).toBeInTheDocument();
     expect(screen.getByText('Người xử lý')).toBeInTheDocument();
+    expect(screen.queryByText('Người quản lý (A)')).not.toBeInTheDocument();
     expect(screen.getByText('Trạng thái XL')).toBeInTheDocument();
     expect(screen.getByText('Ngày thực hiện')).toBeInTheDocument();
     expect(screen.getByText('Ngày kết thúc')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tiến trình' })).toHaveTextContent('Đang xử lý');
+    expect(screen.getByRole('button', { name: 'Chuẩn' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'A/R' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'PM dự án' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vận hành' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cột/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Chọn mật độ hiển thị' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Mật độ:/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText('Người xử lý').length).toBeGreaterThan(0);
+    const requestCodeHeader = screen.getByText('Mã yêu cầu', { selector: 'th' });
+    expect(requestCodeHeader.closest('tr')).toHaveClass('tracking-wider');
+    expect(requestCodeHeader.closest('tr')?.className).not.toContain('tracking-[0.18em]');
+    expect(requestCodeHeader).toHaveClass('py-2');
 
     const requestRow = screen.getByText('CRC-202603-0022').closest('tr');
     expect(requestRow).not.toBeNull();
+    const requestCode = within(requestRow as HTMLTableRowElement).getByText('CRC-202603-0022');
+    expect(requestCode).toHaveClass('font-sans');
+    expect(requestCode).not.toHaveClass('font-mono');
+    expect(requestCode).not.toHaveClass('tabular-nums');
+    expect(requestCode).not.toHaveClass('tracking-wide');
     expect(within(requestRow as HTMLTableRowElement).getByText('Phan Văn Rở')).toBeInTheDocument();
 
     await user.click(screen.getByText('CRC-202603-0022'));
@@ -167,6 +188,32 @@ describe('CustomerRequestListPane UI', () => {
 
     await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
     expect(onSubmitKeywordSearch).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: /Thiếu est/i }));
+    expect(onToggleMissingEstimate).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'PM dự án' }));
+    expect(screen.getByText('PM control')).toBeInTheDocument();
+    expect(screen.getByText('Estimate / Log')).toBeInTheDocument();
+    expect(screen.getByText('Next / SLA')).toBeInTheDocument();
+    const pmRequestRow = screen.getByText('CRC-202603-0022').closest('tr');
+    expect(within(pmRequestRow as HTMLTableRowElement).getByText('Mai Quản lý')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Chuẩn' }));
+    await user.click(screen.getByRole('button', { name: /Cột/i }));
+    const accountableColumnToggle = screen.getByLabelText('Người quản lý (A)');
+    expect(accountableColumnToggle).not.toBeChecked();
+    await user.click(accountableColumnToggle);
+    expect(accountableColumnToggle).toBeChecked();
+    const handlerHeader = screen.getByText('Người xử lý', { selector: 'th' });
+    const accountableHeader = screen.getByText('Người quản lý (A)', { selector: 'th' });
+    expect((handlerHeader?.compareDocumentPosition(accountableHeader) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(screen.getAllByText('Mai Quản lý').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
+    expect(screen.getByRole('button', { name: 'Tiến trình' })).toHaveTextContent('Đang xử lý');
 
     await user.click(screen.getByRole('button', { name: 'Ưu tiên' }));
     expect(screen.getByPlaceholderText('Tìm ưu tiên...')).toBeInTheDocument();
@@ -193,6 +240,7 @@ describe('CustomerRequestListPane UI', () => {
 
     rerender(<CustomerRequestListPane {...props} showFilterToolbar={false} />);
     expect(screen.queryByRole('button', { name: 'Tiến trình' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chuẩn' })).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
   });
 
@@ -244,7 +292,7 @@ describe('CustomerRequestListPane UI', () => {
       />
     );
 
-    expect(screen.getByText('Đang tải danh sách yêu cầu...').closest('td')).toHaveAttribute('colspan', '7');
+    expect(screen.getByText('Đang tải danh sách yêu cầu...').closest('td')).toHaveAttribute('colspan', '8');
 
     rerender(
       <CustomerRequestListPane
@@ -260,7 +308,7 @@ describe('CustomerRequestListPane UI', () => {
 
     expect(
       screen.getByText('Không có yêu cầu nào phù hợp với bộ lọc hiện tại.').closest('td')
-    ).toHaveAttribute('colspan', '7');
+    ).toHaveAttribute('colspan', '8');
   });
 
   it('hides filter toolbar when showFilterToolbar is false', () => {
@@ -283,6 +331,8 @@ describe('CustomerRequestListPane UI', () => {
     expect(screen.queryByRole('button', { name: 'Tags' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ưu tiên' })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chuẩn' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cột/i })).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
   });
 });

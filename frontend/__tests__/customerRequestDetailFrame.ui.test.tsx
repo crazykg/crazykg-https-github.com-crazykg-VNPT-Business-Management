@@ -38,7 +38,8 @@ describe('CustomerRequestDetailFrame UI', () => {
     expect(dialog).toBeInTheDocument();
     expect(dialog.className).toContain('h-[90dvh]');
     expect(dialog.className).toContain('max-w-none');
-    expect(dialog.className).toContain('rounded-none');
+    expect(dialog.className).toContain('rounded-[var(--ui-modal-mobile-radius)]');
+    expect(dialog.className).toContain('sm:rounded-[var(--ui-modal-radius)]');
     expect(dialog.className).not.toContain('sm:h-[calc(100dvh-48px)]');
     expect(dialog.className).not.toContain('sm:rounded-xl');
     expect(dialog.className).not.toContain('lg:max-w-[1120px]');

@@ -154,9 +154,17 @@ const normalizeNullableProjectInvestmentMode = (value: unknown): string | null =
   return raw.toUpperCase();
 };
 
+type NormalizedProjectItem = {
+  product_id: number;
+  product_package_id?: number;
+  unit: string | null;
+  quantity: number;
+  unit_price: number;
+};
+
 const normalizeProjectItems = (
   items: Partial<Project>['items']
-): Array<{ product_id: number; product_package_id?: number; quantity: number; unit_price: number }> | undefined => {
+): NormalizedProjectItem[] | undefined => {
   if (!Array.isArray(items)) {
     return undefined;
   }
@@ -182,13 +190,12 @@ const normalizeProjectItems = (
         ...(productPackageId !== null && productPackageId > 0
           ? { product_package_id: productPackageId }
           : {}),
+        unit: normalizeNullableText(source.unit),
         quantity: normalizeNumber(source.quantity, 1),
         unit_price: normalizeNumber(source.unitPrice ?? source.unit_price, 0),
       };
     })
-    .filter((
-      item
-    ): item is { product_id: number; product_package_id?: number; quantity: number; unit_price: number } => item !== null);
+    .filter((item): item is NormalizedProjectItem => item !== null);
 };
 
 const normalizeProjectRaci = (

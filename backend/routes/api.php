@@ -614,6 +614,8 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:contracts.read');
         Route::put('/payment-schedules/{id}', [ContractController::class, 'updatePaymentSchedule'])
             ->middleware('permission:contracts.payments');
+        Route::delete('/payment-schedules/{id}', [ContractController::class, 'destroyPaymentSchedule'])
+            ->middleware('permission:contracts.payments');
 
         // ── Fee Collection (Thu Cước) ─────────────────────────────────────────
         // Dashboard & Reports (register BEFORE /invoices/{id} to avoid wildcard conflict)
@@ -793,6 +795,10 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
         Route::put('/contract-signer-masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
             ->middleware(['permission:contracts.write', 'permission:support_requests.write']);
+        Route::get('/support-auth-session-policy', [SupportConfigController::class, 'authSessionPolicy'])
+            ->middleware('permission:support_requests.read');
+        Route::put('/support-auth-session-policy', [SupportConfigController::class, 'updateAuthSessionPolicy'])
+            ->middleware('permission:support_requests.write');
         Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
             ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);
         Route::post('/product_unit_masters', [SupportConfigController::class, 'storeProductUnitMaster'])
@@ -805,6 +811,10 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters,2026-04-27']);
         Route::put('/contract_signer_masters/{id}', [SupportConfigController::class, 'updateContractSignerMaster'])
             ->middleware(['permission:contracts.write', 'permission:support_requests.write', 'deprecated.route:/api/v5/contract-signer-masters/{id},2026-04-27']);
+        Route::get('/support_auth_session_policy', [SupportConfigController::class, 'authSessionPolicy'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/support-auth-session-policy,2026-04-27']);
+        Route::put('/support_auth_session_policy', [SupportConfigController::class, 'updateAuthSessionPolicy'])
+            ->middleware(['permission:support_requests.write', 'deprecated.route:/api/v5/support-auth-session-policy,2026-04-27']);
 
         Route::get('/support-contact-positions', [SupportContactPositionController::class, 'index'])
             ->middleware('permission:support_contact_positions.read');
@@ -893,8 +903,20 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:support_requests.read');
         Route::get('/customer-requests/project-items', [CustomerRequestController::class, 'projectItems'])
             ->middleware('permission:support_requests.read');
+        Route::get('/customer-requests/filter-options/customers', [CustomerRequestController::class, 'customerFilterOptions'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-requests/filter-options/projects', [CustomerRequestController::class, 'projectFilterOptions'])
+            ->middleware('permission:support_requests.read');
+        Route::get('/customer-requests/filter-options/products', [CustomerRequestController::class, 'productFilterOptions'])
+            ->middleware('permission:support_requests.read');
         Route::get('/customer_requests/project_items', [CustomerRequestController::class, 'projectItems'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/project-items,2026-04-27']);
+        Route::get('/customer_requests/filter_options/customers', [CustomerRequestController::class, 'customerFilterOptions'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/filter-options/customers,2026-04-27']);
+        Route::get('/customer_requests/filter_options/projects', [CustomerRequestController::class, 'projectFilterOptions'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/filter-options/projects,2026-04-27']);
+        Route::get('/customer_requests/filter_options/products', [CustomerRequestController::class, 'productFilterOptions'])
+            ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests/filter-options/products,2026-04-27']);
         Route::get('/customer_requests', [CustomerRequestController::class, 'index'])
             ->middleware(['permission:support_requests.read', 'deprecated.route:/api/v5/customer-requests,2026-04-27']);
         Route::get('/customer_requests/dashboard_summary', [CustomerRequestController::class, 'dashboardSummary'])

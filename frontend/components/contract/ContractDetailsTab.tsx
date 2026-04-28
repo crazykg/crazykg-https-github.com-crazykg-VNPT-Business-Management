@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Attachment, Contract, ContractItem, Product, Project, ProjectItemMaster } from '../../types';
-import { AttachmentManager } from '../AttachmentManager';
+import { AttachmentManager, type AttachmentManagerHandle } from '../AttachmentManager';
 import { SearchableSelect, type SearchableSelectOption } from '../SearchableSelect';
 import { resolveContractItemCatalogValue } from './contractItemCatalogUtils';
 
@@ -111,11 +111,40 @@ interface ContractDetailsTabProps {
   };
 }
 
-const fieldLabelClass = 'text-sm font-semibold leading-5 text-neutral';
-const fieldInputClass = 'w-full h-11 rounded-lg border border-slate-300 bg-white px-3.5 text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
+const fieldLabelClass = 'text-xs font-semibold leading-4 text-neutral';
+const fieldInputClass = 'w-full h-8 rounded-md border border-slate-300 bg-white px-3 text-[13px] leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500';
 const fieldInputErrorClass = 'border-error ring-1 ring-error/20';
 const cardClass = 'rounded-lg border border-slate-200 bg-white shadow-sm';
-const compactTriggerClass = 'h-11 rounded-lg border border-slate-300 px-3.5 text-sm leading-5 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+const compactTriggerClass = '!h-8 rounded-md border border-slate-300 px-3 text-[13px] leading-5 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30';
+const sourceModeButtonClass = 'inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-[13px] font-semibold leading-5 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60';
+const sectionActionButtonClass = 'inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold leading-4 text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-400';
+const compactSectionHeaderClass = 'flex w-full flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-left md:flex-row md:items-center md:justify-between';
+const compactTableHeaderClass = 'px-2 py-1.5 text-xs font-bold uppercase tracking-wide leading-4 text-slate-500';
+const compactTableCellClass = 'px-2 py-2 text-[13px] leading-4';
+
+const parseFormattedQuantityInput = (value: string): number => {
+  const normalized = String(value || '').trim().replace(/\s+/g, '');
+  if (!normalized) {
+    return 0;
+  }
+
+  const hasCommaDecimal = normalized.includes(',');
+  const thousandsDotPattern = /^\d{1,3}(\.\d{3})+$/;
+  const decimalDotPattern = /^\d+\.\d+$/;
+
+  let sanitized = normalized;
+
+  if (hasCommaDecimal) {
+    sanitized = normalized.replace(/\./g, '').replace(/,/g, '.');
+  } else if (thousandsDotPattern.test(normalized)) {
+    sanitized = normalized.replace(/\./g, '');
+  } else if (!decimalDotPattern.test(normalized)) {
+    sanitized = normalized.replace(/[^\d.-]/g, '');
+  }
+
+  const parsed = Number(sanitized);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
 
 export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   modalType,
@@ -204,6 +233,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   } = contractMeta;
   const { onFieldChange, onFieldBlur, onExpiryDateChange } = callbacks;
   const { formatCurrency, formatQuantity, parseCurrency } = formatters;
+  const attachmentManagerRef = React.useRef<AttachmentManagerHandle | null>(null);
   const shouldUseProjectItemsFallback = !isItemsEditable
     && sourceMode === 'PROJECT'
     && draftItems.length === 0
@@ -231,11 +261,18 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
   const visibleDraftItemsTotal = shouldUseProjectItemsFallback ? projectFallbackTotal : draftItemsTotal;
   const visibleDraftItemsVatTotal = shouldUseProjectItemsFallback ? projectFallbackVatTotal : draftItemsVatTotal;
   const visibleDraftItemsGrandTotal = shouldUseProjectItemsFallback ? projectFallbackGrandTotal : draftItemsGrandTotal;
+  const shouldCollapseContractItems = !isItemsEditable;
+  const contractItemsDisclosureId = `contract-items-panel-${String(formData.id || 'draft')}`;
+  const [isContractItemsOpen, setIsContractItemsOpen] = React.useState<boolean>(isItemsEditable);
+
+  React.useEffect(() => {
+    setIsContractItemsOpen(isItemsEditable);
+  }, [formData.id, isItemsEditable, modalType]);
 
   return (
-    <div className="space-y-3 p-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
+    <div className="space-y-2 px-3 py-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClass}>
             Mã hợp đồng <span className="text-error">*</span>
           </label>
@@ -257,7 +294,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1 xl:col-span-3">
           <label className={fieldLabelClass}>
             Tên hợp đồng <span className="text-error">*</span>
           </label>
@@ -280,16 +317,16 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         </div>
 
         {modalType !== 'EDIT' && !fixedSourceMode && (
-          <div className="md:col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="md:col-span-2 xl:col-span-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => onSourceModeChange('PROJECT')}
               disabled={areScheduleSourceFieldsLocked}
-              className={`inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+              className={`${sourceModeButtonClass} ${
                 sourceMode === 'PROJECT'
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
-              } disabled:cursor-not-allowed disabled:opacity-60`}
+              }`}
               title={areScheduleSourceFieldsLocked ? projectTypeLockMessage : undefined}
             >
               Theo dự án
@@ -298,11 +335,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               type="button"
               onClick={() => onSourceModeChange('INITIAL')}
               disabled={areScheduleSourceFieldsLocked}
-              className={`inline-flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+              className={`${sourceModeButtonClass} ${
                 sourceMode === 'INITIAL'
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
-              } disabled:cursor-not-allowed disabled:opacity-60`}
+              }`}
               title={areScheduleSourceFieldsLocked ? projectTypeLockMessage : undefined}
             >
               Đầu kỳ
@@ -312,10 +349,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
 
         {sourceMode === 'PROJECT' ? (
           <div
-            className="md:col-span-2 flex flex-col gap-1.5"
+            className="md:col-span-2 xl:col-span-4 flex flex-col gap-1"
             title={areScheduleSourceFieldsLocked ? projectTypeLockMessage : undefined}
           >
             <SearchableSelect
+              compact
               label="Dự án"
               required
               value={formData.project_id ? String(formData.project_id) : ''}
@@ -331,10 +369,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         ) : (
           <>
             <div
-              className="flex flex-col gap-1.5"
+              className="flex flex-col gap-1"
               title={areScheduleSourceFieldsLocked ? projectTypeLockMessage : undefined}
             >
               <SearchableSelect
+                compact
                 label="Khách hàng"
                 required
                 value={formData.customer_id ? String(formData.customer_id) : ''}
@@ -349,10 +388,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             </div>
 
             <div
-              className="flex flex-col gap-1.5"
+              className="flex flex-col gap-1"
               title={areScheduleSourceFieldsLocked ? projectTypeLockMessage : undefined}
             >
               <SearchableSelect
+                compact
                 label="Loại dự án"
                 required
                 value={formData.project_type_code ? String(formData.project_type_code) : ''}
@@ -369,19 +409,19 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {isProjectSelectionLoading && sourceMode === 'PROJECT' && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+          <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
             Đang tải dữ liệu dự án để liên kết hợp đồng.
           </div>
         )}
 
         {isInitialCustomerSelectionLoading && sourceMode === 'INITIAL' && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+          <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-500">
             Đang tải dữ liệu khách hàng cho hợp đồng đầu kỳ.
           </div>
         )}
 
         {sourceMode === 'PROJECT' && selectedProject && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+          <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600">
             Dự án: <span className="font-semibold text-slate-800">{selectedProject.project_code} - {selectedProject.project_name}</span>
             {' | '}KH: <span className="font-semibold text-slate-800">{selectedProjectCustomerName || '--'}</span>
             {' | '}Giá trị hạng mục DA: <span className="font-semibold text-slate-800">{formatCurrency(selectedProjectValue)} VNĐ ({selectedProjectItems.length} HM)</span>
@@ -402,7 +442,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {sourceMode === 'INITIAL' && (formData.customer_id || formData.project_type_code) && (
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+          <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600">
             Khách hàng:{' '}
             <span className="font-semibold text-slate-800">
               {customerOptions.find((item) => String(item.value) === String(formData.customer_id || ''))?.label || '--'}
@@ -413,18 +453,18 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {sourceMode === 'PROJECT' && selectedProject && (
-          <div className="md:col-span-2 space-y-3">
+          <div className="md:col-span-2 xl:col-span-4 space-y-2">
             <div className={cardClass}>
               <button
                 type="button"
                 onClick={onToggleProjectItemsReference}
-                className="flex w-full flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between"
+                className={compactSectionHeaderClass}
               >
                 <div>
-                    <h4 className="text-sm font-bold leading-5 text-slate-700">
-                      Hạng mục dự án gốc ({selectedProjectItems.length} hạng mục)
-                    </h4>
-                  </div>
+                  <h4 className="text-sm font-bold leading-5 text-slate-700">
+                    Hạng mục dự án gốc ({selectedProjectItems.length} hạng mục)
+                  </h4>
+                </div>
                 <span className="inline-flex items-center gap-1 text-[13px] font-semibold leading-[18px] text-slate-600">
                   <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
                     {isProjectItemsReferenceOpen ? 'expand_less' : 'expand_more'}
@@ -434,26 +474,26 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
               </button>
 
               {isProjectItemsReferenceOpen && (
-                <div className="overflow-auto">
+                <div className="max-h-[34dvh] overflow-auto">
                   {isContractProjectReferenceLoading && (
-                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
                       Đang tải hạng mục gốc của dự án liên kết...
                     </div>
                   )}
                   <table className="w-full min-w-[720px] border-collapse">
                     <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
-                        <th className="w-14 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">#</th>
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Sản phẩm/Dịch vụ</th>
-                        <th className="w-32 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Số lượng</th>
-                        <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
-                        <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền</th>
+                        <th className={`w-12 text-center ${compactTableHeaderClass}`}>#</th>
+                        <th className={`text-left ${compactTableHeaderClass}`}>Sản phẩm/Dịch vụ</th>
+                        <th className={`w-28 text-center ${compactTableHeaderClass}`}>Số lượng</th>
+                        <th className={`w-36 text-right ${compactTableHeaderClass}`}>Đơn giá</th>
+                        <th className={`w-40 text-right ${compactTableHeaderClass}`}>Thành tiền</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {selectedProjectItems.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-5 text-center text-sm text-slate-500">
+                          <td colSpan={5} className="px-3 py-4 text-center text-sm text-slate-500">
                             Dự án này chưa có hạng mục nào để đối chiếu.
                           </td>
                         </tr>
@@ -475,11 +515,11 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
 
                           return (
                             <tr key={`project-item-${item.id}-${index}`} className="hover:bg-slate-50">
-                              <td className="w-14 px-4 py-3 text-center text-sm font-medium text-slate-600">{index + 1}</td>
-                              <td className="px-4 py-3 text-sm leading-5 text-on-surface">{itemLabel}</td>
-                              <td className="w-32 px-4 py-3 text-center text-sm text-slate-600">{formatQuantity(quantity)}</td>
-                              <td className="w-40 px-4 py-3 text-right text-sm text-slate-600">{formatCurrency(unitPrice)} đ</td>
-                              <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface">{formatCurrency(amount)} đ</td>
+                              <td className={`w-12 text-center font-medium text-slate-600 ${compactTableCellClass}`}>{index + 1}</td>
+                              <td className={`${compactTableCellClass} text-on-surface`}>{itemLabel}</td>
+                              <td className={`w-28 text-center text-slate-600 ${compactTableCellClass}`}>{formatQuantity(quantity)}</td>
+                              <td className={`w-36 text-right text-slate-600 ${compactTableCellClass}`}>{formatCurrency(unitPrice)} đ</td>
+                              <td className={`w-40 text-right font-semibold text-on-surface ${compactTableCellClass}`}>{formatCurrency(amount)} đ</td>
                             </tr>
                           );
                         })
@@ -487,10 +527,10 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
                     </tbody>
                     <tfoot className="border-t border-slate-200 bg-slate-50">
                       <tr>
-                        <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <td colSpan={4} className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Tổng hạng mục dự án
                         </td>
-                        <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
+                        <td className="w-40 px-2 py-2 text-right text-[13px] font-bold text-on-surface">
                           {formatCurrency(selectedProjectValue)} đ
                         </td>
                       </tr>
@@ -501,274 +541,312 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             </div>
 
             <div className={cardClass}>
-              <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
+              {shouldCollapseContractItems ? (
+                <button
+                  type="button"
+                  onClick={() => setIsContractItemsOpen((prev) => !prev)}
+                  aria-expanded={isContractItemsOpen}
+                  aria-controls={contractItemsDisclosureId}
+                  className={compactSectionHeaderClass}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <h4 className="text-sm font-bold leading-5 text-slate-700">
                       Hạng mục hợp đồng ({visibleContractItems.length} hạng mục)
                     </h4>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      Trước VAT: <span className="text-slate-800">{formatCurrency(visibleDraftItemsTotal)} đ</span>
+                    </span>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      VAT: <span className="text-slate-800">{formatCurrency(visibleDraftItemsVatTotal)} đ</span>
+                    </span>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      Tổng VAT: <span className="text-slate-900">{formatCurrency(visibleDraftItemsGrandTotal)} đ</span>
+                    </span>
                   </div>
-                  {isItemsEditable ? (
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {sourceMode === 'PROJECT' && (
-                        <button
-                          type="button"
-                          onClick={onImportProjectItems}
-                          disabled={isContractProjectReferenceLoading || selectedProjectItems.length === 0}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-400"
-                        >
-                          <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
-                            playlist_add
-                          </span>
-                          Lấy hạng mục từ dự án
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={onAddDraftItem}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600 hover:bg-slate-50"
-                      >
-                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
-                          add
-                        </span>
-                        Thêm hạng mục
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-bold text-warning">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-bold text-warning">
                       <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
                       Không thể sửa - đã có kỳ thanh toán
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[13px] font-semibold leading-[18px] text-slate-600">
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                        {isContractItemsOpen ? 'expand_less' : 'expand_more'}
+                      </span>
+                      {isContractItemsOpen ? 'Thu gọn' : 'Xem chi tiết'}
+                    </span>
+                  </div>
+                </button>
+              ) : (
+                <div className={`${compactSectionHeaderClass} text-left`}>
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <h4 className="text-sm font-bold leading-5 text-slate-700">
+                      Hạng mục hợp đồng ({visibleContractItems.length} hạng mục)
+                    </h4>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      Trước VAT: <span className="text-slate-800">{formatCurrency(visibleDraftItemsTotal)} đ</span>
+                    </span>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      VAT: <span className="text-slate-800">{formatCurrency(visibleDraftItemsVatTotal)} đ</span>
+                    </span>
+                    <span className="text-xs font-semibold leading-4 text-slate-500">
+                      Tổng VAT: <span className="text-slate-900">{formatCurrency(visibleDraftItemsGrandTotal)} đ</span>
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    {sourceMode === 'PROJECT' && (
+                      <button
+                        type="button"
+                        onClick={onImportProjectItems}
+                        disabled={isContractProjectReferenceLoading || selectedProjectItems.length === 0}
+                        className={sectionActionButtonClass}
+                      >
+                        <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                          playlist_add
+                        </span>
+                        Lấy hạng mục từ dự án
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onAddDraftItem}
+                      className={sectionActionButtonClass}
+                    >
+                      <span className="material-symbols-outlined text-primary" style={{ fontSize: 15 }}>
+                        add
+                      </span>
+                      Thêm hạng mục
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(!shouldCollapseContractItems || isContractItemsOpen) && (
+                <div id={contractItemsDisclosureId} className="max-h-[40dvh] overflow-auto">
+                  {shouldUseProjectItemsFallback && (
+                    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      Hợp đồng này chưa có snapshot riêng cho hạng mục. Hệ thống đang hiển thị tạm từ hạng mục dự án liên kết để bạn đối chiếu.
                     </div>
                   )}
-                </div>
-              </div>
-
-              <div className="overflow-auto">
-                {shouldUseProjectItemsFallback && (
-                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                    Hợp đồng này chưa có snapshot riêng cho hạng mục. Hệ thống đang hiển thị tạm từ hạng mục dự án liên kết để bạn đối chiếu.
-                  </div>
-                )}
-                <table className="w-full min-w-[1180px] border-collapse">
-                  <thead className="border-b border-slate-200 bg-slate-50">
-                    <tr>
-                      <th className="w-14 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">#</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Sản phẩm/DV</th>
-                      <th className="w-32 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">ĐVT</th>
-                      <th className="w-32 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Số lượng</th>
-                      <th className="w-40 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Đơn giá</th>
-                      <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền trước VAT</th>
-                      <th className="w-20 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">VAT</th>
-                      <th className="w-36 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Tiền VAT</th>
-                      <th className="w-44 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Thành tiền VAT</th>
-                      {isItemsEditable && (
-                        <th className="w-28 px-4 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-500">Thao tác</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {visibleContractItems.length === 0 ? (
+                  <table className="w-full min-w-[1180px] border-collapse">
+                    <thead className="border-b border-slate-200 bg-slate-50">
                       <tr>
-                        <td colSpan={isItemsEditable ? 10 : 9} className="px-4 py-5 text-center text-sm text-slate-500">
-                          Chưa có hạng mục hợp đồng.
-                        </td>
+                        <th className={`w-12 text-center ${compactTableHeaderClass}`}>#</th>
+                        <th className={`text-left ${compactTableHeaderClass}`}>Sản phẩm/DV</th>
+                        <th className={`w-28 text-left ${compactTableHeaderClass}`}>ĐVT</th>
+                        <th className={`w-28 text-center ${compactTableHeaderClass}`}>Số lượng</th>
+                        <th className={`w-36 text-right ${compactTableHeaderClass}`}>Đơn giá</th>
+                        <th className={`w-40 text-right ${compactTableHeaderClass}`}>Thành tiền trước VAT</th>
+                        <th className={`w-20 text-center ${compactTableHeaderClass}`}>VAT</th>
+                        <th className={`w-32 text-right ${compactTableHeaderClass}`}>Tiền VAT</th>
+                        <th className={`w-40 text-right ${compactTableHeaderClass}`}>Thành tiền VAT</th>
+                        {isItemsEditable && (
+                          <th className={`w-24 text-center ${compactTableHeaderClass}`}>Thao tác</th>
+                        )}
                       </tr>
-                    ) : (
-                      visibleContractItems.map((item, index) => {
-                        const quantity = Number(item.quantity || 0);
-                        const unitPrice = Number(item.unit_price || 0);
-                        const computedRow = visibleComputedRows[index];
-                        const product = computedRow?.product || null;
-                        const amountBeforeVat = computedRow?.amountBeforeVat ?? 0;
-                        const vatLabel = computedRow?.vatLabel ?? '--';
-                        const vatAmount = computedRow?.vatAmount ?? 0;
-                        const amountWithVat = computedRow?.amountWithVat ?? amountBeforeVat;
-                        const hasStoredVatAmount = Number.isFinite(Number(item.vat_amount));
-                        const rowCatalogValue = resolveContractItemCatalogValue(item);
-                        const rowOptionMeta = productOptionMetaByValue.get(rowCatalogValue);
-                        const displayUnit = String(item.unit || product?.unit || rowOptionMeta?.unit || '').trim() || 'Gói';
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {visibleContractItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={isItemsEditable ? 10 : 9} className="px-3 py-4 text-center text-sm text-slate-500">
+                            Chưa có hạng mục hợp đồng.
+                          </td>
+                        </tr>
+                      ) : (
+                        visibleContractItems.map((item, index) => {
+                          const quantity = Number(item.quantity || 0);
+                          const unitPrice = Number(item.unit_price || 0);
+                          const computedRow = visibleComputedRows[index];
+                          const product = computedRow?.product || null;
+                          const amountBeforeVat = computedRow?.amountBeforeVat ?? 0;
+                          const vatLabel = computedRow?.vatLabel ?? '--';
+                          const vatAmount = computedRow?.vatAmount ?? 0;
+                          const amountWithVat = computedRow?.amountWithVat ?? amountBeforeVat;
+                          const hasStoredVatAmount = Number.isFinite(Number(item.vat_amount));
+                          const rowCatalogValue = resolveContractItemCatalogValue(item);
+                          const rowOptionMeta = productOptionMetaByValue.get(rowCatalogValue);
+                          const displayUnit = String(item.unit || product?.unit || rowOptionMeta?.unit || '').trim() || 'Gói';
 
-                        return (
-                          <tr key={`contract-item-${String(item.id)}`} className="hover:bg-slate-50">
-                            <td className="w-14 px-4 py-3 text-center text-sm font-medium text-slate-600">{index + 1}</td>
-                            <td className="px-4 py-3 text-sm leading-5 text-on-surface min-w-[320px]">
-                              {isItemsEditable ? (
-                                <SearchableSelect
-                                  value={rowCatalogValue}
-                                  onChange={(value) => onDraftProductChange(index, value)}
-                                  options={productSelectOptions}
-                                  placeholder={isContractProductOptionsLoading ? 'Đang tải sản phẩm/DV...' : 'Chọn sản phẩm/DV'}
-                                  compact
-                                  usePortal
-                                  disabled={isContractProductOptionsLoading}
-                                  triggerClassName={compactTriggerClass}
-                                  optionEstimateSize={52}
-                                  dropdownClassName="min-w-[980px] max-w-[1180px]"
-                                  portalMinWidth={980}
-                                  portalMaxWidth={1180}
-                                  renderDropdownHeader={(
-                                    <div className="grid grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                      <span>Mã gói</span>
-                                      <span>Tên hạng mục</span>
-                                      <span>Mô tả gói</span>
-                                      <span className="text-left">ĐVT</span>
-                                      <span className="text-right">Đơn giá</span>
-                                    </div>
-                                  )}
-                                  renderOptionContent={(option, state) => {
-                                    const optionMeta = productOptionMetaByValue.get(String(option.value));
-                                    const packageCode = String(optionMeta?.packageCode || '').trim() || '--';
-                                    const packageName = String(optionMeta?.packageName || '').trim() || option.label;
-                                    const description = String(optionMeta?.description || '').trim() || '—';
-                                    const hasDescription = description !== '—';
-                                    const unitLabel = String(optionMeta?.unit || '').trim() || '—';
-                                    const standardPrice = optionMeta?.standardPrice;
-                                    const formattedStandardPrice = Number.isFinite(standardPrice)
-                                      ? formatCurrency(Number(standardPrice))
-                                      : '—';
-
-                                    return (
-                                      <div className="grid min-h-[40px] grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 py-0.5">
-                                        <p className={`truncate text-left font-mono text-xs font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-500'}`}>
-                                          {packageCode}
-                                        </p>
-                                        <p className={`${hasDescription ? 'truncate' : 'col-span-2 truncate'} text-left text-sm font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
-                                          {packageName}
-                                        </p>
-                                        {hasDescription ? (
-                                          <p className="truncate text-left text-xs text-slate-500">
-                                            {description}
-                                          </p>
-                                        ) : null}
-                                        <p className="truncate text-left text-sm text-slate-600">
-                                          {unitLabel}
-                                        </p>
-                                        <p className="truncate text-right text-sm font-medium text-slate-700">
-                                          {formattedStandardPrice}
-                                        </p>
+                          return (
+                            <tr key={`contract-item-${String(item.id)}`} className="hover:bg-slate-50">
+                              <td className={`w-12 text-center font-medium text-slate-600 ${compactTableCellClass}`}>{index + 1}</td>
+                              <td className={`${compactTableCellClass} min-w-[320px] text-on-surface`}>
+                                {isItemsEditable ? (
+                                  <SearchableSelect
+                                    value={rowCatalogValue}
+                                    onChange={(value) => onDraftProductChange(index, value)}
+                                    options={productSelectOptions}
+                                    placeholder={isContractProductOptionsLoading ? 'Đang tải sản phẩm/DV...' : 'Chọn sản phẩm/DV'}
+                                    compact
+                                    usePortal
+                                    disabled={isContractProductOptionsLoading}
+                                    triggerClassName={compactTriggerClass}
+                                    optionEstimateSize={52}
+                                    dropdownClassName="min-w-[980px] max-w-[1180px]"
+                                    portalMinWidth={980}
+                                    portalMaxWidth={1180}
+                                    renderDropdownHeader={(
+                                      <div className="grid grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                        <span>Mã gói</span>
+                                        <span>Tên hạng mục</span>
+                                        <span>Mô tả gói</span>
+                                        <span className="text-left">ĐVT</span>
+                                        <span className="text-right">Đơn giá</span>
                                       </div>
-                                    );
-                                  }}
-                                />
-                              ) : (
-                                item.product_name || item.product_code || '--'
-                              )}
-                            </td>
-                            <td className="w-32 px-4 py-3 text-left text-sm text-slate-600 whitespace-nowrap">
-                              {displayUnit}
-                            </td>
-                            <td className="w-32 px-4 py-3 text-center text-sm text-slate-600">
-                              {isItemsEditable ? (
-                                <div className="flex justify-center">
-                                  <input
-                                    type="number"
-                                    min={0.01}
-                                    step={0.01}
-                                    value={quantity || ''}
-                                    onChange={(event) => {
-                                      const parsed = Number(event.target.value);
-                                      onDraftItemChange(index, 'quantity', Number.isFinite(parsed) ? parsed : 0);
+                                    )}
+                                    renderOptionContent={(option, state) => {
+                                      const optionMeta = productOptionMetaByValue.get(String(option.value));
+                                      const packageCode = String(optionMeta?.packageCode || '').trim() || '--';
+                                      const packageName = String(optionMeta?.packageName || '').trim() || option.label;
+                                      const description = String(optionMeta?.description || '').trim() || '—';
+                                      const hasDescription = description !== '—';
+                                      const unitLabel = String(optionMeta?.unit || '').trim() || '—';
+                                      const standardPrice = optionMeta?.standardPrice;
+                                      const formattedStandardPrice = Number.isFinite(standardPrice)
+                                        ? formatCurrency(Number(standardPrice))
+                                        : '—';
+
+                                      return (
+                                        <div className="grid min-h-[40px] grid-cols-[112px_minmax(0,1.45fr)_minmax(0,1.35fr)_136px_136px] items-center gap-4 py-0.5">
+                                          <p className={`truncate text-left font-mono text-xs font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-500'}`}>
+                                            {packageCode}
+                                          </p>
+                                          <p className={`${hasDescription ? 'truncate' : 'col-span-2 truncate'} text-left text-sm font-semibold ${state.isSelected ? 'text-primary' : 'text-slate-900'}`}>
+                                            {packageName}
+                                          </p>
+                                          {hasDescription ? (
+                                            <p className="truncate text-left text-xs text-slate-500">
+                                              {description}
+                                            </p>
+                                          ) : null}
+                                          <p className="truncate text-left text-sm text-slate-600">
+                                            {unitLabel}
+                                          </p>
+                                          <p className="truncate text-right text-sm font-medium text-slate-700">
+                                            {formattedStandardPrice}
+                                          </p>
+                                        </div>
+                                      );
                                     }}
-                                    className="h-10 w-24 rounded-lg border border-slate-300 bg-white px-3 text-center text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                                   />
-                                </div>
-                              ) : (
-                                formatQuantity(quantity)
-                              )}
-                            </td>
-                            <td className="w-40 px-4 py-3 text-right text-sm text-slate-600">
-                              {isItemsEditable ? (
-                                <div className="flex justify-end">
-                                  <input
-                                    type="text"
-                                    value={formatCurrency(unitPrice)}
-                                    onChange={(event) => onDraftItemChange(index, 'unit_price', parseCurrency(event.target.value))}
-                                    className="h-10 w-40 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                                  />
-                                </div>
-                              ) : (
-                                `${formatCurrency(unitPrice)} đ`
-                              )}
-                            </td>
-                            <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface whitespace-nowrap">
-                              {formatCurrency(amountBeforeVat)} đ
-                            </td>
-                            <td className="w-20 px-4 py-3 text-center">
-                              {vatLabel !== '--' ? (
-                                <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-1 text-xs font-bold text-tertiary">
-                                  {vatLabel}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-slate-400">--</span>
-                              )}
-                            </td>
-                            <td className="w-36 px-4 py-3 text-right text-sm whitespace-nowrap">
-                              {isItemsEditable ? (
-                                <div className="flex justify-end">
-                                  <input
-                                    type="text"
-                                    value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
-                                    onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
-                                    placeholder="0"
-                                    className="h-10 w-36 rounded-lg border border-slate-300 bg-white px-3 text-right text-sm leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                                  />
-                                </div>
-                              ) : (
-                                <span className="font-semibold text-on-surface">
-                                  {vatAmount > 0 || hasStoredVatAmount
-                                    ? `${formatCurrency(vatAmount)} đ`
-                                    : '--'}
-                                </span>
-                              )}
-                            </td>
-                            <td className="w-44 px-4 py-3 text-right text-sm font-semibold text-on-surface whitespace-nowrap">
-                              {formatCurrency(amountWithVat)} đ
-                            </td>
-                            {isItemsEditable && (
-                              <td className="w-28 px-4 py-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => onRemoveDraftItem(index)}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-error/20 text-error hover:bg-error/10"
-                                  aria-label={`Xóa hạng mục ${index + 1}`}
-                                >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                                    delete
-                                  </span>
-                                </button>
+                                ) : (
+                                  item.product_name || item.product_code || '--'
+                                )}
                               </td>
-                            )}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                  <tfoot className="border-t border-slate-200 bg-slate-50">
-                    <tr>
-                      <td colSpan={5} className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Tổng cộng
-                      </td>
-                      <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
-                        {formatCurrency(visibleDraftItemsTotal)} đ
-                      </td>
-                      <td className="w-20 px-4 py-2.5" />
-                      <td className="w-36 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
-                        {formatCurrency(visibleDraftItemsVatTotal)} đ
-                      </td>
-                      <td className="w-44 px-4 py-2.5 text-right text-sm font-bold text-on-surface">
-                        {formatCurrency(visibleDraftItemsGrandTotal)} đ
-                      </td>
-                      {isItemsEditable && <td className="w-28 px-4 py-2.5" />}
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                              <td className={`w-28 text-left text-slate-600 whitespace-nowrap ${compactTableCellClass}`}>
+                                {displayUnit}
+                              </td>
+                              <td className={`w-28 text-center text-slate-600 ${compactTableCellClass}`}>
+                                {isItemsEditable ? (
+                                  <div className="flex justify-center">
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={quantity > 0 ? formatQuantity(quantity) : ''}
+                                      onChange={(event) => {
+                                        const parsed = parseFormattedQuantityInput(event.target.value);
+                                        onDraftItemChange(index, 'quantity', Number.isFinite(parsed) ? parsed : 0);
+                                      }}
+                                      className="h-8 w-24 rounded-md border border-slate-300 bg-white px-3 text-center text-[13px] leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                    />
+                                  </div>
+                                ) : (
+                                  formatQuantity(quantity)
+                                )}
+                              </td>
+                              <td className={`w-36 text-right text-slate-600 ${compactTableCellClass}`}>
+                                {isItemsEditable ? (
+                                  <div className="flex justify-end">
+                                    <input
+                                      type="text"
+                                      value={formatCurrency(unitPrice)}
+                                      onChange={(event) => onDraftItemChange(index, 'unit_price', parseCurrency(event.target.value))}
+                                      className="h-8 w-36 rounded-md border border-slate-300 bg-white px-3 text-right text-[13px] leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                    />
+                                  </div>
+                                ) : (
+                                  `${formatCurrency(unitPrice)} đ`
+                                )}
+                              </td>
+                              <td className={`w-40 text-right font-semibold text-on-surface whitespace-nowrap ${compactTableCellClass}`}>
+                                {formatCurrency(amountBeforeVat)} đ
+                              </td>
+                              <td className={`w-20 text-center ${compactTableCellClass}`}>
+                                {vatLabel !== '--' ? (
+                                  <span className="inline-flex items-center rounded-full bg-tertiary/10 px-2 py-0.5 text-xs font-bold leading-4 text-tertiary">
+                                    {vatLabel}
+                                  </span>
+                                ) : (
+                                  <span className="text-sm text-slate-400">--</span>
+                                )}
+                              </td>
+                              <td className={`w-32 text-right whitespace-nowrap ${compactTableCellClass}`}>
+                                {isItemsEditable ? (
+                                  <div className="flex justify-end">
+                                    <input
+                                      type="text"
+                                      value={vatAmount > 0 ? formatCurrency(vatAmount) : ''}
+                                      onChange={(event) => onDraftVatAmountChange(index, event.target.value)}
+                                      placeholder="0"
+                                      className="h-8 w-32 rounded-md border border-slate-300 bg-white px-3 text-right text-[13px] leading-5 text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className="font-semibold text-on-surface">
+                                    {vatAmount > 0 || hasStoredVatAmount
+                                      ? `${formatCurrency(vatAmount)} đ`
+                                      : '--'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className={`w-40 text-right font-semibold text-on-surface whitespace-nowrap ${compactTableCellClass}`}>
+                                {formatCurrency(amountWithVat)} đ
+                              </td>
+                              {isItemsEditable && (
+                                <td className={`w-24 text-center ${compactTableCellClass}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => onRemoveDraftItem(index)}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded border border-error/20 text-error hover:bg-error/10"
+                                    aria-label={`Xóa hạng mục ${index + 1}`}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+                                      delete
+                                    </span>
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                    <tfoot className="border-t border-slate-200 bg-slate-50">
+                      <tr>
+                        <td colSpan={5} className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 whitespace-nowrap">
+                          Tổng cộng
+                        </td>
+                        <td className="w-40 px-2 py-2 text-right text-[13px] font-bold text-on-surface whitespace-nowrap">
+                          {formatCurrency(visibleDraftItemsTotal)} đ
+                        </td>
+                        <td className="w-20 px-2 py-2" />
+                        <td className="w-32 px-2 py-2 text-right text-[13px] font-bold text-on-surface whitespace-nowrap">
+                          {formatCurrency(visibleDraftItemsVatTotal)} đ
+                        </td>
+                        <td className="w-40 px-2 py-2 text-right text-[13px] font-bold text-on-surface whitespace-nowrap">
+                          {formatCurrency(visibleDraftItemsGrandTotal)} đ
+                        </td>
+                        {isItemsEditable && <td className="w-24 px-2 py-2" />}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {!!inlineNotice && (
-          <div className="md:col-span-2 inline-flex items-center gap-1.5 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <div className="md:col-span-2 xl:col-span-4 inline-flex items-center gap-1.5 rounded-lg border border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning">
             <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>
               info
             </span>
@@ -777,14 +855,15 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
         )}
 
         {areScheduleSourceFieldsLocked && (
-          <div className="md:col-span-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div className="md:col-span-2 xl:col-span-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
             <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 14 }}>lock</span>
             <span>{scheduleSourceLockMessage}</span>
           </div>
         )}
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <SearchableSelect
+            compact
             label="Trạng thái"
             value={formData.status || 'DRAFT'}
             onChange={(value) => onFieldChange('status', value)}
@@ -794,8 +873,9 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <SearchableSelect
+            compact
             label="Người ký hợp đồng"
             required
             value={formData.signer_user_id ? String(formData.signer_user_id) : ''}
@@ -818,8 +898,9 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <SearchableSelect
+            compact
             label="Chu kỳ thanh toán"
             required
             value={formData.payment_cycle || ''}
@@ -832,7 +913,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClass}>Ngày ký</label>
           <input
             type="date"
@@ -852,7 +933,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1 md:col-span-2 xl:col-span-2">
           <div className="flex items-center justify-between gap-2">
             <label className={fieldLabelClass}>Giá trị hợp đồng (VNĐ)</label>
           </div>
@@ -884,17 +965,18 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
             </p>
           ) : null}
           {!errors.value && (
-            <div className="mt-1 rounded border border-primary/20 bg-primary/5 px-3 py-1.5">
-              <p className="text-xs leading-relaxed text-deep-teal">
+            <div className="mt-0.5 rounded border border-primary/20 bg-primary/5 px-2.5 py-1">
+              <p className="truncate text-xs leading-4 text-deep-teal" title={`Số tiền bằng chữ: ${valueInWords}`}>
                 <span className="font-bold uppercase tracking-wide">Số tiền bằng chữ:</span>{' '}
-                <span className="font-bold text-on-surface break-words">{valueInWords}</span>
+                <span className="font-bold text-on-surface">{valueInWords}</span>
               </p>
             </div>
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <SearchableSelect
+            compact
             label="Đơn vị thời hạn"
             value={formData.term_unit || ''}
             onChange={(value) => onFieldChange('term_unit', value)}
@@ -910,7 +992,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClass}>Thời hạn hợp đồng</label>
           <input
             type="number"
@@ -942,7 +1024,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <label className={fieldLabelClass}>
             Ngày hiệu lực
             {!isStatusDraft && <span className="text-error"> *</span>}
@@ -971,7 +1053,7 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <label className={fieldLabelClass}>
               Ngày hết hiệu lực
@@ -1015,22 +1097,51 @@ export const ContractDetailsTab: React.FC<ContractDetailsTabProps> = ({
           )}
         </div>
 
-        <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-          <div className="mb-3">
-            <p className="text-xs font-bold text-slate-700">Tệp hợp đồng</p>
+        <div className="md:col-span-2 xl:col-span-4 rounded-lg border border-slate-200 bg-slate-50/70 p-2">
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-xs font-bold text-slate-700">Tệp hợp đồng</p>
+              <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold leading-4 text-slate-600">
+                {attachments.length} file
+              </span>
+              <span className="text-xs font-medium leading-4 text-slate-500">PDF/Word</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => attachmentManagerRef.current?.openFilePicker()}
+              disabled={isUploading}
+              className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary/10 px-3 text-[13px] font-bold leading-5 text-primary transition-colors hover:bg-primary/20 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isUploading ? (
+                <span
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/20 border-t-primary"
+                />
+              ) : (
+                <span aria-hidden="true" className="material-symbols-outlined text-base">upload</span>
+              )}
+              Tải PDF/Word
+            </button>
           </div>
 
           <AttachmentManager
+            ref={attachmentManagerRef}
             attachments={attachments}
             onUpload={onUpload}
             onDelete={onDelete}
             isUploading={isUploading}
             compact
             accept={attachmentAccept}
-            helperText="Chỉ nhận file PDF cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án."
-            emptyStateDescription="Tải lên file PDF để lưu kèm hồ sơ hợp đồng."
-            uploadButtonLabel="Tải PDF"
+            helperText="Chỉ nhận file PDF hoặc Word cho hợp đồng đầu kỳ hoặc hợp đồng theo dự án."
+            emptyStateDescription="Tải lên file PDF hoặc Word để lưu kèm hồ sơ hợp đồng."
+            uploadButtonLabel="Tải PDF/Word"
             showSummaryMeta={false}
+            showListTitle={false}
+            showUploadButton={false}
+            listVariant="compact-row"
+            listMaxHeightClassName="max-h-[34dvh]"
+            emptyStateVariant="compact-line"
+            uploadButtonClassName="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary/10 px-3 text-[13px] font-bold leading-5 text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
           />
 
           {attachmentError ? (

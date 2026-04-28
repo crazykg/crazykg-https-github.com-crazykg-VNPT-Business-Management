@@ -28,7 +28,6 @@ import {
   formatRevenueTargetTypeLabel,
   getRevenuePeriodBounds,
 } from '../../utils/revenueDisplay';
-import { RevenueWorkspaceHeader } from './RevenueWorkspaceHeader';
 
 interface Props {
   canManageTargets: boolean;
@@ -230,188 +229,167 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
 
   return (
     <div className="space-y-3 p-3 pb-6">
-      <RevenueWorkspaceHeader
-        icon="monitoring"
-        title="Tổng quan doanh thu"
-        description="Chốt trước phạm vi phân tích, rồi so sánh kế hoạch, thực thu và phần còn phải bù trong cùng một nhịp thao tác."
-        badges={[
-          {
-            label: formatDateRangeDdMmYyyy(periodFrom, periodTo),
-            icon: 'date_range',
-            tone: 'primary',
-          },
-          {
-            label: grouping === 'month' ? 'Hiển thị theo tháng' : 'Hiển thị theo quý',
-            icon: 'view_column',
-            tone: 'neutral',
-          },
-          {
-            label: `Kế hoạch ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()}`,
-            icon: 'flag',
-            tone: 'neutral',
-          },
-        ]}
-        metrics={[
-          {
-            label: 'Nguồn kế hoạch',
-            value: `Năm ${year}`,
-            detail: `Đang đọc target ${formatRevenuePeriodTypeLabel(periodType).toLowerCase()} của năm này.`,
-            tone: 'primary',
-          },
-          {
-            label: 'Phạm vi actual',
-            value: formatDateRangeDdMmYyyy(periodFrom, periodTo),
-            detail: 'Doanh thu thực tế, công nợ và báo cáo sẽ bám theo khoảng này.',
-          },
-          {
-            label: 'Đơn vị đang xem',
-            value: deptScopeLabel,
-            detail: selectedDeptId == null ? 'Dữ liệu hợp nhất toàn công ty.' : 'Đang khóa riêng theo đơn vị đã chọn.',
-            tone: selectedDeptId == null ? 'success' : 'neutral',
-          },
-        ]}
-        actions={(
-          <>
-            <button
-              onClick={() => void overviewQuery.refetch()}
-              disabled={overviewQuery.isFetching}
-              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
-              {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
-            </button>
-
-            {canManageTargets ? (
-              <button
-                onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
-                className="inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
-                Kế hoạch
-              </button>
-            ) : null}
-
-            {canManageTargets ? (
-              <button
-                onClick={() => setIsBulkModalOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table</span>
-                Kế hoạch hàng loạt
-              </button>
-            ) : null}
-          </>
-        )}
-      >
-        <div className="space-y-3">
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Preset nhanh</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setYear(year)}
-                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    periodFrom === `${year}-01-01` && periodTo === `${year}-12-31`
-                      ? 'bg-primary text-white'
-                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>calendar_today</span>
-                  Năm {year}
-                </button>
-                <button
-                  onClick={() => setPeriod(currentQuarterRange.from, currentQuarterRange.to)}
-                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    periodFrom === currentQuarterRange.from && periodTo === currentQuarterRange.to
-                      ? 'bg-primary text-white'
-                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>date_range</span>
-                  Quý hiện tại
-                </button>
-                <button
-                  onClick={() => setPeriod(rollingSixMonthRange.from, rollingSixMonthRange.to)}
-                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    periodFrom === rollingSixMonthRange.from && periodTo === rollingSixMonthRange.to
-                      ? 'bg-primary text-white'
-                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
-                  6 tháng gần đây
-                </button>
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-100 px-3 py-2.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
+                  monitoring
+                </span>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold leading-tight text-deep-teal">Tổng quan doanh thu</h2>
+                <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                  Kế hoạch, actual, công nợ và cảnh báo trong cùng một màn.
+                </p>
               </div>
             </div>
 
-            <p className="max-w-2xl text-[11px] leading-5 text-slate-500">
-              `Năm` quyết định bucket kế hoạch đang so sánh. `Khoảng phân tích` là phạm vi actual, công nợ và báo cáo thực tế bạn đang xem.
-            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <button
+                onClick={() => void overviewQuery.refetch()}
+                disabled={overviewQuery.isFetching}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>refresh</span>
+                {overviewQuery.isFetching ? 'Đang tải...' : 'Làm mới'}
+              </button>
+
+              {canManageTargets ? (
+                <button
+                  onClick={() => { setEditingTarget(null); setIsTargetModalOpen(true); }}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-deep-teal sm:w-auto"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>add</span>
+                  Kế hoạch
+                </button>
+              ) : null}
+
+              {canManageTargets ? (
+                <button
+                  onClick={() => setIsBulkModalOpen(true)}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 sm:w-auto"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>table</span>
+                  Kế hoạch hàng loạt
+                </button>
+              ) : null}
+            </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[140px_minmax(300px,1.6fr)_190px_200px_minmax(220px,1fr)]">
-            <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Preset năm</span>
-              <select
-                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
+        <div className="bg-slate-50/70 px-3 py-2.5">
+          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(250px,0.9fr)_minmax(250px,0.85fr)_minmax(420px,1.35fr)_minmax(220px,0.8fr)]">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2">
+              <button
+                onClick={() => setYear(year)}
+                className={`inline-flex h-8 items-center gap-1 rounded px-2.5 text-xs font-semibold transition-colors ${
+                  periodFrom === `${year}-01-01` && periodTo === `${year}-12-31`
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
+                }`}
               >
-                {YEAR_OPTIONS.map((optionYear) => (
-                  <option key={optionYear} value={optionYear}>{optionYear}</option>
-                ))}
-              </select>
-            </label>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>calendar_today</span>
+                Cả năm
+              </button>
+              <button
+                onClick={() => setPeriod(currentQuarterRange.from, currentQuarterRange.to)}
+                className={`inline-flex h-8 items-center gap-1 rounded px-2.5 text-xs font-semibold transition-colors ${
+                  periodFrom === currentQuarterRange.from && periodTo === currentQuarterRange.to
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>date_range</span>
+                Quý HT
+              </button>
+              <button
+                onClick={() => setPeriod(rollingSixMonthRange.from, rollingSixMonthRange.to)}
+                className={`inline-flex h-8 items-center gap-1 rounded px-2.5 text-xs font-semibold transition-colors ${
+                  periodFrom === rollingSixMonthRange.from && periodTo === rollingSixMonthRange.to
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
+                6 tháng
+              </button>
+            </div>
 
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Khoảng phân tích</span>
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <input
-                  type="date"
-                  className="h-8 rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                  value={periodFrom}
-                  onChange={(e) => setPeriod(e.target.value, periodTo)}
-                />
-                <span className="text-center text-xs font-semibold text-slate-400">đến</span>
-                <input
-                  type="date"
-                  className="h-8 rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                  value={periodTo}
-                  onChange={(e) => setPeriod(periodFrom, e.target.value)}
-                />
+            <div className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>flag</span>
+                Kế hoạch
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <select
+                  aria-label="Năm kế hoạch"
+                  className="h-8 w-full rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={year}
+                  onChange={(e) => setYear(Number(e.target.value))}
+                >
+                  {YEAR_OPTIONS.map((optionYear) => (
+                    <option key={optionYear} value={optionYear}>{optionYear}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Chu kỳ kế hoạch"
+                  className="h-8 w-full rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={periodType}
+                  onChange={(e) => setPeriodType(e.target.value as typeof periodType)}
+                >
+                  <option value="MONTHLY">Theo tháng</option>
+                  <option value="QUARTERLY">Theo quý</option>
+                  <option value="YEARLY">Theo năm</option>
+                </select>
               </div>
             </div>
 
-            <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Cách hiển thị</span>
-              <select
-                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                value={grouping}
-                onChange={(e) => setGrouping(e.target.value as 'month' | 'quarter')}
-              >
-                <option value="month">Nhóm theo tháng</option>
-                <option value="quarter">Nhóm theo quý</option>
-              </select>
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Chu kỳ kế hoạch</span>
-              <select
-                className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
-                value={periodType}
-                onChange={(e) => setPeriodType(e.target.value as typeof periodType)}
-              >
-                <option value="MONTHLY">Theo tháng</option>
-                <option value="QUARTERLY">Theo quý</option>
-                <option value="YEARLY">Theo năm</option>
-              </select>
-            </label>
-
-            {departments.length > 0 ? (
-              <label className="space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Đơn vị</span>
+            <div className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>monitoring</span>
+                Actual
+              </div>
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1fr)_150px]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
+                  <input
+                    aria-label="Từ ngày"
+                    type="date"
+                    className="h-8 min-w-0 rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                    value={periodFrom}
+                    onChange={(e) => setPeriod(e.target.value, periodTo)}
+                  />
+                  <span className="text-center text-xs font-semibold text-slate-400">→</span>
+                  <input
+                    aria-label="Đến ngày"
+                    type="date"
+                    className="h-8 min-w-0 rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                    value={periodTo}
+                    onChange={(e) => setPeriod(periodFrom, e.target.value)}
+                  />
+                </div>
                 <select
-                  className="h-8 w-full rounded border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  aria-label="Cách hiển thị"
+                  className="h-8 w-full rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                  value={grouping}
+                  onChange={(e) => setGrouping(e.target.value as 'month' | 'quarter')}
+                >
+                  <option value="month">Nhóm tháng</option>
+                  <option value="quarter">Nhóm quý</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>domain</span>
+                Đơn vị
+              </div>
+              {departments.length > 0 ? (
+                <select
+                  aria-label="Đơn vị"
+                  className="h-8 w-full rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
                   value={selectedDeptId ?? ''}
                   onChange={(e) => setDeptId(e.target.value === '' ? null : Number(e.target.value))}
                 >
@@ -420,11 +398,15 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
                     <option key={d.id} value={d.id}>{d.dept_name}</option>
                   ))}
                 </select>
-              </label>
-            ) : null}
+              ) : (
+                <div className="flex h-8 items-center rounded border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-500">
+                  {deptScopeLabel}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </RevenueWorkspaceHeader>
+      </section>
 
       {overviewAlerts.length > 0 ? (
         <div className="space-y-2">
@@ -475,11 +457,11 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
 
       {overviewPeriods.length > 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-100 px-4 py-3">
+          <div className="border-b border-slate-100 px-3 py-2.5">
             <h3 className="text-sm font-bold text-deep-teal">Doanh thu theo kỳ</h3>
             <p className="mt-0.5 text-[11px] text-slate-400">So sánh kế hoạch, dự kiến và thực thu theo từng mốc theo dõi.</p>
           </div>
-          <div className="p-4">
+          <div className="p-3">
             <RevenueBarChart periods={overviewPeriods} />
           </div>
         </div>
@@ -487,11 +469,11 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
 
       {overviewSources.length > 0 ? (
         <div className="rounded-lg border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-100 px-4 py-3">
+          <div className="border-b border-slate-100 px-3 py-2.5">
             <h3 className="text-sm font-bold text-deep-teal">Cơ cấu doanh thu</h3>
             <p className="mt-0.5 text-[11px] text-slate-400">Nhìn nhanh tỷ trọng nguồn thu để điều phối ưu tiên hành động.</p>
           </div>
-          <div className="p-4">
+          <div className="p-3">
             <RevenueSourceTable sources={overviewSources} />
           </div>
         </div>
@@ -509,7 +491,7 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
 
       {/* ── Targets table ──────────────────────────── */}
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-sm font-bold text-deep-teal">{targetSectionTitle}</h3>
             <p className="mt-0.5 text-[11px] text-slate-400">Theo dõi mức đạt kế hoạch, phần còn thiếu và gợi ý điều chỉnh theo từng kỳ.</p>
@@ -539,14 +521,14 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
             <table className="min-w-[1120px] w-full text-sm">
               <thead>
                 <tr className="bg-slate-50/90 text-left">
-                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Kỳ</th>
-                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Loại</th>
-                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Kế hoạch</th>
-                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Thực tế</th>
-                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Đạt %</th>
-                  <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Còn thiếu/dư</th>
-                  <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Điều chỉnh</th>
-                  {canManageTargets ? <th className="w-20 px-4 py-3 text-right text-[11px] font-bold uppercase tracking-[0.08em] text-neutral">Thao tác</th> : null}
+                  <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Kỳ</th>
+                  <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Loại</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Kế hoạch</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Thực tế</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Đạt %</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Còn thiếu/dư</th>
+                  <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Điều chỉnh</th>
+                  {canManageTargets ? <th className="w-20 px-3 py-2 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-neutral">Thao tác</th> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -556,14 +538,14 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
                   const adjustment = getTargetAdjustmentMeta(t);
                   return (
                     <tr key={t.id} className="transition-colors hover:bg-slate-50/80">
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <div className="font-semibold text-slate-900">{formatRevenuePeriodLabel(t.period_key)}</div>
                         <div className="text-xs text-slate-500">{formatRevenuePeriodTypeLabel(t.period_type)}</div>
                       </td>
-                      <td className="px-4 py-2 text-slate-600">{formatRevenueTargetTypeLabel(t.target_type)}</td>
-                      <td className="px-4 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.target_amount)}</td>
-                      <td className="px-4 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.actual_amount)}</td>
-                      <td className={`px-4 py-2 text-right font-semibold ${pctColor(pct)}`}>
+                      <td className="px-3 py-2 text-slate-600">{formatRevenueTargetTypeLabel(t.target_type)}</td>
+                      <td className="px-3 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.target_amount)}</td>
+                      <td className="px-3 py-2 text-right font-medium text-slate-700">{formatCurrencyVnd(t.actual_amount)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${pctColor(pct)}`}>
                         {pct.toFixed(1)}%
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
                           <div
@@ -572,17 +554,17 @@ export const RevenueOverviewDashboard = React.memo(function RevenueOverviewDashb
                           />
                         </div>
                       </td>
-                      <td className={`px-4 py-2 text-right text-sm font-semibold ${gap > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      <td className={`px-3 py-2 text-right text-sm font-semibold ${gap > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
                         {gap > 0 ? `-${formatCurrencyVnd(gap)}` : `+${formatCurrencyVnd(Math.abs(gap))}`}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         <div className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${adjustment.statusTone}`}>
                           {adjustment.statusLabel}
                         </div>
                         <div className="mt-1 text-xs leading-5 text-slate-500">{adjustment.suggestion}</div>
                       </td>
                       {canManageTargets && (
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-2">
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => { setEditingTarget(t); setIsTargetModalOpen(true); }}
@@ -681,8 +663,8 @@ function KpiCard({
 
 function RevenueAlertBanner({ alert }: { alert: RevenueAlert }) {
   return (
-    <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm ${alertSeverityClass(alert.severity)}`}>
-      <span className="material-symbols-outlined text-[18px] flex-none mt-0.5">{alertIcon(alert.severity)}</span>
+    <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-semibold shadow-sm ${alertSeverityClass(alert.severity)}`}>
+      <span className="material-symbols-outlined flex-none" style={{ fontSize: 17 }}>{alertIcon(alert.severity)}</span>
       <span>{alert.message}</span>
     </div>
   );
@@ -693,7 +675,7 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <div className="relative flex min-w-max items-end gap-2 rounded-lg bg-slate-50/70 px-3 pb-6 pt-4" style={{ minHeight: 180 }}>
+      <div className="relative flex min-w-max items-end gap-2 rounded-lg bg-slate-50/70 px-3 pb-5 pt-3" style={{ minHeight: 156 }}>
         {periods.map((p) => {
           const targetPct = (p.target / maxVal) * 100;
           const expectedPct = (p.total_expected / maxVal) * 100;
@@ -701,7 +683,7 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
 
           return (
             <div key={p.period_key} className="flex flex-col items-center gap-1" style={{ width: 56 }}>
-              <div className="relative flex items-end gap-0.5 w-full" style={{ height: 120 }}>
+              <div className="relative flex items-end gap-0.5 w-full" style={{ height: 104 }}>
                 {/* Target line */}
                 {p.target > 0 && (
                   <div
@@ -730,7 +712,7 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
           );
         })}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
         <span className="flex items-center gap-1">
           <span className="inline-block h-3 w-3 rounded bg-primary/20" />Dự kiến
         </span>
@@ -747,9 +729,9 @@ function RevenueBarChart({ periods }: { periods: RevenueOverviewPeriod[] }) {
 
 function RevenueSourceTable({ sources }: { sources: RevenueBySource[] }) {
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
       {sources.map((s) => (
-        <div key={s.source} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+        <div key={s.source} className="rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-slate-700">{s.label}</p>

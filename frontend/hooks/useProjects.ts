@@ -199,14 +199,16 @@ export function useProjects(
               const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
               const unitPriceRaw = Number(source.unitPrice ?? source.unit_price ?? 0);
               const unitPrice = Number.isFinite(unitPriceRaw) && unitPriceRaw >= 0 ? unitPriceRaw : 0;
+              const unit = String(source.unit ?? '').trim() || null;
 
               return {
                 product_id: productId,
+                unit,
                 quantity,
                 unit_price: unitPrice,
               };
             })
-            .filter((item): item is { product_id: number; quantity: number; unit_price: number } => item !== null)
+            .filter((item): item is { product_id: number; unit: string | null; quantity: number; unit_price: number } => item !== null)
         : undefined;
 
       const normalizedRaci = shouldSyncRaci

@@ -58,6 +58,11 @@ class SupportConfigController extends V5BaseController
         return $this->service->contractSignerMasters($request);
     }
 
+    public function authSessionPolicy(): JsonResponse
+    {
+        return $this->service->authSessionPolicy();
+    }
+
     public function storeProductUnitMaster(Request $request): JsonResponse
     {
         return $this->service->storeProductUnitMaster($request);
@@ -76,6 +81,11 @@ class SupportConfigController extends V5BaseController
     public function updateContractSignerMaster(Request $request, int $id): JsonResponse
     {
         return $this->service->updateContractSignerMaster($request, $id);
+    }
+
+    public function updateAuthSessionPolicy(Request $request): JsonResponse
+    {
+        return $this->service->updateAuthSessionPolicy($request);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

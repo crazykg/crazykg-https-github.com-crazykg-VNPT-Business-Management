@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react';
-import { isRequestCanceledError } from '../../../services/v5Api';
+import { useEffect, useMemo, useRef } from 'react';
 import { useCRCList } from '../../../shared/hooks/useCustomerRequests';
 import { isRequestCanceledError } from '../../../services/api/customerRequestApi';
 import {
@@ -22,6 +21,8 @@ export const useCustomerRequestDispatcherWorkspace = ({
   onError,
 }: UseCustomerRequestDispatcherWorkspaceOptions) => {
   const enabled = active && canReadRequests;
+  const lastRefetchedVersionRef = useRef(0);
+  const refetchRef = useRef<() => Promise<unknown>>(async () => undefined);
   const dispatcherQuery = useCRCList({
     page: 1,
     per_page: 24,
@@ -33,10 +34,22 @@ export const useCustomerRequestDispatcherWorkspace = ({
   }, { enabled });
 
   useEffect(() => {
-    if (dataVersion > 0 && enabled) {
-      void dispatcherQuery.refetch();
+    refetchRef.current = dispatcherQuery.refetch;
+  }, [dispatcherQuery.refetch]);
+
+  useEffect(() => {
+    if (!enabled) {
+      lastRefetchedVersionRef.current = 0;
+      return;
     }
-  }, [dataVersion, dispatcherQuery.refetch, enabled]);
+
+    if (dataVersion <= 0 || lastRefetchedVersionRef.current === dataVersion) {
+      return;
+    }
+
+    lastRefetchedVersionRef.current = dataVersion;
+    void refetchRef.current();
+  }, [dataVersion, enabled]);
 
   useEffect(() => {
     if (!dispatcherQuery.error || isRequestCanceledError(dispatcherQuery.error)) {

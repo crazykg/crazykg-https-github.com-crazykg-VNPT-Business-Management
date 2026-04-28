@@ -225,6 +225,14 @@ class CustomerRequestCaseReadQueryService
                 ->where('crc.request_code', $normalizedKeyword)
                 ->orWhere('crc.request_code', 'like', $like)
                 ->orWhere('crc.summary', 'like', $like);
+
+            if ($this->support->hasTable('projects') && $this->support->hasColumn('projects', 'project_name')) {
+                $builder->orWhere('p.project_name', 'like', $like);
+            }
+
+            if ($this->support->hasTable('customers') && $this->support->hasColumn('customers', 'customer_name')) {
+                $builder->orWhere('c.customer_name', 'like', $like);
+            }
         });
     }
 
@@ -292,6 +300,18 @@ class CustomerRequestCaseReadQueryService
     {
         $query = DB::table('customer_request_cases as crc')->whereNull('crc.deleted_at');
         $selects = ['crc.*'];
+        $canResolveProjectFromItem =
+            $this->support->hasTable('project_items')
+            && $this->support->hasColumn('customer_request_cases', 'project_item_id')
+            && $this->support->hasColumn('project_items', 'id')
+            && $this->support->hasColumn('project_items', 'project_id');
+        $effectiveProjectIdExpression = 'crc.project_id';
+
+        if ($canResolveProjectFromItem) {
+            $query->leftJoin('project_items as crc_project_item', 'crc_project_item.id', '=', 'crc.project_item_id');
+            $effectiveProjectIdExpression = 'COALESCE(crc.project_id, crc_project_item.project_id)';
+            $selects[] = DB::raw($effectiveProjectIdExpression.' as effective_project_id');
+        }
 
         if ($this->support->hasTable('customer_request_status_catalogs')) {
             $query->leftJoin('customer_request_status_catalogs as status_catalog', function ($join): void {
@@ -333,9 +353,58 @@ class CustomerRequestCaseReadQueryService
         }
 
         if ($this->support->hasTable('projects')) {
-            $query->leftJoin('projects as p', 'p.id', '=', 'crc.project_id');
+            $query->leftJoin('projects as p', function ($join) use ($effectiveProjectIdExpression): void {
+                $join->on('p.id', '=', DB::raw($effectiveProjectIdExpression));
+            });
             if ($this->support->hasColumn('projects', 'project_name')) {
                 $selects[] = 'p.project_name as project_name';
+            }
+        }
+
+        if (
+            $this->support->hasTable('raci_assignments')
+            && $this->support->hasColumn('raci_assignments', 'entity_type')
+            && $this->support->hasColumn('raci_assignments', 'entity_id')
+            && $this->support->hasColumn('raci_assignments', 'user_id')
+            && $this->support->hasColumn('raci_assignments', 'raci_role')
+        ) {
+            $accountableQuery = DB::table('raci_assignments as ra')
+                ->select('ra.entity_id as project_id')
+                ->selectRaw('MIN(ra.user_id) as accountable_user_id')
+                ->whereRaw('LOWER(ra.entity_type) = ?', ['project'])
+                ->where('ra.raci_role', '=', 'A')
+                ->groupBy('ra.entity_id');
+
+            if ($this->support->hasColumn('raci_assignments', 'deleted_at')) {
+                $accountableQuery->whereNull('ra.deleted_at');
+            }
+
+            $hasAccountableName = false;
+            if ($this->support->hasTable('internal_users') && $this->support->hasColumn('internal_users', 'id')) {
+                $accountableQuery->leftJoin('internal_users as accountable_user', 'accountable_user.id', '=', 'ra.user_id');
+
+                if (
+                    $this->support->hasColumn('internal_users', 'full_name')
+                    && $this->support->hasColumn('internal_users', 'username')
+                ) {
+                    $accountableQuery->selectRaw("MIN(COALESCE(NULLIF(accountable_user.full_name, ''), accountable_user.username)) as accountable_name");
+                    $hasAccountableName = true;
+                } elseif ($this->support->hasColumn('internal_users', 'full_name')) {
+                    $accountableQuery->selectRaw('MIN(accountable_user.full_name) as accountable_name');
+                    $hasAccountableName = true;
+                } elseif ($this->support->hasColumn('internal_users', 'username')) {
+                    $accountableQuery->selectRaw('MIN(accountable_user.username) as accountable_name');
+                    $hasAccountableName = true;
+                }
+            }
+
+            $query->leftJoinSub($accountableQuery, 'project_accountable', function ($join) use ($effectiveProjectIdExpression): void {
+                $join->on('project_accountable.project_id', '=', DB::raw($effectiveProjectIdExpression));
+            });
+            $selects[] = 'project_accountable.accountable_user_id as accountable_user_id';
+
+            if ($hasAccountableName) {
+                $selects[] = 'project_accountable.accountable_name as accountable_name';
             }
         }
 
@@ -399,7 +468,7 @@ class CustomerRequestCaseReadQueryService
 
         if ($userId !== null && ! $this->userAccess->isAdmin($userId)) {
             $projectIds = $this->projectIdsForUserByRaciRoles($userId);
-            $query->where(function (QueryBuilder $builder) use ($userId, $projectIds): void {
+            $query->where(function (QueryBuilder $builder) use ($userId, $projectIds, $effectiveProjectIdExpression): void {
                 $builder
                     ->where('crc.created_by', $userId)
                     ->orWhere('crc.received_by_user_id', $userId);
@@ -413,7 +482,7 @@ class CustomerRequestCaseReadQueryService
                 }
 
                 if ($projectIds !== []) {
-                    $builder->orWhereIn('crc.project_id', $projectIds);
+                    $builder->orWhereIn(DB::raw($effectiveProjectIdExpression), $projectIds);
                 }
             });
         }

@@ -2,6 +2,7 @@ import React from 'react';
 import type { YeuCauSearchItem } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { resolveStatusMeta } from './presentation';
+import { customerRequestSearchInputClass } from './uiClasses';
 
 type CustomerRequestSearchBoxProps = {
   value: string;
@@ -41,7 +42,7 @@ export const CustomerRequestSearchBox: React.FC<CustomerRequestSearchBoxProps> =
           window.setTimeout(() => onOpenChange(false), 120);
         }}
         placeholder="Mở nhanh theo mã YC, tiêu đề, KH..."
-        className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
+        className={customerRequestSearchInputClass}
       />
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">

@@ -5,6 +5,14 @@ import type { Attachment } from '../../types/customerRequest';
 import { formatDateTimeDdMmYyyy } from '../../utils/dateDisplay';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import type { It360TaskFormRow, ReferenceTaskFormRow } from './presentation';
+import {
+  customerRequestCheckboxRowClass,
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestTextareaClass,
+} from './uiClasses';
 
 export type CreatorFeedbackDecision = 'continue_processing' | 'request_more_info' | 'reject_request';
 
@@ -70,6 +78,12 @@ const resolveDefaultDecision = (
 };
 
 const todayForDateInput = (): string => formatCurrentDateTimeForInput().slice(0, 10);
+const fieldLabelClassName = `mb-2 ${customerRequestFieldLabelClass}`;
+const fieldInputClassName = customerRequestFieldClass;
+const fieldTextareaClassName = customerRequestTextareaClass;
+const checkboxRowClassName = customerRequestCheckboxRowClass;
+const primaryButtonClassName = customerRequestPrimaryButtonClass;
+const secondaryButtonClassName = customerRequestSecondaryButtonClass;
 
 export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreatorFeedbackModalProps> = ({
   open,
@@ -357,7 +371,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
             {decision === 'request_more_info' ? (
               <section className="space-y-4 rounded-3xl border border-amber-200 bg-amber-50/70 p-5">
                 <div>
-                  <label htmlFor="creator-feedback-request-content" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-request-content" className={fieldLabelClassName}>
                     Nội dung cần khách hàng bổ sung
                   </label>
                   <textarea
@@ -367,11 +381,11 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     onChange={(event) => setFeedbackRequestContent(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="Mô tả rõ phần thông tin còn thiếu hoặc nội dung cần khách hàng xác nhận thêm."
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldTextareaClassName}
                   />
                 </div>
                 <div>
-                  <label htmlFor="creator-feedback-due-at" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-due-at" className={fieldLabelClassName}>
                     Hạn khách hàng phản hồi mới
                   </label>
                   <input
@@ -380,7 +394,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     value={nextCustomerDueAt}
                     onChange={(event) => setNextCustomerDueAt(event.target.value)}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
               </section>
@@ -389,7 +403,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
             {decision === 'reject_request' ? (
               <section className="space-y-4 rounded-3xl border border-rose-200 bg-rose-50/70 p-5">
                 <div>
-                  <label htmlFor="creator-feedback-reject-reason" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-reject-reason" className={fieldLabelClassName}>
                     Lý do không thực hiện
                   </label>
                   <textarea
@@ -399,7 +413,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     onChange={(event) => setRejectReason(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="Nêu rõ lý do từ chối hoặc điều kiện khiến yêu cầu không thể thực hiện."
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldTextareaClassName}
                   />
                 </div>
               </section>
@@ -415,7 +429,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="creator-feedback-activity" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-activity" className={fieldLabelClassName}>
                     Activity
                   </label>
                   <select
@@ -423,7 +437,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     value={worklogActivityTypeCode}
                     onChange={(event) => setWorklogActivityTypeCode(event.target.value)}
                     disabled={isSubmitting || isActivityTypesLoading}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   >
                     <option value="">Chọn activity</option>
                     {activityTypes.map((item) => (
@@ -435,7 +449,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   {activityTypesError ? <p className="mt-1 text-xs text-rose-600">{activityTypesError}</p> : null}
                 </div>
                 <div>
-                  <label htmlFor="creator-feedback-hours-spent" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-hours-spent" className={fieldLabelClassName}>
                     Giờ công
                   </label>
                   <input
@@ -447,11 +461,11 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     onChange={(event) => setWorklogHoursSpent(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="VD: 0.5"
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
                 <div>
-                  <label htmlFor="creator-feedback-work-date" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <label htmlFor="creator-feedback-work-date" className={fieldLabelClassName}>
                     Ngày làm việc
                   </label>
                   <input
@@ -460,10 +474,10 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                     value={worklogDate}
                     onChange={(event) => setWorklogDate(event.target.value)}
                     disabled={isSubmitting}
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                    className={fieldInputClassName}
                   />
                 </div>
-                <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <label className={checkboxRowClassName}>
                   <input
                     type="checkbox"
                     checked={worklogIsBillable}
@@ -476,7 +490,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
               </div>
 
               <div>
-                <label htmlFor="creator-feedback-worklog-content" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="creator-feedback-worklog-content" className={fieldLabelClassName}>
                   Nội dung worklog
                 </label>
                 <textarea
@@ -486,7 +500,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   onChange={(event) => setWorklogContent(event.target.value)}
                   disabled={isSubmitting}
                   placeholder="VD: Đọc phản hồi khách hàng, phân loại thiếu dữ liệu, cập nhật hướng xử lý."
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={fieldTextareaClassName}
                 />
               </div>
             </section>
@@ -503,7 +517,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   onChange={(event) => setNote(event.target.value)}
                   disabled={isSubmitting}
                   placeholder="Ghi nhận nhận định ngắn gọn của creator để người xử lý theo dõi tiếp."
-                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                  className={`mt-3 ${fieldTextareaClassName}`}
                 />
               </div>
 
@@ -582,7 +596,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   type="button"
                   onClick={handleSubmit}
                   disabled={isSubmitting || decisionOptions.length === 0}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={primaryButtonClassName}
                 >
                   <span className="material-symbols-outlined text-[18px]">how_to_reg</span>
                   {isSubmitting ? 'Đang lưu đánh giá...' : 'Lưu đánh giá KH'}
@@ -591,7 +605,7 @@ export const CustomerRequestCreatorFeedbackModal: React.FC<CustomerRequestCreato
                   type="button"
                   onClick={onClose}
                   disabled={isSubmitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  className={secondaryButtonClassName}
                 >
                   Đóng
                 </button>

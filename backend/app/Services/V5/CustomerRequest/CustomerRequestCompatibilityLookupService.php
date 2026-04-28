@@ -141,6 +141,225 @@ class CustomerRequestCompatibilityLookupService
         return $this->respondWithProjectItemsQuery($request, $query);
     }
 
+    public function customerFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('customers')) {
+            return $this->support->missingTable('customers');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'customers',
+            'alias' => 'c',
+            'id' => 'id',
+            'code' => 'customer_code',
+            'primary_name' => 'customer_name',
+            'fallback_name' => 'company_name',
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Khách hàng',
+        ]);
+    }
+
+    public function projectFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('projects')) {
+            return $this->support->missingTable('projects');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'projects',
+            'alias' => 'p',
+            'id' => 'id',
+            'code' => 'project_code',
+            'primary_name' => 'project_name',
+            'fallback_name' => null,
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Dự án',
+        ]);
+    }
+
+    public function productFilterOptions(Request $request): JsonResponse
+    {
+        if (! $this->support->hasTable('products')) {
+            return $this->support->missingTable('products');
+        }
+
+        return $this->respondWithLookupFilterOptions($request, [
+            'table' => 'products',
+            'alias' => 'prd',
+            'id' => 'id',
+            'code' => 'product_code',
+            'primary_name' => 'product_name',
+            'fallback_name' => null,
+            'deleted_at' => 'deleted_at',
+            'default_label' => 'Sản phẩm',
+        ]);
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     */
+    private function respondWithLookupFilterOptions(Request $request, array $config): JsonResponse
+    {
+        $page = max(1, (int) ($request->query('page', 1) ?? 1));
+        $perPage = max(1, min(50, (int) ($request->query('per_page', 30) ?? 30)));
+        $search = trim((string) ($this->support->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
+        $selectedIds = collect($request->query('selected_ids', []))
+            ->when(
+                ! is_array($request->query('selected_ids', [])),
+                fn ($collection) => collect([$request->query('selected_ids')])
+            )
+            ->map(fn (mixed $value): ?int => $this->support->parseNullableInt($value))
+            ->filter(fn (?int $value): bool => $value !== null)
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedRows = [];
+        if ($page === 1 && $selectedIds !== []) {
+            $selectedRows = $this->buildLookupFilterOptionsQuery($config, '')
+                ->whereIn($config['alias'].'.'.$config['id'], $selectedIds)
+                ->get()
+                ->map(fn (object $row): array => $this->serializeLookupFilterOption((array) $row, $config))
+                ->all();
+        }
+
+        $query = $this->buildLookupFilterOptionsQuery($config, $search);
+        if ($selectedIds !== []) {
+            $query->whereNotIn($config['alias'].'.'.$config['id'], $selectedIds);
+        }
+
+        $rows = $query
+            ->forPage($page, $perPage + 1)
+            ->get()
+            ->map(fn (object $row): array => $this->serializeLookupFilterOption((array) $row, $config))
+            ->all();
+
+        $hasMore = count($rows) > $perPage;
+        if ($hasMore) {
+            array_pop($rows);
+        }
+
+        $data = $page === 1 ? [...$selectedRows, ...$rows] : $rows;
+
+        return response()->json([
+            'data' => collect($data)
+                ->unique(fn (array $row): string => (string) ($row['value'] ?? ''))
+                ->values()
+                ->all(),
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'has_more' => $hasMore,
+            ],
+        ]);
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     */
+    private function buildLookupFilterOptionsQuery(array $config, string $search): mixed
+    {
+        $query = DB::table($config['table'].' as '.$config['alias'])
+            ->select([
+                $config['alias'].'.'.$config['id'].' as id',
+                $config['alias'].'.'.$config['code'].' as code',
+                $config['alias'].'.'.$config['primary_name'].' as primary_name',
+            ]);
+
+        if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
+            $query->addSelect($config['alias'].'.'.$config['fallback_name'].' as fallback_name');
+        } else {
+            $query->selectRaw('NULL as fallback_name');
+        }
+
+        if ($config['deleted_at'] !== null && $this->support->hasColumn($config['table'], $config['deleted_at'])) {
+            $query->whereNull($config['alias'].'.'.$config['deleted_at']);
+        }
+
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
+            $codeColumn = $config['alias'].'.'.$config['code'];
+            $primaryNameColumn = $config['alias'].'.'.$config['primary_name'];
+
+            $query->where(function ($builder) use ($codeColumn, $config, $like, $primaryNameColumn): void {
+                $builder->where($codeColumn, 'like', $like)
+                    ->orWhere($primaryNameColumn, 'like', $like);
+
+                if ($config['fallback_name'] !== null && $this->support->hasColumn($config['table'], $config['fallback_name'])) {
+                    $builder->orWhere($config['alias'].'.'.$config['fallback_name'], 'like', $like);
+                }
+            });
+
+            $query->orderByRaw(
+                "CASE
+                    WHEN UPPER({$codeColumn}) = UPPER(?) THEN 0
+                    WHEN UPPER({$primaryNameColumn}) = UPPER(?) THEN 1
+                    WHEN UPPER({$codeColumn}) LIKE UPPER(?) THEN 2
+                    WHEN UPPER({$primaryNameColumn}) LIKE UPPER(?) THEN 3
+                    WHEN UPPER({$codeColumn}) LIKE UPPER(?) THEN 4
+                    WHEN UPPER({$primaryNameColumn}) LIKE UPPER(?) THEN 5
+                    ELSE 6
+                END",
+                [$search, $search, $escaped.'%', $escaped.'%', '%'.$escaped.'%', '%'.$escaped.'%']
+            );
+        }
+
+        $query
+            ->orderBy($config['alias'].'.'.$config['primary_name'])
+            ->orderBy($config['alias'].'.'.$config['id']);
+
+        return $query;
+    }
+
+    /**
+     * @param array{
+     *     table:string,
+     *     alias:string,
+     *     id:string,
+     *     code:string,
+     *     primary_name:string,
+     *     fallback_name:string|null,
+     *     deleted_at:string|null,
+     *     default_label:string
+     * } $config
+     * @param array<string, mixed> $row
+     * @return array{value:string, label:string, search_text:string}
+     */
+    private function serializeLookupFilterOption(array $row, array $config): array
+    {
+        $id = $this->support->parseNullableInt($row['id'] ?? null);
+        $code = trim((string) ($row['code'] ?? ''));
+        $primaryName = trim((string) ($row['primary_name'] ?? ''));
+        $fallbackName = trim((string) ($row['fallback_name'] ?? ''));
+        $name = $primaryName !== '' ? $primaryName : ($fallbackName !== '' ? $fallbackName : $config['default_label'].' #'.($id ?? '--'));
+        $label = trim(($code !== '' ? $code.' - ' : '').$name);
+
+        return [
+            'value' => (string) ($id ?? ''),
+            'label' => $label !== '' ? $label : $name,
+            'search_text' => trim(implode(' ', array_filter([$code, $primaryName, $fallbackName, $id]))),
+        ];
+    }
+
     private function supportRequestReferenceSearch(Request $request): JsonResponse
     {
         if (! $this->support->hasTable('support_requests')) {

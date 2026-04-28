@@ -12,7 +12,7 @@ const BlockerModalShell: React.FC<{
   useEscKey(onClose);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div className="fixed inset-0 ui-layer-modal flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
       <div className="relative w-full max-w-sm rounded-lg border border-warning/30 border-l-4 border-l-warning bg-white shadow-xl animate-fade-in">
         <div className="flex items-start gap-3 p-4">

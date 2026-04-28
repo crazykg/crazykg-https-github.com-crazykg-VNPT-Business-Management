@@ -12,6 +12,9 @@ import {
   fetchYeuCau,
   fetchYeuCauProcessCatalog,
   exportCustomerRequestIntake,
+  fetchCustomerRequestCustomerFilterOptions,
+  fetchCustomerRequestProductFilterOptions,
+  fetchCustomerRequestProjectFilterOptions,
   importCustomerRequestIntake,
   isRequestCanceledError,
   storeYeuCauDetailStatusWorklog,
@@ -19,6 +22,7 @@ import {
   updateYeuCauWorklog,
   uploadDocumentAttachment,
 } from '../services/v5Api';
+import type { YeuCauWorklogStorePayload } from '../services/v5Api';
 import { createCustomer, createCustomerPersonnel, fetchCustomerPersonnel, fetchCustomers } from '../services/api/customerApi';
 import type {
   Attachment,
@@ -88,6 +92,8 @@ import type {
 } from './customer-request/presentation';
 import {
   filterXmlVisibleProcesses,
+  formatHoursValue,
+  formatPercentValue,
   isXmlVisibleProcessCode,
   resolveRequestProcessCode,
   resolveTransitionOptionsForRequest,
@@ -122,6 +128,10 @@ import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { apiFetch } from '../shared/api/apiFetch';
 import type { CustomerRequestIntakeImportResult } from '../services/api/customerRequestApi';
 import { normalizeImportToken } from '../utils/importUtils';
+import {
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+} from './customer-request/uiClasses';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -183,7 +193,9 @@ const SHARED_PRIORITY_OPTIONS: SearchableSelectOption[] = [
 type SharedSurfaceFilterState = {
   activeProcessCodes: string[];
   requestKeyword: string;
-  requestEntityFilter: string[];
+  requestCustomerFilter: string[];
+  requestProjectFilter: string[];
+  requestProductFilter: string[];
   requestTagFilter: string[];
   requestPriorityFilter: string[];
   requestCreatedFrom: string;
@@ -208,6 +220,20 @@ const normalizeFilterValues = (values?: Array<string | number | null | undefined
 const buildNormalizedFilterCompareKey = (
   values?: Array<string | number | null | undefined> | ReadonlyArray<string | number | null | undefined>
 ): string => normalizeFilterValues(values ? Array.from(values) : undefined).slice().sort().join('|');
+
+const mergeSearchableOptions = (
+  ...optionGroups: SearchableSelectOption[][]
+): SearchableSelectOption[] => {
+  const dedup = new Map<string, SearchableSelectOption>();
+
+  optionGroups.forEach((group) => {
+    group.forEach((option) => {
+      dedup.set(String(option.value), option);
+    });
+  });
+
+  return Array.from(dedup.values());
+};
 
 const parseCustomerRequestFilterTime = (value?: string | null): number | null => {
   if (!value) {
@@ -283,28 +309,21 @@ const matchesSharedSurfaceFilters = (
     raw.customerID ??
     ''
   );
-  const projectItemId = String(raw.project_item_id ?? raw.projectItemId ?? '');
+  const projectId = String(raw.project_id ?? raw.projectId ?? '');
   const productId = String(raw.product_id ?? raw.productId ?? '');
-  const supportGroupId = String(
-    raw.support_service_group_id ??
-    raw.supportGroupId ??
-    raw.group_id ??
-    raw.support_group_id ??
-    ''
-  );
+  const normalizedCustomerFilters = normalizeFilterValues(filters.requestCustomerFilter);
+  if (normalizedCustomerFilters.length > 0 && !normalizedCustomerFilters.includes(customerId)) {
+    return false;
+  }
 
-  const normalizedEntityFilters = normalizeFilterValues(filters.requestEntityFilter);
-  if (normalizedEntityFilters.length > 0) {
-    const entityTokens = [
-      customerId,
-      projectItemId,
-      productId,
-      supportGroupId,
-    ].filter((token) => token !== '');
+  const normalizedProjectFilters = normalizeFilterValues(filters.requestProjectFilter);
+  if (normalizedProjectFilters.length > 0 && !normalizedProjectFilters.includes(projectId)) {
+    return false;
+  }
 
-    if (!normalizedEntityFilters.some((token) => entityTokens.includes(token))) {
-      return false;
-    }
+  const normalizedProductFilters = normalizeFilterValues(filters.requestProductFilter);
+  if (normalizedProductFilters.length > 0 && !normalizedProductFilters.includes(productId)) {
+    return false;
   }
 
   const rowTags = (raw as { tags?: Array<{ id?: string | number | null }> }).tags;
@@ -433,6 +452,73 @@ const resolveInboxStep = (row: YeuCau): string =>
   || row.tien_trinh_hien_tai
   || row.trang_thai
   || 'Chưa xác định';
+
+const readInboxValue = (row: YeuCau, keys: string[]): string => {
+  const record = row as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return String(value);
+    }
+  }
+
+  return '';
+};
+
+const resolveInboxProjectContext = (row: YeuCau): string =>
+  [
+    row.project_name,
+    row.product_name,
+    row.support_service_group_name,
+  ]
+    .filter(Boolean)
+    .join(' · ') || 'Chưa có dự án / sản phẩm';
+
+const resolveInboxPmLabel = (row: YeuCau): string =>
+  row.accountable_name
+  || row.pm_name
+  || row.dispatcher_name
+  || 'Chưa có PM';
+
+const resolveInboxLastLogLabel = (row: YeuCau): string => {
+  const value = readInboxValue(row, [
+    'last_worklog_at',
+    'latest_worklog_at',
+    'last_worklog_date',
+    'latest_activity_at',
+    'last_activity_at',
+  ]);
+
+  return value ? formatInboxTimestamp(value) : 'Chưa log';
+};
+
+const resolveInboxEffortLabel = (row: YeuCau): string => {
+  const usage = row.hours_usage_pct != null ? ` · ${formatPercentValue(row.hours_usage_pct)}` : '';
+  return `Est ${formatHoursValue(row.estimated_hours)} / Act ${formatHoursValue(row.total_hours_spent ?? row.tong_gio_xu_ly)}${usage}`;
+};
+
+const resolveInboxBlockerLabel = (row: YeuCau): string => {
+  if (row.missing_estimate || row.warning_level === 'missing') return 'Thiếu est';
+  if (row.over_estimate || row.warning_level === 'hard') return 'Vượt est';
+  if (row.sla_status === 'at_risk') return 'SLA risk';
+  if (row.sla_status === 'overdue') return 'Quá hạn SLA';
+  if (resolveInboxLastLogLabel(row) === 'Chưa log') return 'Chưa worklog';
+  return 'Đang theo dõi';
+};
+
+const resolveInboxReasonClass = (reason: string): string => {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes('missing') || normalized.includes('thiếu')) {
+    return 'border-amber-200 bg-amber-50 text-amber-700';
+  }
+  if (normalized.includes('over') || normalized.includes('vượt')) {
+    return 'border-rose-200 bg-rose-50 text-rose-700';
+  }
+  if (normalized.includes('sla')) {
+    return 'border-sky-200 bg-sky-50 text-sky-700';
+  }
+  return 'border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)]';
+};
 
 const formatInboxTimestamp = (value?: string | null): string => {
   if (!value) {
@@ -1253,7 +1339,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [requestKeyword, setRequestKeyword] = useState('');
   const [requestHandlerKeyword, setRequestHandlerKeyword] = useState('');
   const [requestCreatorKeyword, setRequestCreatorKeyword] = useState('');
-  const [requestEntityFilter, setRequestEntityFilter] = useState<string[]>([]);
+  const [requestCustomerFilter, setRequestCustomerFilter] = useState<string[]>([]);
+  const [requestProjectFilter, setRequestProjectFilter] = useState<string[]>([]);
+  const [requestProductFilter, setRequestProductFilter] = useState<string[]>([]);
   const [requestTagFilter, setRequestTagFilter] = useState<string[]>([]);
   const [requestPriorityFilter, setRequestPriorityFilter] = useState<string[]>([]);
   const [requestRoleFilter, setRequestRoleFilter] = useState<CustomerRequestRoleFilter>('');
@@ -1268,7 +1356,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [draftRequestKeywordInput, setDraftRequestKeywordInput] = useState('');
   const [draftRequestHandlerKeywordInput, setDraftRequestHandlerKeywordInput] = useState('');
   const [draftRequestCreatorKeywordInput, setDraftRequestCreatorKeywordInput] = useState('');
-  const [draftRequestEntityFilter, setDraftRequestEntityFilter] = useState<string[]>([]);
+  const [draftRequestCustomerFilter, setDraftRequestCustomerFilter] = useState<string[]>([]);
+  const [draftRequestProjectFilter, setDraftRequestProjectFilter] = useState<string[]>([]);
+  const [draftRequestProductFilter, setDraftRequestProductFilter] = useState<string[]>([]);
   const [draftRequestTagFilter, setDraftRequestTagFilter] = useState<string[]>([]);
   const [draftRequestPriorityFilter, setDraftRequestPriorityFilter] = useState<string[]>([]);
   const [draftRequestCreatedFrom, setDraftRequestCreatedFrom] = useState(() => defaultCreatedRange.from);
@@ -1285,7 +1375,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null);
   const [isIntakeMenuOpen, setIsIntakeMenuOpen] = useState(false);
   const [isSharedFilterExpanded, setIsSharedFilterExpanded] = useState(false);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
   const applyDraftFilters = useCallback(() => {
     setActiveProcessCodes(draftActiveProcessCodes);
@@ -1295,7 +1384,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     setRequestHandlerKeyword(normalizedHandlerKeyword);
     const normalizedCreatorKeyword = draftRequestCreatorKeywordInput.trim();
     setRequestCreatorKeyword(normalizedCreatorKeyword);
-    setRequestEntityFilter(draftRequestEntityFilter);
+    setRequestCustomerFilter(draftRequestCustomerFilter);
+    setRequestProjectFilter(draftRequestProjectFilter);
+    setRequestProductFilter(draftRequestProductFilter);
     setRequestTagFilter(draftRequestTagFilter);
     setRequestPriorityFilter(draftRequestPriorityFilter);
     setRequestCreatedFrom(draftRequestCreatedFrom);
@@ -1308,12 +1399,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     draftActiveProcessCodes,
     draftRequestCreatedFrom,
     draftRequestCreatedTo,
-    draftRequestEntityFilter,
+    draftRequestCustomerFilter,
     draftRequestKeywordInput,
     draftRequestHandlerKeywordInput,
     draftRequestCreatorKeywordInput,
     draftRequestMissingEstimateFilter,
     draftRequestOverEstimateFilter,
+    draftRequestProductFilter,
+    draftRequestProjectFilter,
     draftRequestPriorityFilter,
     draftRequestSlaRiskFilter,
     draftRequestTagFilter,
@@ -1505,10 +1598,10 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   // 6. List hook
   // -------------------------------------------------------------------------
   const listFilters = useMemo(() => {
-    const normalizedEntityFilters = normalizeFilterValues(requestEntityFilter);
-
     return {
-      customer_id: normalizedEntityFilters.length > 0 ? normalizedEntityFilters : undefined,
+      customer_id: requestCustomerFilter.length > 0 ? requestCustomerFilter : undefined,
+      project_id: requestProjectFilter.length > 0 ? requestProjectFilter : undefined,
+      product_id: requestProductFilter.length > 0 ? requestProductFilter : undefined,
       priority: requestPriorityFilter.length > 0 ? requestPriorityFilter : undefined,
       status_code: activeProcessCodes.length > 0 ? activeProcessCodes : undefined,
       tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
@@ -1523,7 +1616,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     };
   }, [
     activeProcessCodes,
-    requestEntityFilter,
+    requestCustomerFilter,
+    requestProductFilter,
+    requestProjectFilter,
     requestTagFilter,
     requestPriorityFilter,
     requestRoleFilter,
@@ -1537,13 +1632,13 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   ]);
 
   const dashboardFilters = useMemo(() => {
-    const normalizedEntityFilters = normalizeFilterValues(requestEntityFilter);
-
     return {
       q: requestKeyword || undefined,
       process_code: activeProcessCodes[0] || undefined,
       filters: {
-        customer_id: normalizedEntityFilters.length > 0 ? normalizedEntityFilters : undefined,
+        customer_id: requestCustomerFilter.length > 0 ? requestCustomerFilter : undefined,
+        project_id: requestProjectFilter.length > 0 ? requestProjectFilter : undefined,
+        product_id: requestProductFilter.length > 0 ? requestProductFilter : undefined,
         priority: requestPriorityFilter.length > 0 ? requestPriorityFilter : undefined,
         status_code: activeProcessCodes.length > 0 ? activeProcessCodes : undefined,
         tag_id: requestTagFilter.length > 0 ? requestTagFilter : undefined,
@@ -1557,7 +1652,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [
     activeProcessCodes,
     requestKeyword,
-    requestEntityFilter,
+    requestCustomerFilter,
+    requestProductFilter,
+    requestProjectFilter,
     requestTagFilter,
     requestPriorityFilter,
     requestCreatedFrom,
@@ -2298,14 +2395,15 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       const mode = worklogModalContext?.mode ?? 'worklog';
       const editingWorklog = worklogModalContext?.editingWorklog ?? null;
+      const worklogPayload = payload as YeuCauWorklogStorePayload;
 
       setIsSubmittingWorklog(true);
       try {
         const result = mode === 'edit_worklog' && editingWorklog
-          ? await updateYeuCauWorklog(selectedRequestId, editingWorklog.id, payload)
+          ? await updateYeuCauWorklog(selectedRequestId, editingWorklog.id, worklogPayload)
           : mode === 'detail_status_worklog'
-            ? await storeYeuCauDetailStatusWorklog(selectedRequestId, payload)
-            : await storeYeuCauWorklog(selectedRequestId, payload);
+            ? await storeYeuCauDetailStatusWorklog(selectedRequestId, worklogPayload)
+            : await storeYeuCauWorklog(selectedRequestId, worklogPayload);
 
         const previousRequest = processDetail?.yeu_cau ?? selectedRequestPreview ?? null;
         const nextHoursReport = result.hours_report;
@@ -2471,7 +2569,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     } else {
       setActiveInboxBucket('sla_risk');
       setRequestSlaRiskFilter(true);
-      setRequestEntityFilter([]);
+      setRequestCustomerFilter([]);
+      setRequestProjectFilter([]);
+      setRequestProductFilter([]);
       setRequestTagFilter([]);
       setRequestPriorityFilter([]);
       setActiveProcessCodes([]);
@@ -2482,7 +2582,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setRequestOverEstimateFilter(false);
 
       setDraftRequestSlaRiskFilter(true);
-      setDraftRequestEntityFilter([]);
+      setDraftRequestCustomerFilter([]);
+      setDraftRequestProjectFilter([]);
+      setDraftRequestProductFilter([]);
       setDraftRequestTagFilter([]);
       setDraftRequestPriorityFilter([]);
       setDraftActiveProcessCodes([]);
@@ -2503,11 +2605,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     const nextProcessCodes = normalizeFilterValues(filters.processCodes ?? [filters.processCode]);
     const nextKeyword = filters.keyword ?? '';
-    const nextEntityFilters = normalizeFilterValues([
+    const nextCustomerFilters = normalizeFilterValues([
       ...(filters.customerIds ?? []),
-      ...(filters.supportGroupIds ?? []),
       ...(filters.customerId ? [filters.customerId] : []),
-      ...(filters.supportGroupId ? [filters.supportGroupId] : []),
+    ]);
+    const nextProjectFilters = normalizeFilterValues([
+      ...(filters.projectIds ?? []),
+      ...(filters.projectId ? [filters.projectId] : []),
+    ]);
+    const nextProductFilters = normalizeFilterValues([
+      ...(filters.productIds ?? []),
+      ...(filters.productId ? [filters.productId] : []),
     ]);
     const nextTagFilters = normalizeFilterValues(filters.tagIds);
     const nextPriorityFilters = normalizeFilterValues(filters.priorities ?? [filters.priority]);
@@ -2526,7 +2634,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     setDraftActiveProcessCodes(nextProcessCodes);
     setDraftRequestKeywordInput(nextKeyword);
-    setDraftRequestEntityFilter(nextEntityFilters);
+    setDraftRequestCustomerFilter(nextCustomerFilters);
+    setDraftRequestProjectFilter(nextProjectFilters);
+    setDraftRequestProductFilter(nextProductFilters);
     setDraftRequestTagFilter(nextTagFilters);
     setDraftRequestPriorityFilter(nextPriorityFilters);
     setDraftRequestCreatedFrom(nextCreatedFrom);
@@ -2537,7 +2647,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     setActiveProcessCodes(nextProcessCodes);
     setRequestKeyword(nextKeyword);
-    setRequestEntityFilter(nextEntityFilters);
+    setRequestCustomerFilter(nextCustomerFilters);
+    setRequestProjectFilter(nextProjectFilters);
+    setRequestProductFilter(nextProductFilters);
     setRequestTagFilter(nextTagFilters);
     setRequestPriorityFilter(nextPriorityFilters);
     setRequestCreatedFrom(nextCreatedFrom);
@@ -3187,76 +3299,94 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [patchedOverviewDashboard]
   );
 
-  // Customer options for list pane filter
-  const customerOptions = useMemo<SearchableSelectOption[]>(
-    () =>
-      customers.map((c) => {
-        const raw = c as unknown as Record<string, unknown>;
-        const displayLabel = String(
-          c.customer_name ||
-            raw.name ||
-            raw.company_name ||
-            `Khách hàng #${c.id}`
-        );
-        return {
-          value: String(c.id),
-          label: displayLabel,
-          searchText: [
-            c.customer_name,
-            c.customer_code,
-            c.tax_code,
-            raw.name,
-            raw.company_name,
-            c.id,
-          ]
-            .filter(Boolean)
-            .join(' '),
-        };
-      }),
-    [customers]
+  const [customerFilterOptions, setCustomerFilterOptions] = useState<SearchableSelectOption[]>([]);
+  const [projectFilterOptions, setProjectFilterOptions] = useState<SearchableSelectOption[]>([]);
+  const [productFilterOptions, setProductFilterOptions] = useState<SearchableSelectOption[]>([]);
+
+  const mapLookupFilterOptions = useCallback(
+    (items: Array<{ value: string; label: string; search_text?: string }>): SearchableSelectOption[] =>
+      items.map((item) => ({
+        value: String(item.value),
+        label: item.label,
+        searchText: item.search_text ?? `${item.label} ${item.value}`,
+      })),
+    []
   );
 
-  const projectItemOptions = useMemo<SearchableSelectOption[]>(() => {
-    const dedup = new Map<string, SearchableSelectOption>();
-
-    effectiveProjectItems.forEach((item) => {
-      const raw = item as unknown as Record<string, unknown>;
-      const value = String(item.id ?? raw.project_item_id ?? raw.projectItemId ?? '').trim();
-      if (!value) {
-        return;
-      }
-
-      const code = String(
-        raw.project_item_code
-          || raw.projectItemCode
-          || raw.item_code
-          || raw.itemCode
-          || raw.external_code
-          || raw.externalCode
-          || raw.code
-          || ''
-      ).trim();
-      const name = String(
-        raw.item_name
-          || raw.itemName
-          || raw.project_item_name
-          || raw.projectItemName
-          || raw.display_name
-          || raw.displayName
-          || raw.name
-          || `Dự án/Sản phẩm #${value}`
-      ).trim();
-      const label = code ? `${code} - ${name}` : name;
-
-      dedup.set(value, {
-        value,
-        label,
-        searchText: `${code} ${name}`.trim(),
-      });
+  const loadCustomerFilterOptions = useCallback(async ({
+    page,
+    query,
+    selectedValues,
+  }: {
+    page: number;
+    query: string;
+    selectedValues: string[];
+  }) => {
+    const response = await fetchCustomerRequestCustomerFilterOptions({
+      q: query,
+      page,
+      per_page: 30,
+      selected_ids: selectedValues,
     });
+    const options = mapLookupFilterOptions(response.data);
 
-    return Array.from(dedup.values());
-  }, [effectiveProjectItems]);
+    setCustomerFilterOptions((previous) => mergeSearchableOptions(previous, options));
+
+    return {
+      options,
+      hasMore: response.meta.has_more,
+    };
+  }, [mapLookupFilterOptions]);
+
+  const loadProjectFilterOptions = useCallback(async ({
+    page,
+    query,
+    selectedValues,
+  }: {
+    page: number;
+    query: string;
+    selectedValues: string[];
+  }) => {
+    const response = await fetchCustomerRequestProjectFilterOptions({
+      q: query,
+      page,
+      per_page: 30,
+      selected_ids: selectedValues,
+    });
+    const options = mapLookupFilterOptions(response.data);
+
+    setProjectFilterOptions((previous) => mergeSearchableOptions(previous, options));
+
+    return {
+      options,
+      hasMore: response.meta.has_more,
+    };
+  }, [mapLookupFilterOptions]);
+
+  const loadProductFilterOptions = useCallback(async ({
+    page,
+    query,
+    selectedValues,
+  }: {
+    page: number;
+    query: string;
+    selectedValues: string[];
+  }) => {
+    const response = await fetchCustomerRequestProductFilterOptions({
+      q: query,
+      page,
+      per_page: 30,
+      selected_ids: selectedValues,
+    });
+    const options = mapLookupFilterOptions(response.data);
+
+    setProductFilterOptions((previous) => mergeSearchableOptions(previous, options));
+
+    return {
+      options,
+      hasMore: response.meta.has_more,
+    };
+  }, [mapLookupFilterOptions]);
 
   const [tagFilterOptions, setTagFilterOptions] = useState<SearchableSelectOption[]>([]);
 
@@ -3313,14 +3443,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     };
   }, [canReadRequests, notify]);
 
-  const entityFilterOptions = useMemo<SearchableSelectOption[]>(
-    () => [
-      ...customerOptions,
-      ...projectItemOptions,
-    ],
-    [customerOptions, projectItemOptions]
-  );
-
   const pinnedRequestIds = useMemo(
     () => new Set(pinnedItems.map((item) => String(item.requestId))),
     [pinnedItems]
@@ -3358,7 +3480,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   useEffect(() => {
     setDraftActiveProcessCodes(activeProcessCodes);
     setDraftRequestKeywordInput(requestKeyword);
-    setDraftRequestEntityFilter(requestEntityFilter);
+    setDraftRequestCreatorKeywordInput(requestCreatorKeyword);
+    setDraftRequestHandlerKeywordInput(requestHandlerKeyword);
+    setDraftRequestCustomerFilter(requestCustomerFilter);
+    setDraftRequestProjectFilter(requestProjectFilter);
+    setDraftRequestProductFilter(requestProductFilter);
     setDraftRequestTagFilter(requestTagFilter);
     setDraftRequestPriorityFilter(requestPriorityFilter);
     setDraftRequestCreatedFrom(requestCreatedFrom);
@@ -3369,7 +3495,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   }, [
     activeProcessCodes,
     requestKeyword,
-    requestEntityFilter,
+    requestCreatorKeyword,
+    requestHandlerKeyword,
+    requestCustomerFilter,
+    requestProductFilter,
+    requestProjectFilter,
     requestTagFilter,
     requestPriorityFilter,
     requestCreatedFrom,
@@ -3385,7 +3515,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     () => ({
       activeProcessCodes,
       requestKeyword,
-      requestEntityFilter,
+      requestCustomerFilter,
+      requestProjectFilter,
+      requestProductFilter,
       requestTagFilter,
       requestPriorityFilter,
       requestCreatedFrom,
@@ -3397,7 +3529,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     [
       activeProcessCodes,
       requestKeyword,
-      requestEntityFilter,
+      requestCustomerFilter,
+      requestProductFilter,
+      requestProjectFilter,
       requestTagFilter,
       requestPriorityFilter,
       requestCreatedFrom,
@@ -3411,7 +3545,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const sharedAdvancedFilterCount = useMemo(
     () =>
       [
-        draftRequestEntityFilter.length > 0,
+        draftRequestCustomerFilter.length > 0,
+        draftRequestProjectFilter.length > 0,
+        draftRequestProductFilter.length > 0,
         draftRequestTagFilter.length > 0,
         draftRequestPriorityFilter.length > 0,
         draftRequestMissingEstimateFilter,
@@ -3419,7 +3555,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
         draftRequestSlaRiskFilter,
       ].filter(Boolean).length,
     [
-      draftRequestEntityFilter,
+      draftRequestCustomerFilter,
+      draftRequestProductFilter,
+      draftRequestProjectFilter,
       draftRequestTagFilter,
       draftRequestPriorityFilter,
       draftRequestMissingEstimateFilter,
@@ -3432,7 +3570,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     !!(
       activeProcessCodes.length > 0 ||
       requestKeyword ||
-      requestEntityFilter.length > 0 ||
+      requestCreatorKeyword ||
+      requestHandlerKeyword ||
+      requestCustomerFilter.length > 0 ||
+      requestProjectFilter.length > 0 ||
+      requestProductFilter.length > 0 ||
       requestTagFilter.length > 0 ||
       requestPriorityFilter.length > 0 ||
       requestCreatedFrom !== defaultCreatedRange.from ||
@@ -3446,6 +3588,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
   const hasDraftFilterChanges =
     requestKeyword !== draftRequestKeywordInput.trim() ||
+    requestCreatorKeyword !== draftRequestCreatorKeywordInput.trim() ||
     requestHandlerKeyword !== draftRequestHandlerKeywordInput.trim() ||
     requestCreatedFrom !== draftRequestCreatedFrom ||
     requestCreatedTo !== draftRequestCreatedTo ||
@@ -3454,20 +3597,28 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     requestSlaRiskFilter !== draftRequestSlaRiskFilter ||
     buildNormalizedFilterCompareKey(activeProcessCodes) !==
       buildNormalizedFilterCompareKey(draftActiveProcessCodes) ||
-    buildNormalizedFilterCompareKey(requestEntityFilter) !==
-      buildNormalizedFilterCompareKey(draftRequestEntityFilter) ||
+    buildNormalizedFilterCompareKey(requestCustomerFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestCustomerFilter) ||
+    buildNormalizedFilterCompareKey(requestProjectFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestProjectFilter) ||
+    buildNormalizedFilterCompareKey(requestProductFilter) !==
+      buildNormalizedFilterCompareKey(draftRequestProductFilter) ||
     buildNormalizedFilterCompareKey(requestTagFilter) !==
       buildNormalizedFilterCompareKey(draftRequestTagFilter) ||
     buildNormalizedFilterCompareKey(requestPriorityFilter) !==
       buildNormalizedFilterCompareKey(draftRequestPriorityFilter);
 
-  const canSubmitFilters = true;
+  const canSubmitFilters = hasDraftFilterChanges;
 
   const handleClearFilters = useCallback(() => {
     const defaultRoleFilter = workspaceTabToRoleFilter(activeWorkspaceTab);
     setDraftActiveProcessCodes([]);
     setDraftRequestKeywordInput('');
-    setDraftRequestEntityFilter([]);
+    setDraftRequestCreatorKeywordInput('');
+    setDraftRequestHandlerKeywordInput('');
+    setDraftRequestCustomerFilter([]);
+    setDraftRequestProjectFilter([]);
+    setDraftRequestProductFilter([]);
     setDraftRequestTagFilter([]);
     setDraftRequestPriorityFilter([]);
     setDraftRequestCreatedFrom(defaultCreatedRange.from);
@@ -3478,7 +3629,11 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     setActiveProcessCodes([]);
     setRequestKeyword('');
-    setRequestEntityFilter([]);
+    setRequestCreatorKeyword('');
+    setRequestHandlerKeyword('');
+    setRequestCustomerFilter([]);
+    setRequestProjectFilter([]);
+    setRequestProductFilter([]);
     setRequestTagFilter([]);
     setRequestPriorityFilter([]);
     setRequestCreatedFrom(defaultCreatedRange.from);
@@ -3515,11 +3670,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
     const filters = activeView.filters ?? {};
     const expectedProcessCodes = normalizeFilterValues(filters.processCodes ?? [filters.processCode]);
-    const expectedEntityFilters = normalizeFilterValues([
+    const expectedCustomerFilters = normalizeFilterValues([
       ...(filters.customerIds ?? []),
-      ...(filters.supportGroupIds ?? []),
       ...(filters.customerId ? [filters.customerId] : []),
-      ...(filters.supportGroupId ? [filters.supportGroupId] : []),
+    ]);
+    const expectedProjectFilters = normalizeFilterValues([
+      ...(filters.projectIds ?? []),
+      ...(filters.projectId ? [filters.projectId] : []),
+    ]);
+    const expectedProductFilters = normalizeFilterValues([
+      ...(filters.productIds ?? []),
+      ...(filters.productId ? [filters.productId] : []),
     ]);
     const expectedTagFilters = normalizeFilterValues(filters.tagIds);
     const expectedPriorityFilters = normalizeFilterValues(filters.priorities ?? [filters.priority]);
@@ -3535,8 +3696,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       requestSlaRiskFilter === Boolean(filters.slaRisk) &&
       expectedProcessCodes.length === normalizeFilterValues(activeProcessCodes).length &&
       expectedProcessCodes.every((code) => normalizeFilterValues(activeProcessCodes).includes(code)) &&
-      expectedEntityFilters.length === normalizeFilterValues(requestEntityFilter).length &&
-      expectedEntityFilters.every((value) => normalizeFilterValues(requestEntityFilter).includes(value)) &&
+      expectedCustomerFilters.length === normalizeFilterValues(requestCustomerFilter).length &&
+      expectedCustomerFilters.every((value) => normalizeFilterValues(requestCustomerFilter).includes(value)) &&
+      expectedProjectFilters.length === normalizeFilterValues(requestProjectFilter).length &&
+      expectedProjectFilters.every((value) => normalizeFilterValues(requestProjectFilter).includes(value)) &&
+      expectedProductFilters.length === normalizeFilterValues(requestProductFilter).length &&
+      expectedProductFilters.every((value) => normalizeFilterValues(requestProductFilter).includes(value)) &&
       expectedTagFilters.length === normalizeFilterValues(requestTagFilter).length &&
       expectedTagFilters.every((value) => normalizeFilterValues(requestTagFilter).includes(value)) &&
       expectedPriorityFilters.length === normalizeFilterValues(requestPriorityFilter).length &&
@@ -3550,10 +3715,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     activeSavedViewId,
     activeSurface,
     activeWorkspaceTab,
-    requestEntityFilter,
+    requestCustomerFilter,
     requestKeyword,
     requestMissingEstimateFilter,
     requestOverEstimateFilter,
+    requestProductFilter,
+    requestProjectFilter,
     requestPriorityFilter,
     requestRoleFilter,
     requestSlaRiskFilter,
@@ -4146,10 +4313,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       setDraftRequestHandlerKeywordInput(v);
     },
     onSubmitKeywordSearch: handleSubmitKeywordSearch,
-    requestEntityFilter: draftRequestEntityFilter,
-    onRequestEntityFilterChange: (values: string[]) => {
-      setDraftRequestEntityFilter(values);
-    },
+    requestEntityFilter: [] as string[],
+    onRequestEntityFilterChange: () => {},
     requestPriorityFilter: draftRequestPriorityFilter,
     onRequestPriorityFilterChange: (values: string[]) => {
       setDraftRequestPriorityFilter(values);
@@ -4162,8 +4327,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
     onRequestCreatedToChange: (v: string) => {
       setDraftRequestCreatedTo(v);
     },
-    customerOptions,
-    projectItemOptions,
+    customerOptions: [] as SearchableSelectOption[],
+    projectItemOptions: [] as SearchableSelectOption[],
     tagFilterOptions,
     requestTagFilter: draftRequestTagFilter,
     onRequestTagFilterChange: (values: string[]) => {
@@ -4311,7 +4476,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           type="button"
           onClick={handleCloseDetail}
           disabled={isSaving}
-          className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:w-auto"
+          className={`${customerRequestSecondaryButtonClass} w-full sm:w-auto`}
         >
           Hủy
         </button>
@@ -4319,7 +4484,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
           type="button"
           onClick={() => void handleUpdateCase()}
           disabled={!canEditActiveForm || isSaving}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-primary/20 transition hover:brightness-105 disabled:opacity-50 sm:w-auto"
+          className={`${customerRequestPrimaryButtonClass} w-full sm:w-auto`}
         >
           <span className="material-symbols-outlined text-[15px]">save</span>
           {isSaving ? 'Đang cập nhật…' : 'Cập nhật yêu cầu'}
@@ -4395,19 +4560,17 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
   const isAnalyticsSurface = activeSurface === 'analytics';
   const showsSharedSurfaceFilters = !isCreateMode;
   const isCompactTopShell = layoutMode === 'mobile' || layoutMode === 'tablet';
-  const controlHeightClass = isCompactTopShell ? 'h-11' : 'h-10';
+  const controlHeightClass = isCompactTopShell ? 'h-11' : 'h-8';
   const workspaceShellClass =
     'rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-[var(--ui-shadow-shell)]';
-  const sharedFilterFieldClass =
-    `${controlHeightClass} rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const sharedSearchFieldClass =
-    `${controlHeightClass} w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] pl-9 pr-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
+    `${controlHeightClass} w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] pl-9 pr-3 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const sharedSelectTriggerClass =
-    `${controlHeightClass} rounded-[var(--ui-control-radius)] border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] focus:bg-white`;
+    `${controlHeightClass} rounded-[var(--ui-control-radius)] border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-2.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] focus:bg-white`;
   const sharedSecondaryButtonClass =
-    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
+    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
   const sharedPrimaryButtonClass =
-    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] bg-primary px-3 text-xs font-semibold text-white shadow-[var(--ui-shadow-shell)] transition hover:bg-deep-teal disabled:opacity-50`;
+    `${controlHeightClass} inline-flex items-center justify-center rounded-[var(--ui-control-radius)] bg-primary px-2.5 text-xs font-semibold text-white shadow-[var(--ui-shadow-shell)] transition hover:bg-deep-teal disabled:opacity-50`;
   const renderTopShellActions = (isCompactLayout = false) => (
     <>
       {hasIntakeMenuActions ? (
@@ -4494,187 +4657,98 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       )}
     </>
   );
+  const sharedAdvancedFiltersRegionId = 'customer-request-shared-advanced-filters';
   const sharedSurfaceFilterNode = showsSharedSurfaceFilters ? (
     <div className={`${workspaceShellClass} p-3`}>
       <div className="space-y-2.5">
-        {isCompactTopShell ? (
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setIsMobileSearchOpen((value) => !value)}
-                className={`${sharedSecondaryButtonClass} gap-1.5`}
-                aria-expanded={isMobileSearchOpen}
-                aria-label="Mở tìm kiếm"
-              >
-                <span className="material-symbols-outlined text-[17px]">search</span>
-                <span>Tìm kiếm</span>
-              </button>
-              {!isAnalyticsSurface ? (
-                <button
-                  type="button"
-                  onClick={() => setIsSharedFilterExpanded((value) => !value)}
-                  className={`${sharedSecondaryButtonClass} gap-1.5`}
-                >
-                  <span className="material-symbols-outlined text-[17px]">tune</span>
-                  <span>Bộ lọc</span>
-                  {sharedAdvancedFilterCount > 0 ? (
-                    <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {sharedAdvancedFilterCount}
-                    </span>
-                  ) : null}
-                </button>
-              ) : (
-                <div aria-hidden="true" />
-              )}
-            </div>
+        <div
+          className={`grid gap-2 ${
+            isCompactTopShell
+              ? 'grid-cols-2'
+              : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]'
+          }`}
+        >
+          <SearchableMultiSelect
+            values={draftRequestCustomerFilter}
+            options={customerFilterOptions}
+            onChange={(values) => {
+              setDraftRequestCustomerFilter(values);
+            }}
+            asyncLoader={loadCustomerFilterOptions}
+            label=""
+            placeholder="Khách hàng"
+            searchPlaceholder="Tìm khách hàng..."
+            usePortal
+            portalZIndex={70}
+            triggerClassName={sharedSelectTriggerClass}
+            showSelectedChips={false}
+          />
+          <SearchableMultiSelect
+            values={draftRequestProjectFilter}
+            options={projectFilterOptions}
+            onChange={(values) => {
+              setDraftRequestProjectFilter(values);
+            }}
+            asyncLoader={loadProjectFilterOptions}
+            label=""
+            placeholder="Dự án"
+            searchPlaceholder="Tìm dự án..."
+            usePortal
+            portalZIndex={70}
+            triggerClassName={sharedSelectTriggerClass}
+            showSelectedChips={false}
+          />
+          <SearchableMultiSelect
+            values={draftRequestProductFilter}
+            options={productFilterOptions}
+            onChange={(values) => {
+              setDraftRequestProductFilter(values);
+            }}
+            asyncLoader={loadProductFilterOptions}
+            label=""
+            placeholder="Sản phẩm"
+            searchPlaceholder="Tìm sản phẩm..."
+            usePortal
+            portalZIndex={70}
+            triggerClassName={sharedSelectTriggerClass}
+            showSelectedChips={false}
+          />
 
-            {isMobileSearchOpen ? (
-              <div className="grid grid-cols-1 gap-2">
-                <label>
-                  <span className="sr-only">Từ ngày tạo</span>
-                  <input
-                    type="date"
-                    value={draftRequestCreatedFrom}
-                    onChange={(event) => {
-                      setDraftRequestCreatedFrom(event.target.value);
-                    }}
-                    className={`w-full ${sharedFilterFieldClass}`}
-                  />
-                </label>
+          {!isAnalyticsSurface ? (
+            <button
+              type="button"
+              onClick={() => setIsSharedFilterExpanded((value) => !value)}
+              aria-expanded={isSharedFilterExpanded}
+              aria-controls={sharedAdvancedFiltersRegionId}
+              className={`${sharedSecondaryButtonClass} gap-1.5 ${isCompactTopShell ? 'w-full' : ''}`}
+            >
+              <span className="material-symbols-outlined text-[17px]">tune</span>
+              <span>Bộ lọc</span>
+              <span className="text-[11px] font-semibold text-slate-500">
+                {isSharedFilterExpanded ? 'Đang hiện' : 'Đang ẩn'}
+              </span>
+              {sharedAdvancedFilterCount > 0 ? (
+                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {sharedAdvancedFilterCount}
+                </span>
+              ) : null}
+              <span className="material-symbols-outlined text-[16px] text-slate-500">
+                {isSharedFilterExpanded ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+          ) : null}
+        </div>
 
-                <label>
-                  <span className="sr-only">Đến ngày tạo</span>
-                  <input
-                    type="date"
-                    value={draftRequestCreatedTo}
-                    onChange={(event) => {
-                      setDraftRequestCreatedTo(event.target.value);
-                    }}
-                    className={`w-full ${sharedFilterFieldClass}`}
-                  />
-                </label>
-
-                <label className="relative w-[180px] shrink-0">
-                  <span className="sr-only">Tìm người nhập yêu cầu</span>
-                  <span
-                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    style={{ fontSize: 16 }}
-                  >
-                    person_add
-                  </span>
-                  <input
-                    value={draftRequestCreatorKeywordInput}
-                    onChange={(event) => {
-                      setDraftRequestCreatorKeywordInput(event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        if (canSubmitFilters) {
-                          handleSubmitKeywordSearch();
-                        }
-                      }
-                    }}
-                    placeholder="Người nhập..."
-                    className={sharedSearchFieldClass}
-                  />
-                </label>
-
-                <label className="relative w-[180px] shrink-0">
-                  <span className="sr-only">Tìm người xử lý</span>
-                  <span
-                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    style={{ fontSize: 16 }}
-                  >
-                    person
-                  </span>
-                  <input
-                    value={draftRequestHandlerKeywordInput}
-                    onChange={(event) => {
-                      setDraftRequestHandlerKeywordInput(event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        if (canSubmitFilters) {
-                          handleSubmitKeywordSearch();
-                        }
-                      }
-                    }}
-                    placeholder="Người xử lý..."
-                    className={sharedSearchFieldClass}
-                  />
-                </label>
-
-                <label className="relative min-w-0 flex-1">
-                  <span className="sr-only">Tìm kiếm yêu cầu</span>
-                  <span
-                    className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    style={{ fontSize: 16 }}
-                  >
-                    search
-                  </span>
-                  <input
-                    value={draftRequestKeywordInput}
-                    onChange={(event) => {
-                      setDraftRequestKeywordInput(event.target.value);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        if (canSubmitFilters) {
-                          handleSubmitKeywordSearch();
-                        }
-                      }
-                    }}
-                    placeholder="Tìm mã YC, tên yêu cầu..."
-                    className={sharedSearchFieldClass}
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleSubmitKeywordSearch}
-                  disabled={!canSubmitFilters}
-                  className={`${sharedSecondaryButtonClass} gap-1.5 text-primary hover:bg-primary/5 disabled:opacity-50`}
-                >
-                  <span className="material-symbols-outlined text-[17px]">search</span>
-                  <span>Tìm kiếm</span>
-                </button>
-
-              </div>
-            ) : null}
-          </div>
-        ) : (
+        {(isAnalyticsSurface || isSharedFilterExpanded) ? (
           <div
-            className="grid gap-2 xl:grid-cols-[156px_156px_150px_150px_minmax(0,1fr)_120px_180px_auto]"
+            id={sharedAdvancedFiltersRegionId}
+            className={`grid gap-2 ${
+              isCompactTopShell
+                ? 'grid-cols-1'
+                : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)]'
+            }`}
           >
-            <label>
-              <span className="sr-only">Từ ngày tạo</span>
-              <input
-                type="date"
-                value={draftRequestCreatedFrom}
-                onChange={(event) => {
-                  setDraftRequestCreatedFrom(event.target.value);
-                }}
-                className={`w-full ${sharedFilterFieldClass}`}
-              />
-            </label>
-
-            <label>
-              <span className="sr-only">Đến ngày tạo</span>
-              <input
-                type="date"
-                value={draftRequestCreatedTo}
-                onChange={(event) => {
-                  setDraftRequestCreatedTo(event.target.value);
-                }}
-                className={`w-full ${sharedFilterFieldClass}`}
-              />
-            </label>
-
-            <label className="relative w-[150px] shrink-0">
+            <label className="relative min-w-0">
               <span className="sr-only">Tìm người nhập yêu cầu</span>
               <span
                 className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4699,8 +4773,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 className={sharedSearchFieldClass}
               />
             </label>
-
-            <label className="relative w-[150px] shrink-0">
+            <label className="relative min-w-0">
               <span className="sr-only">Tìm người xử lý</span>
               <span
                 className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4725,83 +4798,6 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 className={sharedSearchFieldClass}
               />
             </label>
-
-            <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Tìm kiếm yêu cầu</span>
-              <span
-                className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                style={{ fontSize: 16 }}
-              >
-                search
-              </span>
-              <input
-                value={draftRequestKeywordInput}
-                onChange={(event) => {
-                  setDraftRequestKeywordInput(event.target.value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    if (canSubmitFilters) {
-                      handleSubmitKeywordSearch();
-                    }
-                  }
-                }}
-                placeholder="Tìm mã YC, tên yêu cầu..."
-                className={sharedSearchFieldClass}
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={handleSubmitKeywordSearch}
-              disabled={!canSubmitFilters}
-              className={`${sharedSecondaryButtonClass} gap-1.5 text-primary hover:bg-primary/5 disabled:opacity-50`}
-            >
-              <span className="material-symbols-outlined text-[17px]">search</span>
-              <span>Tìm kiếm</span>
-            </button>
-
-            {!isAnalyticsSurface ? (
-              <button
-                type="button"
-                onClick={() => setIsSharedFilterExpanded((value) => !value)}
-                className={`${sharedSecondaryButtonClass} gap-1.5`}
-              >
-                <span className="material-symbols-outlined text-[17px]">tune</span>
-                <span>Bộ lọc</span>
-                {sharedAdvancedFilterCount > 0 ? (
-                  <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    {sharedAdvancedFilterCount}
-                  </span>
-                ) : null}
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        {(isAnalyticsSurface || isSharedFilterExpanded) ? (
-          <div
-            className={`grid gap-2 ${
-              isCompactTopShell
-                ? 'grid-cols-1'
-                : 'xl:grid-cols-[minmax(0,1fr)_200px_200px_200px_auto]'
-            }`}
-          >
-            <SearchableMultiSelect
-              values={draftRequestEntityFilter}
-              options={entityFilterOptions}
-              onChange={(values) => {
-                setDraftRequestEntityFilter(values);
-              }}
-              label=""
-              placeholder="Khách hàng | Dự án | Sản phẩm"
-              searchPlaceholder="Tìm khách hàng, dự án, sản phẩm..."
-              usePortal
-              portalZIndex={70}
-              triggerClassName={sharedSelectTriggerClass}
-              showSelectedChips={false}
-            />
             <SearchableMultiSelect
               values={draftRequestTagFilter}
               options={tagFilterOptions}
@@ -4844,17 +4840,70 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               triggerClassName={sharedSelectTriggerClass}
               showSelectedChips={false}
             />
-            {hasListFilters ? (
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className={`${sharedSecondaryButtonClass} text-primary hover:bg-primary/5`}
-              >
-                Xóa lọc
-              </button>
-            ) : (
-              <div aria-hidden="true" />
-            )}
+          </div>
+        ) : null}
+
+        <form
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSubmitFilters) {
+              handleSubmitKeywordSearch();
+            }
+          }}
+          className={`grid gap-2 ${
+            isCompactTopShell
+              ? 'grid-cols-[minmax(0,1fr)_auto]'
+              : 'xl:grid-cols-[minmax(0,1fr)_auto]'
+          }`}
+        >
+          <label className="relative min-w-0">
+            <span className="sr-only">Tìm kiếm yêu cầu</span>
+            <span
+              className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              style={{ fontSize: 16 }}
+            >
+              search
+            </span>
+            <input
+              type="search"
+              enterKeyHint="search"
+              value={draftRequestKeywordInput}
+              onChange={(event) => {
+                setDraftRequestKeywordInput(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  if (canSubmitFilters) {
+                    handleSubmitKeywordSearch();
+                  }
+                }
+              }}
+              placeholder="Tìm mã YC, tên yêu cầu..."
+              className={sharedSearchFieldClass}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!canSubmitFilters}
+            className={`${sharedSecondaryButtonClass} gap-1.5 text-primary hover:bg-primary/5 disabled:opacity-50 ${isCompactTopShell ? 'px-3' : ''}`}
+          >
+            <span className="material-symbols-outlined text-[17px]">search</span>
+            <span>Tìm kiếm</span>
+          </button>
+        </form>
+
+        {hasListFilters ? (
+          <div className={`grid ${isCompactTopShell ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_auto]'}`}>
+            {!isCompactTopShell ? <div aria-hidden="true" /> : null}
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className={`${sharedSecondaryButtonClass} text-primary hover:bg-primary/5 ${isCompactTopShell ? 'w-full' : ''}`}
+            >
+              Xóa lọc
+            </button>
           </div>
         ) : null}
       </div>
@@ -4912,17 +4961,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 toolbar={
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="min-w-0 flex-1 pb-1 xl:pb-0">
-                      <CustomerRequestSurfaceSwitch
-                        activeSurface={activeSurface}
-                        onSurfaceChange={(surface) => {
-                          setActiveSurface(surface);
-                          setActiveSavedViewId(null);
-                          if (isCompactTopShell) {
-                            setIsMobileSearchOpen(false);
-                          }
-                        }}
-                        iconOnlyOnCompact
-                      />
+                        <CustomerRequestSurfaceSwitch
+                          activeSurface={activeSurface}
+                          onSurfaceChange={(surface) => {
+                            setActiveSurface(surface);
+                            setActiveSavedViewId(null);
+                          }}
+                          iconOnlyOnCompact
+                        />
                     </div>
                     <button
                       type="button"
@@ -5014,14 +5060,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       </div>
 
       {activeSurface === 'inbox' && !isCreateMode ? (
-        <div className="my-2 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-2.5 shadow-sm backdrop-blur-sm">
+        <div className="my-2 rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 shadow-[var(--ui-shadow-shell)]">
           <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => pinnedItems[0] && handleOpenQuickAccessItem(pinnedItems[0])}
                 disabled={pinnedItems.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--ui-pill-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1 text-[11px] font-bold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)] disabled:opacity-50"
               >
                 Ghim {pinnedItems.length}
               </button>
@@ -5029,21 +5075,21 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 type="button"
                 onClick={() => recentItems[0] && handleOpenQuickAccessItem(recentItems[0])}
                 disabled={recentItems.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--ui-pill-radius)] border border-[var(--ui-accent)] bg-[var(--ui-accent-soft)] px-2.5 py-1 text-[11px] font-bold text-[color:var(--ui-primary)] transition hover:bg-[var(--ui-accent-soft)] disabled:opacity-50"
               >
                 Gần đây {recentItems.length}
               </button>
               <button
                 type="button"
                 onClick={() => handleApplyInlineQuickFilter('mine')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--ui-pill-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1 text-[11px] font-bold text-[color:var(--ui-text-muted)] transition hover:bg-[var(--ui-surface-subtle)]"
               >
                 Của tôi
               </button>
               <button
                 type="button"
                 onClick={() => handleApplyInlineQuickFilter('following')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--ui-pill-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1 text-[11px] font-bold text-[color:var(--ui-text-muted)] transition hover:bg-[var(--ui-surface-subtle)]"
               >
                 Đang theo dõi
               </button>
@@ -5055,7 +5101,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                 SLA risk
               </button>
             </div>
-            <p className="text-[11px] font-semibold text-slate-500">
+            <p className="text-[11px] font-semibold text-[color:var(--ui-text-muted)]">
               {activeInboxRows.length} việc đang hiển thị
             </p>
           </div>
@@ -5064,9 +5110,9 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
 
       {/* ── Main area ──────────────────────────────────────────────────── */}
       {activeSurface === 'inbox' && !isCreateMode ? (
-        <div className="grid gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-sm">
-            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+        <div className="grid gap-3 xl:grid-cols-[196px_minmax(0,1fr)]">
+          <aside className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 shadow-[var(--ui-shadow-shell)]">
+            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--ui-text-subtle)]">
               Ưu tiên
             </p>
             <div className="space-y-1">
@@ -5077,14 +5123,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     key={bucket.key}
                     type="button"
                     onClick={() => setActiveInboxBucket(bucket.key)}
-                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
+                    className={`flex w-full items-center justify-between rounded-[var(--ui-control-radius)] px-2.5 py-1.5 text-left text-xs font-semibold transition ${
                       isActive
                         ? 'bg-primary/10 text-primary ring-1 ring-primary/15'
-                        : 'text-slate-600 hover:bg-slate-50'
+                        : 'text-[color:var(--ui-text-muted)] hover:bg-[var(--ui-surface-subtle)]'
                     }`}
                   >
                     <span>{bucket.label}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white text-primary' : 'bg-slate-100 text-slate-600'}`}>
+                    <span className={`rounded-[var(--ui-pill-radius)] px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white text-primary' : 'bg-[var(--ui-neutral-badge-bg)] text-[color:var(--ui-neutral-badge-fg)]'}`}>
                       {bucket.count}
                     </span>
                   </button>
@@ -5092,7 +5138,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               })}
             </div>
 
-            <p className="mt-3 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+            <p className="mt-3 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[color:var(--ui-text-subtle)]">
               Nhóm nhanh
             </p>
             <div className="space-y-1">
@@ -5103,14 +5149,14 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     key={bucket.key}
                     type="button"
                     onClick={() => setActiveInboxBucket(bucket.key)}
-                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
+                    className={`flex w-full items-center justify-between rounded-[var(--ui-control-radius)] px-2.5 py-1.5 text-left text-xs font-semibold transition ${
                       isActive
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-[var(--ui-primary)] text-white'
+                        : 'text-[color:var(--ui-text-muted)] hover:bg-[var(--ui-surface-subtle)]'
                     }`}
                   >
                     <span>{bucket.label}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                    <span className={`rounded-[var(--ui-pill-radius)] px-2 py-0.5 text-[10px] font-bold ${isActive ? 'bg-white/15 text-white' : 'bg-[var(--ui-neutral-badge-bg)] text-[color:var(--ui-neutral-badge-fg)]'}`}>
                       {bucket.count}
                     </span>
                   </button>
@@ -5119,34 +5165,34 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             </div>
           </aside>
 
-          <section className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm">
-            <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2.5 md:flex-row md:items-center md:justify-between">
+          <section className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-[var(--ui-shadow-shell)]">
+            <div className="flex flex-col gap-2 border-b border-[var(--ui-border-soft)] px-3 py-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-[12px] font-bold leading-4 text-slate-900">Bảng theo dõi</p>
-                <p className="text-[11px] leading-4 text-slate-500">
+                <p className="text-[12px] font-bold leading-4 text-[color:var(--ui-text-title)]">Bảng theo dõi</p>
+                <p className="text-[11px] leading-4 text-[color:var(--ui-text-muted)]">
                   {activeInboxRows.length} việc đang hiển thị
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveSurface('list')}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 md:w-auto"
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1.5 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)] md:w-auto"
               >
                 Mở danh sách đầy đủ
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_forward</span>
               </button>
             </div>
 
-            <div className="hidden border-b border-slate-100 bg-slate-50/70 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400 md:grid md:grid-cols-[92px_minmax(0,1fr)_128px_92px_120px_84px] md:gap-3">
+            <div className="hidden border-b border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--ui-text-subtle)] md:grid md:grid-cols-[92px_minmax(0,1.5fr)_136px_136px_150px_88px] md:gap-3">
               <span>Mã</span>
-              <span>Khách hàng / Tiêu đề</span>
-              <span>Bước</span>
-              <span>SLA</span>
-              <span>Owner</span>
+              <span>Khách hàng / YC</span>
+              <span>Bước / Block</span>
+              <span>PM / Owner</span>
+              <span>Log / SLA</span>
               <span>Cập nhật</span>
             </div>
 
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-[var(--ui-border-soft)]">
               {activeInboxRows.map((item) => {
                 const row = item.row;
                 const requestCode = resolveInboxRequestCode(row);
@@ -5159,7 +5205,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                     ].filter(Boolean);
 
                 return (
-                  <div key={item.key} className="grid gap-2 px-3 py-2.5 transition hover:bg-slate-50/70 md:grid-cols-[92px_minmax(0,1fr)_128px_92px_120px_84px] md:items-start md:gap-3">
+                  <div key={item.key} className="grid gap-2 px-3 py-2 transition hover:bg-[var(--ui-surface-subtle)] md:grid-cols-[92px_minmax(0,1.5fr)_136px_136px_150px_88px] md:items-start md:gap-3">
                     <button
                       type="button"
                       onClick={() => handleOpenRequest(row.id, resolveRequestProcessCode(row))}
@@ -5169,29 +5215,49 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
                       {requestCode}
                     </button>
                     <div className="min-w-0">
-                      <p className="truncate text-[12px] font-semibold leading-5 text-slate-900">
+                      <p className="truncate text-[12px] font-semibold leading-5 text-[color:var(--ui-text-default)]">
                         {resolveInboxCustomer(row)} / {resolveInboxTitle(row)}
+                      </p>
+                      <p className="truncate text-[11px] font-medium leading-4 text-[color:var(--ui-text-muted)]">
+                        {resolveInboxProjectContext(row)}
                       </p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {reasons.slice(0, 3).map((reason) => (
                           <span
                             key={`${item.key}-${reason}`}
-                            className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+                            className={`rounded-[var(--ui-pill-radius)] border px-2 py-0.5 text-[10px] font-semibold ${resolveInboxReasonClass(String(reason))}`}
                           >
                             {String(reason).replaceAll('_', ' ')}
                           </span>
                         ))}
                       </div>
                     </div>
-                    <p className="text-[11px] font-semibold leading-4 text-slate-600">{resolveInboxStep(row)}</p>
-                    <p className="text-[11px] font-bold leading-4 text-amber-700">{resolveInboxSlaLabel(row)}</p>
-                    <p className="text-[11px] font-semibold leading-4 text-slate-600">{resolveInboxOwner(row)}</p>
+                    <div className="min-w-0 text-[11px] leading-4">
+                      <p className="truncate font-semibold text-[color:var(--ui-text-default)]">{resolveInboxStep(row)}</p>
+                      <p className={`mt-0.5 truncate font-bold ${resolveInboxBlockerLabel(row) === 'Đang theo dõi' ? 'text-[color:var(--ui-text-muted)]' : 'text-rose-700'}`}>
+                        {resolveInboxBlockerLabel(row)}
+                      </p>
+                    </div>
+                    <div className="min-w-0 text-[11px] leading-4">
+                      <p className="truncate font-semibold text-[color:var(--ui-text-default)]">
+                        <span className="font-bold uppercase text-[color:var(--ui-text-subtle)]">PM</span> {resolveInboxPmLabel(row)}
+                      </p>
+                      <p className="mt-0.5 truncate font-medium text-[color:var(--ui-text-muted)]">
+                        <span className="font-bold uppercase text-[color:var(--ui-text-subtle)]">Owner</span> {resolveInboxOwner(row)}
+                      </p>
+                    </div>
+                    <div className="min-w-0 text-[11px] leading-4">
+                      <p className="truncate font-semibold text-[color:var(--ui-text-default)]">{resolveInboxEffortLabel(row)}</p>
+                      <p className="mt-0.5 truncate font-medium text-[color:var(--ui-text-muted)]">
+                        Log {resolveInboxLastLogLabel(row)} · {resolveInboxSlaLabel(row)}
+                      </p>
+                    </div>
                     <div className="flex items-center justify-between gap-2 md:block">
-                      <p className="text-[11px] font-semibold leading-4 text-slate-500">{formatInboxTimestamp(row.updated_at)}</p>
+                      <p className="text-[11px] font-semibold leading-4 text-[color:var(--ui-text-muted)]">{formatInboxTimestamp(row.updated_at)}</p>
                       <button
                         type="button"
                         onClick={() => handleTogglePinnedRequest(row)}
-                        className="mt-0 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 md:mt-1"
+                        className="mt-0 inline-flex h-7 w-7 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition hover:bg-[var(--ui-surface-subtle)] md:mt-1"
                         aria-label={`Ghim ${requestCode}`}
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
@@ -5204,7 +5270,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
               })}
 
               {activeInboxRows.length === 0 ? (
-                <div className="px-3 py-8 text-center text-[12px] font-semibold text-slate-400">
+                <div className="px-3 py-8 text-center text-[12px] font-semibold text-[color:var(--ui-text-subtle)]">
                   Chưa có việc ưu tiên phù hợp.
                 </div>
               ) : null}

@@ -447,6 +447,7 @@ class ProjectDomainService
             'items' => ['sometimes', 'array', 'max:500'],
             'items.*' => ['required', 'array'],
             'items.*.product_id' => ['required', 'integer'],
+            'items.*.unit' => ['sometimes', 'nullable', 'string', 'max:100'],
             'items.*.quantity' => ['nullable', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'raci' => ['sometimes', 'array', 'max:500'],
@@ -632,6 +633,7 @@ class ProjectDomainService
             'items' => ['sometimes', 'array', 'max:500'],
             'items.*' => ['required', 'array'],
             'items.*.product_id' => ['required', 'integer'],
+            'items.*.unit' => ['sometimes', 'nullable', 'string', 'max:100'],
             'items.*.quantity' => ['nullable', 'numeric', 'gt:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'raci' => ['sometimes', 'array', 'max:500'],
@@ -1620,7 +1622,7 @@ class ProjectDomainService
 
     /**
      * @param array<int, array<string, mixed>> $items
-     * @return array<int, array{product_id:int, product_package_id:?int, quantity:float, unit_price:float}>
+     * @return array<int, array{product_id:int, product_package_id:?int, unit:?string, quantity:float, unit_price:float}>
      */
     private function resolveProjectItemsPayload(array $items): array
     {
@@ -1634,6 +1636,7 @@ class ProjectDomainService
             }
 
             $productPackageId = $this->support->parseNullableInt($item['product_package_id'] ?? null);
+            $unit = $this->support->normalizeNullableString($item['unit'] ?? null);
             $quantity = is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : 1.0;
             if (! is_finite($quantity) || $quantity <= 0) {
                 throw ValidationException::withMessages([
@@ -1653,6 +1656,7 @@ class ProjectDomainService
                 'product_package_id' => $productPackageId !== null && $productPackageId > 0
                     ? $productPackageId
                     : null,
+                'unit' => $unit,
                 'quantity' => round($quantity, 2),
                 'unit_price' => round($unitPrice, 2),
             ];
@@ -1763,7 +1767,7 @@ class ProjectDomainService
     }
 
     /**
-     * @param array<int, array{product_id:int, product_package_id:?int, quantity:float, unit_price:float}> $items
+     * @param array<int, array{product_id:int, product_package_id:?int, unit:?string, quantity:float, unit_price:float}> $items
      */
     private function syncProjectItems(int $projectId, array $items, ?int $actorId): void
     {
@@ -1880,6 +1884,9 @@ class ProjectDomainService
 
             if ($this->support->hasColumn('project_items', 'quantity')) {
                 $row['quantity'] = $item['quantity'];
+            }
+            if ($this->support->hasColumn('project_items', 'unit')) {
+                $row['unit'] = $item['unit'] ?? null;
             }
             if ($this->support->hasColumn('project_items', 'unit_price')) {
                 $row['unit_price'] = $item['unit_price'];
@@ -2289,6 +2296,7 @@ class ProjectDomainService
             'project_id',
             'product_id',
             'product_package_id',
+            'unit',
             'quantity',
             'unit_price',
             'created_at',
@@ -2349,7 +2357,7 @@ class ProjectDomainService
                 $selects[] = 'pr.product_name as product_name';
             }
             if ($this->support->hasColumn('products', 'unit')) {
-                $selects[] = 'pr.unit as unit';
+                $selects[] = 'pr.unit as product_unit';
             }
         }
 
@@ -2540,7 +2548,7 @@ class ProjectDomainService
         $projectName = $this->support->firstNonEmpty($record, ['project_name']);
         $productCode = $this->support->firstNonEmpty($record, ['package_code', 'product_code']);
         $productName = $this->support->firstNonEmpty($record, ['package_name', 'product_name']);
-        $unit = $this->support->firstNonEmpty($record, ['package_unit', 'unit']);
+        $unit = $this->support->firstNonEmpty($record, ['unit', 'package_unit', 'product_unit']);
 
         $projectCodeText = (string) ($projectCode ?? '');
         $projectNameText = (string) ($projectName ?? '');

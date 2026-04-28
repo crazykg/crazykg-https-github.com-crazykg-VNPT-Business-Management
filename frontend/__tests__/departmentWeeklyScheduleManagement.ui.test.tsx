@@ -174,7 +174,7 @@ describe('DepartmentWeeklyScheduleManagement', () => {
     expect(screen.queryByText(/Chọn đúng phòng ban và tuần làm việc/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Xem trước lịch tuần theo đúng bố cục thông báo nội bộ/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Nhập và cập nhật từng dòng công việc trực tiếp theo từng buổi/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Tạo lịch tuần/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Tạo tuần/i })).toBeInTheDocument();
   });
 
   it('opens the entry form immediately when clicking an empty schedule slot', async () => {
@@ -244,7 +244,7 @@ describe('DepartmentWeeklyScheduleManagement', () => {
     }
 
     expect(portalRoot).not.toBeNull();
-    expect(portalRoot?.style.zIndex).toBe('10020');
+    expect(portalRoot?.style.zIndex).toBe('600');
   });
 
   it('shows registered entries from other users to admins in the modal', async () => {

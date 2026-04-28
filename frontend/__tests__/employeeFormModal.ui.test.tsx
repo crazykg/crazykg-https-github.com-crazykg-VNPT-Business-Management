@@ -25,6 +25,7 @@ const employeeWithoutDepartment: Employee = {
   full_name: 'Nguyễn Văn A',
   phone_number: '0912345678',
   email: 'nguyenvana@vnpt.vn',
+  gmail: 'nguyenvana@gmail.com',
   department_id: '',
   position_id: '3',
   status: 'ACTIVE',
@@ -140,21 +141,48 @@ describe('EmployeeFormModal', () => {
     );
 
     expect(screen.getByText('Mã nhân viên')).toHaveClass('text-xs', 'font-semibold');
-    expect(screen.getByText('Email')).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByText('VNPT Mail')).toHaveClass('text-xs', 'font-semibold');
+    expect(screen.getByText('Gmail')).toHaveClass('text-xs', 'font-semibold');
     expect(screen.getByPlaceholderText('VNPT022327 / CTV091020')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
     expect(screen.getByPlaceholderText('nguyenvana')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
     expect(screen.getByPlaceholderText('email@vnpt.vn')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
+    expect(screen.getByPlaceholderText('email@gmail.com')).toHaveClass('h-8', 'rounded', 'text-xs', 'leading-5');
 
     const departmentField = screen.getByText('Phòng ban tham chiếu', { selector: 'label' }).closest('div');
     const positionField = screen.getByText('Chức vụ', { selector: 'label' }).closest('div');
     const genderField = screen.getByText('Giới tính', { selector: 'label' }).closest('div');
     const vpnField = screen.getByText('Trạng thái VPN', { selector: 'label' }).closest('div');
+    const ipField = screen.getByText('Địa chỉ IP', { selector: 'label' }).closest('div');
     const statusField = screen.getByText('Trạng thái', { selector: 'label' }).closest('div');
 
-    expect(within(departmentField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(genderField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(vpnField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
-    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded');
+    expect(within(departmentField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(positionField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(genderField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(vpnField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(within(statusField as HTMLElement).getByRole('button')).toHaveClass('h-8', 'rounded-md');
+    expect(ipField?.nextElementSibling).toBe(statusField);
+  });
+
+  it('validates Gmail domain before saving', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    render(
+      <EmployeeFormModal
+        type="EDIT"
+        data={employeeForEdit}
+        departments={departments}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const gmailInput = screen.getByPlaceholderText('email@gmail.com');
+    await user.clear(gmailInput);
+    await user.type(gmailInput, 'nguyenvana@yahoo.com');
+    await user.click(screen.getByRole('button', { name: /Cập nhật/i }));
+
+    expect(screen.getByText('Gmail phải có định dạng @gmail.com.')).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

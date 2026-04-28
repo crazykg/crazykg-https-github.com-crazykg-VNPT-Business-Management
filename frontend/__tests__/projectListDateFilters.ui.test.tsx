@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { DEFAULT_PAGINATION_META } from '../services/api/_infra';
 import { ProjectList } from '../components/ProjectList';
@@ -150,6 +150,10 @@ describe('ProjectList date filters', () => {
     useFilterStore.setState({ tabFilters: cloneDefaults() });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('seeds the default project date range into the inputs and query callback', async () => {
     const defaultDateFilters = getProjectsPageDefaultDateFilters();
     const onQueryChange = vi.fn();
@@ -165,8 +169,10 @@ describe('ProjectList date filters', () => {
       />
     );
 
-    expect(screen.getByTitle('Từ ngày')).toHaveValue(defaultDateFilters.start_date_from);
-    expect(screen.getByTitle('Đến ngày')).toHaveValue(defaultDateFilters.start_date_to);
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn' }));
+
+    expect(screen.getByLabelText('Từ ngày')).toHaveValue(defaultDateFilters.start_date_from);
+    expect(screen.getByLabelText('Đến ngày')).toHaveValue(defaultDateFilters.start_date_to);
 
     fireEvent.click(screen.getByTitle('Tìm kiếm (Enter)'));
 
@@ -179,15 +185,19 @@ describe('ProjectList date filters', () => {
       }));
     });
 
+    expect(screen.getByText('Danh sách dự án')).toBeInTheDocument();
+    expect(screen.getByText('1 dự án')).toBeInTheDocument();
+    expect(screen.getByText('Tổng giá trị trong kỳ')).toBeInTheDocument();
     expect(screen.getByText('Thành tiền')).toBeInTheDocument();
-    expect(screen.getByText('Tổng cộng')).toBeInTheDocument();
     expect(screen.getByText('1.800.000 đ')).toBeInTheDocument();
-    expect(screen.getByText('5.400.000 đ')).toBeInTheDocument();
+    expect(screen.getByTestId('project-period-total-value')).toHaveTextContent('5.400.000 đ');
+    expect(screen.queryByText('Tổng cộng')).not.toBeInTheDocument();
     expect(screen.queryByText('1.500.000 đ')).not.toBeInTheDocument();
   });
 
-  it('resets the project date filters back to the default window instead of blank', async () => {
+  it('resets the project date filters back to the default window and applies the list filter', async () => {
     const defaultDateFilters = getProjectsPageDefaultDateFilters();
+    const onQueryChange = vi.fn();
 
     render(
       <ProjectList
@@ -195,12 +205,14 @@ describe('ProjectList date filters', () => {
         customers={customers}
         onOpenModal={vi.fn()}
         paginationMeta={DEFAULT_PAGINATION_META}
-        onQueryChange={vi.fn()}
+        onQueryChange={onQueryChange}
       />
     );
 
-    const fromInput = screen.getByTitle('Từ ngày');
-    const toInput = screen.getByTitle('Đến ngày');
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn' }));
+
+    const fromInput = screen.getByLabelText('Từ ngày');
+    const toInput = screen.getByLabelText('Đến ngày');
 
     fireEvent.change(fromInput, { target: { value: '2026-02-01' } });
     fireEvent.change(toInput, { target: { value: '2026-02-28' } });
@@ -212,6 +224,45 @@ describe('ProjectList date filters', () => {
 
     expect(fromInput).toHaveValue(defaultDateFilters.start_date_from);
     expect(toInput).toHaveValue(defaultDateFilters.start_date_to);
+
+    await waitFor(() => {
+      expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
+        filters: expect.objectContaining({
+          start_date_from: defaultDateFilters.start_date_from,
+          start_date_to: defaultDateFilters.start_date_to,
+        }),
+      }));
+    });
+  });
+
+  it('applies preset date windows from the shared range picker immediately', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-26T08:00:00.000Z'));
+
+    const onQueryChange = vi.fn();
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        onOpenModal={vi.fn()}
+        paginationMeta={DEFAULT_PAGINATION_META}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'T.trước' }));
+    vi.runAllTimers();
+
+    expect(onQueryChange).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      filters: expect.objectContaining({
+        start_date_from: '2026-03-01',
+        start_date_to: '2026-03-31',
+      }),
+    }));
+    expect(screen.getByText('Đang lọc')).toBeInTheDocument();
+    expect(screen.queryByText('01/03/2026 - 31/03/2026')).not.toBeInTheDocument();
   });
 
   it('filters the local project list by start_date within the selected date range', () => {
@@ -238,6 +289,69 @@ describe('ProjectList date filters', () => {
 
     expect(screen.getByText('Dự án mặc định ngày')).toBeInTheDocument();
     expect(screen.queryByText('Dự án ngoài khoảng ngày')).not.toBeInTheDocument();
+  });
+
+  it('submits project keyword search on Enter with the expanded search field shell', async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={projectListPaginationMeta}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    const searchForm = screen.getByRole('search');
+    const searchInput = screen.getByPlaceholderText('Tìm theo tên dự án, mã dự án hoặc khách hàng...');
+    const searchButton = screen.getByTitle('Tìm kiếm (Enter)');
+    const resetButton = screen.getByTitle('Làm mới / Xóa tất cả bộ lọc');
+
+    expect(searchForm).toBeInTheDocument();
+    expect(searchForm).toHaveClass(
+      'lg:grid-cols-[minmax(280px,320px)_minmax(170px,190px)_minmax(280px,1fr)_auto_auto]',
+      'xl:grid-cols-[minmax(320px,360px)_minmax(180px,200px)_minmax(360px,1.4fr)_auto_auto]'
+    );
+    expect(searchInput).toHaveAttribute('type', 'search');
+    expect(searchInput).toHaveAttribute('enterkeyhint', 'search');
+    expect(searchButton).toHaveClass('whitespace-nowrap', 'shrink-0', 'lg:min-w-[108px]');
+    expect(resetButton).toHaveClass('whitespace-nowrap', 'shrink-0', 'lg:min-w-[96px]');
+
+    await user.type(searchInput, 'DA001{enter}');
+
+    await waitFor(() => {
+      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        q: 'DA001',
+        page: 1,
+      }));
+    });
+
+    expect(screen.queryByText('Có thay đổi chưa áp dụng')).not.toBeInTheDocument();
+  });
+
+  it('does not show a pending helper chip before project filters are applied', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={projectListPaginationMeta}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText('Tìm theo tên dự án, mã dự án hoặc khách hàng...');
+
+    await user.type(searchInput, 'DA001');
+
+    expect(screen.queryByText('Có thay đổi chưa áp dụng')).not.toBeInTheDocument();
   });
 
   it('defaults the project department filter to the solution center parent for solution-child users', async () => {
@@ -409,6 +523,54 @@ describe('ProjectList date filters', () => {
     });
   });
 
+  it('groups project code and project name into a single Du an column like contracts', () => {
+    render(
+      <ProjectList
+        projects={projects}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={projectListPaginationMeta}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('columnheader', { name: /Dự án/i })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Mã DA' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Tên dự án' })).not.toBeInTheDocument();
+
+    const projectRow = screen.getByText('Dự án mặc định ngày').closest('tr');
+    expect(projectRow).not.toBeNull();
+
+    const projectNameCell = screen.getByText('Dự án mặc định ngày').closest('td');
+    expect(projectNameCell).not.toBeNull();
+    expect(within(projectNameCell as HTMLElement).getByText('DA001')).toBeInTheDocument();
+    expect((projectNameCell as HTMLElement).getAttribute('title')).toContain('DA001');
+  });
+
+  it('keeps project table headers stable when the filtered result is empty', () => {
+    render(
+      <ProjectList
+        projects={[]}
+        customers={customers}
+        projectItems={projectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={{ ...DEFAULT_PAGINATION_META, total: 0, total_pages: 1 }}
+        onQueryChange={vi.fn()}
+      />
+    );
+
+    const projectTable = screen.getByRole('table');
+    const customerHeader = screen.getByRole('columnheader', { name: /Khách hàng/i });
+    const emptyStateCell = screen.getByText('Không tìm thấy dự án phù hợp').closest('td');
+    const customerLabel = within(customerHeader).getByText('Khách hàng');
+
+    expect(projectTable).toHaveClass('min-w-[1300px]', 'table-fixed');
+    expect(customerHeader).toHaveClass('w-[220px]');
+    expect(customerLabel).toHaveClass('whitespace-nowrap');
+    expect(emptyStateCell).toHaveAttribute('colspan', '7');
+  });
+
   it('vertically centers every project row cell', () => {
     render(
       <ProjectList
@@ -434,8 +596,8 @@ describe('ProjectList date filters', () => {
     expect(screen.getByText('Thành tiền').closest('th')).toHaveClass('text-right');
     expect(screen.getByText('Thành tiền').closest('div')).toHaveClass('flex', 'justify-end');
     expect(screen.getByText('1.800.000 đ').closest('div')).toHaveClass('flex', 'items-center', 'justify-end');
-    const summaryAmount = screen.getByText('5.400.000 đ');
-    expect(summaryAmount).toHaveClass('text-lg', 'font-black', 'leading-none', 'text-primary');
+    const summaryAmount = screen.getByTestId('project-period-total-value');
+    expect(summaryAmount).toHaveClass('text-sm', 'font-semibold', 'text-deep-teal');
     expect(screen.queryByRole('columnheader', { name: 'Tổng cộng' })).not.toBeInTheDocument();
   });
 });

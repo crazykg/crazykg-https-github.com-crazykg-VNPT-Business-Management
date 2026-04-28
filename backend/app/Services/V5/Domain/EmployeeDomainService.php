@@ -125,6 +125,7 @@ class EmployeeDomainService
                 'mobile',
                 'telechatbot',
                 'email',
+                'gmail',
                 'status',
                 'department_id',
                 'dept_id',
@@ -185,7 +186,7 @@ class EmployeeDomainService
             $query->where(function ($builder) use ($employeeTable, $like): void {
                 $builder->whereRaw('1 = 0');
 
-                foreach (['user_code', 'username', 'full_name', 'phone', 'phone_number', 'mobile', 'email', 'job_title_raw'] as $column) {
+                foreach (['user_code', 'username', 'full_name', 'phone', 'phone_number', 'mobile', 'email', 'gmail', 'job_title_raw'] as $column) {
                     if ($this->support->hasColumn($employeeTable, $column)) {
                         $builder->orWhere("{$employeeTable}.{$column}", 'like', $like);
                     }
@@ -213,7 +214,7 @@ class EmployeeDomainService
             }
         }
 
-        $sortBy = $this->support->resolveSortColumn($request, [
+        $sortColumns = [
             'id' => "{$employeeTable}.id",
             'user_code' => "{$employeeTable}.user_code",
             'username' => "{$employeeTable}.username",
@@ -222,7 +223,15 @@ class EmployeeDomainService
             'status' => "{$employeeTable}.status",
             'department_id' => "{$employeeTable}.department_id",
             'created_at' => "{$employeeTable}.created_at",
-        ], "{$employeeTable}.id");
+        ];
+        if ($this->support->hasColumn($employeeTable, 'gmail')) {
+            $sortColumns['gmail'] = "{$employeeTable}.gmail";
+        }
+        if ($this->support->hasColumn($employeeTable, 'phone_number')) {
+            $sortColumns['phone_number'] = "{$employeeTable}.phone_number";
+        }
+
+        $sortBy = $this->support->resolveSortColumn($request, $sortColumns, "{$employeeTable}.id");
         $sortDir = $this->support->resolveSortDirection($request);
 
         $query->orderBy($sortBy, $sortDir);
@@ -281,6 +290,7 @@ class EmployeeDomainService
             'user_code' => ['nullable', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
+            'gmail' => ['nullable', 'email', 'max:255', 'regex:/^[^@\s]+@gmail\.com$/i'],
             'status' => ['nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['required', 'integer'],
             'position_id' => ['nullable', 'integer'],
@@ -308,6 +318,9 @@ class EmployeeDomainService
         }
         if ($this->support->hasColumn($employeeTable, 'email')) {
             $rules['email'][] = Rule::unique($employeeTable, 'email');
+        }
+        if ($this->support->hasColumn($employeeTable, 'gmail')) {
+            $rules['gmail'][] = Rule::unique($employeeTable, 'gmail');
         }
 
         $validated = $this->validatedInput($request, $rules);
@@ -347,6 +360,12 @@ class EmployeeDomainService
         $this->support->setAttributeIfColumn($employee, $employeeTable, 'user_code', $employeeCode);
         $this->support->setAttributeByColumns($employee, $employeeTable, ['full_name'], $validated['full_name']);
         $this->support->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
+        $this->support->setAttributeIfColumn(
+            $employee,
+            $employeeTable,
+            'gmail',
+            $this->support->normalizeNullableString($validated['gmail'] ?? null)
+        );
         if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
             $normalizedPhone = $this->support->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
             $this->support->setAttributeByColumns($employee, $employeeTable, ['phone_number', 'phone', 'mobile'], $normalizedPhone);
@@ -556,7 +575,7 @@ class EmployeeDomainService
     {
         $normalized = [];
 
-        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'job_title_raw', 'date_of_birth', 'leave_date', 'ip_address', 'telechatbot'] as $field) {
+        foreach (['uuid', 'user_code', 'username', 'full_name', 'email', 'gmail', 'job_title_raw', 'date_of_birth', 'leave_date', 'ip_address', 'telechatbot'] as $field) {
             if (! array_key_exists($field, $payload)) {
                 continue;
             }
@@ -687,6 +706,7 @@ class EmployeeDomainService
             'user_code' => ['sometimes', 'required', 'string', 'max:100', 'regex:/^(VNPT|CTV)\d{5,}$/i'],
             'full_name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'required', 'email', 'max:255'],
+            'gmail' => ['sometimes', 'nullable', 'email', 'max:255', 'regex:/^[^@\s]+@gmail\.com$/i'],
             'status' => ['sometimes', 'nullable', Rule::in(self::EMPLOYEE_INPUT_STATUSES)],
             'department_id' => ['sometimes', 'required', 'integer'],
             'position_id' => ['sometimes', 'nullable', 'integer'],
@@ -713,6 +733,9 @@ class EmployeeDomainService
         }
         if ($this->support->hasColumn($employeeTable, 'email')) {
             $rules['email'][] = Rule::unique($employeeTable, 'email')->ignore($employee->id);
+        }
+        if ($this->support->hasColumn($employeeTable, 'gmail')) {
+            $rules['gmail'][] = Rule::unique($employeeTable, 'gmail')->ignore($employee->id);
         }
 
         $validated = $this->validatedInput($request, $rules);
@@ -775,6 +798,14 @@ class EmployeeDomainService
         }
         if (array_key_exists('email', $validated)) {
             $this->support->setAttributeIfColumn($employee, $employeeTable, 'email', $validated['email']);
+        }
+        if (array_key_exists('gmail', $validated)) {
+            $this->support->setAttributeIfColumn(
+                $employee,
+                $employeeTable,
+                'gmail',
+                $this->support->normalizeNullableString($validated['gmail'])
+            );
         }
         if (array_key_exists('phone_number', $validated) || array_key_exists('phone', $validated)) {
             $normalizedPhone = $this->support->normalizeNullableString($validated['phone_number'] ?? $validated['phone'] ?? null);
@@ -1128,6 +1159,7 @@ class EmployeeDomainService
         $data['user_code'] = (string) $this->support->firstNonEmpty($data, ['user_code', 'username'], '');
         $data['employee_code'] = $this->normalizeEmployeeCode($data['user_code'], $data['id'] ?? null);
         $data['full_name'] = (string) $this->support->firstNonEmpty($data, ['full_name'], '');
+        $data['gmail'] = $this->support->normalizeNullableString($data['gmail'] ?? null);
         $normalizedPhone = $this->support->normalizeNullableString($this->support->firstNonEmpty($data, ['phone_number', 'phone', 'mobile']));
         $data['phone_number'] = $normalizedPhone;
         $data['phone'] = $normalizedPhone;

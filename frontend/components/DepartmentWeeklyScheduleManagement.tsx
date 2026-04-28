@@ -116,7 +116,7 @@ const normalizeId = (value: unknown): string => normalizeText(value);
 
 const compactMultiSelectTriggerClass =
   '!h-8 !min-h-0 !rounded !border !border-slate-200 !bg-white !px-3 !py-0 !text-sm shadow-none';
-const scheduleEntryModalDropdownZIndex = 10020;
+const scheduleEntryModalDropdownZIndex = 600;
 
 const compactParticipantSummary = (selectedOptions: Array<{ label: string }>): string => {
   const displayNames = selectedOptions
@@ -533,6 +533,7 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
   const previewWeekHeading = selectedWeek
     ? `Tuần ${String(selectedWeek.week_number).padStart(2, '0')}-${selectedWeek.year}`
     : 'Chưa chọn tuần';
+  const shouldRenderSlotCards = activeViewTab === 'REGISTER' || useCompactPreviewLayout;
   const normalizedCurrentUserId = normalizeText(currentUserId);
   const actorId = normalizedCurrentUserId !== '' && /^\d+$/.test(normalizedCurrentUserId) ? Number(normalizedCurrentUserId) : null;
   const hasPendingEntrySave = savingEntryIds.length > 0;
@@ -1055,615 +1056,322 @@ export const DepartmentWeeklyScheduleManagement: React.FC<DepartmentWeeklySchedu
 
   return (
     <div className="p-3 pb-6 space-y-3">
-      <div className="mb-3">
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="p-3">
-            <div className="flex flex-col gap-3">
-              {/* Page header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-                    <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>calendar_month</span>
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-bold text-deep-teal leading-tight">Lịch làm việc đơn vị</h2>
-                    <p className="text-[11px] text-slate-400 leading-tight">
-                      {selectedWeek
-                        ? `${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)}`
-                        : 'Chưa chọn tuần'}
-                    </p>
-                  </div>
-                </div>
-                {scheduleLoading ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-tertiary-fixed px-2 py-0.5 text-[11px] text-tertiary">
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>progress_activity</span>
-                    Đang đồng bộ
-                  </span>
-                ) : null}
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
+                <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>calendar_month</span>
               </div>
-
-              {/* Filter card */}
-              <div className="rounded-lg border border-slate-100 bg-surface-low p-3">
-                <div className="grid gap-3 xl:grid-cols-[1.45fr_1.1fr]">
-                  <SearchableSelect
-                    value={selectedDepartmentId}
-                    options={departmentOptions}
-                    onChange={setSelectedDepartmentId}
-                    label="Phòng ban"
-                    placeholder="Chọn phòng ban"
-                    searchPlaceholder="Tìm phòng ban..."
-                    compact
-                    usePortal
-                  />
-
-                  <SearchableSelect
-                    value={selectedWeekStartDate}
-                    options={weekOptions.map((option) => ({
-                      value: option.week_start_date,
-                      label: option.label,
-                      searchText: `${option.label} ${option.week_start_date}`,
-                    }))}
-                    onChange={setSelectedWeekStartDate}
-                    label="Tuần"
-                    placeholder={calendarLoading ? 'Đang tải tuần...' : 'Chọn tuần'}
-                    disabled={calendarLoading || weekOptions.length === 0}
-                    searchPlaceholder="Tìm tuần..."
-                    compact
-                    usePortal
-                  />
-                </div>
-
-                <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {VIEW_TAB_META.map((tab) => {
-                      const isActive = activeViewTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setActiveViewTab(tab.id)}
-                          title={tab.description}
-                          className={`group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-left text-xs font-semibold transition sm:text-sm ${
-                            isActive
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                          }`}
-                        >
-                          <span className={`material-symbols-outlined ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`} style={{ fontSize: 16 }}>
-                            {tab.icon}
-                          </span>
-                          <span className="whitespace-nowrap">{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center gap-2 lg:ml-auto">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleSave();
-                      }}
-                      disabled={!canPersistWeek}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white shadow-sm transition disabled:opacity-50 sm:w-auto"
-                      style={{ background: 'linear-gradient(135deg,#004481,#005BAA)' }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                        {isSaving ? 'progress_activity' : scheduleId ? 'save' : 'playlist_add_check_circle'}
-                      </span>
-                      {isSaving ? 'Đang lưu tuần...' : scheduleId ? 'Lưu thay đổi tuần' : 'Tạo lịch tuần'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <h2 className="text-sm font-bold leading-tight text-deep-teal">Lịch làm việc đơn vị</h2>
             </div>
+            {scheduleLoading ? (
+              <span className="inline-flex w-fit items-center gap-1 rounded-full bg-tertiary-fixed px-2 py-0.5 text-[11px] font-semibold text-tertiary">
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>progress_activity</span>
+                Đang đồng bộ
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto_auto] lg:items-end">
+            <SearchableSelect
+              value={selectedDepartmentId}
+              options={departmentOptions}
+              onChange={setSelectedDepartmentId}
+              label="Phòng ban"
+              placeholder="Chọn phòng ban"
+              searchPlaceholder="Tìm phòng ban..."
+              compact
+              triggerClassName="h-11 sm:h-9"
+              usePortal
+              portalZIndex={scheduleEntryModalDropdownZIndex}
+            />
+
+            <SearchableSelect
+              value={selectedWeekStartDate}
+              options={weekOptions.map((option) => ({
+                value: option.week_start_date,
+                label: option.label,
+                searchText: `${option.label} ${option.week_start_date}`,
+              }))}
+              onChange={setSelectedWeekStartDate}
+              label="Tuần"
+              placeholder={calendarLoading ? 'Đang tải tuần...' : 'Chọn tuần'}
+              disabled={calendarLoading || weekOptions.length === 0}
+              searchPlaceholder="Tìm tuần..."
+              compact
+              triggerClassName="h-11 sm:h-9"
+              usePortal
+              portalZIndex={scheduleEntryModalDropdownZIndex}
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              {VIEW_TAB_META.map((tab) => {
+                const isActive = activeViewTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveViewTab(tab.id)}
+                    title={tab.description}
+                    className={`group inline-flex h-11 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition focus:outline-none focus:ring-1 focus:ring-primary/30 sm:h-9 ${
+                      isActive
+                        ? 'border-primary bg-primary text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className={`material-symbols-outlined ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`} style={{ fontSize: 16 }}>
+                      {tab.icon}
+                    </span>
+                    <span className="whitespace-nowrap">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                void handleSave();
+              }}
+              disabled={!canPersistWeek}
+              className="inline-flex h-11 w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                {isSaving ? 'progress_activity' : scheduleId ? 'save' : 'playlist_add_check_circle'}
+              </span>
+              {isSaving ? 'Đang lưu...' : scheduleId ? 'Lưu tuần' : 'Tạo tuần'}
+            </button>
           </div>
         </div>
       </div>
-
-      {activeViewTab === 'REGISTER' ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <div className="mb-3 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-xs font-bold text-deep-teal">Không gian đăng ký theo tuần</h2>
-              <p className="mt-1 text-[11px] text-on-surface-variant">
-                Chuyển nhanh giữa từng ngày, thêm nhiều dòng công việc theo buổi và lưu ngay khi hoàn tất.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs font-semibold">
-              <span className="inline-flex items-center gap-2 rounded-full bg-tertiary-fixed px-2.5 py-1.5 text-tertiary">
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>wb_sunny</span>
-                Buổi sáng
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-secondary/15 px-2.5 py-1.5 text-on-surface-variant">
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>routine</span>
-                Buổi chiều
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1.5 text-slate-600">
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit_square</span>
-                Lưu từng dòng hoặc lưu cả tuần
-              </span>
-            </div>
-          </div>
-
-          <div className="max-h-[calc(100vh-340px)] space-y-3 overflow-auto pr-1">
-            {derivedWeekDays.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 shadow-sm">
-                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 32 }}>calendar_clock</span>
-                <p className="mt-3 font-semibold text-slate-700">Chọn phòng ban và tuần để bắt đầu nhập lịch làm việc.</p>
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="sr-only" aria-live="polite">
+          {selectedDepartment?.dept_name || 'Chưa chọn phòng ban'} - {previewWeekHeading}
+          {selectedWeek ? ` (${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)})` : ''}
+        </div>
+        {shouldRenderSlotCards ? (
+          <div className="max-h-[calc(100dvh-220px)] space-y-2 overflow-y-auto bg-slate-50/60 p-2 sm:p-3">
+            {orderedPreviewWeekDays.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                Chưa có dữ liệu để xem trước.
               </div>
             ) : (
-              derivedWeekDays.map((day) => (
-              <div
-                key={day.date}
-                className={`rounded-lg border p-3 shadow-sm ${
-                  day.is_holiday
-                    ? 'border-rose-200 bg-red-50/30'
-                    : day.is_working_day
-                    ? 'border-emerald-200 bg-emerald-50/20'
-                    : 'border-slate-200 bg-surface-low'
-                }`}
-              >
-                <div className="mb-2.5 flex flex-col gap-2 border-b border-slate-100 pb-2.5 md:flex-row md:items-end md:justify-between">
-                  <div>
-                    <h2 className="text-xs font-bold text-on-surface">
-                      {DAY_NAMES[day.day_of_week] || day.day_name} - {String(day.day).padStart(2, '0')}/{String(day.month).padStart(2, '0')}
-                    </h2>
-                    <p className="mt-0.5 text-[11px] text-on-surface-variant">
-                      {day.is_holiday && day.holiday_name ? day.holiday_name : day.is_working_day ? 'Ngày làm việc' : 'Cuối tuần'}
-                    </p>
-                  </div>
-                  <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    day.is_holiday
-                      ? 'bg-rose-100 text-rose-700'
-                      : day.is_working_day
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {day.is_holiday ? 'Ngày lễ' : day.is_working_day ? 'Trong tuần' : 'Cuối tuần'}
-                  </span>
-                </div>
+              orderedPreviewWeekDays.map((day) => {
+                const isToday = day.date === toDateKey(new Date());
 
-                <div className="grid gap-2.5 xl:grid-cols-2">
-                  {(['MORNING', 'AFTERNOON'] as DepartmentWeeklyScheduleSession[]).map((session) => {
-                    const rows = groupedEditorEntries.get(`${day.date}:${session}`) || [];
-                    return (
-                      <div
-                        key={`${day.date}-${session}`}
-                        className={`rounded-lg border p-3 ${
-                          session === 'MORNING'
-                            ? 'border-tertiary-fixed bg-tertiary-fixed/30'
-                            : 'border-slate-200 bg-secondary/5'
-                        }`}
-                      >
-                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <h3 className="text-xs font-semibold text-on-surface">{SESSION_LABELS[session]}</h3>
-                            <p className="text-[11px] text-on-surface-variant">Mỗi buổi có thể thêm nhiều dòng công việc.</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleAddEntry(day.date, session)}
-                            disabled={!canCreateEntryForSlot(day.date, session)}
-                            title={!canCreateEntryForSlot(day.date, session) ? 'Buổi làm việc đã qua, không thể đăng ký mới.' : undefined}
-                            className="inline-flex w-full items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-primary/30 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 sm:w-auto"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
-                            Thêm dòng
-                          </button>
-                        </div>
-
-                        {rows.length === 0 ? (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[11px] text-slate-400">
-                            Chưa có nội dung cho buổi {SESSION_LABELS[session].toLowerCase()}.
-                          </div>
-                        ) : (
-                          <div className="space-y-2.5">
-                            {rows.map((entry, index) => {
-                              const isEditable = canEditEntry(entry);
-                              const restrictionMessage = getEntryRestrictionMessage(entry);
-
-                              return (
-                                <div
-                                  key={entry.local_id}
-                                  className={`rounded-lg border p-3 shadow-sm ${
-                                    entry.id
-                                      ? 'border-slate-200 bg-white'
-                                      : 'border-primary/20 bg-primary/5'
-                                  }`}
-                                >
-                                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <span
-                                    className={`inline-flex rounded-full text-[10px] font-bold px-2 py-0.5 ${
-                                      entry.id
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'bg-tertiary-fixed text-tertiary'
-                                    }`}
-                                  >
-                                    {entry.id ? `Dòng #${index + 1}` : `Bản nháp #${index + 1}`}
-                                  </span>
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void handleSaveEntry(entry);
-                                      }}
-                                      disabled={!isEditable || isSaving || deletingEntryIds.includes(entry.local_id) || savingEntryIds.includes(entry.local_id)}
-                                      className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-primary/20 px-2.5 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                                    >
-                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                                        {savingEntryIds.includes(entry.local_id)
-                                          ? 'progress_activity'
-                                          : entry.id
-                                          ? 'save'
-                                          : 'check_circle'}
-                                      </span>
-                                      {savingEntryIds.includes(entry.local_id)
-                                        ? entry.id
-                                          ? 'Đang cập nhật...'
-                                          : 'Đang lưu...'
-                                        : entry.id
-                                        ? 'Cập nhật'
-                                        : 'Lưu dòng'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void handleDeleteEntry(entry);
-                                      }}
-                                      disabled={!canDeleteEntry(entry) || deletingEntryIds.includes(entry.local_id)}
-                                      title={!entry.id || canDeleteEntry(entry) ? undefined : restrictionMessage || 'Chỉ người đăng ký hoặc admin mới được xóa'}
-                                      className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-error/20 px-2.5 py-1.5 text-xs font-semibold text-error transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                                    >
-                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                                        {deletingEntryIds.includes(entry.local_id) ? 'progress_activity' : 'delete'}
-                                      </span>
-                                      {deletingEntryIds.includes(entry.local_id) ? 'Đang xóa...' : 'Xóa dòng'}
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {restrictionMessage ? (
-                                  <div className="mb-3 rounded bg-red-50 px-3 py-2 text-[11px] text-error border border-error/20">
-                                    {restrictionMessage}
-                                  </div>
-                                ) : null}
-
-                                <div className="space-y-3">
-                                  <label className="block">
-                                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Nội dung làm việc *</span>
-                                    <textarea
-                                      value={entry.work_content}
-                                      onChange={(event) =>
-                                        updateEntry(entry.local_id, (current) => ({ ...current, work_content: event.target.value }))
-                                      }
-                                      rows={3}
-                                      disabled={!isEditable}
-                                      className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
-                                      placeholder="Mô tả nội dung làm việc trong buổi này"
-                                    />
-                                  </label>
-
-                                  <div className="grid gap-3 lg:grid-cols-2">
-                                    <div className="block">
-                                      <span className="mb-1.5 block text-xs font-semibold text-neutral">Thành phần (nhân sự hệ thống)</span>
-                                      <SearchableMultiSelect
-                                        values={entry.participant_user_ids}
-                                        options={employeeOptions}
-                                        onChange={(values) =>
-                                          updateEntry(entry.local_id, (current) => ({
-                                            ...current,
-                                            participant_user_ids: values,
-                                          }))
-                                        }
-                                        ariaLabel="Thành phần (nhân sự hệ thống)"
-                                        placeholder="Chọn nhân sự tham gia"
-                                        searchPlaceholder="Tìm nhân sự..."
-                                        disabled={!isEditable}
-                                        triggerClassName={compactMultiSelectTriggerClass}
-                                        showSelectedChips={false}
-                                        selectedSummaryFormatter={compactParticipantSummary}
-                                      />
-                                    </div>
-
-                                    <label className="block">
-                                      <span className="mb-1.5 block text-xs font-semibold text-neutral">Thành phần tự do</span>
-                                      <input
-                                        type="text"
-                                        value={entry.participant_text}
-                                        onChange={(event) =>
-                                        updateEntry(entry.local_id, (current) => ({ ...current, participant_text: event.target.value }))
-                                      }
-                                      disabled={!isEditable}
-                                      className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
-                                      placeholder="Ví dụ: Cộng tác viên, khách mời..."
-                                    />
-                                  </label>
-                                  </div>
-
-                                  <label className="block">
-                                    <span className="mb-1.5 block text-xs font-semibold text-neutral">Địa điểm</span>
-                                    <input
-                                      type="text"
-                                      value={entry.location}
-                                      onChange={(event) =>
-                                        updateEntry(entry.local_id, (current) => ({ ...current, location: event.target.value }))
-                                      }
-                                      disabled={!isEditable}
-                                      className="w-full h-8 rounded border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100 disabled:text-slate-400"
-                                      placeholder="Nhập địa điểm làm việc"
-                                    />
-                                  </label>
-
-                                  {entry.id ? (
-                                    <div className="flex justify-end text-right text-[11px] leading-[1.35] text-slate-500">
-                                      <div>
-                                        <div>
-                                          <span className="font-semibold text-slate-600">{resolveEntryAuditLabels(entry).actor}:</span>{' '}
-                                          {resolveEntryCreatorDisplay(entry, employeesById)}, {resolveEntryAuditLabels(entry).time} {resolveEntryAuditDateDisplay(entry)}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))
-          )}
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-slate-200 bg-white p-3">
-          <div className="w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-3 py-2 text-center">
-              <div className="flex flex-col items-center justify-center gap-0.5">
-                <p className="text-sm font-bold text-deep-teal leading-tight max-md:text-xs">
-                  {selectedDepartment?.dept_name || 'Phòng ban'}
-                </p>
-                <p className="text-[11px] text-on-surface-variant leading-tight max-md:text-[10px]">
-                  {previewWeekHeading}
-                  {selectedWeek ? `: (${formatDisplayDate(selectedWeek.week_start_date)} - ${formatDisplayDate(selectedWeek.week_end_date)})` : ''}
-                </p>
-              </div>
-            </div>
-            {useCompactPreviewLayout ? (
-              <div className="max-h-[calc(100vh-280px)] space-y-3 overflow-y-auto bg-slate-50/40 p-2.5 sm:p-3">
-                {orderedPreviewWeekDays.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                    Chưa có dữ liệu để xem trước.
-                  </div>
-                ) : (
-                  orderedPreviewWeekDays.map((day) => {
-                    const isToday = day.date === toDateKey(new Date());
-
-                    return (
-                      <div
-                        key={`compact-preview-${day.date}`}
-                        className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-                      >
-                        <div className="flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-bold text-deep-teal">
-                                {DAY_NAMES[day.day_of_week] || day.day_name}
-                              </span>
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                                {String(day.day).padStart(2, '0')}/{String(day.month).padStart(2, '0')}
-                              </span>
-                              {isToday ? (
-                                <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.02em] text-white">
-                                  Hôm nay
-                                </span>
-                              ) : null}
-                            </div>
-                            <p className="mt-1 text-[11px] text-on-surface-variant">
-                              {day.is_holiday && day.holiday_name ? day.holiday_name : day.is_working_day ? 'Ngày làm việc' : 'Cuối tuần'}
-                            </p>
-                          </div>
-                          <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            day.is_holiday
-                              ? 'bg-rose-100 text-rose-700'
-                              : day.is_working_day
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {day.is_holiday ? 'Ngày lễ' : day.is_working_day ? 'Trong tuần' : 'Cuối tuần'}
+                return (
+                  <div key={`compact-preview-${day.date}`} className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-deep-teal">
+                          {DAY_NAMES[day.day_of_week] || day.day_name}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                          {String(day.day).padStart(2, '0')}/{String(day.month).padStart(2, '0')}
+                        </span>
+                        {isToday ? (
+                          <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                            Hôm nay
                           </span>
-                        </div>
+                        ) : null}
+                      </div>
+                      <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        day.is_holiday
+                          ? 'bg-rose-100 text-rose-700'
+                          : day.is_working_day
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {day.is_holiday ? 'Ngày lễ' : day.is_working_day ? 'Trong tuần' : 'Cuối tuần'}
+                      </span>
+                    </div>
 
-                        <div className="mt-3 space-y-2.5">
-                          {(['MORNING', 'AFTERNOON'] as DepartmentWeeklyScheduleSession[]).map((session) => {
-                            const slotEntries = getAllEntriesForSlot(day.date, session);
-                            const slotIsPast = isScheduleSlotPast(day.date, session);
-                            const isEditingSlot = editingSlot?.calendarDate === day.date && editingSlot?.session === session;
+                    <div className="mt-2 grid gap-2 xl:grid-cols-2">
+                      {(['MORNING', 'AFTERNOON'] as DepartmentWeeklyScheduleSession[]).map((session) => {
+                        const slotEntries = groupedEditorEntries.get(`${day.date}:${session}`) || [];
+                        const slotIsPast = isScheduleSlotPast(day.date, session);
+                        const isEditingSlot = editingSlot?.calendarDate === day.date && editingSlot?.session === session;
 
-                            return (
-                              <button
-                                key={`compact-slot-${day.date}-${session}`}
-                                type="button"
-                                onClick={() => {
-                                  if (!canWriteSchedules) return;
-                                  handleOpenSlotEditor(day.date, session);
-                                }}
-                                className={`w-full rounded-xl border p-3 text-left transition ${
-                                  canWriteSchedules ? 'hover:border-primary/40 hover:bg-primary/5' : ''
-                                } ${
-                                  isEditingSlot
-                                    ? 'border-primary bg-primary/10'
-                                    : session === 'MORNING'
-                                    ? 'border-tertiary-fixed bg-tertiary-fixed/20'
-                                    : 'border-slate-200 bg-white'
-                                }`}
-                              >
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                                        session === 'MORNING'
-                                          ? 'bg-tertiary-fixed text-tertiary'
-                                          : 'bg-secondary/15 text-on-surface-variant'
-                                      }`}>
-                                        {SESSION_LABELS[session]}
-                                      </span>
-                                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                                        {slotEntries.length === 0 ? 'Trống' : `${slotEntries.length} dòng`}
-                                      </span>
-                                      {slotIsPast ? (
-                                        <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-error">
-                                          Đã qua
-                                        </span>
+                        return (
+                          <button
+                            key={`compact-slot-${day.date}-${session}`}
+                            type="button"
+                            disabled={!canWriteSchedules}
+                            onClick={() => handleOpenSlotEditor(day.date, session)}
+                            className={`min-h-[44px] w-full rounded-lg border px-2.5 py-2 text-left transition focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70 ${
+                              canWriteSchedules ? 'hover:border-primary/40 hover:bg-primary/5' : ''
+                            } ${
+                              isEditingSlot
+                                ? 'border-primary bg-primary/10'
+                                : session === 'MORNING'
+                                ? 'border-tertiary-fixed bg-tertiary-fixed/20'
+                                : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                                  session === 'MORNING'
+                                    ? 'bg-tertiary-fixed text-tertiary'
+                                    : 'bg-secondary/15 text-on-surface-variant'
+                                }`}>
+                                  {SESSION_LABELS[session]}
+                                </span>
+                                <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                  {slotEntries.length === 0 ? 'Trống' : `${slotEntries.length} dòng`}
+                                </span>
+                                {slotIsPast ? (
+                                  <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-error">
+                                    Đã qua
+                                  </span>
+                                ) : null}
+                              </div>
+                              <span className="material-symbols-outlined shrink-0 text-primary" style={{ fontSize: 16 }}>
+                                {slotEntries.length === 0 && canCreateEntryForSlot(day.date, session) ? 'add' : 'chevron_right'}
+                              </span>
+                            </div>
+
+                            {slotEntries.length === 0 ? (
+                              <div className="mt-2 text-xs font-semibold text-slate-400">Trống</div>
+                            ) : (
+                              <div className="mt-2 space-y-1.5">
+                                {slotEntries.slice(0, 2).map((entry) => {
+                                  const participantDisplay = buildParticipantDisplay(entry, employeesById);
+                                  return (
+                                    <div key={`compact-entry-${entry.local_id}`} className="rounded-md bg-white px-2.5 py-2 text-xs shadow-sm ring-1 ring-slate-100">
+                                      <div className="line-clamp-2 font-semibold text-on-surface">
+                                        {normalizeText(entry.work_content) || '--'}
+                                      </div>
+                                      {(normalizeText(entry.location) || normalizeText(participantDisplay)) ? (
+                                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                                          {normalizeText(participantDisplay) ? <span>TP: {participantDisplay}</span> : null}
+                                          {normalizeText(entry.location) ? <span>ĐĐ: {entry.location}</span> : null}
+                                        </div>
                                       ) : null}
                                     </div>
+                                  );
+                                })}
+                                {slotEntries.length > 2 ? (
+                                  <p className="text-[11px] font-semibold text-slate-500">+{slotEntries.length - 2} dòng khác</p>
+                                ) : null}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <div className="max-h-[calc(100dvh-220px)] overflow-auto">
+            <table className="w-full min-w-[900px] table-fixed border-collapse text-on-surface">
+              <caption className="sr-only">
+                {selectedDepartment?.dept_name || 'Phòng ban'} - {previewWeekHeading}
+              </caption>
+              <colgroup>
+                <col className="w-[7%]" />
+                <col className="w-[8%]" />
+                <col className="w-[7%]" />
+                <col className="w-[42%]" />
+                <col className="w-[22%]" />
+                <col className="w-[14%]" />
+              </colgroup>
+              <thead>
+                <tr className="sticky top-0 z-10 bg-primary text-white">
+                  {['Thứ', 'Ngày', 'Buổi', 'Nội dung làm việc', 'Thành phần', 'Địa điểm'].map((header) => (
+                    <th key={header} className="border border-slate-200 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wider">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="border border-slate-200 px-6 py-6 text-center text-sm text-slate-500">
+                      Chưa có dữ liệu để xem trước.
+                    </td>
+                  </tr>
+                ) : (
+                  previewRows.map((row, index) => {
+                    const isToday = row.day.date === toDateKey(new Date());
+                    const isEditingSlot = editingSlot?.calendarDate === row.day.date && editingSlot?.session === row.session;
+                    const isEmptySlot = !normalizeText(row.workContent);
 
-                                    <div className="mt-2 space-y-2 text-[12px] text-slate-700">
-                                      {slotEntries.length === 0 ? (
-                                        <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-400">
-                                          Chưa có nội dung cho buổi {SESSION_LABELS[session].toLowerCase()}.
-                                        </p>
-                                      ) : (
-                                        <>
-                                          {slotEntries.slice(0, 2).map((entry) => {
-                                            const participantDisplay = buildParticipantDisplay(entry, employeesById);
-                                            return (
-                                              <div key={`compact-entry-${entry.local_id}`} className="rounded-lg bg-white/80 px-3 py-2 shadow-sm">
-                                                <div className="line-clamp-2 font-semibold text-slate-900">
-                                                  {normalizeText(entry.work_content) || '--'}
-                                                </div>
-                                                {(normalizeText(entry.location) || normalizeText(participantDisplay)) ? (
-                                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                                                    {normalizeText(participantDisplay) ? <span>Thành phần: {participantDisplay}</span> : null}
-                                                    {normalizeText(entry.location) ? <span>Địa điểm: {entry.location}</span> : null}
-                                                  </div>
-                                                ) : null}
-                                              </div>
-                                            );
-                                          })}
-                                          {slotEntries.length > 2 ? (
-                                            <p className="text-[11px] font-semibold text-slate-500">
-                                              +{slotEntries.length - 2} dòng khác
-                                            </p>
-                                          ) : null}
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
+                    return (
+                      <tr
+                        key={`${row.day.date}-${row.session}-${index}`}
+                        role={canWriteSchedules ? 'button' : undefined}
+                        tabIndex={canWriteSchedules ? 0 : undefined}
+                        className={`align-top ${canWriteSchedules ? 'cursor-pointer transition-colors hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary/30' : ''} ${isEditingSlot ? 'bg-primary/10' : ''}`}
+                        onClick={() => {
+                          if (!canWriteSchedules) return;
+                          handleOpenSlotEditor(row.day.date, row.session);
+                        }}
+                        onKeyDown={(event) => {
+                          if (!canWriteSchedules || (event.key !== 'Enter' && event.key !== ' ')) return;
+                          event.preventDefault();
+                          handleOpenSlotEditor(row.day.date, row.session);
+                        }}
+                      >
+                        {row.showDayCells ? (
+                          <>
+                            <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                              {PREVIEW_DAY_NAMES[row.day.day_of_week] || row.day.day_name}
+                            </td>
+                            <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                              <div className="flex flex-col items-center justify-center gap-1">
+                                <span>{String(row.day.day).padStart(2, '0')}/{String(row.day.month).padStart(2, '0')}</span>
+                                {isToday ? (
+                                  <span className="inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                    Hôm nay
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                          </>
+                        ) : null}
 
-                                  <div className="text-[11px] font-semibold text-primary sm:pl-4 sm:text-right">
-                                    {canWriteSchedules ? 'Mở đăng ký' : 'Chỉ xem'}
-                                  </div>
+                        {row.showSessionCell ? (
+                          <td rowSpan={row.sessionRowSpan} className={`align-middle border border-slate-200 px-2 py-2 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
+                            {row.sessionLabel}
+                          </td>
+                        ) : null}
+
+                        <td className="border border-slate-200 px-2.5 py-2 text-[13px] leading-[1.35] whitespace-pre-wrap">
+                          {isEmptySlot ? (
+                            <span className="font-semibold text-slate-400">Trống</span>
+                          ) : (
+                            <div className="flex min-h-[44px] flex-col gap-1.5">
+                              <div>{row.workContent}</div>
+                              {row.hasAudit ? (
+                                <div className="ml-auto mt-auto text-right text-[11px] leading-[1.35] text-slate-500">
+                                  <span className="font-semibold text-slate-600">{row.auditLabels.actor}:</span>{' '}
+                                  {row.createdByDisplay}, {row.auditLabels.time} {row.createdAtDisplay}
                                 </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
+                        <td className="border border-slate-200 px-2.5 py-2 text-[13px] leading-[1.35] whitespace-pre-wrap">
+                          {normalizeText(row.participantDisplay)}
+                        </td>
+                        <td className="border border-slate-200 px-2.5 py-2 text-[13px] leading-[1.35] whitespace-pre-wrap">
+                          {normalizeText(row.location)}
+                        </td>
+                      </tr>
                     );
                   })
                 )}
-              </div>
-            ) : (
-              <div className="max-h-[calc(100vh-300px)] overflow-auto">
-                <table className="w-full table-fixed border-collapse text-slate-900">
-                  <colgroup>
-                    <col className="w-[8.5%]" />
-                    <col className="w-[8.5%]" />
-                    <col className="w-[7.5%]" />
-                    <col className="w-[35%]" />
-                    <col className="w-[22%]" />
-                    <col className="w-[18.5%]" />
-                  </colgroup>
-                  <thead>
-                    <tr className="sticky top-0 z-10 bg-primary text-white">
-                      {['Thứ', 'Ngày', 'Buổi', 'Nội dung làm việc', 'Thành phần', 'Địa điểm'].map((header) => (
-                        <th key={header} className="border border-slate-200 px-2 py-2 text-center text-xs font-semibold">
-                          {header}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="border border-slate-200 px-6 py-6 text-center text-sm text-slate-500">
-                          Chưa có dữ liệu để xem trước.
-                        </td>
-                      </tr>
-                    ) : (
-                      previewRows.map((row, index) => {
-                        const isToday = row.day.date === toDateKey(new Date());
-                        const isEditingSlot = editingSlot?.calendarDate === row.day.date && editingSlot?.session === row.session;
-                        return (
-                        <tr
-                          key={`${row.day.date}-${row.session}-${index}`}
-                          className={`align-top ${canWriteSchedules ? 'cursor-pointer transition-colors hover:bg-primary/5' : ''} ${isEditingSlot ? 'bg-primary/10' : ''}`}
-                          onClick={() => {
-                            if (!canWriteSchedules) return;
-                            handleOpenSlotEditor(row.day.date, row.session);
-                          }}
-                        >
-                          {row.showDayCells ? (
-                            <>
-                              <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
-                                {PREVIEW_DAY_NAMES[row.day.day_of_week] || row.day.day_name}
-                              </td>
-                              <td rowSpan={row.dayRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
-                                <div className="flex flex-col items-center justify-center gap-1">
-                                  <span>{String(row.day.day).padStart(2, '0')}/{String(row.day.month).padStart(2, '0')}</span>
-                                  {isToday ? (
-                                    <span className="inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.02em] text-white">
-                                      Hôm nay
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </td>
-                            </>
-                          ) : null}
-
-                          {row.showSessionCell ? (
-                            <td rowSpan={row.sessionRowSpan} className={`align-middle border border-slate-200 px-2 py-2.5 text-center text-xs font-semibold ${isToday ? 'bg-primary/5 text-primary' : 'text-slate-900'}`}>
-                              {row.sessionLabel}
-                            </td>
-                          ) : null}
-
-                          <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
-                            {normalizeText(row.workContent) ? (
-                              <div className="flex min-h-[52px] flex-col gap-2">
-                                <div>{row.workContent}</div>
-                                {row.hasAudit ? (
-                                  <div className="ml-auto mt-auto text-right text-[10px] leading-[1.35] text-slate-500 md:text-[11px]">
-                                    <div>
-                                      <span className="font-semibold text-slate-600">{row.auditLabels.actor}:</span>{' '}
-                                      {row.createdByDisplay}, {row.auditLabels.time} {row.createdAtDisplay}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : '-'}
-                          </td>
-                          <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
-                            {normalizeText(row.participantDisplay) || '-'}
-                          </td>
-                          <td className="border border-slate-200 px-2.5 py-2 text-[12px] leading-[1.35] whitespace-pre-wrap md:text-[13px]">
-                            {normalizeText(row.location) || '-'}
-                          </td>
-                        </tr>
-                      )})
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Modal Popup Editor rendered via Portal */}
       <ScheduleEntryModal
@@ -1828,39 +1536,38 @@ const ScheduleEntryModal: React.FC<{
     handleAddEntry(editingSlot.calendarDate, editingSlot.session);
     setSelectedEntryLocalId('__new__');
   };
+  const modalDayName = DAY_NAMES[orderedPreviewWeekDays.find((day) => day.date === editingSlot.calendarDate)?.day_of_week ?? 2];
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 ui-layer-modal flex items-end justify-center bg-[var(--ui-modal-backdrop)] p-2 sm:items-center sm:p-4"
       onClick={onClose}
       style={{ minHeight: '100vh', minWidth: '100vw' }}
     >
       <div
-        className="relative mx-2 flex max-h-[calc(100vh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white animate-in fade-in zoom-in duration-200 sm:mx-4 sm:max-h-[92vh]"
-        style={{ boxShadow: '0 24px 48px -12px rgba(0,28,59,0.08)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="schedule-entry-modal-title"
+        className="relative flex max-h-[calc(100dvh-16px)] w-full max-w-6xl flex-col overflow-hidden rounded-t-[var(--ui-modal-mobile-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-cloud sm:max-h-[var(--ui-modal-max-height)] sm:rounded-[var(--ui-modal-radius)]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-3 sm:px-4">
+        <div className="flex min-h-[var(--ui-modal-header-min-height)] items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>edit_calendar</span>
-            <span className="text-xs font-bold text-deep-teal sm:text-sm">
-              {DAY_NAMES[orderedPreviewWeekDays.find(d => d.date === editingSlot.calendarDate)?.day_of_week ?? 2]}
-              {' — '}
-              {formatDisplayDate(editingSlot.calendarDate)}
-              {' | Buổi '}
-              {SESSION_LABELS[editingSlot.session]}
-            </span>
+            <h2 id="schedule-entry-modal-title" className="truncate text-xs font-bold text-deep-teal sm:text-sm">
+              {modalDayName} • {formatDisplayDate(editingSlot.calendarDate)} • {SESSION_LABELS[editingSlot.session]}
+            </h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded hover:bg-slate-200 transition-colors"
+            aria-label="Đóng modal đăng ký lịch"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded hover:bg-slate-200 transition-colors focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 16 }}>close</span>
           </button>
         </div>
 
-        {/* Body */}
         <div className="grid flex-1 gap-3 overflow-y-auto p-2.5 sm:p-3 xl:grid-cols-[0.95fr_1.05fr]">
           <div className="space-y-3">
             <div className="rounded-lg border border-slate-200 bg-surface-low p-3">

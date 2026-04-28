@@ -284,6 +284,8 @@ export interface YeuCau {
   source_channel?: string | null;
   pm_id?: string | number | null;
   pm_name?: string | null;
+  accountable_user_id?: string | number | null;
+  accountable_name?: string | null;
   ba_id?: string | number | null;
   ba_name?: string | null;
   r_id?: string | number | null;
@@ -394,8 +396,10 @@ export interface YeuCauTimelineEntry {
   nguoi_thay_doi_code?: string | null;
   nguoi_chuyen_id?: string | number | null;
   nguoi_chuyen_name?: string | null;
+  nguoi_chuyen_code?: string | null;
   nguoi_xu_ly_id?: string | number | null;
   nguoi_xu_ly_name?: string | null;
+  nguoi_xu_ly_code?: string | null;
   ly_do?: string | null;
   decision_context_code?: string | null;
   decision_outcome_code?: string | null;
@@ -503,6 +507,12 @@ export interface YeuCauWorklog {
   status_instance_id?: number | null;
   status_code?: string | null;
   status_name_vi?: string | null;
+  from_user_id?: number | null;
+  from_user_id_name?: string | null;
+  to_user_id?: number | null;
+  to_user_id_name?: string | null;
+  assigned_user_id?: number | null;
+  assigned_user_name?: string | null;
   performed_by_user_id?: number | null;
   performed_by_name?: string | null;
   performed_by_code?: string | null;

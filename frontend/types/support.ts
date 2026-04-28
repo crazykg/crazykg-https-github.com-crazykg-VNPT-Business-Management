@@ -94,6 +94,15 @@ export interface ContractSignerMaster {
   updated_by?: string | number | null;
 }
 
+export interface SupportAuthSessionPolicy {
+  provider: string;
+  same_browser_multi_tab_enabled: boolean;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  source?: 'DEFAULT' | 'DB' | (string & {});
+}
+
 export interface SupportRequestStatusOption {
   id: string | number | null;
   status_code: string;

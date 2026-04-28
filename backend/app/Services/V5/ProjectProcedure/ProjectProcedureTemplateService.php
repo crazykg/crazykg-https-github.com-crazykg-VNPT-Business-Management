@@ -317,6 +317,12 @@ class ProjectProcedureTemplateService
             return response()->json(['message' => 'Template not found.'], 404);
         }
 
+        if ((int) ($template->procedures_count ?? 0) > 0) {
+            return response()->json([
+                'message' => 'Không thể import vì mẫu đã được áp dụng cho dự án. Hãy tạo mẫu mới hoặc đồng bộ lại các thủ tục liên quan trước.',
+            ], 409);
+        }
+
         $validator = Validator::make($request->all(), [
             'steps' => 'required|array|min:1',
             'steps.*.step_key' => 'required|string|max:50|distinct',

@@ -237,4 +237,98 @@ describe('CustomerRequestTransitionModal UI', () => {
     expect(onModalStatusPayloadChange).toHaveBeenNthCalledWith(1, 'progress_percent', '100');
     expect(onModalStatusPayloadChange).toHaveBeenNthCalledWith(2, 'progress_percent', '0');
   });
+
+  it('shows the selected receiver as the next handler and prioritizes assignee in timeline rows', () => {
+    render(
+      <CustomerRequestTransitionModal
+        show
+        processDetail={{
+          yeu_cau: {
+            id: 16,
+            ma_yc: 'CRC-202604-0016',
+            request_code: 'CRC-202604-0016',
+            trang_thai: 'assigned_to_receiver',
+            current_status_name_vi: 'Giao R thực hiện',
+            created_by_name: 'Phan Văn Rở',
+            received_by_name: 'Phan Văn Rở',
+            current_owner_name: 'Phan Văn Rở',
+          },
+        } as never}
+        transitionStatusCode="assigned_to_receiver"
+        transitionRenderableFields={[
+          { name: 'from_user_id', label: 'Người chuyển', type: 'user_select', required: false },
+          { name: 'to_user_id', label: 'Người nhận', type: 'user_select', required: false },
+        ]}
+        modalStatusPayload={{
+          from_user_id: '1',
+          to_user_id: '7',
+        }}
+        onModalStatusPayloadChange={vi.fn()}
+        modalIt360Tasks={[]}
+        onAddModalIt360Task={vi.fn()}
+        onUpdateModalIt360Task={vi.fn()}
+        onRemoveModalIt360Task={vi.fn()}
+        modalRefTasks={[]}
+        onAddModalReferenceTask={vi.fn()}
+        onUpdateModalReferenceTask={vi.fn()}
+        onRemoveModalReferenceTask={vi.fn()}
+        modalAttachments={[]}
+        onUploadModalAttachment={vi.fn(async () => undefined)}
+        onDeleteModalAttachment={vi.fn()}
+        isModalUploading={false}
+        modalNotes=""
+        onModalNotesChange={vi.fn()}
+        modalActiveTaskTab="IT360"
+        onModalActiveTaskTabChange={vi.fn()}
+        isTransitioning={false}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+        modalTimeline={[
+          {
+            id: 1,
+            yeu_cau_id: 16,
+            tien_trinh: 'assigned_to_receiver',
+            trang_thai_moi: 'Giao R thực hiện',
+            nguoi_chuyen_name: 'Phan Văn Rở',
+            nguoi_xu_ly_name: 'Trịnh Minh Tuấn',
+            thay_doi_luc: '2026-04-27 17:20:00',
+          },
+        ]}
+        modalHandlerUserId="7"
+        onModalHandlerUserIdChange={vi.fn()}
+        projectRaciRows={[]}
+        employees={[
+          {
+            id: 7,
+            uuid: 'user-7',
+            username: 'tuan',
+            full_name: 'Trịnh Minh Tuấn',
+            email: 'tuan@example.test',
+            status: 'ACTIVE',
+            department_id: 1,
+            position_id: 1,
+          },
+        ]}
+        customers={[]}
+        customerPersonnel={[]}
+        supportServiceGroups={[]}
+        projectItems={[]}
+        selectedCustomerId=""
+        taskReferenceOptions={[]}
+        taskReferenceSearchError=""
+        taskReferenceSearchTerm=""
+        onTaskReferenceSearchTermChange={vi.fn()}
+        isTaskReferenceSearchLoading={false}
+        caseContextAttachments={[]}
+        caseContextIt360Tasks={[]}
+        caseContextReferenceTasks={[]}
+      />
+    );
+
+    expect(screen.getByText('Người xử lý hiện tại')).toBeInTheDocument();
+    expect(screen.getByText('Người nhận sau chuyển')).toBeInTheDocument();
+    expect(screen.getAllByText('Trịnh Minh Tuấn').length).toBeGreaterThan(0);
+    expect(screen.getByText(/giao cho Trịnh Minh Tuấn/)).toBeInTheDocument();
+    expect(screen.getByText(/bởi Phan Văn Rở/)).toBeInTheDocument();
+  });
 });

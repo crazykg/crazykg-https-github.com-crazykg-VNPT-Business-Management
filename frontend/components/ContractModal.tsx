@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useEscKey } from '../hooks/useEscKey';
 import { CONTRACT_STATUSES } from '../constants';
 import {
   fetchContractSignerOptions,
@@ -29,6 +28,7 @@ import {
   type ContractDraftItemComputedRow,
   type ContractPackageSelectMeta,
 } from './contract/ContractDetailsTab';
+import { ProjectItemImportModal } from './contract/ProjectItemImportModal';
 import {
   addUtcDays,
   addUtcMonths,
@@ -44,6 +44,7 @@ import {
 import { useContractForm } from './contract/hooks/useContractForm';
 import { useContractPaymentGeneration } from './contract/hooks/useContractPaymentGeneration';
 import { ContractPaymentTab } from './contract/ContractPaymentTab';
+import { ModalWrapper } from './modals/shared';
 import {
   buildContractProductCatalogValue,
   buildContractPackageCatalogValue,
@@ -116,7 +117,13 @@ const INVESTMENT_MODE_LABELS: Record<string, string> = {
 };
 
 const MAX_CONTRACT_VALUE_INTEGER_DIGITS = 16;
-const CONTRACT_ATTACHMENT_ACCEPT = '.pdf,application/pdf';
+const CONTRACT_ATTACHMENT_ACCEPT = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const CONTRACT_ATTACHMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const CONTRACT_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'doc', 'docx']);
 
 const VI_DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
 const VI_SCALES = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ', 'tỷ tỷ'];
@@ -358,10 +365,11 @@ const parseDateValue = (value: unknown): number | null => {
   return Number.isNaN(timestamp) ? null : timestamp;
 };
 
-const isPdfAttachmentFile = (file: File): boolean => {
+const isContractAttachmentFile = (file: File): boolean => {
   const mimeType = String(file.type || '').trim().toLowerCase();
   const fileName = String(file.name || '').trim().toLowerCase();
-  return mimeType === 'application/pdf' || fileName.endsWith('.pdf');
+  const extension = fileName.includes('.') ? fileName.split('.').pop() || '' : '';
+  return CONTRACT_ATTACHMENT_MIME_TYPES.has(mimeType) || CONTRACT_ATTACHMENT_EXTENSIONS.has(extension);
 };
 
 const resolveContractStartDate = (source: Partial<Contract>): Date => {
@@ -375,10 +383,10 @@ const resolveContractStartDate = (source: Partial<Contract>): Date => {
 };
 
 const modalActionButtonClass =
-  'inline-flex items-center gap-1.5 rounded bg-primary px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-white shadow-sm transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-semibold leading-5 text-white shadow-sm transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50';
 
 const modalSecondaryButtonClass =
-  'inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold leading-[18px] text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50';
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[13px] font-semibold leading-5 text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50';
 
 const resolveContractExpiryByTerm = (source: Partial<Contract>): string | null => {
   const termUnitRaw = String(source.term_unit || '').trim().toUpperCase();
@@ -438,6 +446,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   onDeletePaymentSchedule,
 }: ContractModalProps) => {
   const [activeTab, setActiveTab] = useState<ContractModalTab>('CONTRACT');
+  const [showProjectItemImportModal, setShowProjectItemImportModal] = useState(false);
   const [signerOptions, setSignerOptions] = useState<ContractSignerOption[]>([]);
   const [isSignerOptionsLoading, setIsSignerOptionsLoading] = useState(false);
   const [signerOptionsError, setSignerOptionsError] = useState('');
@@ -537,10 +546,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const areScheduleSourceFieldsLocked = type === 'EDIT' && !canEditScheduleSourceFields;
   const showEditLoadingState = type === 'EDIT' && isDetailLoading;
 
-  useEscKey(onClose);
-
   useEffect(() => {
     setActiveTab('CONTRACT');
+    setShowProjectItemImportModal(false);
   }, [initialFormData, type]);
 
   useEffect(() => {
@@ -1075,8 +1083,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     setContractAttachmentError('');
     setContractAttachmentNotice('');
 
-    if (!isPdfAttachmentFile(file)) {
-      setContractAttachmentError('Chỉ cho phép tải lên file PDF cho hợp đồng.');
+    if (!isContractAttachmentFile(file)) {
+      setContractAttachmentError('Chỉ cho phép tải lên file PDF hoặc Word cho hợp đồng.');
       return;
     }
 
@@ -1088,7 +1096,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         setContractAttachmentNotice(String(uploaded.warningMessage || '').trim());
       }
     } catch (error) {
-      setContractAttachmentError(error instanceof Error ? error.message : 'Tải file PDF thất bại.');
+      setContractAttachmentError(error instanceof Error ? error.message : 'Tải file hợp đồng thất bại.');
     } finally {
       setIsUploadingContractAttachment(false);
     }
@@ -1132,66 +1140,53 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     : 'Cập nhật hợp đồng';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div
-        className="relative flex max-h-[94vh] w-full max-w-[95vw] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl xl:max-w-[1400px]"
-      >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-secondary/15">
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>
-                description
-              </span>
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-bold leading-6 text-deep-teal">
-                {modalTitle}
-              </h2>
-            </div>
-          </div>
+    <ModalWrapper
+      onClose={onClose}
+      title={modalTitle}
+      icon="description"
+      zIndexClassName="ui-layer-modal"
+      containerClassName="fixed inset-0 ui-layer-modal flex items-stretch justify-center p-0 sm:items-center sm:p-4"
+      backdropClassName="bg-[var(--ui-modal-backdrop)]"
+      width="max-w-[1280px]"
+      heightClass="h-full sm:h-auto"
+      maxHeightClass="sm:max-h-[var(--ui-modal-max-height)]"
+      panelClassName="rounded-none border-0 shadow-xl sm:rounded-2xl sm:border sm:border-slate-200"
+      contentClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+      headerClassName="bg-white px-4 py-3 sm:px-5"
+      disableClose={showProjectItemImportModal}
+      headerAside={type === 'EDIT' ? (
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 shadow-sm">
           <button
-            onClick={onClose}
-            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            type="button"
+            onClick={() => setActiveTab('CONTRACT')}
+            aria-pressed={activeTab === 'CONTRACT'}
+            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold leading-4 transition-colors ${
+              activeTab === 'CONTRACT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            }`}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              close
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+              description
             </span>
+            Thông tin HĐ
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('PAYMENT')}
+            aria-pressed={activeTab === 'PAYMENT'}
+            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold leading-4 transition-colors ${
+              activeTab === 'PAYMENT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
+              payments
+            </span>
+            Dòng tiền
           </button>
         </div>
+      ) : undefined}
+    >
 
-        {type === 'EDIT' && (
-          <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-            <div className="inline-flex rounded border border-slate-200 bg-white p-1 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setActiveTab('CONTRACT')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-semibold leading-5 transition-colors ${
-                activeTab === 'CONTRACT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                description
-              </span>
-              Thông tin hợp đồng
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('PAYMENT')}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm font-semibold leading-5 transition-colors ${
-                activeTab === 'PAYMENT' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                payments
-              </span>
-              Dòng tiền
-            </button>
-            </div>
-          </div>
-        )}
-
-        <div className="overflow-y-auto flex-1 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
           {showEditLoadingState ? (
             <div className="flex min-h-[320px] items-center justify-center px-4 py-8">
               <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-semibold leading-[18px] text-slate-600">
@@ -1246,7 +1241,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 productSelectOptions: productSelectOptions.options,
                 productOptionMetaByValue: productSelectOptions.optionMetaByValue,
                 onAddDraftItem: handleAddDraftItem,
-                onImportProjectItems: () => handleImportProjectItems(selectedProjectItems),
+                onImportProjectItems: () => setShowProjectItemImportModal(true),
                 onRemoveDraftItem: handleRemoveDraftItem,
                 onDraftProductChange: handleDraftProductChange,
                 onDraftItemChange: handleDraftItemChange,
@@ -1321,7 +1316,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
           )}
         </div>
 
-        <div className="relative z-10 flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
+        <div className="relative z-10 flex min-h-[var(--ui-modal-footer-min-height)] shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 sm:px-5">
           <button type="button" onClick={onClose} className={modalSecondaryButtonClass}>
             Hủy
           </button>
@@ -1347,7 +1342,22 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             </button>
           )}
         </div>
-      </div>
-    </div>
+
+        {showProjectItemImportModal && currentContractMode === 'PROJECT' && (
+          <ProjectItemImportModal
+            project={selectedProject}
+            projectCustomerName={selectedProjectCustomer?.customer_name || '--'}
+            projectValue={selectedProjectValue}
+            projectInvestmentModeLabel={selectedProjectInvestmentModeLabel}
+            projectItems={selectedProjectItems}
+            existingItems={draftItems}
+            onClose={() => setShowProjectItemImportModal(false)}
+            onConfirm={(items, mergeMode) => {
+              handleImportProjectItems(items, mergeMode);
+              setShowProjectItemImportModal(false);
+            }}
+          />
+        )}
+    </ModalWrapper>
   );
 };

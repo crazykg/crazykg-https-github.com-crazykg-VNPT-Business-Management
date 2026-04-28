@@ -124,12 +124,12 @@ describe('QuotationPickerModal', () => {
           product_id: 802,
           product_name: 'Thuê phần mềm quản lý chẩn đoán hình ảnh RIS',
           unit: 'Gói',
-          quantity: 1,
+          quantity: 45000,
           unit_price: 71686000,
           vat_rate: 10,
-          vat_amount: 7168600,
-          line_total: 71686000,
-          total_with_vat: 78854600,
+          vat_amount: 322587000000,
+          line_total: 3225870000000,
+          total_with_vat: 3548457000000,
           note: null,
         },
       ],
@@ -154,11 +154,11 @@ describe('QuotationPickerModal', () => {
     );
 
     const quotationModal = await screen.findByTestId('quotation-picker-modal');
-    expect(quotationModal).toHaveClass('max-w-[50.5rem]');
+    expect(quotationModal).toHaveClass('max-w-[92rem]');
 
     expect(screen.queryByText(/0 hạng mục/i)).not.toBeInTheDocument();
 
-    const quotationButton = screen.getByRole('button', { name: /Bệnh viện Phổi Hậu Giang/i });
+    const quotationButton = await screen.findByRole('button', { name: /Bệnh viện Phổi Hậu Giang/i });
     expect(within(quotationButton).getByText(/2 hạng mục/i)).toBeInTheDocument();
     expect(within(quotationButton).getByText(/81\.054\.600 đ/i)).toBeInTheDocument();
 
@@ -167,6 +167,11 @@ describe('QuotationPickerModal', () => {
     await waitFor(() => {
       expect(fetchProductQuotationMock).toHaveBeenCalledWith(9002);
     });
+
+    expect(screen.getByRole('columnheader', { name: 'Số lượng' })).toHaveClass('text-right');
+    expect(screen.getByRole('columnheader', { name: 'Đơn giá' })).toHaveClass('text-right');
+    expect(screen.getByRole('columnheader', { name: 'Thành tiền' })).toHaveClass('text-right');
+    expect(screen.getByText('45.000')).toBeInTheDocument();
 
     const allCheckbox = await screen.findByLabelText('Chọn tất cả hạng mục báo giá');
     const hisCheckbox = await screen.findByLabelText('Chọn hạng mục Thuê phần mềm VNPT-HIS');
@@ -191,6 +196,7 @@ describe('QuotationPickerModal', () => {
           productPackageId: 901,
           product_id: 801,
           product_package_id: 901,
+          unit: 'Gói/tháng',
           quantity: 9,
           unitPrice: 2000000,
           unit_price: 2000000,

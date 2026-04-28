@@ -31,10 +31,10 @@ describe('CustomerRequestHoursPanel UI', () => {
       />
     );
 
-    expect(screen.getByText('Estimate & giờ công')).toBeInTheDocument();
+    expect(screen.getByText('Tổng quan giờ công')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Ghi giờ công/i })).toBeInTheDocument();
 
-    const estimateLabel = screen.getByText('Estimate hiện hành:');
+    const estimateLabel = screen.getByText('Ước lượng:');
     const actualLabel = screen.getByText('Thực tế:');
     const remainingLabel = screen.getByText('Còn lại:');
     const usageLabel = screen.getByText('Mức sử dụng:');
@@ -85,12 +85,12 @@ describe('CustomerRequestHoursPanel UI', () => {
       />
     );
 
-    const heading = screen.getByText('Estimate & giờ công');
+    const heading = screen.getByText('Tổng quan giờ công');
     const panel = heading.closest('div')?.parentElement;
 
     expect(panel).toHaveClass('p-3');
     expect(heading).toHaveClass('text-xs');
-    expect(screen.getByRole('button', { name: /Ghi giờ công/i })).toHaveClass('px-2');
+    expect(screen.getByRole('button', { name: /Ghi giờ công/i })).toHaveClass('h-8');
     expect(screen.getByText('Phân bổ theo người thực hiện')).toBeInTheDocument();
     expect(screen.getByText('Phan Văn Rở')).toBeInTheDocument();
   });

@@ -4,10 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomerRequestNotifyCustomerModal } from '../components/customer-request/CustomerRequestNotifyCustomerModal';
 
-vi.mock('../services/v5Api', () => ({
+vi.mock('../services/api/supportConfigApi', () => ({
   fetchWorklogActivityTypes: vi.fn().mockResolvedValue([
-    { id: 1, code: 'support', name: 'Hỗ trợ' },
+    { id: 1, code: 'support', name: 'Hỗ trợ', default_is_billable: true },
   ]),
+}));
+
+vi.mock('../services/v5Api', () => ({
   uploadDocumentAttachment: vi.fn(),
 }));
 

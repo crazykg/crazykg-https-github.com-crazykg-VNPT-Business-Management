@@ -64,7 +64,9 @@ class CustomerRequestCaseServerPaginationTest extends TestCase
             ->assertJsonPath('meta.per_page', 1)
             ->assertJsonPath('meta.total', 2)
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $firstCaseId);
+            ->assertJsonPath('data.0.id', $firstCaseId)
+            ->assertJsonPath('data.0.accountable_name', 'Người xử lý')
+            ->assertJsonPath('data.0.pm_name', 'Người xử lý');
 
         $this->getJson('/api/v5/customer-request-cases?updated_by=3&my_role=performer')
             ->assertOk()
@@ -96,6 +98,8 @@ class CustomerRequestCaseServerPaginationTest extends TestCase
             ->assertJsonPath('meta.per_page', 20)
             ->assertJsonPath('meta.total', 12)
             ->assertJsonPath('meta.total_pages', 1)
+            ->assertJsonPath('data.0.accountable_name', 'Người xử lý')
+            ->assertJsonPath('data.0.pm_name', 'Người xử lý')
             ->assertJsonCount(12, 'data');
 
         $this->getJson('/api/v5/customer-request-cases?updated_by=2&my_role=dispatcher&page=1&per_page=10&simple=1')
@@ -113,6 +117,27 @@ class CustomerRequestCaseServerPaginationTest extends TestCase
             ->assertJsonPath('meta.total', 12)
             ->assertJsonPath('meta.total_pages', 2)
             ->assertJsonCount(2, 'data');
+    }
+
+    public function test_index_resolves_project_accountable_from_project_item_when_case_project_is_empty(): void
+    {
+        $response = $this->postJson('/api/v5/customer-request-cases', $this->createPayload([
+            'master_payload' => [
+                'project_id' => null,
+                'project_item_id' => 100,
+                'summary' => 'Yêu cầu lấy PM theo hạng mục dự án',
+            ],
+        ]))->assertCreated();
+        $caseId = (int) $response->json('data.request_case.id');
+
+        $this->getJson('/api/v5/customer-request-cases?updated_by=3&page=1&per_page=10')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $caseId)
+            ->assertJsonPath('data.0.project_id', 200)
+            ->assertJsonPath('data.0.project_name', 'Dự án SOC')
+            ->assertJsonPath('data.0.accountable_name', 'Người xử lý')
+            ->assertJsonPath('data.0.pm_name', 'Người xử lý');
     }
 
     public function test_index_can_sort_by_handler_name_and_prioritize_current_user_cases(): void

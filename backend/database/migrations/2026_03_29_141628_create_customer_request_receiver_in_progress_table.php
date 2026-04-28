@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('customer_request_receiver_in_progress')) {
+            return;
+        }
+
         Schema::create('customer_request_receiver_in_progress', function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->unsignedBigInteger('request_case_id')->index()->comment('Yêu cầu');

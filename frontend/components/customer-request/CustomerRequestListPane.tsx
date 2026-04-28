@@ -6,8 +6,12 @@ import { type SearchableSelectOption } from '../SearchableSelect';
 import { SearchableMultiSelect } from '../SearchableMultiSelect';
 import {
   buildRequestContextCaption,
+  formatHoursValue,
+  formatPercentValue,
   resolveHealthSummaryMeta,
   resolveHoursSummaryMeta,
+  resolvePrimaryActionMeta,
+  resolveRequestStatusMeta,
   type CustomerRequestPrimaryActionMeta,
   type CustomerRequestRoleFilter,
 } from './presentation';
@@ -78,6 +82,144 @@ const PRIORITY_OPTIONS: SearchableSelectOption[] = [
   { value: '4', label: 'Khẩn' },
 ];
 
+type CustomerRequestListViewPreset = 'standard' | 'ar' | 'pm' | 'operations';
+type CustomerRequestListColumnKey =
+  | 'code'
+  | 'title'
+  | 'context'
+  | 'creator'
+  | 'handler'
+  | 'accountable'
+  | 'status'
+  | 'executionDate'
+  | 'completedDate'
+  | 'dates'
+  | 'meta'
+  | 'estimate'
+  | 'lastLog'
+  | 'nextAction'
+  | 'pmOwner';
+
+const LIST_VIEW_PRESETS: Array<{ key: CustomerRequestListViewPreset; label: string; icon: string }> = [
+  { key: 'standard', label: 'Chuẩn', icon: 'view_week' },
+  { key: 'ar', label: 'A/R', icon: 'supervisor_account' },
+  { key: 'pm', label: 'PM dự án', icon: 'account_tree' },
+  { key: 'operations', label: 'Vận hành', icon: 'settings_suggest' },
+];
+
+const LIST_COLUMN_OPTIONS: Array<{ key: CustomerRequestListColumnKey; label: string }> = [
+  { key: 'code', label: 'Mã yêu cầu' },
+  { key: 'title', label: 'Tên yêu cầu' },
+  { key: 'context', label: 'Khách hàng / Dự án / Sản phẩm' },
+  { key: 'creator', label: 'Người nhập' },
+  { key: 'handler', label: 'Người xử lý' },
+  { key: 'accountable', label: 'Người quản lý (A)' },
+  { key: 'status', label: 'Trạng thái' },
+  { key: 'dates', label: 'Ngày thực hiện / kết thúc' },
+  { key: 'meta', label: 'Tags / File / Task' },
+  { key: 'estimate', label: 'Estimate / Actual' },
+  { key: 'lastLog', label: 'Last worklog' },
+  { key: 'nextAction', label: 'Next action' },
+  { key: 'pmOwner', label: 'PM / Owner' },
+];
+
+const STANDARD_LIST_COLUMN_OPTIONS: Array<{ key: CustomerRequestListColumnKey; label: string }> = [
+  { key: 'code', label: 'Mã yêu cầu' },
+  { key: 'title', label: 'Tên yêu cầu' },
+  { key: 'creator', label: 'Người nhập yêu cầu' },
+  { key: 'handler', label: 'Người xử lý' },
+  { key: 'accountable', label: 'Người quản lý (A)' },
+  { key: 'status', label: 'Trạng thái XL' },
+  { key: 'executionDate', label: 'Ngày thực hiện' },
+  { key: 'completedDate', label: 'Ngày kết thúc' },
+];
+
+const DEFAULT_VISIBLE_LIST_COLUMNS: CustomerRequestListColumnKey[] = [
+  'code',
+  'title',
+  'context',
+  'creator',
+  'handler',
+  'status',
+  'executionDate',
+  'completedDate',
+  'dates',
+  'meta',
+  'estimate',
+  'lastLog',
+  'nextAction',
+  'pmOwner',
+];
+
+type CustomerRequestListTableColumn = {
+  key: string;
+  label: string;
+  widthClass: string;
+};
+
+const STANDARD_LIST_TABLE_COLUMNS = {
+  code: { key: 'requestCode', label: 'Mã yêu cầu', widthClass: 'w-[168px]' },
+  title: { key: 'requestTitle', label: 'Tên yêu cầu', widthClass: 'w-[336px]' },
+  creator: { key: 'requestCreator', label: 'Người nhập yêu cầu', widthClass: 'w-[210px]' },
+  handler: { key: 'requestHandler', label: 'Người xử lý', widthClass: 'w-[196px]' },
+  accountable: { key: 'requestAccountable', label: 'Người quản lý (A)', widthClass: 'w-[196px]' },
+  status: { key: 'requestStatus', label: 'Trạng thái XL', widthClass: 'w-[188px]' },
+  executionDate: { key: 'requestExecutionDate', label: 'Ngày thực hiện', widthClass: 'w-[176px]' },
+  completedDate: { key: 'requestCompletedDate', label: 'Ngày kết thúc', widthClass: 'w-[176px]' },
+} satisfies Record<
+  'code' | 'title' | 'creator' | 'handler' | 'accountable' | 'status' | 'executionDate' | 'completedDate',
+  CustomerRequestListTableColumn
+>;
+
+const LIST_TABLE_COLUMNS_BY_PRESET: Record<Exclude<CustomerRequestListViewPreset, 'standard'>, CustomerRequestListTableColumn[]> = {
+  ar: [
+    { key: 'request', label: 'Yêu cầu', widthClass: 'w-[360px]' },
+    { key: 'creator', label: 'Người nhập', widthClass: 'w-[220px]' },
+    { key: 'handler', label: 'Người xử lý', widthClass: 'w-[220px]' },
+    { key: 'status', label: 'Trạng thái / ngày', widthClass: 'w-[305px]' },
+  ],
+  pm: [
+    { key: 'request', label: 'Yêu cầu / dự án', widthClass: 'w-[360px]' },
+    { key: 'owner', label: 'PM control', widthClass: 'w-[245px]' },
+    { key: 'estimate', label: 'Estimate / Log', widthClass: 'w-[260px]' },
+    { key: 'next', label: 'Next / SLA', widthClass: 'w-[250px]' },
+  ],
+  operations: [
+    { key: 'request', label: 'Yêu cầu', widthClass: 'w-[360px]' },
+    { key: 'sla', label: 'Trạng thái / SLA', widthClass: 'w-[245px]' },
+    { key: 'age', label: 'Tuổi bước', widthClass: 'w-[205px]' },
+    { key: 'next', label: 'Blocker / Next', widthClass: 'w-[305px]' },
+  ],
+};
+
+const resolveListTableColumns = (
+  viewPreset: CustomerRequestListViewPreset,
+  visibleColumns: Set<CustomerRequestListColumnKey>
+): CustomerRequestListTableColumn[] => {
+  if (viewPreset === 'standard') {
+    return [
+      STANDARD_LIST_TABLE_COLUMNS.code,
+      STANDARD_LIST_TABLE_COLUMNS.title,
+      ...(visibleColumns.has('creator') ? [STANDARD_LIST_TABLE_COLUMNS.creator] : []),
+      ...(visibleColumns.has('handler') ? [STANDARD_LIST_TABLE_COLUMNS.handler] : []),
+      ...(visibleColumns.has('accountable') ? [STANDARD_LIST_TABLE_COLUMNS.accountable] : []),
+      ...(visibleColumns.has('status') ? [STANDARD_LIST_TABLE_COLUMNS.status] : []),
+      ...(visibleColumns.has('executionDate') ? [STANDARD_LIST_TABLE_COLUMNS.executionDate] : []),
+      ...(visibleColumns.has('completedDate') ? [STANDARD_LIST_TABLE_COLUMNS.completedDate] : []),
+    ];
+  }
+
+  return LIST_TABLE_COLUMNS_BY_PRESET[viewPreset];
+};
+
+const LIST_ROW_CLASS = {
+  cell: 'px-2.5 py-2',
+  primary: 'text-[13px] leading-4',
+  secondary: 'text-[11px] leading-4',
+  stack: 'gap-1',
+  row: 'h-[56px]',
+};
+
 const resolveCreatedLabel = (row: YeuCau): string =>
   row.created_at ? formatDateTimeDdMmYyyy(row.created_at).slice(0, 16) : '--';
 
@@ -106,6 +248,106 @@ const resolveStatusLabel = (row: YeuCau): string =>
   row.tien_trinh_hien_tai ||
   row.trang_thai ||
   '--';
+
+const readFirstValue = (row: YeuCau, keys: string[]): unknown => {
+  const record = row as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return null;
+};
+
+const readNumberValue = (row: YeuCau, keys: string[]): number | null => {
+  const value = readFirstValue(row, keys);
+  if (value === null) {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const resolveSmallCountLabel = (row: YeuCau, label: string, keys: string[]): string => {
+  const numeric = readNumberValue(row, keys);
+  return `${label} ${numeric ?? 0}`;
+};
+
+const resolveTagFileTaskSummary = (row: YeuCau): string =>
+  [
+    resolveSmallCountLabel(row, 'tag', ['tag_count', 'tags_count', 'yeu_cau_tags_count']),
+    resolveSmallCountLabel(row, 'file', ['attachment_count', 'attachments_count', 'file_count']),
+    resolveSmallCountLabel(row, 'task', ['task_count', 'tasks_count', 'ref_task_count', 'ref_tasks_count']),
+  ].join(' · ');
+
+const resolveProjectManagerLabel = (row: YeuCau): string =>
+  row.accountable_name ||
+  row.pm_name ||
+  row.dispatcher_name ||
+  '--';
+
+const resolveAccountableLabel = (row: YeuCau): string =>
+  row.accountable_name ||
+  '--';
+
+const resolveCurrentOwnerLabel = (row: YeuCau): string =>
+  row.current_owner_name ||
+  row.nguoi_xu_ly_name ||
+  row.performer_name ||
+  row.receiver_name ||
+  '--';
+
+const resolveLastWorklogLabel = (row: YeuCau): string => {
+  const value = readFirstValue(row, [
+    'last_worklog_at',
+    'latest_worklog_at',
+    'last_worklog_date',
+    'latest_activity_at',
+    'last_activity_at',
+  ]);
+  return value ? formatDateTimeDdMmYyyy(String(value)).slice(0, 16) : '--';
+};
+
+const resolveDaysSinceLabel = (value: string | null | undefined): string => {
+  if (!value) {
+    return '--';
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return '--';
+  }
+
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  return days === 0 ? 'hôm nay' : `${days}d`;
+};
+
+const resolveBlockerLabel = (row: YeuCau): string => {
+  if (row.missing_estimate || row.warning_level === 'missing') return 'Thiếu estimate';
+  if (row.over_estimate || row.warning_level === 'hard') return 'Vượt estimate';
+  if (row.sla_status === 'at_risk') return 'SLA risk';
+  if (row.sla_status === 'overdue') return 'Quá hạn SLA';
+  if (resolveLastWorklogLabel(row) === '--') return 'Chưa worklog';
+  return '--';
+};
+
+const resolveActionLabel = (row: YeuCau, roleFilter: CustomerRequestRoleFilter): string => {
+  const actionMeta = resolvePrimaryActionMeta(row, roleFilter);
+  if (row.missing_estimate || row.warning_level === 'missing') return 'Bổ sung est';
+  if (actionMeta.kind === 'worklog') return 'Ghi log';
+  if (actionMeta.kind === 'estimate') return 'Bổ sung est';
+  if (actionMeta.kind === 'transition') return actionMeta.label || 'Chuyển bước';
+  return actionMeta.label || 'Xem chi tiết';
+};
+
+const resolveEstimateLine = (row: YeuCau): string => {
+  const estimate = formatHoursValue(row.estimated_hours);
+  const actual = formatHoursValue(row.total_hours_spent ?? row.tong_gio_xu_ly);
+  const usage = row.hours_usage_pct != null ? ` · ${formatPercentValue(row.hours_usage_pct)}` : '';
+  return `Est ${estimate} / Act ${actual}${usage}`;
+};
 
 const SummaryCell: React.FC<{
   label: string;
@@ -212,7 +454,7 @@ const RequestCardRow: React.FC<{
                 {isPinned ? 'star' : 'star_outline'}
               </span>
             </button>
-            <span className="rounded-[var(--ui-control-radius)] bg-gradient-to-br from-slate-100 to-slate-200 px-3 py-1.5 text-xs font-bold tracking-wide text-slate-700 shadow-sm">
+            <span className="rounded-[var(--ui-control-radius)] bg-gradient-to-br from-slate-100 to-slate-200 px-3 py-1.5 font-sans text-xs font-bold text-slate-700 shadow-sm">
               {row.ma_yc ?? row.request_code ?? '--'}
             </span>
           </div>
@@ -250,6 +492,9 @@ const RequestTableRow: React.FC<{
   isActive: boolean;
   isPinned: boolean;
   layoutMode: CustomerRequestResponsiveLayoutMode;
+  viewPreset: CustomerRequestListViewPreset;
+  visibleColumns: Set<CustomerRequestListColumnKey>;
+  requestRoleFilter: CustomerRequestRoleFilter;
   onSelectRow: (row: YeuCau) => void;
   onTogglePinRequest?: (row: YeuCau) => void;
 }> = ({
@@ -257,17 +502,281 @@ const RequestTableRow: React.FC<{
   isActive,
   isPinned,
   layoutMode,
+  viewPreset,
+  visibleColumns,
+  requestRoleFilter,
   onSelectRow,
   onTogglePinRequest,
 }) => {
   const handlerMeta = resolveHandlerSummaryMeta(row);
   const hoursMeta = resolveHoursSummaryMeta(row);
-  const isWide = layoutMode === 'desktopWide';
-  const isCompact = layoutMode === 'desktopCompact';
-  const cellPaddingCls = isCompact ? 'px-3 py-3' : 'px-3 py-3.5';
-  const compactTextCls = isCompact ? 'text-[13px]' : 'text-sm';
+  const statusMeta = resolveRequestStatusMeta(row);
+  const rowClass = LIST_ROW_CLASS;
+  const tableColumns = resolveListTableColumns(viewPreset, visibleColumns);
+  const rowTitle = row.tieu_de ?? row.summary ?? '--';
+  const requestCode = row.ma_yc ?? row.request_code ?? '--';
+  const contextCaption =
+    buildRequestContextCaption(row) || 'Chưa có khách hàng / dự án / sản phẩm';
+  const creatorName = resolveCreatorName(row);
+  const statusLabel = resolveStatusLabel(row);
+  const projectManagerLabel = resolveProjectManagerLabel(row);
+  const accountableName = resolveAccountableLabel(row);
+  const currentOwnerLabel = resolveCurrentOwnerLabel(row);
+  const tagFileTaskSummary = resolveTagFileTaskSummary(row);
+  const estimateLine = resolveEstimateLine(row);
+  const nextActionLabel = resolveActionLabel(row, requestRoleFilter);
+  const blockerLabel = resolveBlockerLabel(row);
+  const createdDateLabel = resolveCreatedLabel(row);
   const executionDateLabel = resolveExecutionLabel(row);
   const completedDateLabel = resolveCompletedLabel(row);
+  const lastWorklogLabel = resolveLastWorklogLabel(row);
+  const openedAgeLabel = resolveDaysSinceLabel(row.created_at);
+  const stepAgeLabel = resolveDaysSinceLabel(row.current_entered_at);
+  const secondaryTextCls = `${rowClass.secondary} font-medium text-[color:var(--ui-text-muted)]`;
+  const labelTextCls = `${rowClass.secondary} font-bold uppercase text-[color:var(--ui-text-subtle)]`;
+  const hasColumn = (key: CustomerRequestListColumnKey): boolean =>
+    key === 'code' || key === 'title' || visibleColumns.has(key);
+  const renderRequestCell = (
+    <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {hasColumn('code') ? (
+          <span className="inline-flex max-w-full items-center rounded-[var(--ui-control-radius)] bg-primary/10 px-2 py-0.5 font-sans text-[11px] font-bold text-primary">
+            {requestCode}
+          </span>
+        ) : null}
+        {hasColumn('status') ? (
+          <span className="inline-flex min-w-0 items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+            <span className="truncate">{statusLabel}</span>
+          </span>
+        ) : null}
+      </div>
+      {hasColumn('title') ? (
+        <p className={`line-clamp-1 font-bold text-slate-950 ${rowClass.primary}`}>{rowTitle}</p>
+      ) : null}
+      {hasColumn('context') ? (
+        <p className={`line-clamp-1 ${secondaryTextCls}`}>{contextCaption}</p>
+      ) : null}
+      {hasColumn('meta') ? (
+        <p className={`line-clamp-1 ${secondaryTextCls}`}>{tagFileTaskSummary}</p>
+      ) : null}
+    </div>
+  );
+  const renderPeopleCell = (
+    <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+      {hasColumn('creator') ? (
+        <p className={secondaryTextCls}>
+          <span className={labelTextCls}>Người nhập</span> <span className="font-semibold text-slate-800">{creatorName}</span>
+        </p>
+      ) : null}
+      {hasColumn('handler') ? (
+        <p className={secondaryTextCls}>
+          <span className={labelTextCls}>Người xử lý</span> <span className="font-semibold text-slate-800">{handlerMeta.label}</span>
+        </p>
+      ) : null}
+      {hasColumn('pmOwner') ? (
+        <p className={secondaryTextCls}>
+          <span className={labelTextCls}>PM</span> <span className="font-semibold text-slate-800">{projectManagerLabel}</span>
+        </p>
+      ) : null}
+    </div>
+  );
+  const renderProgressCell = (
+    <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+      {hasColumn('status') ? <div>{renderHealthChips(layoutMode, row)}</div> : null}
+      {hasColumn('estimate') ? (
+        <p className={secondaryTextCls}>
+          <span className={labelTextCls}>Giờ</span> <span className={hoursMeta.valueCls}>{estimateLine}</span>
+        </p>
+      ) : null}
+      {hasColumn('nextAction') ? (
+        <p className={secondaryTextCls}>
+          <span className={labelTextCls}>Next</span> <span className="font-semibold text-slate-800">{nextActionLabel}</span>
+        </p>
+      ) : null}
+    </div>
+  );
+  const renderTimeCell = (
+    <div className={`grid min-w-0 grid-cols-2 gap-x-3 gap-y-1 ${secondaryTextCls}`}>
+      {hasColumn('dates') ? (
+        <>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>TH</span> {executionDateLabel}</span>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>KT</span> {completedDateLabel}</span>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>Tạo</span> {createdDateLabel}</span>
+        </>
+      ) : null}
+      {hasColumn('lastLog') ? (
+        <span className="min-w-0 truncate"><span className={labelTextCls}>Log</span> {lastWorklogLabel}</span>
+      ) : null}
+    </div>
+  );
+  const renderPresetCell = (key: string): React.ReactNode => {
+    if (key === 'requestCode') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <span
+            title={requestCode}
+            className={`line-clamp-1 whitespace-nowrap font-sans font-semibold text-primary ${rowClass.primary}`}
+          >
+            {requestCode}
+          </span>
+        </div>
+      );
+    }
+    if (key === 'requestTitle') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p title={rowTitle} className={`line-clamp-1 font-bold text-slate-950 ${rowClass.primary}`}>{rowTitle}</p>
+          <p title={contextCaption} className={`line-clamp-1 ${secondaryTextCls}`}>{contextCaption}</p>
+        </div>
+      );
+    }
+    if (key === 'requestCreator') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <p title={creatorName} className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{creatorName}</p>
+        </div>
+      );
+    }
+    if (key === 'requestHandler') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <p title={handlerMeta.label} className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{handlerMeta.label}</p>
+        </div>
+      );
+    }
+    if (key === 'requestAccountable') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <p title={accountableName} className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{accountableName}</p>
+        </div>
+      );
+    }
+    if (key === 'requestStatus') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <span
+            title={statusMeta.label}
+            className={`inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${statusMeta.cls}`}
+          >
+            <span className="truncate">{statusMeta.label}</span>
+          </span>
+        </div>
+      );
+    }
+    if (key === 'requestExecutionDate') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <p
+            title={executionDateLabel}
+            className={`line-clamp-1 whitespace-nowrap tabular-nums font-semibold text-slate-900 ${rowClass.primary}`}
+          >
+            {executionDateLabel}
+          </p>
+        </div>
+      );
+    }
+    if (key === 'requestCompletedDate') {
+      return (
+        <div className={`flex min-w-0 items-center ${rowClass.stack}`}>
+          <p
+            title={completedDateLabel}
+            className={`line-clamp-1 whitespace-nowrap tabular-nums font-semibold text-slate-900 ${rowClass.primary}`}
+          >
+            {completedDateLabel}
+          </p>
+        </div>
+      );
+    }
+    if (key === 'request') return renderRequestCell;
+    if (key === 'people') return renderPeopleCell;
+    if (key === 'progress') return renderProgressCell;
+    if (key === 'time') return renderTimeCell;
+    if (key === 'creator') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{creatorName}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}>{contextCaption}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Tạo</span> {createdDateLabel}</p>
+        </div>
+      );
+    }
+    if (key === 'handler') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{handlerMeta.label}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>PM</span> {projectManagerLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Next</span> {nextActionLabel}</p>
+        </div>
+      );
+    }
+    if (key === 'status') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <div>{renderHealthChips(layoutMode, row)}</div>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>TH</span> {executionDateLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>KT</span> {completedDateLabel}</p>
+        </div>
+      );
+    }
+    if (key === 'task') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}>{tagFileTaskSummary}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Owner</span> {currentOwnerLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Next</span> {nextActionLabel}</p>
+        </div>
+      );
+    }
+    if (key === 'estimate') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold ${hoursMeta.valueCls} ${rowClass.primary}`}>{estimateLine}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Log</span> {lastWorklogLabel}</p>
+          <div>{renderHealthChips(layoutMode, row, { includePrimary: false })}</div>
+        </div>
+      );
+    }
+    if (key === 'owner') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold text-slate-900 ${rowClass.primary}`}><span className={labelTextCls}>PM</span> {projectManagerLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Owner</span> {currentOwnerLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Người nhập</span> {creatorName}</p>
+        </div>
+      );
+    }
+    if (key === 'sla') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <div>{renderHealthChips(layoutMode, row)}</div>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Trạng thái</span> {statusLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>SLA</span> {row.sla_due_at ? formatDateTimeDdMmYyyy(row.sla_due_at).slice(0, 16) : '--'}</p>
+        </div>
+      );
+    }
+    if (key === 'age') {
+      return (
+        <div className={`grid min-w-0 grid-cols-2 gap-x-3 gap-y-1 ${secondaryTextCls}`}>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>Mở</span> {openedAgeLabel}</span>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>Bước</span> {stepAgeLabel}</span>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>TH</span> {executionDateLabel}</span>
+          <span className="min-w-0 truncate"><span className={labelTextCls}>KT</span> {completedDateLabel}</span>
+        </div>
+      );
+    }
+    if (key === 'next') {
+      return (
+        <div className={`flex min-w-0 flex-col ${rowClass.stack}`}>
+          <p className={`line-clamp-1 font-semibold ${blockerLabel === '--' ? 'text-slate-700' : 'text-rose-700'} ${rowClass.primary}`}>
+            {blockerLabel}
+          </p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Next</span> {nextActionLabel}</p>
+          <p className={`line-clamp-1 ${secondaryTextCls}`}><span className={labelTextCls}>Xử lý</span> {handlerMeta.label}</p>
+        </div>
+      );
+    }
+    return '--';
+  };
 
   return (
     <tr
@@ -279,13 +788,13 @@ const RequestTableRow: React.FC<{
           onSelectRow(row);
         }
       }}
-      className={`group cursor-pointer border-b border-slate-100 align-top outline-none transition-all last:border-b-0 ${
+      className={`group cursor-pointer border-b border-slate-100 align-middle outline-none transition-all last:border-b-0 ${
         isActive
           ? 'bg-gradient-to-r from-primary/[0.08] to-primary/[0.04]'
           : 'hover:bg-gradient-to-r hover:from-slate-50/80 hover:to-slate-100/40 focus:bg-slate-50'
       }`}
     >
-      <td className={`${cellPaddingCls} w-[56px] align-middle text-center`}>
+      <td className={`${rowClass.cell} w-[52px] align-middle text-center`}>
         <button
           type="button"
           onClick={(event) => {
@@ -304,38 +813,11 @@ const RequestTableRow: React.FC<{
           </span>
         </button>
       </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-bold text-primary ${compactTextCls}`}>
-          {row.ma_yc ?? row.request_code ?? '--'}
-        </p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`line-clamp-1 font-bold text-slate-900 ${isCompact ? 'text-[13px] leading-4' : 'text-sm leading-5'}`}>
-          {row.tieu_de ?? row.summary ?? '--'}
-        </p>
-        <p className={`mt-1 text-[11px] leading-5 text-slate-400 ${isWide ? 'line-clamp-2' : 'line-clamp-1'}`}>
-          {buildRequestContextCaption(row) || 'Chưa có khách hàng / dự án / sản phẩm'}
-        </p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-800 ${compactTextCls}`}>
-          {resolveCreatorName(row)}
-        </p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-800 ${compactTextCls}`}>{handlerMeta.label}</p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <div>{renderHealthChips(layoutMode, row)}</div>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-700 ${compactTextCls}`}>
-          {executionDateLabel}
-        </p>
-      </td>
-      <td className={`${cellPaddingCls} align-top`}>
-        <p className={`font-semibold text-slate-700 ${compactTextCls}`}>{completedDateLabel}</p>
-      </td>
+      {tableColumns.map((column) => (
+        <td key={column.key} className={`${rowClass.cell} ${rowClass.row} align-middle`}>
+          {renderPresetCell(column.key)}
+        </td>
+      ))}
     </tr>
   );
 };
@@ -364,8 +846,13 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   requestTagFilter,
   onRequestTagFilterChange,
   requestMissingEstimateFilter,
+  onToggleMissingEstimate,
   requestOverEstimateFilter,
+  onToggleOverEstimate,
   requestSlaRiskFilter,
+  onToggleSlaRisk,
+  alertCounts,
+  isDashboardLoading,
   rows,
   isListLoading,
   selectedRequestId,
@@ -385,7 +872,12 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 }) => {
   const layoutMode = useCustomerRequestResponsiveLayout();
   const [showMobileFilters, setShowMobileFilters] = useState(false);
-  const [isFilterExpanded, setIsFilterExpanded] = useState(true);
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [listViewPreset, setListViewPreset] = useState<CustomerRequestListViewPreset>('standard');
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Set<CustomerRequestListColumnKey>>(
+    () => new Set(DEFAULT_VISIBLE_LIST_COLUMNS)
+  );
   const totalPages = Math.max(1, listMeta.total_pages || 1);
   const safePage = Math.min(listPage, totalPages);
   const isMobile = layoutMode === 'mobile';
@@ -401,17 +893,40 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
     (presentation === 'responsive' &&
       (layoutMode === 'desktopCompact' || layoutMode === 'desktopWide'));
   const toolbarFieldClass = `${
-    isMobile ? 'h-11' : 'h-10'
+    isMobile ? 'h-11' : 'h-8'
   } w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const toolbarSearchClass = `${
-    isMobile ? 'h-11' : 'h-10'
+    isMobile ? 'h-11' : 'h-8'
   } w-full rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] pl-9 pr-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/12`;
   const toolbarSelectTriggerClass = `${
-    isMobile ? 'h-11' : 'h-10'
+    isMobile ? 'h-11' : 'h-8'
   } rounded-[var(--ui-control-radius)] border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] px-3.5 text-sm font-medium text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)] focus:bg-white`;
   const toolbarButtonClass = `${
-    isMobile ? 'h-11' : 'h-10'
+    isMobile ? 'h-11' : 'h-8'
   } inline-flex items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-3 text-xs font-semibold text-[color:var(--ui-text-default)] transition hover:bg-[var(--ui-surface-subtle)]`;
+  const quickFilterButtonBaseClass =
+    'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-bold transition-colors';
+  const tableColumns = resolveListTableColumns(listViewPreset, visibleColumns);
+  const tableColumnCount = tableColumns.length + 1;
+  const tableMinWidthClass = listViewPreset === 'standard'
+    ? (visibleColumns.has('accountable') ? 'min-w-[1698px]' : 'min-w-[1502px]')
+    : 'min-w-[1168px]';
+  const columnOptions = listViewPreset === 'standard' ? STANDARD_LIST_COLUMN_OPTIONS : LIST_COLUMN_OPTIONS;
+  const handleToggleListColumn = (key: CustomerRequestListColumnKey) => {
+    if (key === 'code' || key === 'title') {
+      return;
+    }
+
+    setVisibleColumns((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
   const activeFilterCount = useMemo(
     () =>
       [
@@ -505,6 +1020,129 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
   );
 
   const desktopExpandedFiltersNode = filterControlsNode;
+  const desktopListControlsNode = (
+    <div className="flex flex-wrap items-center gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] px-2 py-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--ui-text-subtle)]">
+          View
+        </span>
+        {LIST_VIEW_PRESETS.map((preset) => {
+          const isActivePreset = preset.key === listViewPreset;
+          return (
+            <button
+              key={preset.key}
+              type="button"
+              aria-pressed={isActivePreset}
+              onClick={() => setListViewPreset(preset.key)}
+              className={`inline-flex h-7 items-center gap-1.5 rounded-[var(--ui-control-radius)] px-2.5 text-xs font-bold transition-colors ${
+                isActivePreset
+                  ? 'bg-primary text-white shadow-[var(--ui-shadow-shell)]'
+                  : 'border border-[var(--ui-border)] bg-white text-[color:var(--ui-text-default)] hover:bg-slate-50'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[15px]" aria-hidden="true">{preset.icon}</span>
+              <span>{preset.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          aria-pressed={requestMissingEstimateFilter}
+          onClick={onToggleMissingEstimate}
+          className={`${quickFilterButtonBaseClass} ${
+            requestMissingEstimateFilter
+              ? 'border-amber-300 bg-amber-100 text-amber-800'
+              : 'border-[var(--ui-border)] bg-white text-[color:var(--ui-text-muted)] hover:bg-slate-50'
+          }`}
+        >
+          Thiếu est
+          <span className="rounded-full bg-white/70 px-1.5 text-[10px]">
+            {isDashboardLoading ? '...' : alertCounts.missing_estimate.toLocaleString('vi-VN')}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={requestOverEstimateFilter}
+          onClick={onToggleOverEstimate}
+          className={`${quickFilterButtonBaseClass} ${
+            requestOverEstimateFilter
+              ? 'border-rose-300 bg-rose-100 text-rose-800'
+              : 'border-[var(--ui-border)] bg-white text-[color:var(--ui-text-muted)] hover:bg-slate-50'
+          }`}
+        >
+          Vượt est
+          <span className="rounded-full bg-white/70 px-1.5 text-[10px]">
+            {isDashboardLoading ? '...' : alertCounts.over_estimate.toLocaleString('vi-VN')}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={requestSlaRiskFilter}
+          onClick={onToggleSlaRisk}
+          className={`${quickFilterButtonBaseClass} ${
+            requestSlaRiskFilter
+              ? 'border-sky-300 bg-sky-100 text-sky-800'
+              : 'border-[var(--ui-border)] bg-white text-[color:var(--ui-text-muted)] hover:bg-slate-50'
+          }`}
+        >
+          SLA risk
+          <span className="rounded-full bg-white/70 px-1.5 text-[10px]">
+            {isDashboardLoading ? '...' : alertCounts.sla_risk.toLocaleString('vi-VN')}
+          </span>
+        </button>
+      </div>
+
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="relative">
+          <button
+            type="button"
+            aria-expanded={showColumnMenu}
+            onClick={() => setShowColumnMenu((value) => !value)}
+            className={`${toolbarButtonClass} gap-1.5 bg-white px-2.5`}
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">view_column</span>
+            <span>Cột</span>
+            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">expand_more</span>
+          </button>
+          {showColumnMenu ? (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-[70] w-[300px] rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-white p-2 shadow-xl">
+              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--ui-text-subtle)]">
+                Cột hiển thị
+              </p>
+              <div className="max-h-64 overflow-y-auto pr-1">
+                {columnOptions.map((option) => {
+                  const isLocked = option.key === 'code' || option.key === 'title';
+                  const isChecked = isLocked || visibleColumns.has(option.key);
+                  return (
+                    <label
+                      key={option.key}
+                      className={`flex items-center gap-2 rounded-[var(--ui-control-radius)] px-2 py-1.5 text-xs font-semibold ${
+                        isLocked ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isLocked}
+                        onChange={() => handleToggleListColumn(option.key)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-primary focus:ring-primary/20"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      {isLocked ? <span className="text-[10px] text-slate-400">bắt buộc</span> : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -727,6 +1365,8 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                     </div>
                   </div>
 
+                  {desktopListControlsNode}
+
                   {isFilterExpanded ? (
                     <div className="rounded-[var(--ui-shell-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] p-3 shadow-inner">
                       {desktopExpandedFiltersNode}
@@ -736,6 +1376,12 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
               )}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {!showFilterToolbar && showTable && !isMobile ? (
+        <div className="shrink-0 rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 shadow-[var(--ui-shadow-shell)]">
+          {desktopListControlsNode}
         </div>
       ) : null}
 
@@ -772,40 +1418,34 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
 
             {showTable ? (
               <div className="h-full overflow-auto rounded-[var(--ui-shell-radius)] border border-[var(--ui-border)] bg-gradient-to-br from-white to-slate-50/50 shadow-xl shadow-slate-200/50">
-                <table className="min-w-[1120px] w-full table-fixed text-sm">
+                <table className={`${tableMinWidthClass} w-full table-fixed text-sm`}>
                   <colgroup>
-                    <col className="w-[56px]" />
-                    <col className="w-[132px]" />
-                    <col className="w-[292px]" />
-                    <col className="w-[160px]" />
-                    <col className="w-[160px]" />
-                    <col className="w-[176px]" />
-                    <col className="w-[158px]" />
-                    <col className="w-[158px]" />
+                    <col className="w-[52px]" />
+                    {tableColumns.map((column) => (
+                      <col key={column.key} className={column.widthClass} />
+                    ))}
                   </colgroup>
                   <thead className="sticky top-0 z-10 border-b border-slate-100 bg-gradient-to-r from-slate-50/95 to-slate-100/90 backdrop-blur-sm">
-                    <tr className="text-left text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                      <th className="px-2 py-3 text-center">
+                    <tr className="text-left text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="px-2 py-2 text-center">
                         <span
                           aria-hidden="true"
-                          className="mx-auto inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-300"
+                          className="mx-auto inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-300"
                         >
                           <span className="material-symbols-outlined text-[16px]">star_outline</span>
                         </span>
                       </th>
-                      <th className="px-3 py-3">Mã yêu cầu</th>
-                      <th className="px-3 py-3">Tên yêu cầu</th>
-                      <th className="px-3 py-3">Người nhập yêu cầu</th>
-                      <th className="px-3 py-3">Người xử lý</th>
-                      <th className="px-3 py-3">Trạng thái XL</th>
-                      <th className="px-3 py-3">Ngày thực hiện</th>
-                      <th className="px-3 py-3">Ngày kết thúc</th>
+                      {tableColumns.map((column) => (
+                        <th key={column.key} className="px-3 py-2">
+                          {column.label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {isListLoading ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-12 text-center">
+                        <td colSpan={tableColumnCount} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined animate-spin text-[32px] text-slate-300">progress_activity</span>
                             <p className="text-sm font-medium text-slate-500">Đang tải danh sách yêu cầu...</p>
@@ -814,7 +1454,7 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                       </tr>
                     ) : rows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-12 text-center">
+                        <td colSpan={tableColumnCount} className="px-4 py-12 text-center">
                           <div className="flex flex-col items-center gap-3">
                             <span className="material-symbols-outlined text-[32px] text-slate-300">inbox</span>
                             <p className="text-sm font-medium text-slate-500">Không có yêu cầu nào phù hợp với bộ lọc hiện tại.</p>
@@ -829,6 +1469,9 @@ export const CustomerRequestListPane: React.FC<CustomerRequestListPaneProps> = (
                           isActive={String(row.id) === String(selectedRequestId)}
                           isPinned={pinnedRequestIds.has(String(row.id))}
                           layoutMode={layoutMode}
+                          viewPreset={listViewPreset}
+                          visibleColumns={visibleColumns}
+                          requestRoleFilter={requestRoleFilter}
                           onSelectRow={onSelectRow}
                           onTogglePinRequest={onTogglePinRequest}
                         />

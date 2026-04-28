@@ -29,8 +29,8 @@ const SURFACE_META: Array<{
     label: 'Danh sách',
     icon: 'table_rows',
     activeClass:
-      'border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-[color:var(--ui-text-default)] shadow-[var(--ui-shadow-shell)]',
-    activeIconClass: 'bg-slate-700 text-white',
+      'border-[var(--ui-primary)] bg-[var(--ui-accent-soft)] text-[color:var(--ui-primary)] shadow-[var(--ui-shadow-shell)]',
+    activeIconClass: 'bg-[var(--ui-primary)] text-white',
   },
   {
     key: 'analytics',
@@ -68,12 +68,12 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
             aria-label={surface.label}
             aria-pressed={isActive}
             onClick={() => onSurfaceChange(surface.key)}
-            className={`group inline-flex shrink-0 items-center transition-all duration-200 ${
+            className={`group inline-flex shrink-0 items-center outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-primary/25 ${
               isCompact ? compactButtonClass : desktopButtonClass
             } ${
               isActive
                 ? surface.activeClass
-                : 'border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] hover:border-slate-300 hover:bg-[var(--ui-surface-subtle)]'
+                : 'border-[var(--ui-border)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] hover:border-[var(--ui-border)] hover:bg-[var(--ui-surface-subtle)]'
             }`}
           >
             <span
@@ -82,7 +82,7 @@ export const CustomerRequestSurfaceSwitch: React.FC<CustomerRequestSurfaceSwitch
               } ${
                 isActive
                   ? surface.activeIconClass
-                  : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+                  : 'bg-[var(--ui-surface-subtle)] text-[color:var(--ui-text-muted)] group-hover:bg-[var(--ui-neutral-badge-bg)]'
               }`}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>

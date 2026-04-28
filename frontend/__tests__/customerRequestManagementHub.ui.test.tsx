@@ -15,6 +15,9 @@ const mockUseCustomerRequestPerformerWorkspace = vi.fn();
 const mockUseCustomerRequestTransition = vi.fn();
 const mockUseCustomerRequestSearch = vi.fn();
 const mockFetchYeuCau = vi.fn();
+const mockFetchCustomerRequestCustomerFilterOptions = vi.fn();
+const mockFetchCustomerRequestProjectFilterOptions = vi.fn();
+const mockFetchCustomerRequestProductFilterOptions = vi.fn();
 const mockFetchCustomerRequestProjectItems = vi.fn();
 const mockFetchWorklogActivityTypes = vi.fn();
 const mockCreateYeuCau = vi.fn();
@@ -76,8 +79,14 @@ vi.mock('../services/v5Api', () => ({
   createYeuCau: (...args: unknown[]) => mockCreateYeuCau(...args),
   createYeuCauEstimate: (...args: unknown[]) => mockCreateYeuCauEstimate(...args),
   deleteYeuCau: vi.fn(),
+  fetchCustomerRequestCustomerFilterOptions: (...args: unknown[]) =>
+    mockFetchCustomerRequestCustomerFilterOptions(...args),
+  fetchCustomerRequestProductFilterOptions: (...args: unknown[]) =>
+    mockFetchCustomerRequestProductFilterOptions(...args),
   fetchCustomerRequestProjectItems: (...args: unknown[]) =>
     mockFetchCustomerRequestProjectItems(...args),
+  fetchCustomerRequestProjectFilterOptions: (...args: unknown[]) =>
+    mockFetchCustomerRequestProjectFilterOptions(...args),
   fetchYeuCau: (...args: unknown[]) => mockFetchYeuCau(...args),
   fetchYeuCauProcessCatalog: (...args: unknown[]) => mockFetchYeuCauProcessCatalog(...args),
   isRequestCanceledError: vi.fn(() => false),
@@ -318,6 +327,18 @@ beforeEach(() => {
       summary: 'Case mở từ attention fallback',
     })
   );
+  mockFetchCustomerRequestCustomerFilterOptions.mockResolvedValue({
+    data: [],
+    meta: { page: 1, per_page: 30, has_more: false },
+  });
+  mockFetchCustomerRequestProjectFilterOptions.mockResolvedValue({
+    data: [],
+    meta: { page: 1, per_page: 30, has_more: false },
+  });
+  mockFetchCustomerRequestProductFilterOptions.mockResolvedValue({
+    data: [],
+    meta: { page: 1, per_page: 30, has_more: false },
+  });
   mockFetchCustomerRequestProjectItems.mockResolvedValue([]);
   mockFetchWorklogActivityTypes.mockResolvedValue([]);
   mockFetchYeuCauProcessCatalog.mockResolvedValue(defaultProcessCatalog);
@@ -585,7 +606,9 @@ describe('CustomerRequestManagementHub UI', () => {
   it('shows backend-filtered performer-lane targets for a new_intake case already assigned to performer', async () => {
     const user = userEvent.setup();
     const pickLabels = (labels: Array<string | null>): string[] =>
-      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Giao PM/Trả YC cho PM'].includes(label));
+      labels
+        .filter((label): label is string => label !== null)
+        .filter((label) => ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Giao PM/Trả YC cho PM'].includes(label));
 
     mockUseCustomerRequestDetail.mockReturnValue({
       processDetail: {
@@ -713,7 +736,9 @@ describe('CustomerRequestManagementHub UI', () => {
   it('shows backend-filtered in_progress outcomes under the XML contract', async () => {
     const user = userEvent.setup();
     const pickLabels = (labels: Array<string | null>): string[] =>
-      labels.filter((label): label is string => Boolean(label) && ['Hoàn thành'].includes(label));
+      labels
+        .filter((label): label is string => label !== null)
+        .filter((label) => ['Hoàn thành'].includes(label));
 
     mockUseCustomerRequestDetail.mockReturnValue({
       processDetail: {
@@ -797,7 +822,9 @@ describe('CustomerRequestManagementHub UI', () => {
   it('builds the PM missing-customer-info decision from backend transition metadata for dispatcher lane', async () => {
     const user = userEvent.setup();
     const pickLabels = (labels: Array<string | null>): string[] =>
-      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không tiếp nhận'].includes(label));
+      labels
+        .filter((label): label is string => label !== null)
+        .filter((label) => ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không tiếp nhận'].includes(label));
     const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('new_intake');
     const assignedToReceiverProcess = {
       process_code: 'assigned_to_receiver',
@@ -917,7 +944,9 @@ describe('CustomerRequestManagementHub UI', () => {
   it('reuses backend PM missing-customer-info decision metadata for returned_to_manager', async () => {
     const user = userEvent.setup();
     const pickLabels = (labels: Array<string | null>): string[] =>
-      labels.filter((label): label is string => Boolean(label) && ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không thực hiện'].includes(label));
+      labels
+        .filter((label): label is string => label !== null)
+        .filter((label) => ['Chờ khách hàng cung cấp thông tin', 'Giao R thực hiện', 'Chuyển BA Phân tích', 'Không thực hiện'].includes(label));
     const waitingCustomerFeedbackProcess = waitingCustomerFeedbackDecisionProcess('returned_to_manager');
     const assignedToReceiverProcess = {
       process_code: 'assigned_to_receiver',
@@ -1295,7 +1324,65 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(screen.queryByRole('button', { name: /Mở chi tiết CRC-202603-0012/i })).not.toBeInTheDocument();
   });
 
-  it('keeps quick chips compact in inbox and removes them when switching to list on mobile', async () => {
+  it('uses project RACI accountable as PM on the tracking board', () => {
+    mockUseCustomerRequestList.mockReturnValue({
+      listRows: [],
+      isListLoading: false,
+      listMeta: {
+        page: 1,
+        per_page: 20,
+        total: 0,
+        total_pages: 1,
+      },
+    });
+
+    mockUseCustomerRequestDashboard.mockReturnValue({
+      isDashboardLoading: false,
+      overviewDashboard: {
+        ...overviewDashboard,
+        summary: {
+          ...overviewDashboard.summary,
+          total_cases: 1,
+        },
+        attention_cases: [{
+          request_case: makeRequest({
+            id: 44,
+            ma_yc: 'CRC-202603-0044',
+            request_code: 'CRC-202603-0044',
+            tieu_de: 'Case có PM từ RACI A',
+            summary: 'Case có PM từ RACI A',
+            accountable_name: 'PM RACI A',
+            pm_name: null,
+            dispatcher_name: null,
+            missing_estimate: true,
+          }),
+          reasons: ['missing_estimate'],
+        }],
+      },
+      roleDashboards: {
+        creator: null,
+        dispatcher: null,
+        performer: null,
+      },
+    });
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /Mở chi tiết CRC-202603-0044/i })).toBeInTheDocument();
+    expect(screen.getByText('PM RACI A')).toBeInTheDocument();
+    expect(screen.queryByText('Chưa có PM')).not.toBeInTheDocument();
+  });
+
+  it('keeps quick chips compact in inbox and retains the shared search layout on mobile', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
 
@@ -1312,18 +1399,9 @@ describe('CustomerRequestManagementHub UI', () => {
 
     expect(screen.getByRole('button', { name: /Ghim 0/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Gần đây/i })).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Mở tìm kiếm/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
     expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).toHaveLength(2);
-
-    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
-    expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
-    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Mở tìm kiếm/i })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).not.toBeInTheDocument();
 
     const refreshedToolbar = screen.getByRole('button', { name: /Làm mới/i }).parentElement as HTMLElement | null;
 
@@ -1334,11 +1412,6 @@ describe('CustomerRequestManagementHub UI', () => {
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText('Tìm mã YC, tên yêu cầu...')).not.toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
-    await waitFor(() => {
       expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
     });
 
@@ -1346,6 +1419,67 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Ghim\s+\d+/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Gần đây/i })).not.toBeInTheDocument();
+  });
+
+  it('places priority after progress and keeps keyword search as an Enter-submit form', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    await openSharedAdvancedFilters(user);
+
+    const progressButton = screen.getByRole('button', { name: 'Tiến trình' });
+    const priorityButton = screen.getByRole('button', { name: 'Ưu tiên' });
+    const keywordInput = screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...');
+    const progressRow = progressButton.closest('.grid');
+
+    expect(priorityButton.closest('.grid')).toBe(progressRow);
+    expect(keywordInput.closest('form')).toHaveAttribute('role', 'search');
+    expect(keywordInput).toHaveAttribute('type', 'search');
+    expect(progressButton.compareDocumentPosition(priorityButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(priorityButton.compareDocumentPosition(keywordInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps row 1 and row 3 visible when toggling shared advanced filters', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CustomerRequestManagementHub
+        customers={[]}
+        customerPersonnel={[]}
+        projectItems={[]}
+        employees={[]}
+        supportServiceGroups={[]}
+        canReadRequests
+      />
+    );
+
+    const filterToggle = screen.getByRole('button', { name: /Bộ lọc/i });
+    expect(filterToggle).toHaveTextContent('Đang ẩn');
+    expect(filterToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(filterToggle).toHaveAttribute('aria-controls', 'customer-request-shared-advanced-filters');
+    expect(screen.queryByRole('button', { name: 'Tiến trình' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ưu tiên' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Khách hàng' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dự án' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sản phẩm' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...')).toBeInTheDocument();
+
+    await user.click(filterToggle);
+
+    expect(screen.getByRole('button', { name: /Bộ lọc/i })).toHaveTextContent('Đang hiện');
+    expect(screen.getByRole('button', { name: /Bộ lọc/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Tiến trình' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ưu tiên' })).toBeInTheDocument();
   });
 
   it('keeps mobile header actions icon-only in one row and hides the subtitle', () => {
@@ -1477,6 +1611,7 @@ describe('CustomerRequestManagementHub UI', () => {
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
 
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 
@@ -1739,7 +1874,8 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    expect(screen.queryByRole('button', { name: 'Tiến trình' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Bộ lọc/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Tiến trình' })).not.toBeInTheDocument();
   });
 
   it('syncs shared draft from applied filters when saved view is applied', async () => {
@@ -1955,6 +2091,7 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(screen.getByText('CRC-202603-0021')).toBeInTheDocument();
     expect(screen.getByText('CRC-202603-0022')).toBeInTheDocument();
 
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 
@@ -2185,6 +2322,7 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.type(searchInput, 'batch');
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 
@@ -2260,7 +2398,8 @@ describe('CustomerRequestManagementHub UI', () => {
     };
     expect(latestBeforeOpen.filters?.status_code).toBeUndefined();
 
-    const processButton = screen.getAllByRole('button', { name: 'Tiến trình' })[0];
+    await openSharedAdvancedFilters(user);
+    const processButton = screen.getByRole('button', { name: 'Tiến trình' });
     await user.click(processButton);
     await user.keyboard('{Escape}');
 
@@ -2270,7 +2409,7 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(latestAfterClose.filters?.status_code).toBeUndefined();
   });
 
-  it('applies date range only on submit and passes created_from/created_to correctly', async () => {
+  it('keeps the default created-date range when submitting shared shell filters without date fields', async () => {
     const user = userEvent.setup();
 
     render(
@@ -2284,28 +2423,30 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    const dateInputs = screen.getAllByDisplayValue(/\d{4}-\d{2}-\d{2}/);
-    await user.clear(dateInputs[0]);
-    await user.type(dateInputs[0], '2026-02-01');
+    const initialArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+      requestKeyword?: string;
+      filters?: { created_from?: string; created_to?: string };
+    };
+    expect(initialArgs.filters?.created_from).toBeTruthy();
+    expect(initialArgs.filters?.created_to).toBeTruthy();
+    expect(screen.queryByDisplayValue(/\d{4}-\d{2}-\d{2}/)).not.toBeInTheDocument();
 
-    await user.clear(dateInputs[1]);
-    await user.type(dateInputs[1], '2026-02-28');
-
-    const before = mockUseCustomerRequestList.mock.calls.length;
-    expect(mockUseCustomerRequestList.mock.calls.length).toBe(before);
+    await user.type(screen.getByPlaceholderText('Tìm mã YC, tên yêu cầu...'), 'date-hidden');
 
     await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
 
     await waitFor(() => {
       const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
+        requestKeyword?: string;
         filters?: { created_from?: string; created_to?: string };
       };
-      expect(latestArgs.filters?.created_from).toBe('2026-02-01 00:00:00');
-      expect(latestArgs.filters?.created_to).toBe('2026-02-28 23:59:59');
+      expect(latestArgs.requestKeyword).toBe('date-hidden');
+      expect(latestArgs.filters?.created_from).toBe(initialArgs.filters?.created_from);
+      expect(latestArgs.filters?.created_to).toBe(initialArgs.filters?.created_to);
     });
   });
 
-  it('keeps mobile filter drawer selections as draft until search submit', async () => {
+  it('keeps mobile shared filter selections as draft until search submit', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
 
@@ -2320,8 +2461,7 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    await user.click(screen.getByRole('button', { name: /Bộ lọc/i }));
-    await user.click(screen.getByRole('button', { name: /Mở tìm kiếm/i }));
+    await openSharedAdvancedFilters(user);
     const processButton = screen.getByRole('button', { name: 'Tiến trình' });
     await user.click(processButton);
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
@@ -2584,6 +2724,7 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(searchButton).toBeDisabled();
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 
@@ -2638,6 +2779,7 @@ describe('CustomerRequestManagementHub UI', () => {
     await user.type(searchInput, 'one-shot');
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 
@@ -2961,9 +3103,7 @@ describe('CustomerRequestManagementHub UI', () => {
     expect(latestArgs.requestKeyword).toBe('');
   });
 
-  it('applies filter changes from shared shell date fields only on search submit', async () => {
-    const user = userEvent.setup();
-
+  it('does not render shared shell date fields after the filter wireframe simplification', () => {
     render(
       <CustomerRequestManagementHub
         customers={[]}
@@ -2975,24 +3115,7 @@ describe('CustomerRequestManagementHub UI', () => {
       />
     );
 
-    const dateInputs = screen.getAllByDisplayValue(/^\d{4}-\d{2}-\d{2}$/);
-    await user.clear(dateInputs[0]);
-    await user.type(dateInputs[0], '2026-03-01');
-    await user.clear(dateInputs[1]);
-    await user.type(dateInputs[1], '2026-03-31');
-
-    const before = mockUseCustomerRequestList.mock.calls.length;
-    expect(mockUseCustomerRequestList.mock.calls.length).toBe(before);
-
-    await user.click(screen.getByRole('button', { name: /Tìm kiếm/i }));
-
-    await waitFor(() => {
-      const latestArgs = mockUseCustomerRequestList.mock.calls.at(-1)?.[0] as {
-        filters?: { created_from?: string; created_to?: string };
-      };
-      expect(latestArgs.filters?.created_from).toBe('2026-03-01 00:00:00');
-      expect(latestArgs.filters?.created_to).toBe('2026-03-31 23:59:59');
-    });
+    expect(screen.queryByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).not.toBeInTheDocument();
   });
 
   it('keeps clear-filter behavior as immediate reset + API reload', async () => {
@@ -3065,6 +3188,7 @@ describe('CustomerRequestManagementHub UI', () => {
     );
 
     await user.click(getSurfaceSwitchButton('Danh sách', false));
+    await openSharedAdvancedFilters(user);
     await user.click(screen.getByRole('button', { name: 'Tiến trình' }));
     await user.click(screen.getByRole('button', { name: 'Tiếp nhận' }));
 

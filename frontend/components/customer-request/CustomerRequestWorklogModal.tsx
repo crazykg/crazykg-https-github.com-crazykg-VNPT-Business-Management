@@ -5,6 +5,14 @@ import type { WorklogActivityTypeOption } from '../../types/support';
 import type { YeuCauHoursReport, YeuCauWorklog } from '../../types/customerRequest';
 import { formatCurrentDateTimeForInput, normalizeText } from './helpers';
 import { formatHoursValue } from './presentation';
+import {
+  customerRequestCheckboxRowClass,
+  customerRequestFieldClass,
+  customerRequestFieldLabelClass,
+  customerRequestPrimaryButtonClass,
+  customerRequestSecondaryButtonClass,
+  customerRequestTextareaClass,
+} from './uiClasses';
 
 export type CustomerRequestWorklogMode = 'worklog' | 'detail_status_worklog' | 'edit_worklog';
 
@@ -91,15 +99,11 @@ const resolveHeaderCaption = (context: CustomerRequestWorklogModalContext): { ey
 
 const modalOverlayClassName = 'fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4';
 const modalPanelClassName = 'flex max-h-[calc(100dvh-24px)] w-full max-w-[760px] flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl sm:max-h-[calc(100dvh-32px)]';
-const fieldLabelClassName = 'mb-1 block text-xs font-semibold leading-5 text-neutral';
-const fieldInputClassName =
-  'h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm leading-5 text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400';
-const fieldTextareaClassName =
-  'w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-5 text-slate-900 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400';
-const secondaryButtonClassName =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold leading-5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:w-auto';
-const primaryButtonClassName =
-  'inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold leading-5 text-white transition hover:brightness-105 disabled:opacity-50 sm:w-auto';
+const fieldLabelClassName = `mb-1 ${customerRequestFieldLabelClass}`;
+const fieldInputClassName = customerRequestFieldClass;
+const fieldTextareaClassName = customerRequestTextareaClass;
+const secondaryButtonClassName = `${customerRequestSecondaryButtonClass} w-full sm:w-auto`;
+const primaryButtonClassName = `${customerRequestPrimaryButtonClass} w-full sm:w-auto`;
 
 type CustomerRequestWorklogModalProps = {
   open: boolean;
@@ -345,7 +349,7 @@ export const CustomerRequestWorklogModal: React.FC<CustomerRequestWorklogModalPr
             <p aria-hidden="true" className={`hidden md:block ${fieldLabelClassName} select-none opacity-0`}>
               Tính vào giờ tính phí
             </p>
-            <label className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3">
+            <label className={customerRequestCheckboxRowClass}>
               <input
                 type="checkbox"
                 checked={isBillable}

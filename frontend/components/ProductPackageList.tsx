@@ -47,6 +47,12 @@ const PRODUCT_PACKAGE_PDF_EXPORT_HEADERS = [
   'Trạng thái',
 ];
 
+const PRODUCT_PACKAGE_DENSE_TOOLBAR_INPUT_CLASSNAME =
+  'h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-1 focus:ring-primary/30';
+const PRODUCT_PACKAGE_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME =
+  '!h-8 !min-h-0 !rounded-md !border !border-slate-200 !bg-slate-50 !px-3 !py-0 !text-xs !text-slate-700 shadow-sm hover:!bg-white';
+const PRODUCT_PACKAGE_PAGE_SIZE_OPTIONS = [10, 15, 30] as const;
+
 const formatVnd = (value: unknown): string => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -82,6 +88,8 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
   const [productFilter, setProductFilter] = useState('');
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [pageSize, setPageSize] = useState<number>(15);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const statusOptions = useMemo(
     () => [
@@ -142,6 +150,11 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
   const serviceGroupCount = new Set(
     filteredPackages.map((item) => String(item.service_group || '')).filter((value) => value !== '')
   ).size;
+  const totalPages = Math.max(1, Math.ceil(filteredPackages.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = filteredPackages.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize;
+  const paginatedPackages = filteredPackages.slice(pageStartIndex, pageStartIndex + pageSize);
+  const pageEndIndex = Math.min(filteredPackages.length, pageStartIndex + pageSize);
 
   const businessById = useMemo(
     () => new Map((businesses || []).map((business) => [String(business.id), business])),
@@ -416,26 +429,33 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50/70 px-3 py-2">
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(320px,1.45fr)_repeat(3,minmax(190px,0.9fr))]">
+          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(320px,1.45fr)_repeat(3,minmax(180px,0.85fr))_minmax(180px,0.78fr)]">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>
+              <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 15 }}>
                 search
               </span>
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setCurrentPage(1);
+                }}
                 placeholder="Tìm mã gói, tên gói hoặc sản phẩm..."
-                className="h-8 w-full rounded border border-slate-300 bg-white pl-7 pr-3 text-xs text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-primary focus:ring-1 focus:ring-primary/30"
+                className={PRODUCT_PACKAGE_DENSE_TOOLBAR_INPUT_CLASSNAME}
               />
             </div>
             <SearchableSelect
               label=""
               value={statusFilter}
               options={statusOptions}
-              onChange={(value) => setStatusFilter(normalizeStatusFilter(value))}
+              onChange={(value) => {
+                setStatusFilter(normalizeStatusFilter(value));
+                setCurrentPage(1);
+              }}
               placeholder="Hoạt động"
               compact
+              triggerClassName={PRODUCT_PACKAGE_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
               usePortal
               portalZIndex={2400}
             />
@@ -443,9 +463,13 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
               label=""
               value={serviceGroupFilter}
               options={serviceGroupOptions}
-              onChange={setServiceGroupFilter}
+              onChange={(value) => {
+                setServiceGroupFilter(value);
+                setCurrentPage(1);
+              }}
               placeholder="Nhóm dịch vụ"
               compact
+              triggerClassName={PRODUCT_PACKAGE_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
               usePortal
               portalZIndex={2400}
             />
@@ -453,12 +477,58 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
               label=""
               value={productFilter}
               options={productOptions}
-              onChange={setProductFilter}
+              onChange={(value) => {
+                setProductFilter(value);
+                setCurrentPage(1);
+              }}
               placeholder="Sản phẩm cha"
               compact
+              triggerClassName={PRODUCT_PACKAGE_DENSE_TOOLBAR_SELECT_TRIGGER_CLASSNAME}
               usePortal
               portalZIndex={2400}
+              portalMinWidth={320}
+              portalMaxWidth={520}
+              optionEstimateSize={34}
+              dropdownClassName="max-w-[520px]"
+              renderOptionContent={(option, { isSelected }) => (
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate text-left text-xs leading-4" title={option.label}>
+                    {option.label}
+                  </span>
+                  {isSelected ? (
+                    <span className="material-symbols-outlined shrink-0 text-primary" style={{ fontSize: 14 }}>
+                      check
+                    </span>
+                  ) : null}
+                </div>
+              )}
             />
+            <div className="flex h-8 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 shadow-sm">
+              <span className="text-[11px] font-semibold text-slate-500">Dòng/trang</span>
+              <div className="flex items-center gap-1">
+                {PRODUCT_PACKAGE_PAGE_SIZE_OPTIONS.map((option) => {
+                  const isSelected = pageSize === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setPageSize(option);
+                        setCurrentPage(1);
+                      }}
+                      className={`inline-flex h-6 min-w-7 items-center justify-center rounded px-1.5 text-[11px] font-bold transition-colors ${
+                        isSelected
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                      }`}
+                      aria-pressed={isSelected}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -470,143 +540,116 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
           </div>
         ) : (
           <>
-            <div className="hidden overflow-x-auto xl:block">
-              <table className="w-full min-w-[1490px] table-fixed border-collapse text-left">
-                <colgroup>
-                  <col className="w-[56px]" />
-                  <col className="w-[132px]" />
-                  <col className="w-[280px]" />
-                  <col className="w-[250px]" />
-                  <col className="w-[186px]" />
-                  <col className="w-[262px]" />
-                  <col className="w-[128px]" />
-                  <col className="w-[88px]" />
-                  <col className="w-[126px]" />
-                  <col className="w-[96px]" />
-                </colgroup>
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-200">
-                    {[
-                      { label: 'STT', className: 'text-left' },
-                      { label: 'Mã gói', className: 'text-left' },
-                      { label: 'Tên gói cước', className: 'text-left' },
-                      { label: 'Mô tả', className: 'text-left' },
-                      { label: PRODUCT_PACKAGE_PRICE_LABEL, className: 'text-right' },
-                      { label: 'Sản phẩm/Dịch vụ', className: 'text-left' },
-                      { label: 'Nhóm dịch vụ', className: 'text-left' },
-                      { label: 'ĐVT', className: 'text-left' },
-                      { label: 'Trạng thái', className: 'text-left' },
-                      { label: 'Thao tác', className: 'text-right' },
-                    ].map((item) => (
-                      <th
-                        key={item.label}
-                        className={`px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 ${
-                          item.label === PRODUCT_PACKAGE_PRICE_LABEL ? 'pr-5 whitespace-nowrap' : ''
-                        } ${item.label === 'Sản phẩm/Dịch vụ' ? 'pl-5' : ''} ${item.className}`}
-                      >
-                        {item.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredPackages.map((item, index) => {
-                    const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
-                    const isActive = item.is_active !== false;
-                    return (
-                      <tr key={String(item.id)} className="transition-colors hover:bg-slate-50/80">
-                        <td className="px-3 py-2 text-xs font-semibold text-slate-500">{index + 1}</td>
-                        <td className="px-3 py-2 align-middle text-xs font-semibold text-deep-teal">{item.package_code}</td>
-                        <td className="px-3 py-2 align-middle text-xs font-semibold leading-5 text-slate-900 break-words">{item.package_name}</td>
-                        <td className="px-3 py-2 align-middle text-[11px] leading-5 text-slate-500 break-words">
+            <div className="hidden lg:block">
+              <div className="grid grid-cols-[minmax(240px,1.4fr)_minmax(190px,0.95fr)_minmax(118px,0.58fr)_126px_98px] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <div>Gói cước</div>
+                <div>Sản phẩm cha</div>
+                <div className="text-right">Giá / ĐVT</div>
+                <div className="text-center">Trạng thái</div>
+                <div className="text-right">Thao tác</div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {paginatedPackages.map((item) => {
+                  const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
+                  const isActive = item.is_active !== false;
+                  return (
+                    <div
+                      key={String(item.id)}
+                      className="grid min-h-[58px] grid-cols-[minmax(240px,1.4fr)_minmax(190px,0.95fr)_minmax(118px,0.58fr)_126px_98px] items-center gap-2 px-3 py-2 transition-colors hover:bg-slate-50/80"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 text-xs font-bold text-deep-teal">{item.package_code}</span>
+                          <span className="min-w-0 truncate text-xs font-semibold text-slate-900">{item.package_name}</span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
                           {String(item.description || '').trim() || '—'}
-                        </td>
-                        <td className="px-5 py-2 align-middle text-right text-xs font-bold tabular-nums text-slate-900 whitespace-nowrap">{formatVnd(item.standard_price)}</td>
-                        <td className="px-5 py-2 align-middle text-xs leading-5 text-slate-700">
-                          <div className="font-semibold text-slate-900">{item.product_name || '—'}</div>
-                        </td>
-                        <td className="px-3 py-2 align-middle text-xs">
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
-                            {getProductServiceGroupShortLabel(item.service_group)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 align-middle text-xs text-slate-600">{formatProductUnitForDisplay(item.unit)}</td>
-                        <td className="px-3 py-2 align-middle text-xs">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                          }`}>
-                            {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 align-middle">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => onOpenModal('PRODUCT_PACKAGE_FEATURE_CATALOG', item)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-secondary/30 hover:bg-slate-100 hover:text-secondary"
-                              title="Danh mục tính năng"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
-                            </button>
-                            {canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenModal('EDIT_PRODUCT_PACKAGE', item)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/30 hover:bg-slate-100 hover:text-primary"
-                                title="Chỉnh sửa"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenModal('DELETE_PRODUCT_PACKAGE', item)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-error/20 hover:bg-red-50 hover:text-error"
-                                title="Xóa"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-semibold text-slate-800">{item.product_name || '—'}</div>
+                        <span className={`mt-1 inline-flex max-w-full rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
+                          {getProductServiceGroupShortLabel(item.service_group)}
+                        </span>
+                      </div>
+                      <div className="min-w-0 text-right">
+                        <div className="whitespace-nowrap text-right text-xs font-bold tabular-nums text-slate-900">{formatVnd(item.standard_price)}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-slate-500">{formatProductUnitForDisplay(item.unit)}</div>
+                      </div>
+                      <div className="flex justify-center">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </div>
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onOpenModal('PRODUCT_PACKAGE_FEATURE_CATALOG', item)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-secondary/30 hover:bg-slate-100 hover:text-secondary"
+                          title="Danh mục tính năng"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
+                        </button>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenModal('EDIT_PRODUCT_PACKAGE', item)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-primary/30 hover:bg-slate-100 hover:text-primary"
+                            title="Chỉnh sửa"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenModal('DELETE_PRODUCT_PACKAGE', item)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition-colors hover:border-error/20 hover:bg-red-50 hover:text-error"
+                            title="Xóa"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 p-3 xl:hidden">
-              {filteredPackages.map((item) => {
+            <div className="grid grid-cols-1 gap-2 p-3 lg:hidden">
+              {paginatedPackages.map((item) => {
                 const serviceGroupMeta = getProductServiceGroupMeta(item.service_group);
                 const isActive = item.is_active !== false;
                 return (
-                  <article key={String(item.id)} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
+                  <article key={String(item.id)} className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{item.package_code}</p>
-                        <h3 className="mt-1 break-words text-sm font-bold text-slate-900">{item.package_name}</h3>
-                        <p className="mt-1 text-xs leading-5 text-slate-500">{String(item.description || '').trim() || '—'}</p>
+                        <h3 className="mt-0.5 truncate text-sm font-bold text-slate-900">{item.package_name}</h3>
+                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500">{String(item.description || '').trim() || '—'}</p>
                       </div>
                       <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${serviceGroupMeta.badgeClassName}`}>
                         {getProductServiceGroupShortLabel(item.service_group)}
                       </span>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2 text-[11px] text-slate-600">
-                      <p><span className="font-semibold text-slate-700">{PRODUCT_PACKAGE_PRICE_LABEL}:</span> <span className="font-semibold text-deep-teal">{formatVnd(item.standard_price)}</span></p>
-                      <p><span className="font-semibold text-slate-700">Sản phẩm/Dịch vụ:</span> {item.product_name || '—'}</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                      <p className="min-w-0 truncate"><span className="font-semibold text-slate-700">SP:</span> {item.product_name || '—'}</p>
+                      <p className="text-right"><span className="font-semibold text-deep-teal">{formatVnd(item.standard_price)}</span></p>
                       <p><span className="font-semibold text-slate-700">ĐVT:</span> {formatProductUnitForDisplay(item.unit)}</p>
+                      <p className="text-right">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
+                        </span>
+                      </p>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                      }`}>
-                        {isActive ? 'Hoạt động' : 'Ngưng hoạt động'}
-                      </span>
-                      <div className="flex flex-wrap gap-2">
+                    <div className="mt-2 flex justify-end gap-2 border-t border-slate-100 pt-2">
                         <button
                           type="button"
                           onClick={() => onOpenModal('PRODUCT_PACKAGE_FEATURE_CATALOG', item)}
@@ -635,11 +678,39 @@ export const ProductPackageList: React.FC<ProductPackageListProps> = ({
                             Xóa
                           </button>
                         )}
-                      </div>
                     </div>
                   </article>
                 );
               })}
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] font-medium text-slate-500">
+                Hiển thị <span className="font-bold text-slate-700">{pageStartIndex + 1}-{pageEndIndex}</span> / {filteredPackages.length} gói
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(Math.max(1, safeCurrentPage - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Trang trước"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
+                </button>
+                <span className="min-w-[72px] text-center text-[11px] font-semibold text-slate-600">
+                  Trang {safeCurrentPage}/{totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(Math.min(totalPages, safeCurrentPage + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Trang sau"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
+                </button>
+              </div>
             </div>
           </>
         )}
