@@ -266,11 +266,34 @@ export function CascadingEntitySearchFilter({
   searchInputRef,
   showSearchRow = true,
 }: CascadingEntitySearchFilterProps) {
+  const availableProjects = useMemo<Project[]>(() => {
+    const map = new Map<string, Project>();
+    projects.forEach((project) => {
+      const projectId = toId(project.id);
+      if (projectId) map.set(projectId, project);
+    });
+
+    projectItems.forEach((item) => {
+      const projectId = toId(item.project_id);
+      if (!projectId || map.has(projectId)) return;
+      if (!item.project_code && !item.project_name && !item.customer_id) return;
+      map.set(projectId, {
+        id: item.project_id,
+        project_code: item.project_code || `DA-${projectId}`,
+        project_name: item.project_name || item.project_code || `Dự án ${projectId}`,
+        customer_id: item.customer_id ?? null,
+        status: '',
+      } as Project);
+    });
+
+    return Array.from(map.values());
+  }, [projectItems, projects]);
+
   const projectById = useMemo(() => {
     const map = new Map<string, Project>();
-    projects.forEach((project) => map.set(toId(project.id), project));
+    availableProjects.forEach((project) => map.set(toId(project.id), project));
     return map;
-  }, [projects]);
+  }, [availableProjects]);
 
   const customerOptions = useMemo<MultiSearchOption[]>(() => (
     customers
@@ -287,7 +310,7 @@ export function CascadingEntitySearchFilter({
   const selectedCustomerSet = useMemo(() => new Set(value.customerIds.map(toId).filter(Boolean)), [value.customerIds]);
 
   const projectOptions = useMemo<MultiSearchOption[]>(() => (
-    projects
+    availableProjects
       .filter((project) => selectedCustomerSet.size === 0 || selectedCustomerSet.has(toId(project.customer_id)))
       .map((project) => ({
         value: toId(project.id),
@@ -297,7 +320,7 @@ export function CascadingEntitySearchFilter({
       }))
       .filter((option) => option.value)
       .sort((left, right) => left.label.localeCompare(right.label, 'vi'))
-  ), [projects, selectedCustomerSet]);
+  ), [availableProjects, selectedCustomerSet]);
 
   const selectedProjectSet = useMemo(() => new Set(value.projectIds.map(toId).filter(Boolean)), [value.projectIds]);
   const scopedProjectIdsForProducts = useMemo(() => {

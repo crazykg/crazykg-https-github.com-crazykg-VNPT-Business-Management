@@ -99,7 +99,7 @@ describe('ProcedureAttachmentPanel', () => {
 
     const filePanel = screen.getByTestId('step-file-panel-7001');
     expect(filePanel).toBeInTheDocument();
-    expect(filePanel).toHaveAttribute('colspan', '12');
+    expect(filePanel).toHaveAttribute('colspan', '13');
     expect(screen.getByDisplayValue('VB-01')).toBeInTheDocument();
     expect(screen.getByDisplayValue('30/03/2026')).toBeInTheDocument();
     expect(screen.getByTestId('mock-attachment-count')).toHaveTextContent('1');

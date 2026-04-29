@@ -2,6 +2,7 @@ import type { Attachment, ContractSignerOption } from '../../types';
 import type { PaginatedQuery, PaginatedResult } from '../../types/common';
 import type {
   AddWorklogPayload,
+  CreateProcedurePublicSharePayload,
   IssueStatus,
   PaymentCycle,
   ProcedureExportFormat,
@@ -771,13 +772,14 @@ export const exportProjectProcedure = async (
 };
 
 export const createProcedurePublicShare = async (
-  procedureId: string | number
+  procedureId: string | number,
+  payload: CreateProcedurePublicSharePayload
 ): Promise<ProcedurePublicShareResult> => {
   const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/public-share`, {
     method: 'POST',
     credentials: 'include',
     headers: JSON_HEADERS,
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -799,14 +801,23 @@ export const revokeProcedurePublicShare = async (procedureId: string | number): 
   }
 };
 
-export const fetchPublicProcedureShare = async (token: string): Promise<PublicProcedurePayload> => {
+export const fetchPublicProcedureShare = async (
+  token: string,
+  accessKey: string
+): Promise<PublicProcedurePayload> => {
   const res = await globalThis.fetch(`/api/v5/public/project-procedure-shares/${encodeURIComponent(token)}`, {
+    method: 'POST',
     credentials: 'omit',
-    headers: JSON_ACCEPT_HEADER,
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ access_key: accessKey }),
   });
 
   if (!res.ok) {
-    throw new Error(await parseErrorMessage(res, 'FETCH_PUBLIC_PROCEDURE_SHARE_FAILED'));
+    const error = new Error(await parseErrorMessage(res, 'FETCH_PUBLIC_PROCEDURE_SHARE_FAILED')) as Error & {
+      status?: number;
+    };
+    error.status = res.status;
+    throw error;
   }
 
   return parseItemJson<PublicProcedurePayload>(res);

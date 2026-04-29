@@ -21,6 +21,7 @@ const TAB_PERMISSION_MAP: Record<string, string | null> = {
   reminders: 'reminders.read',
   department_weekly_schedule_management: 'support_requests.read',
   customer_request_management: 'support_requests.read',
+  workload_summary: 'workload.read',
   workflow_mgmt: 'workflow.manage',
   support_master_management: null,
   procedure_template_config: 'projects.read',

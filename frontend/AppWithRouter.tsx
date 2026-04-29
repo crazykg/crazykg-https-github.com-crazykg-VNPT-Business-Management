@@ -8,7 +8,7 @@ import { queryClient } from './shared/queryClient';
 const AppRouteSwitch: React.FC = () => {
   const location = useLocation();
 
-  if (location.pathname.startsWith('/public/project-procedure/')) {
+  if (location.pathname === '/public/project-procedure' || location.pathname.startsWith('/public/project-procedure/')) {
     return <PublicProjectProcedurePage />;
   }
 

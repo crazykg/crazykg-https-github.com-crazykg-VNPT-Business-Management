@@ -167,9 +167,7 @@ describe('Project special statuses UI', () => {
     expect(within(pausedRow as HTMLElement).getByTitle('Tạm ngưng')).toHaveClass('bg-amber-100', 'text-amber-800');
     expect(within(cancelledRow as HTMLElement).getByTitle('Huỷ')).toHaveClass('bg-red-100', 'text-red-800');
 
-    await user.click(screen.getByRole('button', { name: 'Tất cả trạng thái' }));
-    await user.click(screen.getByRole('button', { name: 'Huỷ' }));
-    await user.click(screen.getByTitle('Tìm kiếm (Enter)'));
+    await user.click(screen.getByRole('button', { name: 'Lọc trạng thái Huỷ' }));
 
     expect(screen.getByText('Du an huy')).toBeInTheDocument();
     expect(screen.queryByText('Du an tam ngung')).not.toBeInTheDocument();
@@ -229,6 +227,7 @@ describe('Project special statuses UI', () => {
       />
     );
 
+    await user.click(screen.getByTestId('project-advanced-filter-toggle'));
     await user.click(screen.getByRole('button', { name: 'Tất cả phòng ban' }));
     const searchInput = screen.getByRole('textbox', { name: 'Tìm kiếm...' });
 

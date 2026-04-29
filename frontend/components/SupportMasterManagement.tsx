@@ -19,14 +19,16 @@ import type {
   WorklogActivityTypeOption,
   WorkCalendarDay,
 } from '../types';
-import type { SupportAuthSessionPolicy } from '../types/support';
+import type { SupportAuthSessionPolicy, SupportProjectWorklogDatetimePolicy } from '../types/support';
 import {
   fetchMonthlyCalendars,
   updateCalendarDay,
   generateCalendarYear,
 } from '../services/v5Api';
 import {
+  fetchSupportProjectWorklogDatetimePolicy,
   fetchSupportAuthSessionPolicy,
+  updateSupportProjectWorklogDatetimePolicy,
   updateSupportAuthSessionPolicy,
 } from '../services/api/supportConfigApi';
 import { PaginationControls } from './PaginationControls';
@@ -39,6 +41,7 @@ type MasterType =
   | 'product_unit'
   | 'contract_signer'
   | 'auth_session_policy'
+  | 'project_worklog_datetime_policy'
   | 'product_sales_config'
   | 'status'
   | 'project_type'
@@ -638,9 +641,16 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
   const [isAuthSessionPolicyLoading, setIsAuthSessionPolicyLoading] = useState(false);
   const [isAuthSessionPolicySaving, setIsAuthSessionPolicySaving] = useState(false);
   const [authSessionPolicyError, setAuthSessionPolicyError] = useState('');
+  const [projectWorklogDatetimePolicy, setProjectWorklogDatetimePolicy] = useState<SupportProjectWorklogDatetimePolicy | null>(null);
+  const [projectWorklogDatetimeDraftEnabled, setProjectWorklogDatetimeDraftEnabled] = useState(false);
+  const [isProjectWorklogDatetimePolicyLoading, setIsProjectWorklogDatetimePolicyLoading] = useState(false);
+  const [isProjectWorklogDatetimePolicySaving, setIsProjectWorklogDatetimePolicySaving] = useState(false);
+  const [projectWorklogDatetimePolicyError, setProjectWorklogDatetimePolicyError] = useState('');
 
   const canReadAuthSessionPolicy = canReadStatuses;
   const canWriteAuthSessionPolicy = canWriteStatuses;
+  const canReadProjectWorklogDatetimePolicy = canReadStatuses;
+  const canWriteProjectWorklogDatetimePolicy = canWriteStatuses;
 
   const customerOptions = useMemo<SearchableSelectOption[]>(() => {
     const options: SearchableSelectOption[] = customers.map((item) => ({
@@ -850,6 +860,9 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     if (canReadAuthSessionPolicy) {
       options.push({ value: 'auth_session_policy', label: 'Phiên đăng nhập nhiều tab' });
     }
+    if (canReadProjectWorklogDatetimePolicy) {
+      options.push({ value: 'project_worklog_datetime_policy', label: 'Ngày giờ worklog dự án' });
+    }
 
     if (canReadProjectTypes) {
       options.push({ value: 'project_type', label: 'Loại dự án - quản lý dự án' });
@@ -872,6 +885,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     canReadProductUnitMasters,
     canReadContractSigners,
     canReadAuthSessionPolicy,
+    canReadProjectWorklogDatetimePolicy,
     canReadStatuses,
     canReadProjectTypes,
     canReadWorklogActivityTypes,
@@ -890,6 +904,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         ? canWriteContractSigners
       : masterType === 'auth_session_policy'
         ? canWriteAuthSessionPolicy
+      : masterType === 'project_worklog_datetime_policy'
+        ? canWriteProjectWorklogDatetimePolicy
       : masterType === 'product_sales_config'
         ? canWriteProducts
       : masterType === 'status'
@@ -906,6 +922,10 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
 
   const authSessionPolicyDirty = authSessionPolicy !== null
     && authSessionPolicyDraftEnabled !== (authSessionPolicy.same_browser_multi_tab_enabled !== false);
+  const projectWorklogDatetimePolicyDirty = projectWorklogDatetimePolicy !== null
+    && projectWorklogDatetimeDraftEnabled !== (projectWorklogDatetimePolicy.project_worklog_datetime_enabled === true);
+  const isSingletonMasterType = masterType === 'auth_session_policy'
+    || masterType === 'project_worklog_datetime_policy';
 
   const nextStatusSortOrder = useMemo(() => {
     const maxSort = (supportRequestStatuses || []).reduce((max, item) => {
@@ -1016,6 +1036,44 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
       active = false;
     };
   }, [canReadAuthSessionPolicy]);
+
+  useEffect(() => {
+    if (!canReadProjectWorklogDatetimePolicy) {
+      return;
+    }
+
+    let active = true;
+    setIsProjectWorklogDatetimePolicyLoading(true);
+    setProjectWorklogDatetimePolicyError('');
+
+    void fetchSupportProjectWorklogDatetimePolicy()
+      .then((record) => {
+        if (!active) {
+          return;
+        }
+
+        setProjectWorklogDatetimePolicy(record);
+        setProjectWorklogDatetimeDraftEnabled(record.project_worklog_datetime_enabled === true);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+
+        setProjectWorklogDatetimePolicyError(
+          error instanceof Error ? error.message : 'Không thể tải cấu hình ngày giờ worklog dự án.'
+        );
+      })
+      .finally(() => {
+        if (active) {
+          setIsProjectWorklogDatetimePolicyLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canReadProjectWorklogDatetimePolicy]);
 
   const loadWorkflowConfigs = async (): Promise<void> => {
     // DISABLED: Old workflow config loading - replaced by new Workflow Management module
@@ -1282,6 +1340,8 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
         : masterType === 'contract_signer'
           ? filteredContractSignerMasters.length
         : masterType === 'auth_session_policy'
+          ? 1
+        : masterType === 'project_worklog_datetime_policy'
           ? 1
         : masterType === 'product_sales_config'
           ? filteredProductSalesConfigs.length
@@ -2006,6 +2066,47 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
     }
   };
 
+  const handleResetProjectWorklogDatetimePolicyDraft = () => {
+    if (!projectWorklogDatetimePolicy) {
+      return;
+    }
+
+    setProjectWorklogDatetimeDraftEnabled(projectWorklogDatetimePolicy.project_worklog_datetime_enabled === true);
+    setProjectWorklogDatetimePolicyError('');
+  };
+
+  const handleSaveProjectWorklogDatetimePolicy = async () => {
+    if (!canWriteProjectWorklogDatetimePolicy) {
+      setProjectWorklogDatetimePolicyError('Bạn chưa có quyền cập nhật cấu hình ngày giờ worklog dự án.');
+      return;
+    }
+
+    setIsProjectWorklogDatetimePolicySaving(true);
+    setProjectWorklogDatetimePolicyError('');
+
+    try {
+      const updated = await updateSupportProjectWorklogDatetimePolicy({
+        project_worklog_datetime_enabled: projectWorklogDatetimeDraftEnabled,
+      });
+
+      setProjectWorklogDatetimePolicy(updated);
+      setProjectWorklogDatetimeDraftEnabled(updated.project_worklog_datetime_enabled === true);
+      onNotify?.(
+        'success',
+        'Ngày giờ worklog dự án',
+        updated.project_worklog_datetime_enabled === true
+          ? 'Đã bật ngày giờ bắt buộc cho worklog dự án.'
+          : 'Đã tắt ngày giờ bắt buộc cho worklog dự án.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể lưu cấu hình ngày giờ worklog dự án.';
+      setProjectWorklogDatetimePolicyError(message);
+      onNotify?.('error', 'Lưu cấu hình thất bại', message);
+    } finally {
+      setIsProjectWorklogDatetimePolicySaving(false);
+    }
+  };
+
   return (
     <div
       className="min-w-0 p-4 md:p-8 pb-20 md:pb-8 rounded-2xl"
@@ -2018,7 +2119,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
             Quản trị Nhóm Zalo/Tele, Chức vụ liên hệ, danh mục sản phẩm, người ký hợp đồng, trạng thái hỗ trợ, SLA, lịch làm việc và chính sách phiên đăng nhập.
           </p>
         </div>
-        {masterType !== 'work_calendar' && masterType !== 'product_sales_config' && masterType !== 'auth_session_policy' && (
+        {masterType !== 'work_calendar' && masterType !== 'product_sales_config' && !isSingletonMasterType && (
           <button
             type="button"
             disabled={!canWriteCurrentMaster}
@@ -2091,7 +2192,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Tìm kiếm danh mục..."
-              disabled={masterType === 'auth_session_policy'}
+              disabled={isSingletonMasterType}
               className="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
             />
           </div>
@@ -2105,7 +2206,7 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
               { value: 'inactive', label: 'Ngưng hoạt động' },
             ]}
             placeholder="Lọc hoạt động"
-            disabled={masterType === 'auth_session_policy'}
+            disabled={isSingletonMasterType}
           />
         </div>
       </div>
@@ -2419,6 +2520,102 @@ export const SupportMasterManagement: React.FC<SupportMasterManagementProps> = (
                   className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isAuthSessionPolicySaving ? 'Đang lưu...' : 'Lưu cấu hình'}
+                </button>
+              </div>
+            </div>
+          ) : masterType === 'project_worklog_datetime_policy' ? (
+            <div className="p-5 md:p-6 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                      Ngày giờ worklog dự án
+                    </p>
+                    <h3 className="text-sm font-bold leading-tight text-slate-800">
+                      Bật ngày giờ trong worklog dự án
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Khi bật, worklog thủ tục dự án bắt buộc nhập Từ ngày giờ và Đến ngày giờ.
+                      Hệ thống kiểm tra Từ không lớn hơn Đến và có thể tự tính Giờ theo phút.
+                    </p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={projectWorklogDatetimeDraftEnabled}
+                      onChange={(event) => setProjectWorklogDatetimeDraftEnabled(event.target.checked)}
+                      disabled={
+                        !canWriteProjectWorklogDatetimePolicy
+                        || isProjectWorklogDatetimePolicyLoading
+                        || isProjectWorklogDatetimePolicySaving
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/30 disabled:opacity-50"
+                    />
+                    <span className="text-sm font-semibold text-slate-800">
+                      {projectWorklogDatetimeDraftEnabled ? 'Đang bật ngày giờ' : 'Đang tắt ngày giờ'}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Phạm vi</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">Worklog thủ tục dự án</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Áp dụng cho panel Worklog trong bảng thủ tục dự án.</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Nguồn áp dụng</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {projectWorklogDatetimePolicy?.source === 'DB' ? 'Đang dùng cấu hình đã lưu' : 'Đang dùng mặc định hệ thống'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">Mặc định tắt để giữ flow ghi nhanh hiện tại.</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Cập nhật gần nhất</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {projectWorklogDatetimePolicy?.updated_by_name || 'Chưa có bản ghi'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {projectWorklogDatetimePolicy?.updated_at
+                        ? String(projectWorklogDatetimePolicy.updated_at)
+                        : 'Chưa có thời điểm cập nhật trong cơ sở dữ liệu.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {isProjectWorklogDatetimePolicyLoading ? (
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-600">
+                  Đang tải cấu hình ngày giờ worklog dự án...
+                </div>
+              ) : projectWorklogDatetimePolicyError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {projectWorklogDatetimePolicyError}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetProjectWorklogDatetimePolicyDraft}
+                  disabled={!projectWorklogDatetimePolicyDirty || isProjectWorklogDatetimePolicySaving}
+                  className="h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Khôi phục
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProjectWorklogDatetimePolicy}
+                  disabled={
+                    isProjectWorklogDatetimePolicyLoading
+                    || isProjectWorklogDatetimePolicySaving
+                    || !projectWorklogDatetimePolicyDirty
+                    || !canWriteProjectWorklogDatetimePolicy
+                  }
+                  className="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-deep-teal disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isProjectWorklogDatetimePolicySaving ? 'Đang lưu...' : 'Lưu cấu hình'}
                 </button>
               </div>
             </div>

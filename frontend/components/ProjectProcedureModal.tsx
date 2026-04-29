@@ -11,6 +11,8 @@ import {
   ProcedureRaciEntry,
   IssueStatus,
   ProcedureExportFormat,
+  ProcedurePublicShareResult,
+  ProcedurePublicShareTtlDays,
   ProjectTypeOption,
 } from '../types';
 import {
@@ -24,6 +26,7 @@ import {
   fetchProcedureWorklogs,
   resyncProcedure,
 } from '../services/api/projectApi';
+import { fetchSupportProjectWorklogDatetimePolicy } from '../services/api/supportConfigApi';
 import { hasPermission } from '../utils/authorization';
 import { ProcedureChecklistAdminTab } from './procedure/ProcedureChecklistAdminTab';
 import { ProcedurePhaseGroupSection } from './procedure/ProcedurePhaseGroupSection';
@@ -48,6 +51,29 @@ const PROCEDURE_TABS: { key: ActiveTab; label: string; icon: string }[] = [
   { key: 'raci', label: 'RACI', icon: 'group' },
   { key: 'checklist_admin', label: 'Quản trị checklist', icon: 'dashboard' },
 ];
+
+const PUBLIC_SHARE_TTL_OPTIONS: Array<{
+  value: ProcedurePublicShareTtlDays;
+  label: string;
+}> = [
+  { value: 10, label: '10 ngày' },
+  { value: 30, label: '30 ngày' },
+  { value: 90, label: '90 ngày' },
+];
+
+const DEFAULT_PUBLIC_SHARE_TTL: ProcedurePublicShareTtlDays = 10;
+const PUBLIC_SHARE_KEY_MIN_LENGTH = 4;
+const PUBLIC_SHARE_GENERATED_KEY_LENGTH = 16;
+const PUBLIC_SHARE_KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+
+type PublicShareEmailStatus = NonNullable<ProcedurePublicShareResult['email']>;
+
+interface CreatedPublicShareState {
+  url: string;
+  expiresAtText: string;
+  ttlDays: ProcedurePublicShareTtlDays;
+  email?: PublicShareEmailStatus;
+}
 
 interface ProjectProcedureModalProps {
   project: Project;
@@ -114,6 +140,20 @@ const buildPublicProcedureUrl = (token: string): string => {
   return `${window.location.origin}/public/project-procedure/${encodedToken}`;
 };
 
+const generatePublicShareAccessKey = (): string => {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi?.getRandomValues) {
+    throw new Error('Trình duyệt không hỗ trợ sinh key an toàn. Vui lòng nhập key thủ công.');
+  }
+
+  const values = new Uint32Array(PUBLIC_SHARE_GENERATED_KEY_LENGTH);
+  cryptoApi.getRandomValues(values);
+
+  return Array.from(values)
+    .map((value) => PUBLIC_SHARE_KEY_ALPHABET[value % PUBLIC_SHARE_KEY_ALPHABET.length])
+    .join('');
+};
+
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
     if (navigator.clipboard?.writeText) {
@@ -151,6 +191,32 @@ const formatShareExpiry = (value: string | null | undefined): string => {
     month: '2-digit',
     year: 'numeric',
   });
+};
+
+const resolvePublicShareEmailStatusText = (email: PublicShareEmailStatus | undefined): string => {
+  switch (email?.status) {
+    case 'SUCCESS':
+      return 'Email đã gửi đến người nhận.';
+    case 'FAILED':
+      return `Email chưa gửi được${email.message ? `: ${email.message}` : '.'}`;
+    case 'SKIPPED':
+      return 'Email chưa gửi vì chưa có người nhận hợp lệ.';
+    default:
+      return 'Chưa có trạng thái gửi email.';
+  }
+};
+
+const resolvePublicShareEmailStatusIcon = (email: PublicShareEmailStatus | undefined): string => {
+  switch (email?.status) {
+    case 'SUCCESS':
+      return 'mark_email_read';
+    case 'FAILED':
+      return 'error';
+    case 'SKIPPED':
+      return 'mail_off';
+    default:
+      return 'mail';
+  }
 };
 
 function buildStepDisplayNumberMap(phaseGroups: PhaseGroup[]): Record<string, string> {
@@ -201,10 +267,17 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ProcedureExportFormat | null>(null);
   const [isCreatingPublicShare, setIsCreatingPublicShare] = useState(false);
+  const [isPublicShareDialogOpen, setIsPublicShareDialogOpen] = useState(false);
+  const [publicShareTtlDays, setPublicShareTtlDays] = useState<ProcedurePublicShareTtlDays>(DEFAULT_PUBLIC_SHARE_TTL);
+  const [publicShareAccessKey, setPublicShareAccessKey] = useState('');
+  const [publicShareError, setPublicShareError] = useState('');
+  const [createdPublicShare, setCreatedPublicShare] = useState<CreatedPublicShareState | null>(null);
+  const [publicShareStatusMessage, setPublicShareStatusMessage] = useState('');
 
   // ── Worklog state ──
   const [worklogs,        setWorklogs]        = useState<ProcedureStepWorklog[]>([]);
   const [worklogsLoading, setWorklogsLoading] = useState(false);
+  const [projectWorklogDatetimeEnabled, setProjectWorklogDatetimeEnabled] = useState(false);
 
   // ── RACI state ──
   const [raciMatrixPhase, setRaciMatrixPhase] = useState<string | null>(null);
@@ -215,6 +288,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   // ── Inflight guard — prevent double-submit on any save action ──
   const inflightRef = useRef<Set<string>>(new Set());
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const publicShareKeyInputRef = useRef<HTMLInputElement | null>(null);
   const procedureDatePlaceholder = useMemo(() => formatProcedureDatePlaceholder(), [isOpen, project.id]);
 
   const {
@@ -338,12 +412,16 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     stepWorklogInput,
     stepWorklogSaving,
     stepWorklogHours,
+    stepWorklogStartedAt,
+    stepWorklogEndedAt,
     stepWorklogDifficulty,
     stepWorklogProposal,
     stepWorklogIssueStatus,
     editingWorklogId,
     editWorklogContent,
     editWorklogHours,
+    editWorklogStartedAt,
+    editWorklogEndedAt,
     editWorklogDiff,
     editWorklogProposal,
     editWorklogStatus,
@@ -351,6 +429,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     deletingWorklogId,
     setEditWorklogContent,
     setEditWorklogHours,
+    setEditWorklogStartedAt,
+    setEditWorklogEndedAt,
     setEditWorklogDiff,
     setEditWorklogProposal,
     setEditWorklogStatus,
@@ -365,6 +445,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     handleDeleteStepWorklog,
     handleSetWlogInput,
     handleSetWlogHours,
+    handleSetWlogStartedAt,
+    handleSetWlogEndedAt,
     handleSetWlogDifficulty,
     handleSetWlogProposal,
     handleSetWlogIssueStatus,
@@ -375,6 +457,33 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     setSteps,
     setWorklogs,
   });
+
+  useEffect(() => {
+    if (!isOpen) {
+      setProjectWorklogDatetimeEnabled(false);
+      return;
+    }
+    if (activeTab !== 'steps') {
+      return;
+    }
+
+    let active = true;
+    void fetchSupportProjectWorklogDatetimePolicy()
+      .then((record) => {
+        if (active) {
+          setProjectWorklogDatetimeEnabled(record.project_worklog_datetime_enabled === true);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setProjectWorklogDatetimeEnabled(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeTab, isOpen]);
 
   const handleOpenProcedureAttachments = useCallback((step: ProjectProcedureStep) => {
     closeStepWorklogPanel();
@@ -451,6 +560,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [isExportMenuOpen]);
+
+  useEffect(() => {
+    if (!isPublicShareDialogOpen) return;
+    window.setTimeout(() => publicShareKeyInputRef.current?.focus(), 0);
+  }, [isPublicShareDialogOpen]);
 
   // ── Load worklogs khi chuyển tab — dùng chung cho 'worklog' và 'checklist_admin' ──
   useEffect(() => {
@@ -623,6 +737,12 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     resetProcedureRaci();
     setActiveProcedure(null); setSteps([]); setWorklogs([]);
     setRaciMatrixPhase(null);
+    setIsPublicShareDialogOpen(false);
+    setPublicShareAccessKey('');
+    setPublicShareError('');
+    setCreatedPublicShare(null);
+    setPublicShareStatusMessage('');
+    setPublicShareTtlDays(DEFAULT_PUBLIC_SHARE_TTL);
     setCollapsedPhaseCodes(new Set());
     collapseInitializedProcedureRef.current = null;
     resetProcedureStepWorklogs();
@@ -630,7 +750,18 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     onClose();
   }, [hasDirtyChanges, onClose, resetProcedureAttachments, resetProcedureRaci, resetProcedureStepWorklogs, resetProcedureStepsState]);
 
-  useEscKey(handleClose, isOpen);
+  const handleClosePublicShareDialog = useCallback(() => {
+    if (isCreatingPublicShare) return;
+    setIsPublicShareDialogOpen(false);
+    setPublicShareAccessKey('');
+    setPublicShareError('');
+    setCreatedPublicShare(null);
+    setPublicShareStatusMessage('');
+    setPublicShareTtlDays(DEFAULT_PUBLIC_SHARE_TTL);
+  }, [isCreatingPublicShare]);
+
+  useEscKey(handleClose, isOpen && !isPublicShareDialogOpen);
+  useEscKey(handleClosePublicShareDialog, isOpen && isPublicShareDialogOpen);
 
   const handleReorderStepRow = useCallback((step: ProjectProcedureStep, direction: 'up' | 'down') => {
     return handleReorderStep(steps, step, direction);
@@ -679,7 +810,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     }
   }, [activeProcedure, canExportProcedure, hasDirtyChanges, onNotify]);
 
-  const handleCreatePublicShare = useCallback(async () => {
+  const handleOpenPublicShareDialog = useCallback(() => {
     if (!activeProcedure) return;
     if (!canCreatePublicShare) {
       onNotify?.('error', 'Public thủ tục', 'Bạn không có quyền public bảng thủ tục.');
@@ -690,27 +821,124 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       return;
     }
 
+    setIsExportMenuOpen(false);
+    setPublicShareTtlDays(DEFAULT_PUBLIC_SHARE_TTL);
+    setPublicShareAccessKey('');
+    setPublicShareError('');
+    setCreatedPublicShare(null);
+    setPublicShareStatusMessage('');
+    setIsPublicShareDialogOpen(true);
+  }, [activeProcedure, canCreatePublicShare, hasDirtyChanges, onNotify]);
+
+  const handlePublicShareTtlChange = useCallback((nextTtlDays: ProcedurePublicShareTtlDays) => {
+    setPublicShareTtlDays(nextTtlDays);
+    setCreatedPublicShare(null);
+    setPublicShareStatusMessage('');
+  }, []);
+
+  const handleGeneratePublicShareKey = useCallback(() => {
     try {
+      const generatedKey = generatePublicShareAccessKey();
+      setPublicShareAccessKey(generatedKey);
+      setPublicShareError('');
+      setCreatedPublicShare(null);
+      setPublicShareStatusMessage('Đã sinh key truy cập.');
+      window.setTimeout(() => {
+        publicShareKeyInputRef.current?.focus();
+        publicShareKeyInputRef.current?.select();
+      }, 0);
+    } catch (error) {
+      setPublicShareError(error instanceof Error ? error.message : 'Không thể sinh key truy cập.');
+      setPublicShareStatusMessage('');
+      publicShareKeyInputRef.current?.focus();
+    }
+  }, []);
+
+  const handleCopyPublicShareKey = useCallback(async () => {
+    const accessKey = publicShareAccessKey.trim();
+    if (accessKey.length < PUBLIC_SHARE_KEY_MIN_LENGTH) {
+      setPublicShareError(`Key truy cập cần tối thiểu ${PUBLIC_SHARE_KEY_MIN_LENGTH} ký tự.`);
+      publicShareKeyInputRef.current?.focus();
+      return;
+    }
+
+    setPublicShareError('');
+    const copied = await copyToClipboard(accessKey);
+    setPublicShareStatusMessage(copied ? 'Đã copy key truy cập.' : 'Không thể copy key truy cập.');
+  }, [publicShareAccessKey]);
+
+  const handleCopyPublicShareLink = useCallback(async () => {
+    if (!createdPublicShare?.url) return;
+
+    const copied = await copyToClipboard(createdPublicShare.url);
+    setPublicShareStatusMessage(copied ? 'Đã copy link public.' : 'Không thể copy link public.');
+  }, [createdPublicShare]);
+
+  const handleCreatePublicShare = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeProcedure) return;
+
+    const accessKey = publicShareAccessKey.trim();
+    if (accessKey.length < PUBLIC_SHARE_KEY_MIN_LENGTH) {
+      setPublicShareError(`Key truy cập cần tối thiểu ${PUBLIC_SHARE_KEY_MIN_LENGTH} ký tự.`);
+      publicShareKeyInputRef.current?.focus();
+      return;
+    }
+
+    try {
+      setPublicShareError('');
       setIsCreatingPublicShare(true);
-      const result = await createProcedurePublicShare(activeProcedure.id);
-      const publicUrl = buildPublicProcedureUrl(result.token);
+      const result = await createProcedurePublicShare(activeProcedure.id, {
+        ttl_days: publicShareTtlDays,
+        access_key: accessKey,
+      });
+      const publicUrl = result.public_url || buildPublicProcedureUrl(result.token);
       const copied = await copyToClipboard(publicUrl);
       const expiresAt = formatShareExpiry(result.expires_at);
+      setCreatedPublicShare({
+        url: publicUrl,
+        expiresAtText: expiresAt,
+        ttlDays: result.ttl_days,
+        email: result.email,
+      });
+      setPublicShareStatusMessage(copied ? 'Đã tạo và copy link public.' : 'Đã tạo link public.');
       onNotify?.(
         'success',
         'Public thủ tục',
-        `${copied ? 'Đã tạo và copy link public.' : `Đã tạo link public: ${publicUrl}`} Link hết hạn${expiresAt ? ` lúc ${expiresAt}` : ' sau 7 ngày'}.`
+        `${copied ? 'Đã tạo và copy link public.' : `Đã tạo link public: ${publicUrl}`} Link hết hạn${expiresAt ? ` lúc ${expiresAt}` : ` sau ${result.ttl_days} ngày`}. ${resolvePublicShareEmailStatusText(result.email)}`
       );
     } catch (error) {
-      onNotify?.(
-        'error',
-        'Public thủ tục',
-        error instanceof Error ? error.message : 'Không thể tạo link public.'
-      );
+      setPublicShareError(error instanceof Error ? error.message : 'Không thể tạo link public.');
+      publicShareKeyInputRef.current?.focus();
     } finally {
       setIsCreatingPublicShare(false);
     }
-  }, [activeProcedure, canCreatePublicShare, hasDirtyChanges, onNotify]);
+  }, [activeProcedure, onNotify, publicShareAccessKey, publicShareTtlDays]);
+
+  const handlePublicShareDialogKeyDown = useCallback((event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Tab') return;
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.offsetParent !== null || element === document.activeElement);
+
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
 
   const handleProcedureTabKeyDown = useCallback((
     event: React.KeyboardEvent<HTMLButtonElement>,
@@ -853,7 +1081,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               <button
                 type="button"
                 data-testid="procedure-public-share"
-                onClick={handleCreatePublicShare}
+                onClick={handleOpenPublicShareDialog}
                 disabled={isCreatingPublicShare}
                 className="inline-flex h-8 items-center gap-1.5 rounded border border-primary bg-white px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -1035,12 +1263,16 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     isRaciA={isRaciA}
                     myId={myId}
                     stepWorklogs={stepWorklogs}
+                    stepRaciMap={stepRaciMap}
                     stepWorklogInput={stepWorklogInput}
                     stepWorklogHours={stepWorklogHours}
+                    stepWorklogStartedAt={stepWorklogStartedAt}
+                    stepWorklogEndedAt={stepWorklogEndedAt}
                     stepWorklogDifficulty={stepWorklogDifficulty}
                     stepWorklogProposal={stepWorklogProposal}
                     stepWorklogIssueStatus={stepWorklogIssueStatus}
                     stepWorklogSaving={stepWorklogSaving}
+                    projectWorklogDatetimeEnabled={projectWorklogDatetimeEnabled}
                     editingRowDraft={editingRowDraft}
                     stepAttachments={stepAttachments}
                     attachLoadingStep={attachLoadingStep}
@@ -1055,6 +1287,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     editingWorklogId={editingWorklogId}
                     editWorklogContent={editWorklogContent}
                     editWorklogHours={editWorklogHours}
+                    editWorklogStartedAt={editWorklogStartedAt}
+                    editWorklogEndedAt={editWorklogEndedAt}
                     editWorklogDiff={editWorklogDiff}
                     editWorklogProposal={editWorklogProposal}
                     editWorklogStatus={editWorklogStatus}
@@ -1084,11 +1318,15 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     onDeleteWorklog={handleDeleteStepWorklog}
                     onSetWlogInput={handleSetWlogInput}
                     onSetWlogHours={handleSetWlogHours}
+                    onSetWlogStartedAt={handleSetWlogStartedAt}
+                    onSetWlogEndedAt={handleSetWlogEndedAt}
                     onSetWlogDifficulty={handleSetWlogDifficulty}
                     onSetWlogProposal={handleSetWlogProposal}
                     onSetWlogIssueStatus={handleSetWlogIssueStatus}
                     onSetEditWorklogContent={setEditWorklogContent}
                     onSetEditWorklogHours={setEditWorklogHours}
+                    onSetEditWorklogStartedAt={setEditWorklogStartedAt}
+                    onSetEditWorklogEndedAt={setEditWorklogEndedAt}
                     onSetEditWorklogDiff={setEditWorklogDiff}
                     onSetEditWorklogProposal={setEditWorklogProposal}
                     onSetEditWorklogStatus={setEditWorklogStatus}
@@ -1189,6 +1427,203 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {isPublicShareDialogOpen && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-[var(--ui-modal-radius)] bg-slate-950/35 p-3">
+            <form
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="procedure-public-share-title"
+              onSubmit={handleCreatePublicShare}
+              onKeyDown={handlePublicShareDialogKeyDown}
+              className="w-full max-w-lg overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div className="min-w-0">
+                  <h3 id="procedure-public-share-title" className="text-sm font-bold text-deep-teal">
+                    Chia sẻ thủ tục
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Đóng thiết lập public"
+                  onClick={handleClosePublicShareDialog}
+                  disabled={isCreatingPublicShare}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-300 text-slate-600 transition-colors hover:bg-slate-50 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4 px-4 py-4">
+                <fieldset>
+                  <legend className="text-xs font-semibold text-slate-700">Thời hạn</legend>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Thời hạn public">
+                    {PUBLIC_SHARE_TTL_OPTIONS.map((option) => {
+                      const selected = publicShareTtlDays === option.value;
+                      return (
+                        <label
+                          key={option.value}
+                          className={`flex min-h-[44px] cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
+                            selected
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-primary/40 hover:bg-primary/5'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="procedure-public-ttl"
+                            className="sr-only"
+                            checked={selected}
+                            value={option.value}
+                            onChange={() => handlePublicShareTtlChange(option.value)}
+                          />
+                          <span>
+                            <span className="block text-sm font-bold">{option.label}</span>
+                          </span>
+                          {selected && (
+                            <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white">
+                              Đang chọn
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+
+                <div>
+                  <label htmlFor="procedure-public-access-key" className="text-xs font-semibold text-slate-700">
+                    Key truy cập
+                  </label>
+                  <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      ref={publicShareKeyInputRef}
+                      id="procedure-public-access-key"
+                      data-testid="procedure-public-access-key"
+                      type="text"
+                      autoComplete="off"
+                      value={publicShareAccessKey}
+                      onChange={(event) => {
+                        setPublicShareAccessKey(event.target.value);
+                        setCreatedPublicShare(null);
+                        setPublicShareStatusMessage('');
+                        if (publicShareError) setPublicShareError('');
+                      }}
+                      aria-invalid={publicShareError ? 'true' : undefined}
+                      aria-describedby={publicShareError ? 'procedure-public-share-error procedure-public-share-key-help' : 'procedure-public-share-key-help'}
+                      className="h-11 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
+                      placeholder="Nhập hoặc sinh key"
+                    />
+                    <button
+                      type="button"
+                      data-testid="procedure-public-generate-key"
+                      onClick={handleGeneratePublicShareKey}
+                      disabled={isCreatingPublicShare}
+                      className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-primary bg-white px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="material-symbols-outlined text-[15px]" aria-hidden="true">key</span>
+                      Sinh key
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="procedure-public-copy-key"
+                      onClick={handleCopyPublicShareKey}
+                      disabled={isCreatingPublicShare || publicShareAccessKey.trim().length === 0}
+                      className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="material-symbols-outlined text-[15px]" aria-hidden="true">content_copy</span>
+                      Copy key
+                    </button>
+                  </div>
+                  <p id="procedure-public-share-key-help" className="mt-1 text-xs font-medium text-slate-600">
+                    Key không nằm trong link.
+                  </p>
+                  {publicShareStatusMessage && (
+                    <p id="procedure-public-share-status" role="status" aria-live="polite" className="mt-2 text-xs font-semibold text-slate-700">
+                      {publicShareStatusMessage}
+                    </p>
+                  )}
+                  {publicShareError && (
+                    <p id="procedure-public-share-error" role="alert" className="mt-2 text-xs font-semibold text-rose-700">
+                      {publicShareError}
+                    </p>
+                  )}
+                </div>
+
+                {createdPublicShare && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <label htmlFor="procedure-public-url" className="text-xs font-semibold text-slate-700">
+                      Link public
+                    </label>
+                    <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        id="procedure-public-url"
+                        data-testid="procedure-public-url"
+                        type="text"
+                        readOnly
+                        value={createdPublicShare.url}
+                        aria-describedby="procedure-public-share-email-status"
+                        className="h-11 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
+                      />
+                      <button
+                        type="button"
+                        data-testid="procedure-public-copy-link"
+                        onClick={handleCopyPublicShareLink}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded border border-primary bg-white px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary"
+                      >
+                        <span className="material-symbols-outlined text-[15px]" aria-hidden="true">content_copy</span>
+                        Copy link
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-slate-700">
+                      Hết hạn{createdPublicShare.expiresAtText ? ` lúc ${createdPublicShare.expiresAtText}` : ` sau ${createdPublicShare.ttlDays} ngày`}.
+                    </p>
+                    <p
+                      id="procedure-public-share-email-status"
+                      role="status"
+                      aria-live="polite"
+                      className={`mt-2 flex items-start gap-1.5 text-xs font-semibold ${
+                        createdPublicShare.email?.status === 'FAILED'
+                          ? 'text-rose-700'
+                          : createdPublicShare.email?.status === 'SUCCESS'
+                            ? 'text-emerald-800'
+                            : 'text-slate-700'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
+                        {resolvePublicShareEmailStatusIcon(createdPublicShare.email)}
+                      </span>
+                      {resolvePublicShareEmailStatusText(createdPublicShare.email)}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleClosePublicShareDialog}
+                  disabled={isCreatingPublicShare}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  data-testid="procedure-public-share-submit"
+                  disabled={isCreatingPublicShare}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-deep-teal focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  <span className={`material-symbols-outlined text-[15px] ${isCreatingPublicShare ? 'animate-spin' : ''}`} aria-hidden="true">
+                    {isCreatingPublicShare ? 'progress_activity' : 'ios_share'}
+                  </span>
+                  Tạo link
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </div>

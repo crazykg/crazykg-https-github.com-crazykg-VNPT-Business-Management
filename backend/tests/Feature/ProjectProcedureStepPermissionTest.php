@@ -4,11 +4,17 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\Api\V5\ProjectProcedureController;
 use App\Models\InternalUser;
+use App\Services\V5\SupportConfig\SupportProjectWorklogDatetimePolicyService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
+use ZipArchive;
 
 class ProjectProcedureStepPermissionTest extends TestCase
 {
@@ -314,6 +320,175 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(1, $step['blocking_worklogs_count'] ?? null);
     }
 
+    public function test_project_worklog_datetime_policy_defaults_to_disabled_and_can_be_updated(): void
+    {
+        $actor = $this->createUser([
+            'id' => 32,
+            'department_id' => 10,
+        ]);
+
+        $service = $this->app->make(SupportProjectWorklogDatetimePolicyService::class);
+
+        $defaultResponse = $service->policy();
+        $this->assertSame(200, $defaultResponse->getStatusCode());
+        $this->assertFalse($defaultResponse->getData(true)['data']['project_worklog_datetime_enabled'] ?? true);
+
+        $enabledResponse = $service->updatePolicy($this->makeRequest('PUT', [
+            'project_worklog_datetime_enabled' => true,
+        ], $actor));
+        $this->assertSame(200, $enabledResponse->getStatusCode());
+        $this->assertTrue($enabledResponse->getData(true)['data']['project_worklog_datetime_enabled'] ?? false);
+
+        $disabledResponse = $service->updatePolicy($this->makeRequest('PUT', [
+            'project_worklog_datetime_enabled' => false,
+        ], $actor));
+        $this->assertSame(200, $disabledResponse->getStatusCode());
+        $this->assertFalse($disabledResponse->getData(true)['data']['project_worklog_datetime_enabled'] ?? true);
+    }
+
+    public function test_project_worklog_datetime_disabled_keeps_existing_hours_flow(): void
+    {
+        $actor = $this->createUser([
+            'id' => 33,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 355);
+        $stepId = $this->createStep([
+            'id' => 1355,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 555,
+            'step_name' => 'Bước ghi giờ thường',
+        ]);
+
+        $response = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Ghi nhanh worklog',
+                'hours_spent' => 2,
+            ], $actor),
+            $stepId,
+        );
+        $payload = $response->getData(true);
+        $worklogId = (int) ($payload['data']['id'] ?? 0);
+        $timesheet = DB::table('shared_timesheets')
+            ->where('procedure_step_worklog_id', $worklogId)
+            ->first();
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertNotNull($timesheet);
+        $this->assertSame(2.0, (float) $timesheet->hours_spent);
+        $this->assertNull($timesheet->work_started_at);
+        $this->assertNull($timesheet->work_ended_at);
+    }
+
+    public function test_project_worklog_datetime_enabled_requires_valid_range_and_accepts_equal_minutes(): void
+    {
+        $actor = $this->createUser([
+            'id' => 34,
+            'department_id' => 10,
+        ]);
+        $this->enableProjectWorklogDatetimePolicy();
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 356);
+        $stepId = $this->createStep([
+            'id' => 1356,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 556,
+            'step_name' => 'Bước cần ngày giờ',
+        ]);
+
+        $missingResponse = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Thiếu mốc thời gian',
+            ], $actor),
+            $stepId,
+        );
+        $invalidResponse = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Sai thứ tự thời gian',
+                'work_started_at' => '2026-04-29T10:30',
+                'work_ended_at' => '2026-04-29T10:00',
+            ], $actor),
+            $stepId,
+        );
+        $equalResponse = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Cùng một phút vẫn hợp lệ',
+                'work_started_at' => '2026-04-29T10:00',
+                'work_ended_at' => '2026-04-29T10:00',
+            ], $actor),
+            $stepId,
+        );
+
+        $this->assertSame(422, $missingResponse->getStatusCode());
+        $this->assertArrayHasKey('work_started_at', $missingResponse->getData(true)['errors'] ?? []);
+        $this->assertSame(422, $invalidResponse->getStatusCode());
+        $this->assertArrayHasKey('work_ended_at', $invalidResponse->getData(true)['errors'] ?? []);
+        $this->assertSame(201, $equalResponse->getStatusCode());
+        $this->assertSame(
+            0.0,
+            (float) DB::table('shared_timesheets')
+                ->where('procedure_step_worklog_id', $equalResponse->getData(true)['data']['id'] ?? 0)
+                ->value('hours_spent')
+        );
+    }
+
+    public function test_project_worklog_datetime_enabled_auto_calculates_hours_or_keeps_manual_hours(): void
+    {
+        $actor = $this->createUser([
+            'id' => 35,
+            'department_id' => 10,
+        ]);
+        $this->enableProjectWorklogDatetimePolicy();
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 357);
+        $stepId = $this->createStep([
+            'id' => 1357,
+            'procedure_id' => $procedureId,
+            'template_step_id' => 557,
+            'step_name' => 'Bước tính giờ',
+        ]);
+
+        $autoResponse = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Tự tính 90 phút',
+                'work_started_at' => '2026-04-29T08:00',
+                'work_ended_at' => '2026-04-29T09:30',
+            ], $actor),
+            $stepId,
+        );
+        $manualResponse = $this->controller()->addWorklog(
+            $this->makeRequest('POST', [
+                'content' => 'Sửa giờ thủ công',
+                'work_started_at' => '2026-04-29T08:00',
+                'work_ended_at' => '2026-04-29T09:30',
+                'hours_spent' => 2.25,
+            ], $actor),
+            $stepId,
+        );
+
+        $this->assertSame(201, $autoResponse->getStatusCode());
+        $this->assertSame(201, $manualResponse->getStatusCode());
+        $this->assertSame(
+            1.5,
+            (float) DB::table('shared_timesheets')
+                ->where('procedure_step_worklog_id', $autoResponse->getData(true)['data']['id'] ?? 0)
+                ->value('hours_spent')
+        );
+        $this->assertSame(
+            2.25,
+            (float) DB::table('shared_timesheets')
+                ->where('procedure_step_worklog_id', $manualResponse->getData(true)['data']['id'] ?? 0)
+                ->value('hours_spent')
+        );
+        $this->assertSame(
+            '2026-04-29 08:00:00',
+            (string) DB::table('shared_timesheets')
+                ->where('procedure_step_worklog_id', $autoResponse->getData(true)['data']['id'] ?? 0)
+                ->value('work_started_at')
+        );
+    }
+
     public function test_admin_can_delete_step_when_only_blank_content_worklog_exists(): void
     {
         $admin = $this->createUser([
@@ -391,14 +566,9 @@ class ProjectProcedureStepPermissionTest extends TestCase
             'department_id' => 2,
         ]);
 
-        Schema::create('departments', function (Blueprint $table): void {
-            $table->bigIncrements('id');
-            $table->unsignedBigInteger('parent_id')->nullable();
-        });
-
         DB::table('departments')->insert([
-            ['id' => 1, 'parent_id' => null],
-            ['id' => 2, 'parent_id' => 1],
+            ['id' => 1, 'parent_id' => null, 'dept_code' => 'ROOT', 'dept_name' => 'Root', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'parent_id' => 1, 'dept_code' => 'CHILD', 'dept_name' => 'Child', 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         DB::table('projects')
@@ -420,29 +590,162 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame([], $response->getData(true)['data'] ?? null);
     }
 
-    public function test_create_public_share_stores_only_hash_and_expires_in_seven_days(): void
+    public function test_create_public_share_stores_only_hash_and_supported_duration(): void
     {
         $user = $this->createUser([
             'id' => 50,
             'department_id' => 10,
         ]);
 
-        $procedureId = $this->createProcedure(projectId: 100, id: 370, name: 'Thủ tục public');
+        foreach ([10, 30, 90] as $index => $ttlDays) {
+            $procedureId = $this->createProcedure(projectId: 100, id: 370 + $index, name: 'Thủ tục public '.$ttlDays);
+            $accessKey = 'share-key-'.$ttlDays;
 
-        $response = $this->controller()->createPublicShare(
-            $this->makeRequest('POST', [], $user),
+            $response = $this->controller()->createPublicShare(
+                $this->makeRequest('POST', [
+                    'ttl_days' => $ttlDays,
+                    'access_key' => $accessKey,
+                ], $user),
+                $procedureId,
+            );
+
+            $payload = $response->getData(true);
+            $token = (string) ($payload['data']['token'] ?? '');
+            $expiresAt = \Illuminate\Support\Carbon::parse((string) ($payload['data']['expires_at'] ?? ''));
+            $share = DB::table('project_procedure_public_shares')
+                ->where('token_hash', hash('sha256', $token))
+                ->first();
+
+            $this->assertSame(201, $response->getStatusCode());
+            $this->assertSame($ttlDays, $payload['data']['ttl_days'] ?? null);
+            $this->assertSame('FAILED', $payload['data']['email']['status'] ?? null);
+            $this->assertStringContainsString('/public/project-procedure/', (string) ($payload['data']['public_url'] ?? ''));
+            $this->assertGreaterThanOrEqual(48, strlen($token));
+            $this->assertSame(0, DB::table('project_procedure_public_shares')->where('token_hash', $token)->count());
+            $this->assertNotNull($share);
+            $this->assertTrue(Hash::check($accessKey, (string) $share->access_key_hash));
+            $this->assertStringNotContainsString($accessKey, json_encode($payload, JSON_UNESCAPED_UNICODE));
+            $this->assertTrue($expiresAt->between(now()->addDays($ttlDays)->subMinute(), now()->addDays($ttlDays)->addMinute()));
+        }
+    }
+
+    public function test_create_public_share_requires_supported_duration_and_access_key(): void
+    {
+        $user = $this->createUser([
+            'id' => 55,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 375, name: 'Thủ tục validate public');
+
+        $missingKeyResponse = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [
+                'ttl_days' => 10,
+            ], $user),
+            $procedureId,
+        );
+        $invalidDurationResponse = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [
+                'ttl_days' => 7,
+                'access_key' => 'valid-key',
+            ], $user),
             $procedureId,
         );
 
+        $this->assertSame(422, $missingKeyResponse->getStatusCode());
+        $this->assertSame(422, $invalidDurationResponse->getStatusCode());
+        $this->assertSame(0, DB::table('project_procedure_public_shares')->count());
+    }
+
+    public function test_create_public_share_sends_email_with_link_key_and_expiry(): void
+    {
+        $user = $this->createUser([
+            'id' => 56,
+            'department_id' => 10,
+            'username' => 'procedure-owner',
+            'full_name' => 'Procedure Owner',
+        ]);
+
+        DB::table('integration_settings')->insert([
+            'provider' => 'EMAIL_SMTP',
+            'is_enabled' => 1,
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_encryption' => 'tls',
+            'smtp_username' => 'no-reply@example.com',
+            'smtp_password' => Crypt::encryptString('smtp-secret'),
+            'smtp_from_address' => 'no-reply@example.com',
+            'smtp_from_name' => 'VNPT Business',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        Config::set('audit.project_procedure_public_share_notification_recipients', [
+            'pvro86@gmail.com',
+            'vnpthishg@gmail.com',
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 376, name: 'Thủ tục gửi email public');
+        $request = $this->makeRequest('POST', [
+            'ttl_days' => 30,
+            'access_key' => 'Email-Key-1234',
+        ], $user);
+        $request->headers->set('Origin', 'http://127.0.0.1:5175');
+
+        Mail::shouldReceive('html')
+            ->once()
+            ->withArgs(function (string $html, \Closure $callback): bool {
+                $this->assertStringContainsString('Public bảng thủ tục dự án', $html);
+                $this->assertStringContainsString('DA-100', $html);
+                $this->assertStringContainsString('Thủ tục gửi email public', $html);
+                $this->assertStringContainsString('Procedure Owner (procedure-owner)', $html);
+                $this->assertStringContainsString('/public/project-procedure/', $html);
+                $this->assertStringContainsString('Email-Key-1234', $html);
+                $this->assertStringContainsString('Hết hạn', $html);
+
+                $message = new class {
+                    public array $to = [];
+                    public ?string $subject = null;
+                    public ?array $from = null;
+
+                    public function to($recipients): self
+                    {
+                        $this->to = is_array($recipients) ? array_values($recipients) : [$recipients];
+
+                        return $this;
+                    }
+
+                    public function subject($subject): self
+                    {
+                        $this->subject = $subject;
+
+                        return $this;
+                    }
+
+                    public function from($address, $name = null): self
+                    {
+                        $this->from = [$address, $name];
+
+                        return $this;
+                    }
+                };
+
+                $callback($message);
+
+                $this->assertSame(['pvro86@gmail.com', 'vnpthishg@gmail.com'], $message->to);
+                $this->assertSame('[VNPT Business] Public bảng thủ tục - DA-100', $message->subject);
+                $this->assertSame(['no-reply@example.com', 'VNPT Business'], $message->from);
+
+                return true;
+            });
+
+        $response = $this->controller()->createPublicShare($request, $procedureId);
         $payload = $response->getData(true);
-        $token = (string) ($payload['data']['token'] ?? '');
-        $expiresAt = \Illuminate\Support\Carbon::parse((string) ($payload['data']['expires_at'] ?? ''));
 
         $this->assertSame(201, $response->getStatusCode());
-        $this->assertGreaterThanOrEqual(48, strlen($token));
-        $this->assertSame(0, DB::table('project_procedure_public_shares')->where('token_hash', $token)->count());
-        $this->assertSame(1, DB::table('project_procedure_public_shares')->where('token_hash', hash('sha256', $token))->count());
-        $this->assertTrue($expiresAt->between(now()->addDays(6)->subMinute(), now()->addDays(7)->addMinute()));
+        $this->assertStringStartsWith('http://127.0.0.1:5175/public/project-procedure/', (string) ($payload['data']['public_url'] ?? ''));
+        $this->assertSame('SUCCESS', $payload['data']['email']['status'] ?? null);
+        $this->assertSame(['pvro86@gmail.com', 'vnpthishg@gmail.com'], $payload['data']['email']['recipients'] ?? null);
+        $this->assertStringNotContainsString('Email-Key-1234', json_encode($payload, JSON_UNESCAPED_UNICODE));
     }
 
     public function test_create_public_share_rejects_user_outside_project_scope(): void
@@ -455,7 +758,10 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $procedureId = $this->createProcedure(projectId: 100, id: 371, name: 'Thủ tục nội bộ');
 
         $response = $this->controller()->createPublicShare(
-            $this->makeRequest('POST', [], $outsider),
+            $this->makeRequest('POST', [
+                'ttl_days' => 10,
+                'access_key' => 'scope-key',
+            ], $outsider),
             $procedureId,
         );
 
@@ -515,16 +821,37 @@ class ProjectProcedureStepPermissionTest extends TestCase
         ]);
 
         $shareResponse = $this->controller()->createPublicShare(
-            $this->makeRequest('POST', [], $user),
+            $this->makeRequest('POST', [
+                'ttl_days' => 30,
+                'access_key' => 'payload-key',
+            ], $user),
             $procedureId,
         );
         $token = (string) (($shareResponse->getData(true)['data']['token'] ?? ''));
 
-        $response = $this->controller()->publicShare($token);
+        $missingKeyResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', []),
+            $token,
+        );
+        $wrongKeyResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'wrong-key']),
+            $token,
+        );
+        $queryKeyResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('GET', ['access_key' => 'payload-key']),
+            $token,
+        );
+        $response = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'payload-key']),
+            $token,
+        );
         $payload = $response->getData(true);
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
         $firstStep = $payload['data']['phases'][0]['steps'][0] ?? [];
 
+        $this->assertSame(403, $missingKeyResponse->getStatusCode());
+        $this->assertSame(403, $wrongKeyResponse->getStatusCode());
+        $this->assertSame(403, $queryKeyResponse->getStatusCode());
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('DA-100', $payload['data']['project']['project_code'] ?? null);
         $this->assertSame('Hoàn thiện biểu mẫu', $firstStep['step_name'] ?? null);
@@ -538,6 +865,36 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertStringNotContainsString('raci_role', (string) $json);
     }
 
+    public function test_public_share_uses_project_based_title_for_generic_service_procedure(): void
+    {
+        $user = $this->createUser([
+            'id' => 57,
+            'department_id' => 10,
+        ]);
+        $procedureId = $this->createProcedure(
+            projectId: 100,
+            id: 377,
+            name: 'Thủ tục dự án thuê dịch vụ CNTT đặc thù'
+        );
+
+        $shareResponse = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [
+                'ttl_days' => 10,
+                'access_key' => 'title-key',
+            ], $user),
+            $procedureId,
+        );
+        $token = (string) (($shareResponse->getData(true)['data']['token'] ?? ''));
+
+        $response = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'title-key']),
+            $token,
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('Kế hoạch triển khai - Checklist Demo', $response->getData(true)['data']['procedure']['procedure_name'] ?? null);
+    }
+
     public function test_public_share_rejects_revoked_expired_and_unknown_tokens(): void
     {
         $user = $this->createUser([
@@ -547,28 +904,41 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $procedureId = $this->createProcedure(projectId: 100, id: 373, name: 'Thủ tục hết hạn');
 
         $shareResponse = $this->controller()->createPublicShare(
-            $this->makeRequest('POST', [], $user),
+            $this->makeRequest('POST', [
+                'ttl_days' => 10,
+                'access_key' => 'active-key',
+            ], $user),
             $procedureId,
         );
         $token = (string) (($shareResponse->getData(true)['data']['token'] ?? ''));
 
         $this->controller()->revokePublicShare($this->makeRequest('DELETE', [], $user), $procedureId);
 
-        $revokedResponse = $this->controller()->publicShare($token);
+        $revokedResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'active-key']),
+            $token,
+        );
         $this->assertSame(404, $revokedResponse->getStatusCode());
 
         $expiredToken = 'expired-token-'.str_repeat('x', 40);
         DB::table('project_procedure_public_shares')->insert([
             'procedure_id' => $procedureId,
             'token_hash' => hash('sha256', $expiredToken),
+            'access_key_hash' => Hash::make('expired-key'),
             'created_by' => $user->id,
             'expires_at' => now()->subDay(),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        $expiredResponse = $this->controller()->publicShare($expiredToken);
-        $unknownResponse = $this->controller()->publicShare('unknown-token-'.str_repeat('z', 40));
+        $expiredResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'expired-key']),
+            $expiredToken,
+        );
+        $unknownResponse = $this->controller()->publicShare(
+            $this->makePublicRequest('POST', ['access_key' => 'anything']),
+            'unknown-token-'.str_repeat('z', 40),
+        );
 
         $this->assertSame(404, $expiredResponse->getStatusCode());
         $this->assertSame(404, $unknownResponse->getStatusCode());
@@ -589,6 +959,22 @@ class ProjectProcedureStepPermissionTest extends TestCase
             'expected_result' => 'File thủ tục',
             'duration_days' => 2,
             'progress_status' => 'HOAN_THANH',
+            'actual_start_date' => '2026-10-10',
+            'actual_end_date' => '2026-10-11',
+        ]);
+        $this->createStep([
+            'id' => 1431,
+            'procedure_id' => $procedureId,
+            'step_number' => 2,
+            'phase' => 'CAU_HINH_HE_THONG',
+            'phase_label' => 'Cấu hình hệ thống',
+            'step_name' => 'Cấu hình hệ thống',
+            'lead_unit' => 'IT',
+            'expected_result' => 'Hệ thống sẵn sàng',
+            'duration_days' => 10,
+            'progress_status' => 'DANG_THUC_HIEN',
+            'actual_start_date' => '2026-10-10',
+            'actual_end_date' => '2026-10-19',
         ]);
 
         $wordResponse = $this->controller()->exportProcedure(
@@ -607,12 +993,52 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(200, $wordResponse->getStatusCode());
         $this->assertStringContainsString('wordprocessingml.document', (string) $wordResponse->headers->get('Content-Type'));
         $this->assertStringContainsString('.docx', (string) $wordResponse->headers->get('Content-Disposition'));
-        $this->assertGreaterThan(100, strlen((string) $wordResponse->getContent()));
+        $wordBinary = (string) $wordResponse->getContent();
+        $this->assertGreaterThan(100, strlen($wordBinary));
+
+        $tempWordPath = tempnam(sys_get_temp_dir(), 'procedure_word_');
+        $this->assertNotFalse($tempWordPath);
+        file_put_contents($tempWordPath, $wordBinary);
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($tempWordPath) === true);
+        $wordDocumentXml = $zip->getFromName('word/document.xml');
+        $zip->close();
+        @unlink($tempWordPath);
+
+        $this->assertIsString($wordDocumentXml);
+        $this->assertNotFalse(simplexml_load_string($wordDocumentXml));
+        $this->assertStringContainsString('Times New Roman', $wordDocumentXml);
+        $this->assertStringContainsString('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', $wordDocumentXml);
+        $this->assertStringContainsString('Độc lập - Tự do - Hạnh phúc', $wordDocumentXml);
+        $this->assertStringContainsString('Cần Thơ, ngày', $wordDocumentXml);
+        $this->assertStringContainsString('<w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701"', $wordDocumentXml);
+        $this->assertStringContainsString('<w:tblW w:w="14280" w:type="dxa"/>', $wordDocumentXml);
+        $this->assertSame(1, substr_count($wordDocumentXml, '<w:t xml:space="preserve">TT</w:t>'));
+        $this->assertSame(1, substr_count($wordDocumentXml, '<w:t xml:space="preserve">Trình tự công việc</w:t>'));
+        $this->assertSame(2, substr_count($wordDocumentXml, '<w:gridSpan w:val="9"/>'));
+        $this->assertStringContainsString('2. Cấu hình hệ thống', $wordDocumentXml);
+        $this->assertStringContainsString('<w:gridCol w:w="1220"/><w:gridCol w:w="1220"/>', $wordDocumentXml);
+        $this->assertGreaterThanOrEqual(6, substr_count($wordDocumentXml, '<w:noWrap/>'));
 
         $this->assertSame(200, $excelResponse->getStatusCode());
         $this->assertStringContainsString('application/vnd.ms-excel', (string) $excelResponse->headers->get('Content-Type'));
         $this->assertStringContainsString('.xls', (string) $excelResponse->headers->get('Content-Disposition'));
-        $this->assertStringContainsString('Xuất dữ liệu', (string) $excelResponse->getContent());
+        $excelContent = (string) $excelResponse->getContent();
+        $excelXml = preg_replace('/^\xEF\xBB\xBF/', '', $excelContent) ?? $excelContent;
+        $this->assertNotFalse(simplexml_load_string($excelXml));
+        $this->assertStringContainsString('Xuất dữ liệu', $excelContent);
+        $this->assertStringContainsString('Times New Roman', $excelContent);
+        $this->assertStringContainsString('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', $excelContent);
+        $this->assertStringContainsString('Độc lập - Tự do - Hạnh phúc', $excelContent);
+        $this->assertStringContainsString('<Layout x:Orientation="Landscape"/>', $excelContent);
+        $this->assertStringContainsString('<PageMargins x:Top="0.79" x:Bottom="0.79" x:Left="1.18" x:Right="0.59"/>', $excelContent);
+        $this->assertStringContainsString('<PaperSizeIndex>9</PaperSizeIndex>', $excelContent);
+        $this->assertSame(1, substr_count($excelContent, '<Data ss:Type="String">TT</Data>'));
+        $this->assertSame(1, substr_count($excelContent, '<Data ss:Type="String">Trình tự công việc</Data>'));
+        $this->assertSame(2, substr_count($excelContent, 'ss:StyleID="Phase" ss:MergeAcross="8"'));
+        $this->assertStringContainsString('2. Cấu hình hệ thống', $excelContent);
+        $this->assertStringContainsString('<Column ss:Width="110"/><Column ss:Width="110"/>', $excelContent);
+        $this->assertStringContainsString('<Style ss:ID="Phase"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:FontName="Times New Roman" ss:Size="13" ss:Color="#000000" ss:Bold="1"/><Borders>', $excelContent);
 
         $this->assertSame(422, $invalidResponse->getStatusCode());
     }
@@ -1161,6 +1587,65 @@ class ProjectProcedureStepPermissionTest extends TestCase
         );
     }
 
+    public function test_step_raci_payload_includes_department_allow_list_only(): void
+    {
+        $actor = $this->createUser([
+            'id' => 44,
+            'department_id' => 10,
+        ]);
+        $responsible = $this->createUser([
+            'id' => 45,
+            'department_id' => 10,
+            'full_name' => 'Nguyen Van Responsible',
+            'user_code' => 'NV045',
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 342);
+        $stepId = $this->createStep([
+            'id' => 1345,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước có người thực hiện',
+        ]);
+
+        DB::table('project_procedure_raci')->insert([
+            'procedure_id' => $procedureId,
+            'user_id' => $responsible->id,
+            'raci_role' => 'R',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('project_procedure_step_raci')->insert([
+            'step_id' => $stepId,
+            'user_id' => $responsible->id,
+            'raci_role' => 'R',
+            'created_by' => $actor->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->controller()->getStepRaciBulk(
+            $procedureId,
+            $this->makeRequest('GET', [], $actor),
+        );
+
+        $payload = $response->getData(true);
+        $row = collect($payload['data'] ?? [])->firstWhere('user_id', $responsible->id);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertIsArray($row);
+        $this->assertSame($stepId, $row['step_id']);
+        $this->assertSame('R', $row['raci_role']);
+        $this->assertSame('Nguyen Van Responsible', $row['full_name']);
+        $this->assertSame(10, $row['department_id']);
+        $this->assertSame('Phong Ky thuat', $row['department_name']);
+        $this->assertSame('PKT', $row['department_code']);
+        $this->assertArrayNotHasKey('email', $row);
+        $this->assertArrayNotHasKey('phone', $row);
+        $this->assertArrayNotHasKey('permissions', $row);
+        $this->assertArrayNotHasKey('dept_scopes', $row);
+        $this->assertArrayNotHasKey('avatar_data_url', $row);
+    }
+
     public function test_add_procedure_raci_replaces_existing_accountable_assignment_and_keeps_other_roles(): void
     {
         $actor = $this->createUser([
@@ -1628,6 +2113,14 @@ class ProjectProcedureStepPermissionTest extends TestCase
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function makePublicRequest(string $method, array $payload): Request
+    {
+        return Request::create('/', $method, $payload);
+    }
+
+    /**
      * @param  array<string, mixed>  $overrides
      */
     private function createUser(array $overrides = []): InternalUser
@@ -1661,6 +2154,19 @@ class ProjectProcedureStepPermissionTest extends TestCase
             'is_active' => 1,
             'expires_at' => null,
         ]);
+    }
+
+    private function enableProjectWorklogDatetimePolicy(): void
+    {
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => 'PROJECT_WORKLOG_DATETIME_POLICY'],
+            [
+                'provider' => 'PROJECT_WORKLOG_DATETIME_POLICY',
+                'is_enabled' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
     }
 
     private function createProcedure(int $projectId, int $id = 200, string $name = 'Thu tuc'): int
@@ -1736,6 +2242,7 @@ class ProjectProcedureStepPermissionTest extends TestCase
         Schema::dropIfExists('user_roles');
         Schema::dropIfExists('roles');
         Schema::dropIfExists('attachments');
+        Schema::dropIfExists('integration_settings');
         Schema::dropIfExists('internal_users');
         Schema::enableForeignKeyConstraints();
 
@@ -1747,6 +2254,17 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->string('full_name', 255)->nullable();
             $table->unsignedBigInteger('department_id')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('departments', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('dept_code', 50)->nullable();
+            $table->string('dept_name', 255)->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
+            $table->string('dept_path', 500)->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::create('roles', function (Blueprint $table): void {
@@ -1776,6 +2294,23 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->unsignedBigInteger('reference_id');
             $table->string('file_name', 255)->nullable();
             $table->string('file_url', 2048)->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('integration_settings', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('provider', 50)->unique();
+            $table->boolean('is_enabled')->default(false);
+            $table->string('smtp_host', 255)->nullable();
+            $table->unsignedInteger('smtp_port')->nullable();
+            $table->string('smtp_encryption', 20)->nullable();
+            $table->string('smtp_username', 255)->nullable();
+            $table->text('smtp_password')->nullable();
+            $table->string('smtp_from_address', 255)->nullable();
+            $table->string('smtp_from_name', 255)->nullable();
+            $table->string('smtp_recipient_emails', 1000)->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->unsignedBigInteger('updated_by')->nullable();
             $table->timestamps();
         });
 
@@ -1829,6 +2364,7 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->bigIncrements('id');
             $table->unsignedBigInteger('procedure_id');
             $table->string('token_hash', 64)->unique();
+            $table->string('access_key_hash')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->timestamp('expires_at');
             $table->timestamp('revoked_at')->nullable();
@@ -1873,6 +2409,8 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->unsignedBigInteger('procedure_step_worklog_id')->nullable();
             $table->decimal('hours_spent', 8, 2);
             $table->date('work_date');
+            $table->dateTime('work_started_at')->nullable();
+            $table->dateTime('work_ended_at')->nullable();
             $table->text('activity_description')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
@@ -1900,6 +2438,14 @@ class ProjectProcedureStepPermissionTest extends TestCase
                 ->on('project_procedure_step_worklogs')
                 ->cascadeOnDelete();
         });
+
+        DB::table('departments')->insert([
+            'id' => 10,
+            'dept_code' => 'PKT',
+            'dept_name' => 'Phong Ky thuat',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         DB::table('projects')->insert([
             'id' => 100,

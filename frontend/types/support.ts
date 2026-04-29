@@ -103,6 +103,15 @@ export interface SupportAuthSessionPolicy {
   source?: 'DEFAULT' | 'DB' | (string & {});
 }
 
+export interface SupportProjectWorklogDatetimePolicy {
+  provider: string;
+  project_worklog_datetime_enabled: boolean;
+  updated_at?: string | null;
+  updated_by?: string | number | null;
+  updated_by_name?: string | null;
+  source?: 'DEFAULT' | 'DB' | (string & {});
+}
+
 export interface SupportRequestStatusOption {
   id: string | number | null;
   status_code: string;

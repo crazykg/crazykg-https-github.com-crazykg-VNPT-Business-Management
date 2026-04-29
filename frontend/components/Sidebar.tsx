@@ -130,6 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(function SidebarCompon
       icon: 'rocket_launch',
       items: [
         { id: 'projects', icon: 'topic', label: 'Quản lý Dự án' },
+        { id: 'workload_summary', icon: 'query_stats', label: 'Tổng hợp giờ công' },
       ]
     },
     {

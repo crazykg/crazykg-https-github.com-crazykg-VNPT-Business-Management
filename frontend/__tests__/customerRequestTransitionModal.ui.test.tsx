@@ -325,8 +325,8 @@ describe('CustomerRequestTransitionModal UI', () => {
       />
     );
 
-    expect(screen.getByText('Người xử lý hiện tại')).toBeInTheDocument();
-    expect(screen.getByText('Người nhận sau chuyển')).toBeInTheDocument();
+    expect(screen.getByText('Người chuyển')).toBeInTheDocument();
+    expect(screen.getByText('Người nhận')).toBeInTheDocument();
     expect(screen.getAllByText('Trịnh Minh Tuấn').length).toBeGreaterThan(0);
     expect(screen.getByText(/giao cho Trịnh Minh Tuấn/)).toBeInTheDocument();
     expect(screen.getByText(/bởi Phan Văn Rở/)).toBeInTheDocument();

@@ -5,6 +5,7 @@ namespace App\Services\V5\Domain;
 use App\Services\V5\SupportConfig\ProductUnitMasterService;
 use App\Services\V5\SupportConfig\ContractSignerMasterService;
 use App\Services\V5\SupportConfig\SupportAuthSessionPolicyService;
+use App\Services\V5\SupportConfig\SupportProjectWorklogDatetimePolicyService;
 use App\Services\V5\SupportConfig\SupportSlaConfigService;
 use App\Services\V5\SupportConfig\SupportRequestStatusService;
 use App\Services\V5\SupportConfig\SupportServiceGroupService;
@@ -19,6 +20,7 @@ class SupportConfigDomainService
         private readonly ProductUnitMasterService $productUnitMasters,
         private readonly ContractSignerMasterService $contractSignerMasters,
         private readonly SupportAuthSessionPolicyService $authSessionPolicy,
+        private readonly SupportProjectWorklogDatetimePolicyService $projectWorklogDatetimePolicy,
         private readonly SupportRequestStatusService $requestStatuses,
         private readonly WorklogActivityTypeService $worklogActivityTypes,
         private readonly SupportSlaConfigService $slaConfigs,
@@ -69,6 +71,11 @@ class SupportConfigDomainService
         return $this->authSessionPolicy->authSessionPolicy();
     }
 
+    public function projectWorklogDatetimePolicy(): JsonResponse
+    {
+        return $this->projectWorklogDatetimePolicy->policy();
+    }
+
     public function storeProductUnitMaster(Request $request): JsonResponse
     {
         return $this->productUnitMasters->storeProductUnitMaster($request);
@@ -92,6 +99,11 @@ class SupportConfigDomainService
     public function updateAuthSessionPolicy(Request $request): JsonResponse
     {
         return $this->authSessionPolicy->updateAuthSessionPolicy($request);
+    }
+
+    public function updateProjectWorklogDatetimePolicy(Request $request): JsonResponse
+    {
+        return $this->projectWorklogDatetimePolicy->updatePolicy($request);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

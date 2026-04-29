@@ -140,4 +140,39 @@ describe('CascadingEntitySearchFilter', () => {
       expect(screen.getByTestId('filter-value')).toHaveTextContent('"productIds":[]');
     });
   });
+
+  it('uses scoped project item rows to offer projects beyond the current page rows', async () => {
+    const user = userEvent.setup();
+
+    function ItemScopedHarness() {
+      const [value, setValue] = useState<CascadingEntitySearchValue>(emptyValue);
+      return (
+        <CascadingEntitySearchFilter
+          customers={customers}
+          projects={[projects[0]]}
+          projectItems={[
+            projectItems[0],
+            {
+              ...projectItems[1],
+              project_code: 'DA-B',
+              project_name: 'Dự án B',
+              customer_id: 'customer-b',
+            },
+          ]}
+          value={value}
+          onChange={setValue}
+          textValue=""
+          onTextChange={() => undefined}
+        />
+      );
+    }
+
+    render(<ItemScopedHarness />);
+
+    await selectOption(user, 'Lọc theo khách hàng', /Bệnh viện B/);
+    await user.click(screen.getByRole('button', { name: 'Lọc theo dự án' }));
+
+    expect(await screen.findByRole('option', { name: /Dự án B/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Dự án A/ })).not.toBeInTheDocument();
+  });
 });

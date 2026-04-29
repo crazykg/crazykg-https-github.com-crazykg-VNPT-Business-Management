@@ -481,6 +481,39 @@ describe('ProjectList date filters', () => {
     expect(screen.queryByText('Có thay đổi chưa áp dụng')).not.toBeInTheDocument();
   });
 
+  it('submits structured entity ids in server mode when searching', async () => {
+    const user = userEvent.setup();
+    const onQueryChange = vi.fn();
+
+    render(
+      <ProjectList
+        projects={structuredSearchProjects}
+        customers={structuredSearchCustomers}
+        projectItems={structuredSearchProjectItems}
+        onOpenModal={vi.fn()}
+        paginationMeta={projectListPaginationMeta}
+        onQueryChange={onQueryChange}
+      />
+    );
+
+    await selectCascadingProjectFilterOption(user, 'Lọc theo khách hàng', /Trạm y tế Thạnh Quới/);
+    await selectCascadingProjectFilterOption(user, 'Lọc theo dự án', /Hồ sơ sức khỏe nội bộ/);
+    await selectCascadingProjectFilterOption(user, 'Lọc theo sản phẩm', /HIS Core/);
+    await user.type(screen.getByLabelText('Tìm tự do trong phạm vi đã chọn'), 'HIS');
+    await user.click(screen.getByTitle('Tìm kiếm (Enter)'));
+
+    await waitFor(() => {
+      expect(onQueryChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        q: 'HIS',
+        filters: expect.objectContaining({
+          customer_ids: '11',
+          project_ids: '101',
+          product_ids: 'product-his',
+        }),
+      }));
+    });
+  });
+
   it('does not show a pending helper chip before project filters are applied', async () => {
     const user = userEvent.setup();
 

@@ -1,13 +1,14 @@
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ProjectProcedureModal } from '../components/ProjectProcedureModal';
 import { PublicProjectProcedurePage } from '../components/PublicProjectProcedurePage';
 import type {
   ProcedureTemplate,
   ProcedureRaciEntry,
+  ProcedureStepRaciEntry,
   ProcedureStepWorklog,
   Project,
   ProjectProcedure,
@@ -47,18 +48,25 @@ const resyncProcedureMock = vi.hoisted(() => vi.fn());
 const getStepAttachmentsMock = vi.hoisted(() => vi.fn());
 const linkStepAttachmentMock = vi.hoisted(() => vi.fn());
 const deleteStepAttachmentMock = vi.hoisted(() => vi.fn());
+const fetchSupportProjectWorklogDatetimePolicyMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../components/procedure/StepRow', () => ({
   StepRow: ({
     step,
+    stepRaciEntries = [],
+    projectWorklogDatetimeEnabled = false,
     onDraftChange,
   }: {
     step: ProjectProcedureStep;
+    stepRaciEntries?: ProcedureStepRaciEntry[];
+    projectWorklogDatetimeEnabled?: boolean;
     onDraftChange?: (id: string | number, field: string, value: string | null) => void;
   }) => (
     <tr data-testid={`mock-step-row-${step.id}`}>
       <td>
         {step.step_name}
+        <span data-testid={`mock-step-raci-count-${step.id}`}>{stepRaciEntries.length}</span>
+        <span data-testid={`mock-step-worklog-datetime-${step.id}`}>{String(projectWorklogDatetimeEnabled)}</span>
         <button
           type="button"
           data-testid={`mock-dirty-step-${step.id}`}
@@ -156,6 +164,10 @@ vi.mock('../services/api/projectApi', () => ({
   deleteStepAttachment: deleteStepAttachmentMock,
 }));
 
+vi.mock('../services/api/supportConfigApi', () => ({
+  fetchSupportProjectWorklogDatetimePolicy: fetchSupportProjectWorklogDatetimePolicyMock,
+}));
+
 const project: Project = {
   id: 101,
   project_code: 'DA001',
@@ -214,6 +226,21 @@ const raciEntries: ProcedureRaciEntry[] = [
   } as ProcedureRaciEntry,
 ];
 
+const stepRaciEntries: ProcedureStepRaciEntry[] = [
+  {
+    id: 9101,
+    step_id: 7001,
+    user_id: 22,
+    full_name: 'Nguyen Van A',
+    user_code: 'NV22',
+    username: 'nva',
+    raci_role: 'R',
+    department_id: 10,
+    department_name: 'Phong Ky thuat',
+    department_code: 'PKT',
+  } as ProcedureStepRaciEntry,
+];
+
 const worklogs: ProcedureStepWorklog[] = [
   {
     id: 8001,
@@ -246,6 +273,15 @@ const worklogs: ProcedureStepWorklog[] = [
 ];
 
 describe('ProjectProcedureModal UI', () => {
+  beforeEach(() => {
+    fetchSupportProjectWorklogDatetimePolicyMock.mockReset();
+    fetchSupportProjectWorklogDatetimePolicyMock.mockResolvedValue({
+      provider: 'PROJECT_WORKLOG_DATETIME_POLICY',
+      project_worklog_datetime_enabled: false,
+      source: 'DEFAULT',
+    });
+  });
+
   it('uses the same fixed column contract for every phase table', async () => {
     fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
     uploadDocumentAttachmentMock.mockResolvedValue({});
@@ -292,7 +328,7 @@ describe('ProjectProcedureModal UI', () => {
     reorderProcedureStepsMock.mockResolvedValue({});
     updateIssueStatusMock.mockResolvedValue({});
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
-    fetchStepRaciBulkMock.mockResolvedValue([]);
+    fetchStepRaciBulkMock.mockResolvedValue(stepRaciEntries);
     addProcedureRaciMock.mockResolvedValue({});
     removeProcedureRaciMock.mockResolvedValue({});
     addStepRaciMock.mockResolvedValue({});
@@ -303,6 +339,11 @@ describe('ProjectProcedureModal UI', () => {
     getStepAttachmentsMock.mockResolvedValue([]);
     linkStepAttachmentMock.mockResolvedValue({});
     deleteStepAttachmentMock.mockResolvedValue({});
+    fetchSupportProjectWorklogDatetimePolicyMock.mockResolvedValueOnce({
+      provider: 'PROJECT_WORKLOG_DATETIME_POLICY',
+      project_worklog_datetime_enabled: true,
+      source: 'DB',
+    });
 
     render(
       <ProjectProcedureModal
@@ -315,24 +356,29 @@ describe('ProjectProcedureModal UI', () => {
 
     const phaseBodies = await screen.findAllByTestId(/procedure-phase-body-/);
     expect(phaseBodies).toHaveLength(2);
+    await waitFor(() => {
+      expect(fetchSupportProjectWorklogDatetimePolicyMock).toHaveBeenCalledTimes(1);
+    });
 
     const expectedWidths = [
       '40px',
       '52px',
-      '336px',
-      '176px',
-      '220px',
-      '96px',
+      '320px',
+      '196px',
+      '164px',
+      '200px',
+      '88px',
       '140px',
       '140px',
       '136px',
-      '148px',
-      '124px',
+      '132px',
+      '116px',
       '52px',
     ];
     const widthsByTable = phaseBodies.map((body) => {
       const table = within(body).getByRole('table');
-      expect(table).toHaveClass('table-fixed', 'min-w-[1660px]');
+      expect(table).toHaveClass('table-fixed', 'min-w-[1776px]');
+      expect(within(table).getByRole('columnheader', { name: 'Người thực hiện' })).toHaveTextContent('Người thực hiện');
       const actionHeader = table.querySelector('thead th[aria-label="Thao tác"]');
       expect(actionHeader).toHaveClass(
         'sticky',
@@ -912,11 +958,12 @@ describe('ProjectProcedureModal UI', () => {
     });
   });
 
-  it('exposes export dropdown and creates a seven-day public link for authorized users', async () => {
+  it('exposes export dropdown and creates a keyed public link for authorized users', async () => {
     const user = userEvent.setup();
     const onNotify = vi.fn();
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
+    const originalCrypto = globalThis.crypto;
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => 'blob:procedure-export'),
@@ -928,6 +975,18 @@ describe('ProjectProcedureModal UI', () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {
+        getRandomValues: vi.fn((values: Uint32Array) => {
+          values.forEach((_, index) => {
+            values[index] = index;
+          });
+
+          return values;
+        }),
+      },
     });
 
     fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
@@ -965,8 +1024,14 @@ describe('ProjectProcedureModal UI', () => {
     });
     createProcedurePublicShareMock.mockResolvedValue({
       token: 'public-token-abcdefghijklmnopqrstuvwxyz0123456789',
-      expires_at: '2026-05-06T00:00:00+07:00',
-      ttl_days: 7,
+      public_url: 'http://127.0.0.1:5175/public/project-procedure/public-token-abcdefghijklmnopqrstuvwxyz0123456789',
+      expires_at: '2026-05-29T00:00:00+07:00',
+      ttl_days: 30,
+      email: {
+        status: 'SUCCESS',
+        recipients: ['pvro86@gmail.com', 'vnpthishg@gmail.com'],
+        message: 'Đã gửi email public thủ tục.',
+      },
     });
 
     try {
@@ -998,18 +1063,46 @@ describe('ProjectProcedureModal UI', () => {
       });
 
       await user.click(screen.getByTestId('procedure-public-share'));
+      expect(await screen.findByRole('dialog', { name: /Chia sẻ thủ tục/i })).toBeInTheDocument();
+      expect(screen.queryByText('Chọn thời hạn và nhập key. Người xem phải có link và key mới mở được nội dung.')).not.toBeInTheDocument();
+      expect(screen.queryByText('Chia sẻ ngắn hạn')).not.toBeInTheDocument();
+      expect(screen.queryByText('Theo chu kỳ tháng')).not.toBeInTheDocument();
+      expect(screen.queryByText('Theo quý')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('procedure-public-share-submit'));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Key truy cập/i);
+      expect(createProcedurePublicShareMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId('procedure-public-generate-key'));
+      const generatedKey = (screen.getByTestId('procedure-public-access-key') as HTMLInputElement).value;
+      expect(generatedKey).toHaveLength(16);
+      await user.click(screen.getByTestId('procedure-public-copy-key'));
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(generatedKey);
+
+      await user.click(screen.getByLabelText(/30 ngày/i));
+      await user.click(screen.getByTestId('procedure-public-share-submit'));
 
       await waitFor(() => {
-        expect(createProcedurePublicShareMock).toHaveBeenCalledWith(501);
+        expect(createProcedurePublicShareMock).toHaveBeenCalledWith(501, {
+          ttl_days: 30,
+          access_key: generatedKey,
+        });
       });
+      expect(await screen.findByDisplayValue('http://127.0.0.1:5175/public/project-procedure/public-token-abcdefghijklmnopqrstuvwxyz0123456789')).toBeInTheDocument();
+      expect(screen.getByText('Email đã gửi đến người nhận.')).toBeInTheDocument();
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        expect.stringContaining('/public/project-procedure/public-token-')
+        'http://127.0.0.1:5175/public/project-procedure/public-token-abcdefghijklmnopqrstuvwxyz0123456789'
+      );
+      await user.click(screen.getByTestId('procedure-public-copy-link'));
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        'http://127.0.0.1:5175/public/project-procedure/public-token-abcdefghijklmnopqrstuvwxyz0123456789'
       );
       expect(onNotify).toHaveBeenCalledWith(
         'success',
         'Public thủ tục',
         expect.stringContaining('Đã tạo và copy link public.')
       );
+      expect(screen.getByRole('dialog', { name: /Chia sẻ thủ tục/i })).toBeInTheDocument();
     } finally {
       Object.defineProperty(URL, 'createObjectURL', {
         configurable: true,
@@ -1019,7 +1112,93 @@ describe('ProjectProcedureModal UI', () => {
         configurable: true,
         value: originalRevokeObjectUrl,
       });
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        value: originalCrypto,
+      });
     }
+  });
+
+  it('keeps link and key visible when public share email fails', async () => {
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({});
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+    createProcedurePublicShareMock.mockResolvedValue({
+      token: 'public-token-email-failed',
+      public_url: 'http://127.0.0.1:5175/public/project-procedure/public-token-email-failed',
+      expires_at: '2026-05-09T00:00:00+07:00',
+      ttl_days: 10,
+      email: {
+        status: 'FAILED',
+        recipients: ['pvro86@gmail.com', 'vnpthishg@gmail.com'],
+        message: 'Chưa có cấu hình Email SMTP.',
+      },
+    });
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={onNotify}
+        authUser={{
+          id: 1,
+          username: 'admin',
+          full_name: 'Admin',
+          email: 'admin@example.test',
+          status: 'Active',
+          roles: [],
+          permissions: ['projects.read', 'projects.write'],
+          dept_scopes: [],
+        } as any}
+      />
+    );
+
+    await screen.findByTestId('project-procedure-modal');
+    await user.click(screen.getByTestId('procedure-public-share'));
+    await user.type(screen.getByTestId('procedure-public-access-key'), 'manual-public-key');
+    await user.click(screen.getByTestId('procedure-public-share-submit'));
+
+    expect(await screen.findByDisplayValue('http://127.0.0.1:5175/public/project-procedure/public-token-email-failed')).toBeInTheDocument();
+    expect(screen.getByText('Email chưa gửi được: Chưa có cấu hình Email SMTP.')).toBeInTheDocument();
+    expect((screen.getByTestId('procedure-public-access-key') as HTMLInputElement).value).toBe('manual-public-key');
+    await user.click(screen.getByTestId('procedure-public-copy-key'));
+    await user.click(screen.getByTestId('procedure-public-copy-link'));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('manual-public-key');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://127.0.0.1:5175/public/project-procedure/public-token-email-failed');
   });
 
   it('blocks export and public link when procedure steps have unsaved changes', async () => {
@@ -1098,8 +1277,9 @@ describe('ProjectProcedureModal UI', () => {
     );
   });
 
-  it('renders the public procedure page without the login shell', async () => {
+  it('requires access key before rendering the public procedure page', async () => {
     vi.clearAllMocks();
+    const user = userEvent.setup();
     fetchPublicProcedureShareMock.mockResolvedValue({
       project: {
         project_code: 'DA001',
@@ -1148,18 +1328,97 @@ describe('ProjectProcedureModal UI', () => {
       ],
     });
 
+    const { container } = render(
+      <MemoryRouter initialEntries={['/public/project-procedure/public-token-abc']}>
+        <PublicProjectProcedurePage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: /Nhập key truy cập/i })).toBeInTheDocument();
+    expect(container.querySelector('label[for="public-procedure-access-key"]')).toBeNull();
+    expect(screen.getByLabelText('Key truy cập')).toBe(screen.getByTestId('public-procedure-access-key'));
+    expect(fetchPublicProcedureShareMock).not.toHaveBeenCalled();
+
+    await user.type(screen.getByTestId('public-procedure-access-key'), 'payload-key');
+    await user.click(screen.getByTestId('public-procedure-unlock'));
+
+    await waitFor(() => {
+      expect(fetchPublicProcedureShareMock).toHaveBeenCalledWith('public-token-abc', 'payload-key');
+    });
+    expect(await screen.findByText('Bảng thủ tục public')).toBeInTheDocument();
+    expect(screen.getByText('I')).toBeInTheDocument();
+    expect(screen.getByText('Hoàn thiện hồ sơ')).toBeInTheDocument();
+    expect(screen.queryByText(/đăng nhập/i)).not.toBeInTheDocument();
+  });
+
+  it('hides derived implementation plan title on the public procedure page', async () => {
+    vi.clearAllMocks();
+    const user = userEvent.setup();
+    fetchPublicProcedureShareMock.mockResolvedValue({
+      project: {
+        project_code: 'HSSK_NB',
+        project_name: 'Hồ sơ sức khoẻ nội bộ',
+      },
+      procedure: {
+        procedure_name: 'Kế hoạch triển khai - Hồ sơ sức khoẻ nội bộ',
+        overall_progress: 40,
+      },
+      summary: {
+        total_steps: 0,
+        completed_steps: 0,
+        in_progress_steps: 0,
+        not_started_steps: 0,
+        overall_percent: 0,
+      },
+      share: {
+        expires_at: '2026-05-06T00:00:00+07:00',
+      },
+      phases: [],
+    });
+
     render(
       <MemoryRouter initialEntries={['/public/project-procedure/public-token-abc']}>
         <PublicProjectProcedurePage />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      expect(fetchPublicProcedureShareMock).toHaveBeenCalledWith('public-token-abc');
-    });
-    expect(await screen.findByText('Bảng thủ tục public')).toBeInTheDocument();
-    expect(screen.getByText('I')).toBeInTheDocument();
-    expect(screen.getByText('Hoàn thiện hồ sơ')).toBeInTheDocument();
-    expect(screen.queryByText(/đăng nhập/i)).not.toBeInTheDocument();
+    await user.type(await screen.findByTestId('public-procedure-access-key'), 'payload-key');
+    await user.click(screen.getByTestId('public-procedure-unlock'));
+
+    expect(await screen.findByRole('heading', { name: 'HSSK_NB - Hồ sơ sức khoẻ nội bộ' })).toBeInTheDocument();
+    expect(screen.queryByText('Kế hoạch triển khai - Hồ sơ sức khoẻ nội bộ')).not.toBeInTheDocument();
+  });
+
+  it('keeps public procedure page locked when access key is wrong', async () => {
+    vi.clearAllMocks();
+    const user = userEvent.setup();
+    const error = Object.assign(new Error('Key truy cập không đúng hoặc đã bị thiếu.'), { status: 403 });
+    fetchPublicProcedureShareMock.mockRejectedValue(error);
+
+    render(
+      <MemoryRouter initialEntries={['/public/project-procedure/public-token-abc']}>
+        <PublicProjectProcedurePage />
+      </MemoryRouter>
+    );
+
+    await user.type(await screen.findByTestId('public-procedure-access-key'), 'wrong-key');
+    await user.click(screen.getByTestId('public-procedure-unlock'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Key truy cập không đúng');
+    expect(screen.queryByText('Hoàn thiện hồ sơ')).not.toBeInTheDocument();
+  });
+
+  it('shows an invalid link state when the public procedure token is missing', async () => {
+    vi.clearAllMocks();
+
+    render(
+      <MemoryRouter initialEntries={['/public/project-procedure']}>
+        <PublicProjectProcedurePage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { name: /Không mở được bảng thủ tục/i })).toBeInTheDocument();
+    expect(screen.getByText('Link public thiếu token.')).toBeInTheDocument();
+    expect(fetchPublicProcedureShareMock).not.toHaveBeenCalled();
   });
 });

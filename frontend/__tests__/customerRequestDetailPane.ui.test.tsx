@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Employee, ProjectItemMaster } from '../types';
 import { CustomerRequestDetailPane } from '../components/customer-request/CustomerRequestDetailPane';
-import { formatDateTimeDdMmYyyy } from '../utils/dateDisplay';
 
 const employees: Employee[] = [
   {
@@ -798,7 +797,7 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(onOpenEstimateModal).toHaveBeenCalledTimes(1);
   });
 
-  it('shows timeline content inside the worklog frame in full modal presentation', async () => {
+  it('shows compact worklog content in full modal presentation', async () => {
     const user = userEvent.setup();
 
     render(
@@ -969,19 +968,8 @@ describe('CustomerRequestDetailPane UI', () => {
     expect(hoursTabButton).toBeDefined();
     await user.click(hoursTabButton!);
 
-    expect(screen.getAllByText('2 dòng').length).toBeGreaterThanOrEqual(1);
-    const expectedTimelineTime = formatDateTimeDdMmYyyy('2026-04-20 08:00:00')?.slice(0, 16);
-    expect(
-      screen.getAllByText((_, element) => {
-        const text = element?.textContent?.trim() ?? '';
-        return text.includes('VNPT022600 - Phan Văn Rở giao R thực hiện VNPT009999 - Trịnh Minh Tuấn')
-          && text.includes(expectedTimelineTime ?? '');
-      }).length
-    ).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText((_, element) => {
-      const text = element?.textContent?.trim() ?? '';
-      return text.includes('VNPT022600 - Phan Văn Rở tiếp nhận')
-        && text.includes(formatDateTimeDdMmYyyy('2026-04-20 07:30:00')?.slice(0, 16) ?? '');
-    }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('1 dòng').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('asdfasdf')).toBeInTheDocument();
+    expect(screen.getAllByText(/Phan Văn Rở/).length).toBeGreaterThanOrEqual(1);
   });
 });

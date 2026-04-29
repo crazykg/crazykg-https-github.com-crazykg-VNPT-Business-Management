@@ -21,6 +21,24 @@ class ProjectCatalogCrudTest extends TestCase
         $this->setUpSchema();
     }
 
+    private function actingAsProjectViewer(int $id, int $departmentId): InternalUser
+    {
+        DB::table('internal_users')->insert([
+            'id' => $id,
+            'username' => 'viewer'.$id,
+            'full_name' => 'Project Viewer '.$id,
+            'department_id' => $departmentId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        /** @var InternalUser $user */
+        $user = InternalUser::query()->findOrFail($id);
+        $this->actingAs($user);
+
+        return $user;
+    }
+
     public function test_it_creates_lists_and_updates_project_types_via_api(): void
     {
         $createResponse = $this->postJson('/api/v5/project-types', [
@@ -77,6 +95,8 @@ class ProjectCatalogCrudTest extends TestCase
 
     public function test_it_lists_project_items_via_canonical_and_alias_routes(): void
     {
+        $this->actingAsProjectViewer(1, 10);
+
         DB::table('customers')->insert([
             'id' => 1,
             'customer_code' => 'C001',
@@ -90,6 +110,7 @@ class ProjectCatalogCrudTest extends TestCase
             'project_code' => 'PA-001',
             'project_name' => 'Du an A',
             'customer_id' => 1,
+            'department_id' => 10,
             'investment_mode' => 'DAU_TU',
             'payment_cycle' => 'QUARTERLY',
             'created_at' => now(),
@@ -144,6 +165,78 @@ class ProjectCatalogCrudTest extends TestCase
             ->assertJsonPath('data.0.unit', '4 May/Thang')
             ->assertJsonPath('data.0.quantity', 2)
             ->assertJsonPath('data.0.unit_price', 3.5);
+    }
+
+    public function test_project_items_obey_project_read_scope_and_raci_assignment(): void
+    {
+        $user = $this->actingAsProjectViewer(11, 10);
+
+        DB::table('customers')->insert([
+            ['id' => 1, 'customer_code' => 'C001', 'customer_name' => 'Khach hang A', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('projects')->insert([
+            ['id' => 1, 'project_code' => 'PA-001', 'project_name' => 'Du an A', 'customer_id' => 1, 'department_id' => 10, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'project_code' => 'PB-001', 'project_name' => 'Du an B', 'customer_id' => 1, 'department_id' => 20, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('products')->insert([
+            ['id' => 10, 'product_code' => 'SP-A', 'product_name' => 'San pham A', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 20, 'product_code' => 'SP-B', 'product_name' => 'San pham B', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('project_items')->insert([
+            ['id' => 1, 'project_id' => 1, 'product_id' => 10, 'quantity' => 1, 'unit_price' => 100, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'project_id' => 2, 'product_id' => 20, 'quantity' => 1, 'unit_price' => 200, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $scopedResponse = $this->getJson('/api/v5/project-items');
+        $scopedResponse->assertOk();
+        $this->assertSame(['PA-001'], collect($scopedResponse->json('data'))->pluck('project_code')->values()->all());
+
+        DB::table('raci_assignments')->insert([
+            'entity_type' => 'project',
+            'entity_id' => 2,
+            'user_id' => $user->id,
+            'raci_role' => 'R',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $raciResponse = $this->getJson('/api/v5/project-items');
+        $raciResponse->assertOk();
+        $this->assertSame(
+            ['PB-001', 'PA-001'],
+            collect($raciResponse->json('data'))->pluck('project_code')->values()->all()
+        );
+    }
+
+    public function test_projects_filter_customer_project_product_and_keyword_as_and_groups(): void
+    {
+        $this->actingAsProjectViewer(12, 10);
+
+        DB::table('customers')->insert([
+            ['id' => 1, 'customer_code' => 'KH-A', 'customer_name' => 'Khach A', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'customer_code' => 'KH-B', 'customer_name' => 'Khach B', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('projects')->insert([
+            ['id' => 1, 'project_code' => 'DA-HIS-A', 'project_name' => 'Trien khai noi bo', 'customer_id' => 1, 'department_id' => 10, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'project_code' => 'DA-CRM-A', 'project_name' => 'Cham soc khach hang', 'customer_id' => 1, 'department_id' => 10, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 3, 'project_code' => 'DA-HIS-B', 'project_name' => 'HIS ben ngoai', 'customer_id' => 2, 'department_id' => 10, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 4, 'project_code' => 'DA-HIS-HIDDEN', 'project_name' => 'Du an phong ban khac', 'customer_id' => 1, 'department_id' => 20, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('products')->insert([
+            ['id' => 10, 'product_code' => 'HIS', 'product_name' => 'HIS Core', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 20, 'product_code' => 'CRM', 'product_name' => 'CRM Care', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        DB::table('project_items')->insert([
+            ['id' => 1, 'project_id' => 1, 'product_id' => 10, 'quantity' => 1, 'unit_price' => 100, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 2, 'project_id' => 2, 'product_id' => 20, 'quantity' => 1, 'unit_price' => 200, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 3, 'project_id' => 3, 'product_id' => 10, 'quantity' => 1, 'unit_price' => 300, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 4, 'project_id' => 4, 'product_id' => 10, 'quantity' => 1, 'unit_price' => 400, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $response = $this->getJson('/api/v5/projects?filters[customer_ids]=1&filters[project_ids]=1,3,4&filters[product_ids]=10&q=HIS');
+
+        $response->assertOk();
+        $this->assertSame(['DA-HIS-A'], collect($response->json('data'))->pluck('project_code')->values()->all());
     }
 
     public function test_it_stores_project_items_with_product_package_id_and_keeps_parent_product_id(): void
@@ -1289,6 +1382,7 @@ class ProjectCatalogCrudTest extends TestCase
             $table->bigIncrements('id');
             $table->string('username', 120)->nullable();
             $table->string('full_name', 255)->nullable();
+            $table->unsignedBigInteger('department_id')->nullable();
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });

@@ -21,6 +21,8 @@ const supportConfigApiMocks = vi.hoisted(() => ({
   updateCalendarDay: vi.fn(),
   fetchSupportAuthSessionPolicy: vi.fn(),
   updateSupportAuthSessionPolicy: vi.fn(),
+  fetchSupportProjectWorklogDatetimePolicy: vi.fn(),
+  updateSupportProjectWorklogDatetimePolicy: vi.fn(),
 }));
 
 const productApiMocks = vi.hoisted(() => ({
@@ -60,6 +62,7 @@ import type {
   ContractSignerMaster,
   ProductUnitMaster,
   SupportAuthSessionPolicy,
+  SupportProjectWorklogDatetimePolicy,
   SupportContactPosition,
   SupportRequestStatusOption,
   SupportServiceGroup,
@@ -319,6 +322,15 @@ const supportAuthSessionPolicy: SupportAuthSessionPolicy = {
   source: 'DB',
 };
 
+const supportProjectWorklogDatetimePolicy: SupportProjectWorklogDatetimePolicy = {
+  provider: 'PROJECT_WORKLOG_DATETIME_POLICY',
+  project_worklog_datetime_enabled: false,
+  updated_at: '2026-04-26 09:10:11',
+  updated_by: 1,
+  updated_by_name: 'System Admin',
+  source: 'DB',
+};
+
 const noopAsync = vi.fn(async () => {
   throw new Error('Not implemented in test');
 });
@@ -388,6 +400,10 @@ const renderSupportMasterManagement = (
 
 describe('SupportMasterManagement', () => {
   beforeEach(() => {
+    supportConfigApiMocks.fetchSupportAuthSessionPolicy.mockReset();
+    supportConfigApiMocks.updateSupportAuthSessionPolicy.mockReset();
+    supportConfigApiMocks.fetchSupportProjectWorklogDatetimePolicy.mockReset();
+    supportConfigApiMocks.updateSupportProjectWorklogDatetimePolicy.mockReset();
     workflowApiMocks.fetchWorkflowStatusCatalogs.mockResolvedValue([]);
     workflowApiMocks.fetchWorkflowStatusTransitions.mockResolvedValue([]);
     workflowApiMocks.fetchWorkflowFormFieldConfigs.mockResolvedValue([]);
@@ -409,6 +425,11 @@ describe('SupportMasterManagement', () => {
     supportConfigApiMocks.updateSupportAuthSessionPolicy.mockResolvedValue({
       ...supportAuthSessionPolicy,
       same_browser_multi_tab_enabled: false,
+    });
+    supportConfigApiMocks.fetchSupportProjectWorklogDatetimePolicy.mockResolvedValue(supportProjectWorklogDatetimePolicy);
+    supportConfigApiMocks.updateSupportProjectWorklogDatetimePolicy.mockResolvedValue({
+      ...supportProjectWorklogDatetimePolicy,
+      project_worklog_datetime_enabled: true,
     });
     productApiMocks.fetchProductTargetSegments.mockResolvedValue({
       data: productTargetSegments,
@@ -470,6 +491,42 @@ describe('SupportMasterManagement', () => {
       'success',
       'Cấu hình phiên đăng nhập',
       'Đã tắt đăng nhập nhiều tab trong cùng trình duyệt.'
+    );
+  });
+
+  it('loads and saves project worklog datetime policy from support master management', async () => {
+    const user = userEvent.setup();
+    const notifyMock = vi.fn();
+
+    renderSupportMasterManagement({
+      canReadStatuses: true,
+      canWriteStatuses: true,
+      onNotify: notifyMock,
+    });
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.fetchSupportProjectWorklogDatetimePolicy).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Chọn danh mục' }));
+    await user.click(await screen.findByRole('button', { name: /ngày giờ worklog dự án/i }));
+
+    expect(await screen.findByText('Bật ngày giờ trong worklog dự án')).toBeInTheDocument();
+    expect(screen.getByText('Mặc định tắt để giữ flow ghi nhanh hiện tại.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /đang tắt ngày giờ/i }));
+    await user.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
+
+    await waitFor(() => {
+      expect(supportConfigApiMocks.updateSupportProjectWorklogDatetimePolicy).toHaveBeenCalledWith({
+        project_worklog_datetime_enabled: true,
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'success',
+      'Ngày giờ worklog dự án',
+      'Đã bật ngày giờ bắt buộc cho worklog dự án.'
     );
   });
 

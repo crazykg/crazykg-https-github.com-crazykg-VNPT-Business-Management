@@ -48,4 +48,14 @@ return [
         'pvro86@gmail.com',
         'vnpthishg@gmail.com',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Project Procedure Public Share Notification Recipients
+    |--------------------------------------------------------------------------
+    */
+    'project_procedure_public_share_notification_recipients' => [
+        'pvro86@gmail.com',
+        'vnpthishg@gmail.com',
+    ],
 ];

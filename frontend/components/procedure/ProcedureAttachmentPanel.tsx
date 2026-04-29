@@ -32,7 +32,7 @@ export const ProcedureAttachmentPanel: React.FC<ProcedureAttachmentPanelProps> =
 
   return (
     <tr>
-      <td id={`step-file-panel-${stepId}`} data-testid={`step-file-panel-${stepId}`} colSpan={12} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
+      <td id={`step-file-panel-${stepId}`} data-testid={`step-file-panel-${stepId}`} colSpan={13} className="px-4 py-3 bg-amber-50/40 border-t border-amber-100">
         <div className="flex flex-col gap-2">
           <div className="flex flex-col gap-2 bg-white border border-amber-100 rounded-xl p-2.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">

@@ -70,6 +70,16 @@ describe('ProjectDateInput UI', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('uses a thin dense focus indicator without a thick outline', () => {
+    render(<ProjectDateInput value="" onChange={vi.fn()} ariaLabel="Từ ngày" testId="project-date" />);
+
+    const input = screen.getByTestId('project-date') as HTMLInputElement;
+
+    expect(input.className).toContain('focus:ring-1');
+    expect(input.className).toContain('focus-visible:outline-none');
+    expect(input.className).not.toContain('focus-visible:outline-2');
+  });
+
   it('keeps the calendar picker bounded by project min and max dates', () => {
     const onChange = vi.fn();
     render(<ProjectDateInput value="" onChange={onChange} ariaLabel="Đến ngày" testId="project-date" />);
