@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ProjectProcedureStep,
   ProcedureRaciEntry,
@@ -12,6 +13,7 @@ interface RaciMatrixPanelProps {
   phase: string;
   phaseLabel: string;
   steps: ProjectProcedureStep[];
+  displayNumberByStepId: Record<string, string>;
   raciMembers: ProcedureRaciEntry[];
   stepRaciMap: Record<string, ProcedureStepRaciEntry[]>;
   onToggle: (stepId: string | number, userId: string | number, role: ProcedureRaciRole) => void | Promise<void>;
@@ -20,6 +22,7 @@ interface RaciMatrixPanelProps {
 }
 
 const ROLE_ORDER: ProcedureRaciRole[] = ['A', 'R', 'C', 'I'];
+const EMPTY_ROLE_SET = new Set<ProcedureRaciRole>();
 
 const ROLE_META: Record<ProcedureRaciRole, { tone: string; outline: string; label: string }> = {
   A: {
@@ -72,12 +75,14 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
   phase,
   phaseLabel,
   steps,
+  displayNumberByStepId,
   raciMembers,
   stepRaciMap,
   onToggle,
   onCopy,
   onClose,
 }) => {
+  const matrixScrollRef = useRef<HTMLDivElement>(null);
   const [copySourceStepId, setCopySourceStepId] = useState<string | null>(null);
   const [copyTargets, setCopyTargets] = useState<Record<string, boolean>>({});
   const [copyMode, setCopyMode] = useState<CopyMode>('overwrite');
@@ -91,12 +96,18 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    });
+    }).map((member) => ({
+      ...member,
+      displayName: getDisplayName(member),
+      initials: getInitials(member),
+      userKey: String(member.user_id),
+    }));
   }, [raciMembers]);
 
   const roleLookup = useMemo(() => {
     const lookup: Record<string, Record<string, Set<ProcedureRaciRole>>> = {};
-    Object.keys(stepRaciMap).forEach((stepId) => {
+    steps.forEach((step) => {
+      const stepId = String(step.id);
       const rows = stepRaciMap[stepId] ?? [];
       lookup[stepId] = {};
       rows.forEach((row) => {
@@ -108,7 +119,34 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
       });
     });
     return lookup;
-  }, [stepRaciMap]);
+  }, [stepRaciMap, steps]);
+
+  const flashStepIdSet = useMemo(() => new Set(flashStepIds), [flashStepIds]);
+  const matrixRowVirtualizer = useVirtualizer({
+    count: steps.length,
+    getScrollElement: () => matrixScrollRef.current,
+    estimateSize: () => 72,
+    overscan: 8,
+  });
+  const measuredVirtualRows = matrixRowVirtualizer.getVirtualItems();
+  const virtualRows = measuredVirtualRows.length > 0
+    ? measuredVirtualRows
+    : steps.map((_, index) => ({
+      index,
+      start: index * 72,
+      end: (index + 1) * 72,
+    }));
+  const paddingTop = measuredVirtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom = measuredVirtualRows.length > 0
+    ? matrixRowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
+    : 0;
+  const columnCount = members.length + 2;
+  const copySourceStep = useMemo(
+    () => steps.find((step) => String(step.id) === copySourceStepId) ?? null,
+    [copySourceStepId, steps],
+  );
+  const resolveStepDisplayNumber = (step: ProjectProcedureStep | null | undefined): string =>
+    step ? (displayNumberByStepId[String(step.id)] ?? '') : '';
 
   useEffect(() => {
     if (!copySourceStepId) {
@@ -176,7 +214,7 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
           </button>
         </div>
 
-        <div className="max-h-[72vh] overflow-auto">
+        <div ref={matrixScrollRef} className="max-h-[72vh] overflow-auto">
           {members.length === 0 ? (
             <div className="px-6 py-16 text-center text-sm text-slate-400">
               <span className="material-symbols-outlined mb-2 block text-4xl text-slate-300">group_off</span>
@@ -190,13 +228,13 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                     Bước
                   </th>
                   {members.map((member) => (
-                    <th key={String(member.user_id)} className="min-w-[150px] px-3 py-3 text-center">
+                    <th key={member.userKey} className="min-w-[150px] px-3 py-3 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-deep-teal/10 text-[11px] font-bold text-deep-teal">
-                          {getInitials(member)}
+                          {member.initials}
                         </span>
-                        <span className="max-w-[120px] truncate text-[11px] font-semibold text-slate-700" title={getDisplayName(member)}>
-                          {getDisplayName(member)}
+                        <span className="max-w-[120px] truncate text-[11px] font-semibold text-slate-700" title={member.displayName}>
+                          {member.displayName}
                         </span>
                       </div>
                     </th>
@@ -207,27 +245,36 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {steps.map((step) => {
+                {paddingTop > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={columnCount} style={{ height: paddingTop, padding: 0 }} />
+                  </tr>
+                )}
+                {virtualRows.map((virtualRow) => {
+                  const step = steps[virtualRow.index];
+                  if (!step) return null;
                   const stepKey = String(step.id);
                   const stepEntries = stepRaciMap[stepKey] ?? [];
                   const hasAssignments = stepEntries.length > 0;
-                  const isFlashing = flashStepIds.includes(stepKey);
+                  const isFlashing = flashStepIdSet.has(stepKey);
                   return (
                     <tr
                       key={stepKey}
+                      data-index={virtualRow.index}
+                      ref={matrixRowVirtualizer.measureElement}
                       data-testid={`raci-row-${step.id}`}
                       className={`transition-colors ${isFlashing ? 'bg-amber-50/80' : 'hover:bg-slate-50/60'}`}
                     >
                       <td className="sticky left-0 z-[1] border-r border-slate-100 bg-white px-4 py-3 align-top">
                         <div className="space-y-1">
-                          <div className="text-[11px] font-semibold text-slate-400">#{step.step_number}</div>
+                          <div className="text-[11px] font-semibold text-slate-400">Bước {resolveStepDisplayNumber(step)}</div>
                           <div className="text-sm font-medium text-slate-800">{step.step_name}</div>
                         </div>
                       </td>
                       {members.map((member) => {
-                        const assignedRoles = roleLookup[stepKey]?.[String(member.user_id)] ?? new Set<ProcedureRaciRole>();
+                        const assignedRoles = roleLookup[stepKey]?.[member.userKey] ?? EMPTY_ROLE_SET;
                         return (
-                          <td key={`${stepKey}-${String(member.user_id)}`} className="px-3 py-3 align-top">
+                          <td key={`${stepKey}-${member.userKey}`} className="px-3 py-3 align-top">
                             <div className="flex items-center justify-center gap-1">
                               {ROLE_ORDER.map((role) => {
                                 const isAssigned = assignedRoles.has(role);
@@ -242,7 +289,7 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                                     className={`inline-flex h-7 w-7 items-center justify-center rounded-md border text-[10px] font-black transition-colors ${
                                       isAssigned ? tone.tone : tone.outline
                                     }`}
-                                    title={`${isAssigned ? 'Bỏ' : 'Gán'} vai trò ${role} cho ${getDisplayName(member)}`}
+                                    title={`${isAssigned ? 'Bỏ' : 'Gán'} vai trò ${role} cho ${member.displayName}`}
                                   >
                                     {role}
                                   </button>
@@ -270,6 +317,11 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                     </tr>
                   );
                 })}
+                {paddingBottom > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={columnCount} style={{ height: paddingBottom, padding: 0 }} />
+                  </tr>
+                )}
               </tbody>
             </table>
           )}
@@ -282,7 +334,7 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                 <div>
                   <h4 className="text-sm font-bold text-slate-800">Sao chép RACI</h4>
                   <p className="text-[11px] text-slate-500">
-                    Áp dụng phân công từ bước #{steps.find((step) => String(step.id) === copySourceStepId)?.step_number}
+                    Áp dụng phân công từ bước {resolveStepDisplayNumber(copySourceStep)}
                   </p>
                 </div>
                 <button
@@ -340,7 +392,7 @@ export const RaciMatrixPanel: React.FC<RaciMatrixPanelProps> = ({
                           className="mt-0.5 h-4 w-4 rounded border-slate-300 text-deep-teal focus:ring-deep-teal/20"
                         />
                         <div className="min-w-0">
-                          <div className="text-xs font-medium text-slate-700">#{step.step_number} {step.step_name}</div>
+                          <div className="text-xs font-medium text-slate-700">{resolveStepDisplayNumber(step)} {step.step_name}</div>
                         </div>
                       </label>
                     );

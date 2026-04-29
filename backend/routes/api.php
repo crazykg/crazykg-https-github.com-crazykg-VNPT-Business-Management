@@ -76,6 +76,8 @@ Route::prefix('v5')->group(function (): void {
     Route::get('/documents/attachments/temp-download', [DocumentController::class, 'downloadTemporaryAttachment'])
         ->name('v5.documents.attachments.temp-download')
         ->middleware('signed:relative');
+    Route::get('/public/project-procedure-shares/{token}', [ProjectProcedureController::class, 'publicShare'])
+        ->middleware('throttle:api.access');
 
     Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
@@ -539,6 +541,12 @@ Route::prefix('v5')->group(function (): void {
             ->middleware('permission:projects.write');
         Route::get('/project-procedures/{procedureId}/steps', [ProjectProcedureController::class, 'procedureSteps'])
             ->middleware('permission:projects.read');
+        Route::get('/project-procedures/{procedureId}/export', [ProjectProcedureController::class, 'exportProcedure'])
+            ->middleware(['permission:projects.read', 'throttle:api.read.export']);
+        Route::post('/project-procedures/{procedureId}/public-share', [ProjectProcedureController::class, 'createPublicShare'])
+            ->middleware('permission:projects.write');
+        Route::delete('/project-procedures/{procedureId}/public-share', [ProjectProcedureController::class, 'revokePublicShare'])
+            ->middleware('permission:projects.write');
         Route::post('/project-procedures/{procedureId}/resync', [ProjectProcedureController::class, 'resyncProcedure'])
             ->middleware('permission:projects.write');
         Route::post('/project-procedure-steps/reorder', [ProjectProcedureController::class, 'reorderSteps'])

@@ -212,11 +212,13 @@ describe('App filter store integration', () => {
       });
 
       const main = screen.getByRole('main');
+      const mobileAppHeader = screen.getByTestId('mobile-app-header');
 
       expect(main).toHaveClass('flex-1');
       expect(main).toHaveClass('overflow-y-auto');
       expect(main).toHaveClass('w-full');
       expect(main).toHaveClass('min-h-0');
+      expect(mobileAppHeader).toHaveClass('px-4', 'pt-1.5', 'pb-2.5', 'bg-white', 'border-b');
       expect(main.parentElement).toHaveClass('flex-col');
       expect(main.parentElement).toHaveClass('overflow-hidden');
       expect(main.parentElement).toHaveClass('h-[100dvh]');

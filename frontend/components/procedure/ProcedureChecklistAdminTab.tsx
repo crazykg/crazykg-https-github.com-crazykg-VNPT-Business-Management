@@ -14,13 +14,36 @@ const ISSUE_STATUS_META: Record<IssueStatus, { label: string; color: string; dot
   RESOLVED: { label: 'Đã giải quyết', color: 'text-success bg-success/10 border-success/20', dot: 'bg-success' },
 };
 
+type PhaseSummary = {
+  phase: string;
+  orderLabel: string;
+  label: string;
+  total: number;
+  done: number;
+  inProgress: number;
+  todo: number;
+  percent: number;
+  unresolvedIssues: number;
+};
+
+const normalizeStepKey = (value: string | number | null | undefined): string =>
+  value === null || value === undefined || value === '' ? '' : String(value);
+
+const compareStepOrder = (left: ProjectProcedureStep, right: ProjectProcedureStep): number => {
+  const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+  if (orderDiff !== 0) return orderDiff;
+  const numberDiff = Number(left.step_number ?? 0) - Number(right.step_number ?? 0);
+  if (numberDiff !== 0) return numberDiff;
+  return normalizeStepKey(left.id).localeCompare(normalizeStepKey(right.id), 'vi');
+};
+
 interface ProcedureChecklistAdminTabProps {
   steps: ProjectProcedureStep[];
   worklogs: ProcedureStepWorklog[];
   worklogsLoading: boolean;
   overallPercent: number;
   onRefresh: () => void | Promise<void>;
-  onChangeIssueStatus: (logId: string | number, newStatus: IssueStatus) => Promise<void>;
+  onChangeIssueStatus: (issueId: string | number, newStatus: IssueStatus) => Promise<void>;
 }
 
 export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProps> = ({
@@ -46,6 +69,69 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
     RESOLVED: issueWorklogs.filter((worklog) => worklog.issue?.issue_status === 'RESOLVED'),
   }), [issueWorklogs]);
 
+  const phaseSummaries = useMemo<PhaseSummary[]>(() => {
+    const topSteps = steps
+      .filter((step) => !step.parent_step_id)
+      .sort(compareStepOrder);
+    const stepById = new Map(steps.map((step) => [normalizeStepKey(step.id), step]));
+    const phaseByStepId = new Map<string, string>();
+    const phaseOrder: string[] = [];
+    const phaseMap = new Map<string, Omit<PhaseSummary, 'orderLabel' | 'percent'>>();
+
+    topSteps.forEach((step) => {
+      const phase = step.phase ?? 'KHAC';
+      const label = step.phase_label ?? PHASE_LABELS[phase] ?? phase;
+      if (!phaseMap.has(phase)) {
+        phaseOrder.push(phase);
+        phaseMap.set(phase, {
+          phase,
+          label,
+          total: 0,
+          done: 0,
+          inProgress: 0,
+          todo: 0,
+          unresolvedIssues: 0,
+        });
+      }
+
+      const summary = phaseMap.get(phase)!;
+      summary.total++;
+      if (step.progress_status === 'HOAN_THANH') {
+        summary.done++;
+      } else if (step.progress_status === 'DANG_THUC_HIEN') {
+        summary.inProgress++;
+      } else {
+        summary.todo++;
+      }
+    });
+
+    steps.forEach((step) => {
+      const stepKey = normalizeStepKey(step.id);
+      const parent = step.parent_step_id ? stepById.get(normalizeStepKey(step.parent_step_id)) : null;
+      const owner = parent ?? step;
+      phaseByStepId.set(stepKey, owner.phase ?? step.phase ?? 'KHAC');
+    });
+
+    issueWorklogs.forEach((worklog) => {
+      if (!worklog.issue || worklog.issue.issue_status === 'RESOLVED') return;
+      const phase = phaseByStepId.get(normalizeStepKey(worklog.step_id));
+      if (!phase) return;
+      const summary = phaseMap.get(phase);
+      if (summary) {
+        summary.unresolvedIssues++;
+      }
+    });
+
+    return phaseOrder.map((phase, index) => {
+      const summary = phaseMap.get(phase)!;
+      return {
+        ...summary,
+        orderLabel: String(index + 1).padStart(2, '0'),
+        percent: summary.total > 0 ? Math.round((summary.done / summary.total) * 100) : 0,
+      };
+    });
+  }, [issueWorklogs, steps]);
+
   const stepStats = useMemo(() => {
     const topSteps = steps.filter((step) => !step.parent_step_id);
     return {
@@ -57,14 +143,15 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
   }, [steps]);
 
   const handleChangeIssueStatus = useCallback(async (
-    logId: string | number,
+    worklogId: string | number,
+    issueId: string | number,
     newStatus: IssueStatus,
   ) => {
-    setIssueUpdating((prev) => ({ ...prev, [logId]: true }));
+    setIssueUpdating((prev) => ({ ...prev, [worklogId]: true }));
     try {
-      await onChangeIssueStatus(logId, newStatus);
+      await onChangeIssueStatus(issueId, newStatus);
     } finally {
-      setIssueUpdating((prev) => ({ ...prev, [logId]: false }));
+      setIssueUpdating((prev) => ({ ...prev, [worklogId]: false }));
     }
   }, [onChangeIssueStatus]);
 
@@ -76,9 +163,12 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
           Quản trị checklist
         </h3>
         <button
+          type="button"
+          title="Làm mới"
+          aria-label="Làm mới dữ liệu quản trị checklist"
           onClick={() => void onRefresh()}
           disabled={worklogsLoading}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8"
         >
           <span className={`material-symbols-outlined ${worklogsLoading ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>refresh</span>
           Làm mới
@@ -87,7 +177,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
-          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
             <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>trending_up</span>
             Tiến độ tổng thể
           </h4>
@@ -96,13 +186,13 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
               { label: 'Tổng bước', value: stepStats.total, color: 'text-slate-700', bg: 'bg-slate-50', icon: 'format_list_numbered' },
               { label: 'Hoàn thành', value: stepStats.done, color: 'text-success', bg: 'bg-success/10', icon: 'check_circle' },
               { label: 'Đang TH', value: stepStats.inProgress, color: 'text-tertiary', bg: 'bg-tertiary/8', icon: 'sync' },
-              { label: 'Chưa TH', value: stepStats.todo, color: 'text-slate-400', bg: 'bg-slate-50', icon: 'radio_button_unchecked' },
+              { label: 'Chưa TH', value: stepStats.todo, color: 'text-slate-500', bg: 'bg-slate-50', icon: 'radio_button_unchecked' },
             ].map((stat) => (
               <div key={stat.label} className={`rounded-lg ${stat.bg} px-3 py-2 flex items-center gap-2`}>
                 <span className={`material-symbols-outlined ${stat.color}`} style={{ fontSize: 16 }}>{stat.icon}</span>
                 <div>
                   <div className={`text-lg font-black leading-none ${stat.color}`}>{stat.value}</div>
-                  <div className="text-[10px] text-slate-400 font-medium mt-0.5">{stat.label}</div>
+                  <div className="text-[10px] text-slate-600 font-medium mt-0.5">{stat.label}</div>
                 </div>
               </div>
             ))}
@@ -126,7 +216,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                 </>
               )}
             </div>
-            <div className="flex gap-3 text-[10px] text-slate-400">
+            <div className="flex gap-3 text-[10px] text-slate-600">
               <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />Hoàn thành</span>
               <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning inline-block" />Đang TH</span>
               <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-200 inline-block" />Chưa TH</span>
@@ -135,7 +225,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col items-center gap-3">
-          <h4 className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+          <h4 className="w-full text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
             <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>donut_large</span>
             Phân bố trạng thái
           </h4>
@@ -198,19 +288,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
       </div>
 
       {(() => {
-        type PhaseRow = { total: number; done: number; inProg: number; label: string };
-        const phaseMap = steps.reduce((acc: Record<string, PhaseRow>, step) => {
-          if (step.parent_step_id) return acc;
-          const phase = step.phase ?? 'KHAC';
-          const label = step.phase_label ?? PHASE_LABELS[phase] ?? phase;
-          if (!acc[phase]) acc[phase] = { total: 0, done: 0, inProg: 0, label };
-          acc[phase].total++;
-          if (step.progress_status === 'HOAN_THANH') acc[phase].done++;
-          if (step.progress_status === 'DANG_THUC_HIEN') acc[phase].inProg++;
-          return acc;
-        }, {});
-        const phases = (Object.entries(phaseMap) as [string, PhaseRow][]).filter(([, data]) => data.total > 0);
-        const hasPhases = phases.length > 1;
+        const hasPhases = phaseSummaries.length > 0;
         const hasIssues = issueWorklogs.length > 0;
         if (!hasPhases && !hasIssues) return null;
 
@@ -218,42 +296,91 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
           <div className={`grid grid-cols-1 gap-3 ${hasPhases && hasIssues ? 'lg:grid-cols-2' : ''}`}>
             {hasPhases && (
               <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-deep-teal" style={{ fontSize: 14 }}>bar_chart</span>
                   Tiến độ theo giai đoạn
                 </h4>
-                <div className="space-y-2">
-                  {phases.map(([phase, data]) => {
-                    const donePct = Math.round((data.done / data.total) * 100);
-                    const inProgPct = Math.round((data.inProg / data.total) * 100);
+                <ol className="space-y-2" aria-label="Tiến độ theo giai đoạn">
+                  {phaseSummaries.map((summary) => {
+                    const inProgressPct = summary.total > 0
+                      ? Math.round((summary.inProgress / summary.total) * 100)
+                      : 0;
+                    const statusMeta = summary.done === summary.total
+                      ? {
+                          label: 'Hoàn thành',
+                          icon: 'check_circle',
+                          className: 'border-success/25 bg-success/10 text-success',
+                        }
+                      : summary.inProgress > 0
+                        ? {
+                            label: 'Đang TH',
+                            icon: 'sync',
+                            className: 'border-tertiary/25 bg-tertiary/10 text-slate-700',
+                          }
+                        : {
+                            label: 'Chưa TH',
+                            icon: 'radio_button_unchecked',
+                            className: 'border-slate-300 bg-slate-50 text-slate-700',
+                          };
                     return (
-                      <div key={phase} className="space-y-0.5">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-medium text-slate-600 truncate max-w-[180px]" title={data.label}>{data.label}</span>
-                          <span className="text-slate-400 shrink-0 ml-2">{data.done}/{data.total}</span>
-                        </div>
-                        <div className="h-3 w-full rounded bg-slate-100 overflow-hidden flex">
-                          <div
-                            className="h-full bg-success transition-all duration-500 flex items-center justify-center"
-                            style={{ width: `${donePct}%` }}
-                          >
-                            {donePct >= 15 && <span className="text-[9px] font-bold text-white">{donePct}%</span>}
+                      <li key={summary.phase} className="rounded-md border border-slate-200 bg-slate-50/70 p-2 sm:p-2.5">
+                        <div className="flex items-start gap-2.5">
+                          <span className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/8 text-[11px] font-black tabular-nums text-primary">
+                            {summary.orderLabel}
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-800" title={summary.label}>
+                                {summary.label}
+                              </span>
+                              <span className="shrink-0 text-[11px] font-bold tabular-nums text-slate-700">
+                                {summary.done}/{summary.total}
+                              </span>
+                              <span className={`inline-flex min-h-6 items-center gap-1 rounded border px-1.5 text-[10px] font-bold ${statusMeta.className}`}>
+                                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 12 }}>{statusMeta.icon}</span>
+                                {statusMeta.label}
+                              </span>
+                            </div>
+                            <div
+                              role="progressbar"
+                              aria-label={`Giai đoạn ${summary.orderLabel} ${summary.label}: ${summary.done} trên ${summary.total} bước hoàn thành`}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={summary.percent}
+                              aria-valuetext={`${summary.done}/${summary.total} bước hoàn thành`}
+                              className="flex h-3 w-full overflow-hidden rounded bg-slate-200"
+                            >
+                              <div
+                                className="h-full bg-success transition-all duration-500"
+                                style={{ width: `${summary.percent}%` }}
+                              />
+                              <div
+                                className="h-full bg-warning transition-all duration-500"
+                                style={{ width: `${inProgressPct}%` }}
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium text-slate-600">
+                              <span>{summary.percent}% hoàn thành</span>
+                              <span>{summary.inProgress} đang TH</span>
+                              <span>{summary.todo} chưa TH</span>
+                              <span className={summary.unresolvedIssues > 0 ? 'font-bold text-error' : 'text-slate-600'}>
+                                {summary.unresolvedIssues > 0
+                                  ? `${summary.unresolvedIssues} vấn đề mở`
+                                  : 'Không vấn đề mở'}
+                              </span>
+                            </div>
                           </div>
-                          <div
-                            className="h-full bg-warning transition-all duration-500"
-                            style={{ width: `${inProgPct}%` }}
-                          />
                         </div>
-                      </div>
+                      </li>
                     );
                   })}
-                </div>
+                </ol>
               </div>
             )}
 
             {hasIssues && (
               <div className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col gap-2.5">
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>troubleshoot</span>
                   Tình trạng xử lý vấn đề
                   <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
@@ -307,18 +434,21 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                           { val: issuesByStatus.RESOLVED.length, color: '#34d399', label: 'Đã giải quyết', statusKey: 'RESOLVED' as IssueStatus },
                         ]).map((segment) => (
                           <button
+                            type="button"
                             key={segment.label}
+                            aria-label={`Lọc vấn đề ${segment.label}: ${segment.val} mục`}
+                            aria-pressed={issueFilterTab === segment.statusKey}
                             onClick={() => {
                               setIssueFilterTab(segment.statusKey);
                               issuesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }}
-                            className="w-full flex items-center gap-1.5 text-[11px] rounded px-1.5 py-1 hover:bg-slate-50 transition-colors cursor-pointer text-left"
+                            className="flex min-h-11 w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:min-h-8 sm:px-1.5"
                           >
                             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: segment.color }} />
-                            <span className="text-slate-500 flex-1">{segment.label}</span>
+                            <span className="text-slate-700 flex-1">{segment.label}</span>
                             <span className="font-bold text-slate-700">{segment.val}</span>
-                            <span className="text-slate-300 text-[10px]">({Math.round((segment.val / (issueWorklogs.length || 1)) * 100)}%)</span>
-                            <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 12 }}>chevron_right</span>
+                            <span className="text-slate-600 text-[10px]">({Math.round((segment.val / (issueWorklogs.length || 1)) * 100)}%)</span>
+                            <span className="material-symbols-outlined text-slate-500" aria-hidden="true" style={{ fontSize: 12 }}>chevron_right</span>
                           </button>
                         ))}
                       </div>
@@ -333,7 +463,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
 
       <div ref={issuesSectionRef} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5">
         <div className="flex items-center gap-2">
-          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+          <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
             <span className="material-symbols-outlined text-error" style={{ fontSize: 14 }}>warning</span>
             Khó khăn &amp; Đề xuất
             {issueWorklogs.length > 0 && (
@@ -352,12 +482,15 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
             { key: 'RESOLVED', label: 'Đã giải quyết', count: issuesByStatus.RESOLVED.length, color: 'text-success bg-success/10', dot: 'bg-success' },
           ] as { key: IssueFilterTab; label: string; count: number; color: string; dot?: string }[]).map((filter) => (
             <button
+              type="button"
               key={filter.key}
+              aria-label={`Lọc danh sách vấn đề ${filter.label}, ${filter.count} mục`}
+              aria-pressed={issueFilterTab === filter.key}
               onClick={() => setIssueFilterTab(filter.key)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+              className={`inline-flex min-h-11 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:min-h-8 ${
                 issueFilterTab === filter.key
                   ? `${filter.color} ring-1 ring-inset ring-current`
-                  : 'text-slate-400 hover:text-slate-600 bg-slate-50'
+                  : 'text-slate-600 hover:text-slate-800 bg-slate-50'
               }`}
             >
               {filter.dot && <span className={`w-1.5 h-1.5 rounded-full ${filter.dot}`} />}
@@ -368,8 +501,8 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
         </div>
 
         {worklogsLoading ? (
-          <div className="flex items-center gap-2 text-xs text-slate-400 py-4 justify-center">
-            <span className="material-symbols-outlined animate-spin" style={{ fontSize: 14 }}>progress_activity</span>
+          <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-slate-600 py-4 justify-center">
+            <span className="material-symbols-outlined animate-spin" aria-hidden="true" style={{ fontSize: 14 }}>progress_activity</span>
             Đang tải dữ liệu...
           </div>
         ) : (() => {
@@ -379,7 +512,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
 
           if (displayed.length === 0) {
             return (
-              <div className="text-center py-6 text-xs text-slate-400 italic">
+              <div role="status" aria-live="polite" className="text-center py-6 text-xs text-slate-600 italic">
                 {issueWorklogs.length === 0
                   ? 'Chưa có khó khăn nào được ghi nhận.'
                   : 'Không có vấn đề ở trạng thái này.'}
@@ -406,7 +539,7 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                         <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot}`} />
                         {statusMeta.label}
                       </span>
-                      <span className="ml-auto text-slate-400">
+                      <span className="ml-auto text-slate-600">
                         {worklog.creator?.full_name ?? ''}
                         {worklog.creator?.user_code ? ` (${worklog.creator.user_code})` : ''}
                         {worklog.created_at ? ` — ${new Date(worklog.created_at).toLocaleDateString('vi-VN')}` : ''}
@@ -423,14 +556,17 @@ export const ProcedureChecklistAdminTab: React.FC<ProcedureChecklistAdminTabProp
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                      <span className="text-[10px] text-slate-400 font-medium">Đổi trạng thái:</span>
+                      <span className="text-[10px] text-slate-600 font-medium">Đổi trạng thái:</span>
                       {(['JUST_ENCOUNTERED', 'IN_PROGRESS', 'RESOLVED'] as IssueStatus[]).map((status) => (
                         <button
+                          type="button"
                           key={status}
                           data-testid={`checklist-issue-status-${worklog.id}-${status}`}
+                          aria-label={`Đổi vấn đề ${worklog.id} sang ${ISSUE_STATUS_META[status].label}`}
+                          aria-pressed={issue.issue_status === status}
                           disabled={isUpdating || issue.issue_status === status}
-                          onClick={() => void handleChangeIssueStatus(worklog.id, status)}
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                          onClick={() => void handleChangeIssueStatus(worklog.id, issue.id, status)}
+                          className={`min-h-11 rounded border px-2 py-0.5 text-[10px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-7 ${
                             issue.issue_status === status
                               ? `${ISSUE_STATUS_META[status].color} cursor-default`
                               : 'text-slate-500 bg-white border-slate-200 hover:border-slate-400 hover:text-slate-700'

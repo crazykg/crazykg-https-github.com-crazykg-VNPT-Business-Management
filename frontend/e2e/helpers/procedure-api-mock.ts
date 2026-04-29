@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import type {
   MockMember,
+  MockProcedureWorklog,
   MockProcedureScenarioState,
   MockStepRaciEntry,
   ProcedureRaciRole,
@@ -173,6 +174,7 @@ export async function registerProcedureScenarioMock(
             progress_status: (payload.progress_status as typeof step.progress_status | undefined) ?? step.progress_status,
             document_number: payload.document_number === undefined ? step.document_number : (payload.document_number as string | null),
             document_date: payload.document_date === undefined ? step.document_date : (payload.document_date as string | null),
+            duration_days: payload.duration_days === undefined ? step.duration_days : Number(payload.duration_days ?? 0),
             actual_start_date: payload.actual_start_date === undefined ? step.actual_start_date : (payload.actual_start_date as string | null),
             actual_end_date: payload.actual_end_date === undefined ? step.actual_end_date : (payload.actual_end_date as string | null),
           };
@@ -187,6 +189,27 @@ export async function registerProcedureScenarioMock(
           },
         },
       });
+      return;
+    }
+
+    if (method === 'POST' && path === '/api/v5/project-procedure-steps/reorder') {
+      const body = parseJsonBody(route);
+      const updates = Array.isArray(body.steps) ? body.steps : [];
+      const sortOrderByStepId = new Map(
+        updates.map((row) => {
+          const payload = row as Record<string, unknown>;
+          return [String(payload.id ?? ''), Number(payload.sort_order ?? 0)] as const;
+        }),
+      );
+
+      state.steps = state.steps.map((step) => {
+        const nextSortOrder = sortOrderByStepId.get(String(step.id));
+        return nextSortOrder === undefined
+          ? step
+          : { ...step, sort_order: nextSortOrder };
+      });
+
+      await fulfillJson(route, { message: 'Steps reordered.' });
       return;
     }
 
@@ -216,6 +239,40 @@ export async function registerProcedureScenarioMock(
           total_pages: 1,
         },
       });
+      return;
+    }
+
+    const updateSharedIssueStatusMatch = path.match(/^\/api\/v5\/shared-issues\/(\d+)\/status$/);
+    if (updateSharedIssueStatusMatch && method === 'PATCH') {
+      const issueId = Number(updateSharedIssueStatusMatch[1]);
+      const body = parseJsonBody(route);
+      const issueStatus = String(body.issue_status || 'JUST_ENCOUNTERED');
+      let updatedIssue: Record<string, unknown> | null = null;
+
+      const updateWorklogIssueStatus = (log: MockProcedureWorklog): MockProcedureWorklog => {
+        const issue = (log as { issue?: Record<string, unknown> | null }).issue;
+        if (!issue || String(issue.id ?? '') !== String(issueId)) {
+          return log;
+        }
+
+        updatedIssue = { ...issue, issue_status: issueStatus };
+        return { ...log, issue: updatedIssue };
+      };
+
+      state.procedureWorklogs = state.procedureWorklogs.map(updateWorklogIssueStatus);
+      state.stepWorklogs = Object.fromEntries(
+        Object.entries(state.stepWorklogs).map(([stepId, logs]) => [
+          stepId,
+          logs.map(updateWorklogIssueStatus),
+        ]),
+      );
+
+      if (!updatedIssue) {
+        await fulfillJson(route, { message: 'Issue not found.' }, 404);
+        return;
+      }
+
+      await fulfillJson(route, { data: updatedIssue });
       return;
     }
 

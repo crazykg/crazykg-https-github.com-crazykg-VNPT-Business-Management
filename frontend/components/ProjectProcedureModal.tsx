@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useEscKey } from '../hooks/useEscKey';
-import { computeEndDate } from '../utils/procedureHelpers';
+import { computeDurationDays, computeEndDate, formatProcedureDatePlaceholder } from '../utils/procedureHelpers';
 import {
   Project,
   AuthUser,
@@ -10,9 +10,12 @@ import {
   ProcedureStepWorklog,
   ProcedureRaciEntry,
   IssueStatus,
+  ProcedureExportFormat,
   ProjectTypeOption,
 } from '../types';
 import {
+  createProcedurePublicShare,
+  exportProjectProcedure,
   fetchProcedureTemplates,
   fetchProjectProcedures,
   createProjectProcedure,
@@ -21,6 +24,7 @@ import {
   fetchProcedureWorklogs,
   resyncProcedure,
 } from '../services/api/projectApi';
+import { hasPermission } from '../utils/authorization';
 import { ProcedureChecklistAdminTab } from './procedure/ProcedureChecklistAdminTab';
 import { ProcedurePhaseGroupSection } from './procedure/ProcedurePhaseGroupSection';
 import { ProcedureRaciTab } from './procedure/ProcedureRaciTab';
@@ -37,6 +41,13 @@ import { PHASE_LABELS } from '../constants';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type ActiveTab = 'steps' | 'worklog' | 'raci' | 'checklist_admin';
+
+const PROCEDURE_TABS: { key: ActiveTab; label: string; icon: string }[] = [
+  { key: 'steps', label: 'Bảng thủ tục', icon: 'checklist' },
+  { key: 'worklog', label: 'Worklog', icon: 'history' },
+  { key: 'raci', label: 'RACI', icon: 'group' },
+  { key: 'checklist_admin', label: 'Quản trị checklist', icon: 'dashboard' },
+];
 
 interface ProjectProcedureModalProps {
   project: Project;
@@ -72,17 +83,106 @@ function groupByPhase(flat: ProjectProcedureStep[]): PhaseGroup[] {
   });
 }
 
-function parseLocalDate(dateStr: string | null | undefined): Date | null {
-  if (!dateStr) return null;
-  const parsed = new Date(`${dateStr}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+const normalizeStepKey = (value: string | number | null | undefined): string =>
+  value === null || value === undefined || value === '' ? '' : String(value);
 
-function diffCalendarDaysInclusive(startDate: string, endDate: string): number | null {
-  const start = parseLocalDate(startDate);
-  const end = parseLocalDate(endDate);
-  if (!start || !end || end.getTime() < start.getTime()) return null;
-  return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+const compareProcedureStepOrder = (left: ProjectProcedureStep, right: ProjectProcedureStep): number => {
+  const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+  if (orderDiff !== 0) return orderDiff;
+  const numberDiff = Number(left.step_number ?? 0) - Number(right.step_number ?? 0);
+  if (numberDiff !== 0) return numberDiff;
+  return normalizeStepKey(left.id).localeCompare(normalizeStepKey(right.id), 'vi');
+};
+
+const triggerBrowserDownload = (blob: Blob, filename: string): void => {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => {
+    if (typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }, 1000);
+};
+
+const buildPublicProcedureUrl = (token: string): string => {
+  const encodedToken = encodeURIComponent(token);
+  return `${window.location.origin}/public/project-procedure/${encodedToken}`;
+};
+
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea fallback below.
+  }
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
+};
+
+const formatShareExpiry = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
+function buildStepDisplayNumberMap(phaseGroups: PhaseGroup[]): Record<string, string> {
+  const displayNumbers: Record<string, string> = {};
+
+  phaseGroups.forEach((group) => {
+    const parents = group.steps
+      .filter((step) => !step.parent_step_id)
+      .sort(compareProcedureStepOrder);
+    const childrenByParentId = new Map<string, ProjectProcedureStep[]>();
+
+    group.steps
+      .filter((step) => step.parent_step_id != null)
+      .forEach((step) => {
+        const parentKey = normalizeStepKey(step.parent_step_id);
+        const children = childrenByParentId.get(parentKey) ?? [];
+        children.push(step);
+        childrenByParentId.set(parentKey, children);
+      });
+
+    childrenByParentId.forEach((children) => children.sort(compareProcedureStepOrder));
+    parents.forEach((parent, parentIndex) => {
+      const parentNumber = String(parentIndex + 1);
+      const parentKey = normalizeStepKey(parent.id);
+      displayNumbers[parentKey] = parentNumber;
+      (childrenByParentId.get(parentKey) ?? []).forEach((child, childIndex) => {
+        displayNumbers[normalizeStepKey(child.id)] = `${parentNumber}.${childIndex + 1}`;
+      });
+    });
+  });
+
+  return displayNumbers;
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -98,6 +198,9 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving,  setIsSaving]  = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('steps');
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ProcedureExportFormat | null>(null);
+  const [isCreatingPublicShare, setIsCreatingPublicShare] = useState(false);
 
   // ── Worklog state ──
   const [worklogs,        setWorklogs]        = useState<ProcedureStepWorklog[]>([]);
@@ -105,10 +208,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── RACI state ──
   const [raciMatrixPhase, setRaciMatrixPhase] = useState<string | null>(null);
+  const [collapsedPhaseCodes, setCollapsedPhaseCodes] = useState<Set<string>>(new Set());
+  const collapseInitializedProcedureRef = useRef<string | null>(null);
 
   const autoCreatedRef   = useRef(false);
   // ── Inflight guard — prevent double-submit on any save action ──
   const inflightRef = useRef<Set<string>>(new Set());
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const procedureDatePlaceholder = useMemo(() => formatProcedureDatePlaceholder(), [isOpen, project.id]);
 
   const {
     raciList,
@@ -135,7 +242,6 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     handleCancelAccountableReplacement,
     handleAddRaci,
     handleRemoveRaci,
-    handleAssignA,
     handleToggleStepRaci,
     handleCopyStepRaci,
   } = useProcedureRaci({
@@ -183,6 +289,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     setEditingPhaseLabel,
     handleDraftChange,
     handleStartDateChange,
+    handleEndDateChange,
+    handleDateRangeBlur,
     handleToggleDetail,
     handleToggleAddStep,
     resetAddStepForm,
@@ -310,6 +418,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     if (!activeProcedure) {
       setSteps([]);
       setRaciMatrixPhase(null);
+      setCollapsedPhaseCodes(new Set());
+      collapseInitializedProcedureRef.current = null;
       resetProcedureStepsState();
       return;
     }
@@ -317,6 +427,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     // Clear stale cache của các tab phụ ngay khi procedure thay đổi
     resetProcedureStepsState();
     setWorklogs([]);
+    setCollapsedPhaseCodes(new Set());
+    collapseInitializedProcedureRef.current = null;
     resetProcedureStepWorklogs();
     resetProcedureAttachments();
     fetchProcedureSteps(activeProcedure.id)
@@ -326,6 +438,19 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       .catch((err) => onNotify?.('error', 'Lỗi', String(err?.message || 'Không thể tải bước')))
       .finally(() => setIsLoading(false));
   }, [activeProcedure?.id, resetProcedureAttachments, resetProcedureStepWorklogs, resetProcedureStepsState]);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isExportMenuOpen]);
 
   // ── Load worklogs khi chuyển tab — dùng chung cho 'worklog' và 'checklist_admin' ──
   useEffect(() => {
@@ -341,6 +466,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
   // ── Computed (memoized — tránh filter lặp mỗi render) ──
   const phaseGroups = useMemo(() => groupByPhase(steps), [steps]);
+  const stepDisplayNumberById = useMemo(() => buildStepDisplayNumberMap(phaseGroups), [phaseGroups]);
   useEffect(() => {
     if (!raciMatrixPhase) return;
     const hasPhase = phaseGroups.some((group) => group.phase === raciMatrixPhase);
@@ -362,8 +488,11 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     };
   }, [steps, drafts]);
   const activeMatrixGroup = useMemo(
-    () => phaseGroups.find((group) => group.phase === raciMatrixPhase) ?? null,
-    [phaseGroups, raciMatrixPhase],
+    () => {
+      if (raciMatrixPhase && collapsedPhaseCodes.has(raciMatrixPhase)) return null;
+      return phaseGroups.find((group) => group.phase === raciMatrixPhase) ?? null;
+    },
+    [collapsedPhaseCodes, phaseGroups, raciMatrixPhase],
   );
 
   // ── Per-phase stats (memoized — tránh 3× filter trong mỗi phase header) ──
@@ -379,13 +508,14 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
           const startDate = hasDraftStart
             ? (stepDraft.actual_start_date ?? null)
             : (s.actual_start_date ?? null);
-          const endDate = startDate && (s.duration_days ?? 0) > 0
-            ? computeEndDate(startDate, s.duration_days)
+          const durationDays = Number(stepDraft.duration_days ?? s.duration_days ?? 0);
+          const endDate = startDate && durationDays > 0
+            ? computeEndDate(startDate, durationDays)
             : hasDraftEnd
               ? (stepDraft.actual_end_date ?? null)
               : (s.actual_end_date ?? null);
 
-          if (!startDate || !endDate || !parseLocalDate(startDate) || !parseLocalDate(endDate)) return acc;
+          if (!startDate || !endDate || computeDurationDays(startDate, endDate) === null) return acc;
 
           acc.stepsWithDates += 1;
           acc.minDate = !acc.minDate || startDate < acc.minDate ? startDate : acc.minDate;
@@ -394,13 +524,16 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
         },
         { minDate: null as string | null, maxDate: null as string | null, stepsWithDates: 0 },
       );
-      const calendarDays = minDate && maxDate ? diffCalendarDaysInclusive(minDate, maxDate) : null;
+      const calendarDays = minDate && maxDate ? computeDurationDays(minDate, maxDate) : null;
 
       return {
         total: top.length,
         completed,
         percent: top.length > 0 ? Math.round((completed / top.length) * 100) : 0,
-        totalDays: top.reduce((sum: number, s: ProjectProcedureStep) => sum + (s.duration_days || 0), 0),
+        totalDays: top.reduce((sum: number, s: ProjectProcedureStep) => {
+          const draftDays = drafts[String(s.id)]?.duration_days;
+          return sum + (Number(draftDays ?? s.duration_days ?? 0) || 0);
+        }, 0),
         calendarDays,
         dateRange: minDate && maxDate ? { min: minDate, max: maxDate } : null,
         stepsWithDates,
@@ -409,6 +542,38 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     }),
     [phaseGroups, drafts],
   );
+  useEffect(() => {
+    if (!activeProcedure || phaseGroups.length === 0) return;
+    const procedureKey = String(activeProcedure.id);
+    if (collapseInitializedProcedureRef.current === procedureKey) return;
+
+    const hasOpenStepPanel = openWorklogStep !== null || openAttachStep !== null;
+    const hasActiveRowWork = editingStepId !== null || addingChildToStepId !== null || addingInPhase !== null;
+    const hasDrafts = Object.keys(drafts).length > 0;
+    if (hasOpenStepPanel || hasActiveRowWork || hasDrafts) return;
+
+    const completedPhaseCodes = phaseGroups
+      .filter((group, index) => phaseStats[index]?.isAllDone)
+      .map((group) => group.phase);
+
+    setCollapsedPhaseCodes(new Set(completedPhaseCodes));
+    collapseInitializedProcedureRef.current = procedureKey;
+  }, [
+    activeProcedure,
+    addingChildToStepId,
+    addingInPhase,
+    drafts,
+    editingStepId,
+    openAttachStep,
+    openWorklogStep,
+    phaseGroups,
+    phaseStats,
+  ]);
+  useEffect(() => {
+    if (raciMatrixPhase && collapsedPhaseCodes.has(raciMatrixPhase)) {
+      setRaciMatrixPhase(null);
+    }
+  }, [collapsedPhaseCodes, raciMatrixPhase]);
 
   // ── Auth / permission — tính 1 lần, dùng chung cho mọi step row ──
   const { myId, isAdmin, isRaciA } = useMemo(() => {
@@ -421,18 +586,21 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
       isRaciA: !!mid && raciList.some((r) => String(r.user_id) === mid && r.raci_role === 'A'),
     };
   }, [authUser, raciList]);
+  const canExportProcedure = useMemo(() => hasPermission(authUser ?? null, 'projects.read'), [authUser]);
+  const canCreatePublicShare = useMemo(() => hasPermission(authUser ?? null, 'projects.write'), [authUser]);
 
   // ── Handlers — steps ──
 
   const handleChangeIssueStatus = useCallback(async (
-    logId: string | number,
+    issueId: string | number,
     newStatus: IssueStatus,
   ) => {
     try {
-      await updateIssueStatus(logId, newStatus);
+      const updated = await updateIssueStatus(issueId, newStatus);
+      const nextStatus = updated?.issue_status ?? newStatus;
       setWorklogs((prev) => prev.map((w) =>
-        w.id === logId && w.issue
-          ? { ...w, issue: { ...w.issue, issue_status: newStatus } }
+        w.issue && String(w.issue.id) === String(issueId)
+          ? { ...w, issue: { ...w.issue, issue_status: nextStatus } }
           : w,
       ));
     } catch (err: any) {
@@ -455,6 +623,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
     resetProcedureRaci();
     setActiveProcedure(null); setSteps([]); setWorklogs([]);
     setRaciMatrixPhase(null);
+    setCollapsedPhaseCodes(new Set());
+    collapseInitializedProcedureRef.current = null;
     resetProcedureStepWorklogs();
     resetProcedureAttachments();
     onClose();
@@ -465,34 +635,151 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
   const handleReorderStepRow = useCallback((step: ProjectProcedureStep, direction: 'up' | 'down') => {
     return handleReorderStep(steps, step, direction);
   }, [handleReorderStep, steps]);
+  const handleTogglePhaseCollapsed = useCallback((phase: string) => {
+    const shouldCollapse = !collapsedPhaseCodes.has(phase);
+    setCollapsedPhaseCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(phase)) {
+        next.delete(phase);
+      } else {
+        next.add(phase);
+      }
+      return next;
+    });
+    if (shouldCollapse) {
+      setRaciMatrixPhase((current) => (current === phase ? null : current));
+    }
+  }, [collapsedPhaseCodes]);
+
+  const handleExportProcedure = useCallback(async (format: ProcedureExportFormat) => {
+    setIsExportMenuOpen(false);
+    if (!activeProcedure) return;
+    if (!canExportProcedure) {
+      onNotify?.('error', 'Xuất thủ tục', 'Bạn không có quyền xuất dữ liệu thủ tục.');
+      return;
+    }
+    if (hasDirtyChanges) {
+      onNotify?.('error', 'Xuất thủ tục', 'Vui lòng lưu thay đổi trước khi xuất dữ liệu.');
+      return;
+    }
+
+    try {
+      setExportingFormat(format);
+      const result = await exportProjectProcedure(activeProcedure.id, format);
+      triggerBrowserDownload(result.blob, result.filename);
+      onNotify?.('success', 'Xuất thủ tục', `Đã tải file ${format === 'word' ? 'Word' : 'Excel'}.`);
+    } catch (error) {
+      onNotify?.(
+        'error',
+        'Xuất thủ tục',
+        error instanceof Error ? error.message : 'Không thể xuất dữ liệu thủ tục.'
+      );
+    } finally {
+      setExportingFormat(null);
+    }
+  }, [activeProcedure, canExportProcedure, hasDirtyChanges, onNotify]);
+
+  const handleCreatePublicShare = useCallback(async () => {
+    if (!activeProcedure) return;
+    if (!canCreatePublicShare) {
+      onNotify?.('error', 'Public thủ tục', 'Bạn không có quyền public bảng thủ tục.');
+      return;
+    }
+    if (hasDirtyChanges) {
+      onNotify?.('error', 'Public thủ tục', 'Vui lòng lưu thay đổi trước khi tạo link public.');
+      return;
+    }
+
+    try {
+      setIsCreatingPublicShare(true);
+      const result = await createProcedurePublicShare(activeProcedure.id);
+      const publicUrl = buildPublicProcedureUrl(result.token);
+      const copied = await copyToClipboard(publicUrl);
+      const expiresAt = formatShareExpiry(result.expires_at);
+      onNotify?.(
+        'success',
+        'Public thủ tục',
+        `${copied ? 'Đã tạo và copy link public.' : `Đã tạo link public: ${publicUrl}`} Link hết hạn${expiresAt ? ` lúc ${expiresAt}` : ' sau 7 ngày'}.`
+      );
+    } catch (error) {
+      onNotify?.(
+        'error',
+        'Public thủ tục',
+        error instanceof Error ? error.message : 'Không thể tạo link public.'
+      );
+    } finally {
+      setIsCreatingPublicShare(false);
+    }
+  }, [activeProcedure, canCreatePublicShare, hasDirtyChanges, onNotify]);
+
+  const handleProcedureTabKeyDown = useCallback((
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    currentTab: ActiveTab,
+  ) => {
+    const currentIndex = PROCEDURE_TABS.findIndex((tab) => tab.key === currentTab);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % PROCEDURE_TABS.length;
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + PROCEDURE_TABS.length) % PROCEDURE_TABS.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = PROCEDURE_TABS.length - 1;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = PROCEDURE_TABS[nextIndex];
+    setActiveTab(nextTab.key);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`procedure-tab-${nextTab.key}`)?.focus();
+    });
+  }, []);
+
+  const activeMatrixSteps = useMemo(() => {
+    if (!activeMatrixGroup) return [];
+    return activeMatrixGroup.steps
+      .filter((step) => !step.parent_step_id)
+      .slice()
+      .sort(compareProcedureStepOrder);
+  }, [activeMatrixGroup]);
 
   if (!isOpen) return null;
 
   // ── RENDER ───────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 ui-layer-modal flex items-start justify-center bg-black/40 overflow-y-auto">
+    <div className="fixed inset-0 ui-layer-modal flex items-start justify-center overflow-hidden bg-[var(--ui-modal-backdrop)] p-3 sm:p-4">
       <div
         data-testid="project-procedure-modal"
         role="dialog"
         aria-modal="true"
         aria-label={`Thủ tục dự án ${project.project_code || project.project_name || ''}`.trim()}
-        className="relative w-full max-w-[1600px] mx-4 my-4 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[96vh]"
+        className="relative flex w-full max-w-[1600px] flex-col rounded-[var(--ui-modal-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] shadow-cloud max-h-[var(--ui-modal-max-height)]"
       >
 
         {/* ══ Header ══ */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 rounded-t-xl shrink-0">
-          <div className="flex items-center gap-2">
-            <button onClick={handleClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors">
+        <div className="flex min-h-[var(--ui-modal-header-min-height)] shrink-0 items-center justify-between rounded-t-[var(--ui-modal-radius)] border-b border-slate-200 bg-[var(--ui-surface-bg)] px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Đóng modal thủ tục"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-slate-600 transition-colors hover:bg-slate-100 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            >
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
             </button>
-            <div className="w-7 h-7 rounded bg-secondary/15 flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-secondary" style={{ fontSize: 16 }}>account_tree</span>
+            <div className="w-7 h-7 rounded bg-primary-container-soft flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-primary" style={{ fontSize: 16 }}>account_tree</span>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-deep-teal leading-tight">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-bold text-deep-teal leading-tight">
                 Thủ tục: {project.project_code} — {project.project_name}
               </h2>
-              <p className="text-[11px] text-slate-400 leading-tight">
+              <p className="text-[11px] text-slate-600 leading-tight">
                 {(() => {
                   const code = String(project.investment_mode || '').trim().toUpperCase();
                   if (!code) return '';
@@ -508,12 +795,73 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {hasDirtyChanges && activeTab === 'steps' && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit_note</span>
                 {Object.keys(drafts).length} thay đổi
               </span>
+            )}
+            {activeProcedure && canExportProcedure && (
+              <div ref={exportMenuRef} className="relative">
+                <button
+                  type="button"
+                  data-testid="procedure-export-menu-trigger"
+                  aria-haspopup="menu"
+                  aria-expanded={isExportMenuOpen}
+                  onClick={() => setIsExportMenuOpen((open) => !open)}
+                  disabled={exportingFormat !== null}
+                  className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                    {exportingFormat ? 'progress_activity' : 'download'}
+                  </span>
+                  Xuất
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>expand_more</span>
+                </button>
+                {isExportMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Xuất dữ liệu thủ tục"
+                    className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded border border-slate-200 bg-white py-1 shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="procedure-export-word"
+                      onClick={() => handleExportProcedure('word')}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-primary/5 hover:text-primary focus:bg-primary/5 focus:outline-none"
+                    >
+                      <span className="material-symbols-outlined text-[15px]" aria-hidden="true">description</span>
+                      Word (.docx)
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="procedure-export-excel"
+                      onClick={() => handleExportProcedure('excel')}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-primary/5 hover:text-primary focus:bg-primary/5 focus:outline-none"
+                    >
+                      <span className="material-symbols-outlined text-[15px]" aria-hidden="true">table_view</span>
+                      Excel (.xls)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {activeProcedure && canCreatePublicShare && (
+              <button
+                type="button"
+                data-testid="procedure-public-share"
+                onClick={handleCreatePublicShare}
+                disabled={isCreatingPublicShare}
+                className="inline-flex h-8 items-center gap-1.5 rounded border border-primary bg-white px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className={`material-symbols-outlined ${isCreatingPublicShare ? 'animate-spin' : ''}`} style={{ fontSize: 14 }}>
+                  {isCreatingPublicShare ? 'progress_activity' : 'ios_share'}
+                </span>
+                Public
+              </button>
             )}
             {activeProcedure && !hasAnyWorklog && (
               <button
@@ -543,7 +891,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     setIsLoading(false);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-tertiary hover:bg-tertiary/5 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded border border-primary bg-white px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:border-slate-500 disabled:text-slate-600 disabled:opacity-60"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>sync</span>
                 Đồng bộ mẫu
@@ -554,33 +902,38 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
         {/* ══ Tabs ══ */}
         {activeProcedure && (
-          <div className="flex items-center gap-0.5 px-4 pt-3 pb-0 border-b border-slate-100 shrink-0">
-            {([
-              { key: 'steps',           label: 'Bảng thủ tục',       icon: 'checklist' },
-              { key: 'worklog',         label: 'Worklog',             icon: 'history' },
-              { key: 'raci',            label: 'RACI',                icon: 'group' },
-              { key: 'checklist_admin', label: 'Quản trị checklist',  icon: 'dashboard' },
-            ] as { key: ActiveTab; label: string; icon: string }[]).map((tab) => (
+          <div
+            role="tablist"
+            aria-label="Điều hướng thủ tục dự án"
+            className="flex items-center gap-0.5 border-b border-slate-200 bg-[var(--ui-surface-bg)] px-4 pt-3 pb-0 shrink-0"
+          >
+            {PROCEDURE_TABS.map((tab) => (
               <button
+                type="button"
+                role="tab"
                 key={tab.key}
+                id={`procedure-tab-${tab.key}`}
+                aria-selected={activeTab === tab.key}
+                aria-controls={`procedure-tabpanel-${tab.key}`}
                 onClick={() => setActiveTab(tab.key)}
+                onKeyDown={(event) => handleProcedureTabKeyDown(event, tab.key)}
                 data-testid={`procedure-tab-${tab.key}`}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 transition-all ${
+                className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary ${
                   activeTab === tab.key
-                    ? 'border-deep-teal text-deep-teal'
-                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-transparent text-slate-700 hover:border-slate-300 hover:text-slate-900'
                 }`}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{tab.icon}</span>
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>{tab.icon}</span>
                 {tab.label}
                 {tab.key === 'raci' && raciSummaryBadge && (
-                  <span className="ml-0.5 text-[10px] font-normal opacity-60">
+                  <span className="ml-0.5 rounded bg-primary/8 px-1 py-0.5 text-[10px] font-semibold text-primary">
                     ({raciSummaryBadge})
                   </span>
                 )}
               </button>
             ))}
-            <div className="ml-auto pb-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+            <div className="ml-auto pb-2 text-[11px] text-slate-600 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-deep-teal" />
               {overallPercent}% hoàn thành
             </div>
@@ -588,7 +941,16 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
         )}
 
         {/* ══ Content ══ */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div
+          {...(activeProcedure
+            ? {
+                id: `procedure-tabpanel-${activeTab}`,
+                role: 'tabpanel',
+                'aria-labelledby': `procedure-tab-${activeTab}`,
+              }
+            : {})}
+          className="flex-1 overflow-y-auto overscroll-contain bg-[var(--ui-surface-subtle)] px-4 py-4"
+        >
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <div className="animate-spin w-7 h-7 border-2 border-deep-teal/20 border-t-deep-teal rounded-full" />
@@ -597,7 +959,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
           ) : !activeProcedure ? (
             <div className="flex flex-col items-center justify-center py-12">
-              <span className="material-symbols-outlined text-slate-300 mb-3" style={{ fontSize: 48 }}>checklist</span>
+              <span className="material-symbols-outlined text-slate-500 mb-3" style={{ fontSize: 48 }}>checklist</span>
               {!project.investment_mode ? (
                 <>
                   <h3 className="text-sm font-semibold text-slate-700 mb-1">Chưa xác định loại dự án</h3>
@@ -615,18 +977,18 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
             /* ══════════════════════ TAB: BẢNG THỦ TỤC ══════════════════════ */
             <>
               {/* Progress bar */}
-              <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 mb-3">
+              <div className="rounded-lg border border-[var(--ui-border)] bg-white shadow-sm p-3 mb-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-neutral">Tiến độ tổng thể</span>
                   <span className="text-xl font-black text-deep-teal">{overallPercent}%</span>
                 </div>
-                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-2">
-                  <div className="h-full bg-gradient-to-r from-deep-teal to-success rounded-full transition-all duration-500" style={{ width: `${overallPercent}%` }} />
+                <div className="w-full h-2 rounded-full bg-slate-100 ring-1 ring-inset ring-slate-500 overflow-hidden mb-2">
+                  <div className="h-full bg-primary rounded-full transition-[width] duration-500" style={{ width: `${overallPercent}%` }} />
                 </div>
                 <div className="flex gap-3 text-[11px] text-slate-600">
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success"/>Hoàn thành: <strong>{completedSteps}</strong></span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning"/>Đang TH: <strong>{inProgressSteps}</strong></span>
-                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"/>Chưa TH: <strong>{totalSteps - completedSteps - inProgressSteps}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[var(--ui-success-fg)]"/>Hoàn thành: <strong>{completedSteps}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-tertiary"/>Đang TH: <strong>{inProgressSteps}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-500"/>Chưa TH: <strong>{totalSteps - completedSteps - inProgressSteps}</strong></span>
                 </div>
               </div>
 
@@ -638,6 +1000,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     group={group}
                     groupIndex={gIdx}
                     stats={phaseStats[gIdx]}
+                    datePlaceholder={procedureDatePlaceholder}
+                    isCollapsed={collapsedPhaseCodes.has(group.phase)}
                     raciMatrixPhase={raciMatrixPhase}
                     editingPhase={editingPhase}
                     editingPhaseLabel={editingPhaseLabel}
@@ -647,6 +1011,7 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     onSavePhaseLabel={handleSavePhaseLabel}
                     onCancelEditPhase={handleCancelEditPhase}
                     onStartEditPhase={handleStartEditPhase}
+                    onToggleCollapsed={handleTogglePhaseCollapsed}
                     onToggleRaciMatrixPhase={(phase) => setRaciMatrixPhase((prev) => (prev === phase ? null : phase))}
                     addingInPhase={addingInPhase}
                     addingStepSubmittingPhase={addingStepSubmittingPhase}
@@ -669,8 +1034,6 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     isAdmin={isAdmin}
                     isRaciA={isRaciA}
                     myId={myId}
-                    stepRaciMap={stepRaciMap}
-                    raciList={raciList}
                     stepWorklogs={stepWorklogs}
                     stepWorklogInput={stepWorklogInput}
                     stepWorklogHours={stepWorklogHours}
@@ -700,6 +1063,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     openWorklogStep={openWorklogStep}
                     onDraftChange={handleDraftChange}
                     onStartDateChange={handleStartDateChange}
+                    onEndDateChange={handleEndDateChange}
+                    onDateRangeBlur={handleDateRangeBlur}
                     onReorder={handleReorderStepRow}
                     onToggleDetail={handleToggleDetail}
                     onStartEditRow={handleStartEditRow}
@@ -712,7 +1077,6 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                     onDeleteAttachment={handleDeleteAttachment}
                     onToggleWorklog={handleToggleStepWorklog}
                     onAddWorklog={handleAddStepWorklog}
-                    onAssignA={handleAssignA}
                     onUpdateIssueStatus={handleUpdateIssueStatus}
                     onStartEditWorklog={handleStartEditWorklog}
                     onCancelEditWorklog={handleCancelEditWorklog}
@@ -788,9 +1152,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
           <RaciMatrixPanel
             phase={activeMatrixGroup.phase}
             phaseLabel={activeMatrixGroup.label}
-            steps={activeMatrixGroup.steps
-              .filter((step) => !step.parent_step_id)
-              .sort((a, b) => a.sort_order - b.sort_order)}
+            steps={activeMatrixSteps}
+            displayNumberByStepId={stepDisplayNumberById}
             raciMembers={raciList}
             stepRaciMap={stepRaciMap}
             onToggle={handleToggleStepRaci}
@@ -801,13 +1164,13 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
 
         {/* ══ Footer ══ */}
         {activeProcedure && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50 rounded-b-xl shrink-0">
-            <div className="text-[11px] text-slate-400">
+          <div className="flex min-h-[var(--ui-modal-footer-min-height)] shrink-0 items-center justify-between rounded-b-[var(--ui-modal-radius)] border-t border-slate-200 bg-[var(--ui-surface-subtle)] px-4 py-3">
+            <div className="text-[11px] text-slate-600">
               {totalSteps} bước chính • {completedSteps} hoàn thành • {overallPercent}%
               {raciList.length > 0 && <> • {raciList.length} phân công RACI</>}
             </div>
             <div className="flex gap-2">
-              <button onClick={handleClose} className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              <button type="button" onClick={handleClose} className="inline-flex items-center gap-1.5 rounded border border-slate-500 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60">
                 Đóng
               </button>
               {activeTab === 'steps' && (
@@ -815,8 +1178,8 @@ export const ProjectProcedureModal: React.FC<ProjectProcedureModalProps> = ({
                   data-testid="procedure-save"
                   onClick={handleSave}
                   disabled={!hasDirtyChanges || isSaving}
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors shadow-sm disabled:opacity-50 ${
-                    hasDirtyChanges ? 'bg-primary text-white hover:bg-deep-teal' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70 ${
+                    hasDirtyChanges ? 'bg-primary text-white hover:bg-deep-teal' : 'bg-slate-200 text-slate-700 cursor-not-allowed'
                   }`}
                 >
                   {isSaving

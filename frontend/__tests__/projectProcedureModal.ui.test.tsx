@@ -1,8 +1,10 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { ProjectProcedureModal } from '../components/ProjectProcedureModal';
+import { PublicProjectProcedurePage } from '../components/PublicProjectProcedurePage';
 import type {
   ProcedureTemplate,
   ProcedureRaciEntry,
@@ -18,6 +20,10 @@ const fetchProcedureTemplatesMock = vi.hoisted(() => vi.fn());
 const fetchProjectProceduresMock = vi.hoisted(() => vi.fn());
 const createProjectProcedureMock = vi.hoisted(() => vi.fn());
 const fetchProcedureStepsMock = vi.hoisted(() => vi.fn());
+const exportProjectProcedureMock = vi.hoisted(() => vi.fn());
+const createProcedurePublicShareMock = vi.hoisted(() => vi.fn());
+const revokeProcedurePublicShareMock = vi.hoisted(() => vi.fn());
+const fetchPublicProcedureShareMock = vi.hoisted(() => vi.fn());
 const batchUpdateProcedureStepsMock = vi.hoisted(() => vi.fn());
 const addCustomProcedureStepMock = vi.hoisted(() => vi.fn());
 const deleteProcedureStepMock = vi.hoisted(() => vi.fn());
@@ -43,9 +49,24 @@ const linkStepAttachmentMock = vi.hoisted(() => vi.fn());
 const deleteStepAttachmentMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../components/procedure/StepRow', () => ({
-  StepRow: ({ step }: { step: ProjectProcedureStep }) => (
+  StepRow: ({
+    step,
+    onDraftChange,
+  }: {
+    step: ProjectProcedureStep;
+    onDraftChange?: (id: string | number, field: string, value: string | null) => void;
+  }) => (
     <tr data-testid={`mock-step-row-${step.id}`}>
-      <td>{step.step_name}</td>
+      <td>
+        {step.step_name}
+        <button
+          type="button"
+          data-testid={`mock-dirty-step-${step.id}`}
+          onClick={() => onDraftChange?.(step.id, 'step_name', `${step.step_name} updated`)}
+        >
+          Dirty step
+        </button>
+      </td>
     </tr>
   ),
 }));
@@ -63,23 +84,36 @@ vi.mock('../components/SearchableSelect', () => ({
     value,
     options,
     onChange,
+    onSearchTermChange,
   }: {
     value: string;
     options: Array<{ value: string | number; label: string }>;
     onChange: (nextValue: string) => void;
+    onSearchTermChange?: (nextValue: string) => void;
   }) => (
-    <select
-      aria-label="Thành viên"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      <option value="">Chọn thành viên...</option>
-      {options.map((option) => (
-        <option key={String(option.value)} value={String(option.value)}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <>
+      <select
+        aria-label="Thành viên"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Chọn thành viên...</option>
+        {options.map((option) => (
+          <option key={String(option.value)} value={String(option.value)}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {onSearchTermChange ? (
+        <button
+          type="button"
+          data-testid="mock-member-options-refresh"
+          onClick={() => onSearchTermChange('missing-selected-member')}
+        >
+          Refresh member options
+        </button>
+      ) : null}
+    </>
   ),
 }));
 
@@ -93,6 +127,10 @@ vi.mock('../services/api/projectApi', () => ({
   fetchProjectProcedures: fetchProjectProceduresMock,
   createProjectProcedure: createProjectProcedureMock,
   fetchProcedureSteps: fetchProcedureStepsMock,
+  exportProjectProcedure: exportProjectProcedureMock,
+  createProcedurePublicShare: createProcedurePublicShareMock,
+  revokeProcedurePublicShare: revokeProcedurePublicShareMock,
+  fetchPublicProcedureShare: fetchPublicProcedureShareMock,
   batchUpdateProcedureSteps: batchUpdateProcedureStepsMock,
   addCustomProcedureStep: addCustomProcedureStepMock,
   deleteProcedureStep: deleteProcedureStepMock,
@@ -198,6 +236,8 @@ const worklogs: ProcedureStepWorklog[] = [
       hours_spent: 2,
     },
     issue: {
+      id: 8101,
+      procedure_step_worklog_id: 8001,
       issue_content: 'Thieu ho so',
       issue_status: 'IN_PROGRESS',
       proposal_content: 'Bo sung bien ban',
@@ -206,6 +246,110 @@ const worklogs: ProcedureStepWorklog[] = [
 ];
 
 describe('ProjectProcedureModal UI', () => {
+  it('uses the same fixed column contract for every phase table', async () => {
+    fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue([
+      {
+        ...steps[0],
+        id: 7001,
+        phase: 'HA_TANG_DUNG_THU',
+        phase_label: 'Cài đặt hạ tầng dùng thử',
+        sort_order: 1,
+        step_name: 'Thông mạng Database',
+        duration_days: 1,
+        actual_start_date: '2026-10-10',
+        actual_end_date: '2026-10-10',
+        progress_status: 'HOAN_THANH',
+      } as ProjectProcedureStep,
+      {
+        ...steps[0],
+        id: 7002,
+        phase: 'CAU_HINH_HE_THONG',
+        phase_label: 'Cấu hình hệ thống',
+        sort_order: 2,
+        step_number: 2,
+        step_name: 'Phê duyệt đề án',
+        expected_result: 'Phê duyệt chủ trương',
+        duration_days: 0,
+        actual_start_date: null,
+        actual_end_date: null,
+        progress_status: 'CHUA_THUC_HIEN',
+      } as ProjectProcedureStep,
+    ]);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({});
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue([]);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    const phaseBodies = await screen.findAllByTestId(/procedure-phase-body-/);
+    expect(phaseBodies).toHaveLength(2);
+
+    const expectedWidths = [
+      '40px',
+      '52px',
+      '336px',
+      '176px',
+      '220px',
+      '96px',
+      '140px',
+      '140px',
+      '136px',
+      '148px',
+      '124px',
+      '52px',
+    ];
+    const widthsByTable = phaseBodies.map((body) => {
+      const table = within(body).getByRole('table');
+      expect(table).toHaveClass('table-fixed', 'min-w-[1660px]');
+      const actionHeader = table.querySelector('thead th[aria-label="Thao tác"]');
+      expect(actionHeader).toHaveClass(
+        'sticky',
+        'right-0',
+        'z-20',
+        'border-l',
+        'border-slate-300',
+        'bg-slate-100',
+        'shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.18)]'
+      );
+      expect(actionHeader).toHaveTextContent('Thao tác');
+      return Array.from(table.querySelectorAll('col')).map((col) => (col as HTMLTableColElement).style.width);
+    });
+
+    expect(widthsByTable).toEqual([expectedWidths, expectedWidths]);
+  });
+
   it('renders extracted worklog, raci, and checklist tabs with loaded data', async () => {
     const user = userEvent.setup();
 
@@ -225,7 +369,7 @@ describe('ProjectProcedureModal UI', () => {
     updateStepWorklogMock.mockResolvedValue({});
     deleteStepWorklogMock.mockResolvedValue({});
     reorderProcedureStepsMock.mockResolvedValue({});
-    updateIssueStatusMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({ id: 8101, issue_status: 'RESOLVED' });
     fetchProcedureRaciMock.mockResolvedValue(raciEntries);
     fetchStepRaciBulkMock.mockResolvedValue([]);
     addProcedureRaciMock.mockResolvedValue({});
@@ -250,6 +394,7 @@ describe('ProjectProcedureModal UI', () => {
 
     expect(await screen.findByTestId('project-procedure-modal')).toBeInTheDocument();
     expect(await screen.findByTestId('procedure-tab-worklog')).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Điều hướng thủ tục dự án' })).toBeInTheDocument();
 
     await user.click(screen.getByTestId('procedure-tab-worklog'));
 
@@ -268,11 +413,41 @@ describe('ProjectProcedureModal UI', () => {
     expect(await screen.findByText('Thêm phân công RACI')).toBeInTheDocument();
     expect(screen.getByText('Nguyen Van A')).toBeInTheDocument();
     expect(screen.getByText('NV22')).toBeInTheDocument();
+    const raciTab = screen.getByRole('tab', { name: /RACI/i });
+    expect(raciTab).toHaveAttribute('aria-selected', 'true');
+    expect(raciTab).toHaveTextContent('(1A)');
 
-    await user.click(screen.getByTestId('procedure-tab-checklist_admin'));
+    await user.keyboard('{ArrowRight}');
+    const checklistAdminTab = screen.getByRole('tab', { name: /Quản trị checklist/i });
+
+    await waitFor(() => {
+      expect(checklistAdminTab).toHaveAttribute('aria-selected', 'true');
+    });
 
     expect(await screen.findByText('Khó khăn & Đề xuất')).toBeInTheDocument();
     expect(screen.getByText('Thieu ho so')).toBeInTheDocument();
+
+    const phaseProgressList = screen.getByRole('list', { name: 'Tiến độ theo giai đoạn' });
+    expect(within(phaseProgressList).getByText('01')).toBeInTheDocument();
+    expect(within(phaseProgressList).getByText('Chuan bi')).toBeInTheDocument();
+    expect(within(phaseProgressList).getByText('1 vấn đề mở')).toBeInTheDocument();
+    const phaseProgressbar = within(phaseProgressList).getByRole('progressbar', {
+      name: /Giai đoạn 01 Chuan bi: 0 trên 1 bước hoàn thành/i,
+    });
+    expect(phaseProgressbar).toHaveAttribute('aria-valuenow', '0');
+
+    const allIssueFilter = screen.getByRole('button', {
+      name: /Lọc danh sách vấn đề Tất cả, 1 mục/i,
+    });
+    const inProgressIssueFilter = screen.getByRole('button', {
+      name: /Lọc danh sách vấn đề Đang xử lý, 1 mục/i,
+    });
+    expect(allIssueFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(inProgressIssueFilter).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(inProgressIssueFilter);
+
+    expect(inProgressIssueFilter).toHaveAttribute('aria-pressed', 'true');
 
     const resolveIssueButton = await screen.findByTestId('checklist-issue-status-8001-RESOLVED');
     expect(resolveIssueButton).not.toBeDisabled();
@@ -280,11 +455,12 @@ describe('ProjectProcedureModal UI', () => {
     await user.click(resolveIssueButton);
 
     await waitFor(() => {
-      expect(updateIssueStatusMock).toHaveBeenCalledWith(8001, 'RESOLVED');
+      expect(updateIssueStatusMock).toHaveBeenCalledWith(8101, 'RESOLVED');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('checklist-issue-status-8001-RESOLVED')).toBeDisabled();
+      expect(screen.queryByTestId('checklist-issue-status-8001-RESOLVED')).not.toBeInTheDocument();
     });
+    expect(screen.getByText('Không có vấn đề ở trạng thái này.')).toBeInTheDocument();
   });
 
   it('submits the inline add-step form through the extracted steps state hook', async () => {
@@ -544,6 +720,96 @@ describe('ProjectProcedureModal UI', () => {
     expect(screen.getByTestId('procedure-tab-raci')).not.toHaveTextContent('2A');
   });
 
+  it('keeps the selected member label when refreshed options no longer include that member', async () => {
+    const user = userEvent.setup();
+
+    fetchEmployeesOptionsPageMock
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 23,
+            user_code: 'NV23',
+            username: 'ttb',
+            full_name: 'Tran Thi B',
+          },
+        ],
+      })
+      .mockResolvedValue({ data: [] });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({
+      id: 9003,
+      procedure_id: 501,
+      user_id: 23,
+      full_name: 'Tran Thi B',
+      user_code: 'NV23',
+      username: 'ttb',
+      raci_role: 'R',
+      note: null,
+    } as ProcedureRaciEntry);
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={vi.fn()}
+      />
+    );
+
+    await user.click(await screen.findByTestId('procedure-tab-raci'));
+
+    const [memberSelect] = screen.getAllByRole('combobox');
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /Tran Thi B/i })).toBeInTheDocument();
+    });
+
+    await user.selectOptions(memberSelect, '23');
+    await user.click(screen.getByTestId('mock-member-options-refresh'));
+
+    await waitFor(() => {
+      expect(fetchEmployeesOptionsPageMock).toHaveBeenCalledWith('missing-selected-member', 1, 40);
+    });
+    expect(screen.getByRole('option', { name: /Tran Thi B/i })).toBeInTheDocument();
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('23');
+
+    addProcedureRaciMock.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Thêm' }));
+
+    await waitFor(() => {
+      expect(addProcedureRaciMock).toHaveBeenCalledWith(501, {
+        user_id: '23',
+        raci_role: 'R',
+        note: undefined,
+      });
+    });
+  });
+
   it('shows no confirm for the current accountable user and uses the add guard if conflict appears later', async () => {
     const user = userEvent.setup();
 
@@ -644,5 +910,256 @@ describe('ProjectProcedureModal UI', () => {
         note: undefined,
       });
     });
+  });
+
+  it('exposes export dropdown and creates a seven-day public link for authorized users', async () => {
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+    const originalCreateObjectUrl = URL.createObjectURL;
+    const originalRevokeObjectUrl = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:procedure-export'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({});
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+    exportProjectProcedureMock.mockResolvedValue({
+      blob: new Blob(['procedure'], { type: 'application/octet-stream' }),
+      filename: 'thu_tuc.docx',
+    });
+    createProcedurePublicShareMock.mockResolvedValue({
+      token: 'public-token-abcdefghijklmnopqrstuvwxyz0123456789',
+      expires_at: '2026-05-06T00:00:00+07:00',
+      ttl_days: 7,
+    });
+
+    try {
+      render(
+        <ProjectProcedureModal
+          project={project}
+          isOpen={true}
+          onClose={vi.fn()}
+          onNotify={onNotify}
+          authUser={{
+            id: 1,
+            username: 'admin',
+            full_name: 'Admin',
+            email: 'admin@example.test',
+            status: 'Active',
+            roles: [],
+            permissions: ['projects.read', 'projects.write'],
+            dept_scopes: [],
+          } as any}
+        />
+      );
+
+      await screen.findByTestId('project-procedure-modal');
+      await user.click(screen.getByTestId('procedure-export-menu-trigger'));
+      await user.click(screen.getByTestId('procedure-export-word'));
+
+      await waitFor(() => {
+        expect(exportProjectProcedureMock).toHaveBeenCalledWith(501, 'word');
+      });
+
+      await user.click(screen.getByTestId('procedure-public-share'));
+
+      await waitFor(() => {
+        expect(createProcedurePublicShareMock).toHaveBeenCalledWith(501);
+      });
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect.stringContaining('/public/project-procedure/public-token-')
+      );
+      expect(onNotify).toHaveBeenCalledWith(
+        'success',
+        'Public thủ tục',
+        expect.stringContaining('Đã tạo và copy link public.')
+      );
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectUrl,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectUrl,
+      });
+    }
+  });
+
+  it('blocks export and public link when procedure steps have unsaved changes', async () => {
+    vi.clearAllMocks();
+    const user = userEvent.setup();
+    const onNotify = vi.fn();
+
+    fetchEmployeesOptionsPageMock.mockResolvedValue({ data: [] });
+    uploadDocumentAttachmentMock.mockResolvedValue({});
+    fetchProcedureTemplatesMock.mockResolvedValue([procedureTemplate]);
+    fetchProjectProceduresMock.mockResolvedValue([projectProcedure]);
+    createProjectProcedureMock.mockResolvedValue(projectProcedure);
+    fetchProcedureStepsMock.mockResolvedValue(steps);
+    batchUpdateProcedureStepsMock.mockResolvedValue({ updated_count: 0, overall_progress: {} });
+    addCustomProcedureStepMock.mockResolvedValue({});
+    deleteProcedureStepMock.mockResolvedValue({});
+    renameProcedureStepMock.mockResolvedValue({});
+    updateProcedurePhaseLabelMock.mockResolvedValue({});
+    fetchStepWorklogsMock.mockResolvedValue([]);
+    addStepWorklogMock.mockResolvedValue({});
+    updateStepWorklogMock.mockResolvedValue({});
+    deleteStepWorklogMock.mockResolvedValue({});
+    reorderProcedureStepsMock.mockResolvedValue({});
+    updateIssueStatusMock.mockResolvedValue({});
+    fetchProcedureRaciMock.mockResolvedValue(raciEntries);
+    fetchStepRaciBulkMock.mockResolvedValue([]);
+    addProcedureRaciMock.mockResolvedValue({});
+    removeProcedureRaciMock.mockResolvedValue({});
+    addStepRaciMock.mockResolvedValue({});
+    removeStepRaciMock.mockResolvedValue({});
+    batchSetStepRaciMock.mockResolvedValue([]);
+    fetchProcedureWorklogsMock.mockResolvedValue(worklogs);
+    resyncProcedureMock.mockResolvedValue({});
+    getStepAttachmentsMock.mockResolvedValue([]);
+    linkStepAttachmentMock.mockResolvedValue({});
+    deleteStepAttachmentMock.mockResolvedValue({});
+
+    render(
+      <ProjectProcedureModal
+        project={project}
+        isOpen={true}
+        onClose={vi.fn()}
+        onNotify={onNotify}
+        authUser={{
+          id: 1,
+          username: 'admin',
+          full_name: 'Admin',
+          email: 'admin@example.test',
+          status: 'Active',
+          roles: [],
+          permissions: ['projects.read', 'projects.write'],
+          dept_scopes: [],
+        } as any}
+      />
+    );
+
+    await screen.findByTestId('project-procedure-modal');
+    await user.click(await screen.findByTestId('mock-dirty-step-7001'));
+    expect(await screen.findByText('1 thay đổi')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('procedure-export-menu-trigger'));
+    await user.click(screen.getByTestId('procedure-export-word'));
+    expect(exportProjectProcedureMock).not.toHaveBeenCalled();
+    expect(onNotify).toHaveBeenCalledWith(
+      'error',
+      'Xuất thủ tục',
+      'Vui lòng lưu thay đổi trước khi xuất dữ liệu.'
+    );
+
+    await user.click(screen.getByTestId('procedure-public-share'));
+    expect(createProcedurePublicShareMock).not.toHaveBeenCalled();
+    expect(onNotify).toHaveBeenCalledWith(
+      'error',
+      'Public thủ tục',
+      'Vui lòng lưu thay đổi trước khi tạo link public.'
+    );
+  });
+
+  it('renders the public procedure page without the login shell', async () => {
+    vi.clearAllMocks();
+    fetchPublicProcedureShareMock.mockResolvedValue({
+      project: {
+        project_code: 'DA001',
+        project_name: 'Dự án public',
+      },
+      procedure: {
+        procedure_name: 'Thủ tục public',
+        overall_progress: 40,
+      },
+      summary: {
+        total_steps: 1,
+        completed_steps: 0,
+        in_progress_steps: 1,
+        not_started_steps: 0,
+        overall_percent: 40,
+      },
+      share: {
+        expires_at: '2026-05-06T00:00:00+07:00',
+      },
+      phases: [
+        {
+          phase_label: 'Chuẩn bị',
+          summary: {
+            total_steps: 1,
+            completed_steps: 0,
+          },
+          steps: [
+            {
+              display_number: '1',
+              level: 0,
+              step_name: 'Hoàn thiện hồ sơ',
+              step_detail: null,
+              lead_unit: 'PM',
+              support_unit: null,
+              expected_result: 'Hồ sơ hợp lệ',
+              duration_days: 3,
+              progress_status: 'DANG_THUC_HIEN',
+              progress_status_label: 'Đang thực hiện',
+              document_number: null,
+              document_date: null,
+              actual_start_date: null,
+              actual_end_date: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/public/project-procedure/public-token-abc']}>
+        <PublicProjectProcedurePage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(fetchPublicProcedureShareMock).toHaveBeenCalledWith('public-token-abc');
+    });
+    expect(await screen.findByText('Bảng thủ tục public')).toBeInTheDocument();
+    expect(screen.getByText('I')).toBeInTheDocument();
+    expect(screen.getByText('Hoàn thiện hồ sơ')).toBeInTheDocument();
+    expect(screen.queryByText(/đăng nhập/i)).not.toBeInTheDocument();
   });
 });

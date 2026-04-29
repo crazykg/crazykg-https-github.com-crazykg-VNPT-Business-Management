@@ -9,7 +9,7 @@ import {
   reorderProcedureSteps,
   updateProcedurePhaseLabel,
 } from '../../../services/api/projectApi';
-import { computeEndDate } from '../../../utils/procedureHelpers';
+import { computeDurationDays, computeEndDate, computeStartDate } from '../../../utils/procedureHelpers';
 import type {
   ProcedureStepBatchUpdate,
   ProcedureStepRaciEntry,
@@ -32,6 +32,127 @@ const EMPTY_EDITING_ROW_DRAFT: EditingRowDraft = {
   lead_unit: '',
   expected_result: '',
   duration_days: '',
+};
+
+const STEP_ORDER_GAP = 10;
+const DATE_RANGE_WARNING_TITLE = 'Ngày chưa hợp lệ';
+const DATE_RANGE_START_MESSAGE = 'Từ ngày phải nhỏ hơn hoặc bằng Đến ngày.';
+const DATE_RANGE_END_MESSAGE = 'Đến ngày phải lớn hơn hoặc bằng Từ ngày.';
+
+type DateRangeField = 'start' | 'end';
+
+const hasOwnField = (source: object, field: string): boolean =>
+  Object.prototype.hasOwnProperty.call(source, field);
+
+const toNonNegativeInteger = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+};
+
+const resolveDurationDays = (
+  step: ProjectProcedureStep,
+  draft: Partial<ProjectProcedureStep>,
+): number =>
+  hasOwnField(draft, 'duration_days')
+    ? toNonNegativeInteger(draft.duration_days)
+    : toNonNegativeInteger(step.duration_days);
+
+const resolveStepStartDate = (
+  step: ProjectProcedureStep,
+  draft: Partial<ProjectProcedureStep>,
+): string | null =>
+  hasOwnField(draft, 'actual_start_date')
+    ? (draft.actual_start_date ?? null)
+    : (step.actual_start_date ?? null);
+
+const resolveStepEndDate = (
+  step: ProjectProcedureStep,
+  draft: Partial<ProjectProcedureStep>,
+): string | null =>
+  hasOwnField(draft, 'actual_end_date')
+    ? (draft.actual_end_date ?? null)
+    : (step.actual_end_date ?? null);
+
+const resolveEffectiveStepEndDate = (
+  step: ProjectProcedureStep,
+  draft: Partial<ProjectProcedureStep>,
+): string | null => {
+  const startDate = resolveStepStartDate(step, draft);
+  const days = resolveDurationDays(step, draft);
+  const computedEndDate = startDate && days > 0 ? computeEndDate(startDate, days) : null;
+  return computedEndDate ?? resolveStepEndDate(step, draft);
+};
+
+const getDateRangeWarningMessage = (
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  field: DateRangeField,
+): string | null => {
+  if (!startDate || !endDate || computeDurationDays(startDate, endDate)) return null;
+  return field === 'start' ? DATE_RANGE_START_MESSAGE : DATE_RANGE_END_MESSAGE;
+};
+
+const getDraftDateRangeWarningMessage = (
+  draft: Partial<ProjectProcedureStep>,
+  field: DateRangeField,
+): string | null => getDateRangeWarningMessage(
+  draft.actual_start_date ?? null,
+  draft.actual_end_date ?? null,
+  field,
+);
+
+const getStepDateRangeWarningMessage = (
+  step: ProjectProcedureStep,
+  draft: Partial<ProjectProcedureStep>,
+  field: DateRangeField,
+): string | null => getDateRangeWarningMessage(
+  resolveStepStartDate(step, draft),
+  resolveStepEndDate(step, draft),
+  field,
+);
+
+const normalizeStepKey = (value: string | number | null | undefined): string =>
+  value === null || value === undefined || value === '' ? '' : String(value);
+
+const compareStepOrder = (left: ProjectProcedureStep, right: ProjectProcedureStep): number => {
+  const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+  if (orderDiff !== 0) return orderDiff;
+  const numberDiff = Number(left.step_number ?? 0) - Number(right.step_number ?? 0);
+  if (numberDiff !== 0) return numberDiff;
+  return normalizeStepKey(left.id).localeCompare(normalizeStepKey(right.id), 'vi');
+};
+
+const getPhaseRows = (
+  steps: ProjectProcedureStep[],
+  phase: string | null | undefined,
+): ProjectProcedureStep[] =>
+  steps.filter((row) => normalizeStepKey(row.phase) === normalizeStepKey(phase));
+
+const getChildrenForParent = (
+  steps: ProjectProcedureStep[],
+  parentId: string | number,
+): ProjectProcedureStep[] =>
+  steps
+    .filter((row) => normalizeStepKey(row.parent_step_id) === normalizeStepKey(parentId))
+    .sort(compareStepOrder);
+
+const getParentBlock = (
+  steps: ProjectProcedureStep[],
+  parentStep: ProjectProcedureStep,
+): ProjectProcedureStep[] => [
+  parentStep,
+  ...getChildrenForParent(steps, parentStep.id),
+];
+
+const applySortOrderPayload = (
+  rows: ProjectProcedureStep[],
+  payload: { id: string | number; sort_order: number }[],
+): ProjectProcedureStep[] => {
+  const orderMap = new Map(payload.map((item) => [normalizeStepKey(item.id), item.sort_order]));
+  return rows.map((row) => {
+    const nextSortOrder = orderMap.get(normalizeStepKey(row.id));
+    return nextSortOrder === undefined ? row : { ...row, sort_order: nextSortOrder };
+  });
 };
 
 interface UseProcedureStepsStateParams {
@@ -89,20 +210,73 @@ export const useProcedureStepsState = ({
   const handleStartDateChange = useCallback((step: ProjectProcedureStep, newStartDate: string | null) => {
     setDrafts((prev) => {
       const existing = prev[String(step.id)] ?? {};
-      const days = step.duration_days;
-      const endDate = (days && days > 0 && newStartDate)
-        ? computeEndDate(newStartDate, days)
-        : (!newStartDate ? null : existing.actual_end_date ?? null);
+      const days = resolveDurationDays(step, existing);
+      const currentEndDate = resolveEffectiveStepEndDate(step, existing);
+      const nextDraft: Partial<ProjectProcedureStep> = {
+        ...existing,
+        actual_start_date: newStartDate,
+      };
+
+      if (!newStartDate) {
+        nextDraft.actual_end_date = null;
+      } else if (currentEndDate) {
+        const inferredDuration = computeDurationDays(newStartDate, currentEndDate);
+        if (!inferredDuration) {
+          nextDraft.duration_days = 0;
+          nextDraft.actual_end_date = currentEndDate;
+        } else {
+          nextDraft.duration_days = inferredDuration;
+          nextDraft.actual_end_date = currentEndDate;
+        }
+      } else if (days > 0) {
+        nextDraft.actual_end_date = computeEndDate(newStartDate, days);
+      }
+
       return {
         ...prev,
-        [String(step.id)]: {
-          ...existing,
-          actual_start_date: newStartDate,
-          actual_end_date: endDate,
-        },
+        [String(step.id)]: nextDraft,
       };
     });
   }, []);
+
+  const handleEndDateChange = useCallback((step: ProjectProcedureStep, newEndDate: string | null) => {
+    setDrafts((prev) => {
+      const existing = prev[String(step.id)] ?? {};
+      const days = resolveDurationDays(step, existing);
+      const currentStartDate = resolveStepStartDate(step, existing);
+      const nextDraft: Partial<ProjectProcedureStep> = {
+        ...existing,
+        actual_end_date: newEndDate,
+      };
+
+      if (!newEndDate) {
+        nextDraft.actual_end_date = null;
+      } else if (currentStartDate) {
+        const inferredDuration = computeDurationDays(currentStartDate, newEndDate);
+        if (!inferredDuration) {
+          nextDraft.duration_days = 0;
+          nextDraft.actual_start_date = currentStartDate;
+        } else {
+          nextDraft.duration_days = inferredDuration;
+          nextDraft.actual_start_date = currentStartDate;
+        }
+      } else if (days > 0) {
+        nextDraft.actual_start_date = computeStartDate(newEndDate, days);
+      }
+
+      return {
+        ...prev,
+        [String(step.id)]: nextDraft,
+      };
+    });
+  }, []);
+
+  const handleDateRangeBlur = useCallback((step: ProjectProcedureStep, field: DateRangeField) => {
+    const message = getStepDateRangeWarningMessage(step, drafts[String(step.id)] ?? {}, field);
+    if (message) {
+      onNotify?.('warning', DATE_RANGE_WARNING_TITLE, message);
+    }
+  }, [drafts, onNotify]);
 
   const handleToggleDetail = useCallback((stepId: string | number) => {
     setExpandedDetails((prev) => {
@@ -163,6 +337,14 @@ export const useProcedureStepsState = ({
     if (inflightRef.current.has(key)) return;
     if (!hasDirtyChanges || !activeProcedure) return;
 
+    const invalidRangeMessage = Object.values(drafts)
+      .map((draft) => getDraftDateRangeWarningMessage(draft, 'end'))
+      .find((message): message is string => Boolean(message));
+    if (invalidRangeMessage) {
+      onNotify?.('warning', DATE_RANGE_WARNING_TITLE, invalidRangeMessage);
+      return;
+    }
+
     inflightRef.current.add(key);
     try {
       setIsSaving(true);
@@ -173,6 +355,7 @@ export const useProcedureStepsState = ({
           progress_status: changes.progress_status,
           document_number: changes.document_number,
           document_date: changes.document_date,
+          duration_days: changes.duration_days,
           actual_start_date: changes.actual_start_date,
           actual_end_date: changes.actual_end_date,
         };
@@ -233,16 +416,11 @@ export const useProcedureStepsState = ({
     if (!activeProcedure || !newChildName.trim()) return;
 
     const parentDraft = drafts[String(parentStep.id)] ?? {};
-    const hasDraftStart = Object.prototype.hasOwnProperty.call(parentDraft, 'actual_start_date');
-    const hasDraftEnd = Object.prototype.hasOwnProperty.call(parentDraft, 'actual_end_date');
-    const parentStartDate = hasDraftStart
-      ? (parentDraft.actual_start_date ?? null)
-      : (parentStep.actual_start_date ?? null);
-    const parentEndDate = parentStartDate && (parentStep.duration_days ?? 0) > 0
-      ? computeEndDate(parentStartDate, parentStep.duration_days)
-      : hasDraftEnd
-        ? (parentDraft.actual_end_date ?? null)
-        : (parentStep.actual_end_date ?? null);
+    const parentDurationDays = resolveDurationDays(parentStep, parentDraft);
+    const parentStartDate = resolveStepStartDate(parentStep, parentDraft);
+    const parentEndDate = parentStartDate && parentDurationDays > 0
+      ? computeEndDate(parentStartDate, parentDurationDays)
+      : resolveStepEndDate(parentStep, parentDraft);
     const parsedChildDays = Number.parseInt(newChildDays, 10);
     const childDurationDays = Number.isNaN(parsedChildDays) ? 0 : parsedChildDays;
     const childStartDate = newChildStartDate || null;
@@ -330,37 +508,64 @@ export const useProcedureStepsState = ({
   }, [onNotify, setStepRaciMap, setSteps]);
 
   const handleReorderStep = useCallback(async (steps: ProjectProcedureStep[], step: ProjectProcedureStep, direction: 'up' | 'down') => {
-    const phaseSteps = steps
-      .filter((row) => row.phase === step.phase && !row.parent_step_id)
-      .sort((a, b) => a.sort_order - b.sort_order);
-    const index = phaseSteps.findIndex((row) => row.id === step.id);
-    if (index === -1) return;
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    if (swapIndex < 0 || swapIndex >= phaseSteps.length) return;
+    const isChildStep = step.parent_step_id !== null && step.parent_step_id !== undefined && step.parent_step_id !== '';
+    const phaseRows = getPhaseRows(steps, step.phase);
+    const payload = (() => {
+      if (isChildStep) {
+        const siblings = phaseRows
+          .filter((row) => normalizeStepKey(row.parent_step_id) === normalizeStepKey(step.parent_step_id))
+          .sort(compareStepOrder);
+        const index = siblings.findIndex((row) => normalizeStepKey(row.id) === normalizeStepKey(step.id));
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+        if (index === -1 || swapIndex < 0 || swapIndex >= siblings.length) return [];
+        const nextSiblings = [...siblings];
+        [nextSiblings[index], nextSiblings[swapIndex]] = [nextSiblings[swapIndex], nextSiblings[index]];
+        const sortOrders = siblings
+          .map((row) => Number(row.sort_order ?? 0))
+          .sort((left, right) => left - right);
+        return nextSiblings.map((row, rowIndex) => ({
+          id: row.id,
+          sort_order: sortOrders[rowIndex] ?? ((rowIndex + 1) * STEP_ORDER_GAP),
+        }));
+      }
 
-    const stepA = phaseSteps[index];
-    const stepB = phaseSteps[swapIndex];
-    const nextSortOrderA = stepB.sort_order === stepA.sort_order
-      ? (direction === 'up' ? stepB.sort_order - 1 : stepB.sort_order + 1)
-      : stepB.sort_order;
-    const nextSortOrderB = stepA.sort_order;
+      const parents = phaseRows
+        .filter((row) => !row.parent_step_id)
+        .sort(compareStepOrder);
+      const index = parents.findIndex((row) => normalizeStepKey(row.id) === normalizeStepKey(step.id));
+      const swapIndex = direction === 'up' ? index - 1 : index + 1;
+      if (index === -1 || swapIndex < 0 || swapIndex >= parents.length) return [];
 
-    setSteps((prev) => prev.map((row) =>
-      row.id === stepA.id ? { ...row, sort_order: nextSortOrderA }
-        : row.id === stepB.id ? { ...row, sort_order: nextSortOrderB }
-          : row
-    ));
+      const currentBlock = getParentBlock(phaseRows, parents[index]);
+      const targetBlock = getParentBlock(phaseRows, parents[swapIndex]);
+      const nextRows = direction === 'up'
+        ? [...currentBlock, ...targetBlock]
+        : [...targetBlock, ...currentBlock];
+      const sortOrders = [...currentBlock, ...targetBlock]
+        .map((row) => Number(row.sort_order ?? 0))
+        .sort((left, right) => left - right);
+
+      return nextRows.map((row, rowIndex) => ({
+        id: row.id,
+        sort_order: sortOrders[rowIndex] ?? ((rowIndex + 1) * STEP_ORDER_GAP),
+      }));
+    })();
+
+    if (payload.length === 0) return;
+
+    const previousRows = steps.filter((row) =>
+      payload.some((item) => normalizeStepKey(item.id) === normalizeStepKey(row.id)),
+    );
+
+    setSteps((prev) => applySortOrderPayload(prev, payload));
     try {
-      await reorderProcedureSteps([
-        { id: stepA.id, sort_order: nextSortOrderA },
-        { id: stepB.id, sort_order: nextSortOrderB },
-      ]);
+      await reorderProcedureSteps(payload);
     } catch (error: any) {
-      setSteps((prev) => prev.map((row) =>
-        row.id === stepA.id ? { ...row, sort_order: stepA.sort_order }
-          : row.id === stepB.id ? { ...row, sort_order: stepB.sort_order }
-            : row
-      ));
+      const rollbackPayload = previousRows.map((row) => ({
+        id: row.id,
+        sort_order: row.sort_order,
+      }));
+      setSteps((prev) => applySortOrderPayload(prev, rollbackPayload));
       onNotify?.('error', 'Lỗi', error?.message || 'Không thể đổi thứ tự bước');
     }
   }, [onNotify, setSteps]);
@@ -488,6 +693,8 @@ export const useProcedureStepsState = ({
     setEditingPhaseLabel,
     handleDraftChange,
     handleStartDateChange,
+    handleEndDateChange,
+    handleDateRangeBlur,
     handleToggleDetail,
     handleToggleAddStep,
     resetAddStepForm,

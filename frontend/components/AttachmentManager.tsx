@@ -22,6 +22,9 @@ interface AttachmentManagerProps {
   listVariant?: 'card' | 'compact-row';
   listMaxHeightClassName?: string;
   emptyStateVariant?: 'card' | 'compact-line';
+  uploadButtonAriaLabel?: string;
+  fileInputAriaLabel?: string;
+  pasteZoneAriaLabel?: string;
 }
 
 export type AttachmentManagerHandle = {
@@ -134,6 +137,9 @@ const buildClipboardImageFileName = (mimeType: string) => {
   return `clipboard_${year}${month}${day}_${hours}${minutes}${seconds}.${extension}`;
 };
 
+const focusVisibleClassName =
+  'focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary';
+
 const extractClipboardImageFiles = (items: DataTransferItemList | undefined | null): File[] => {
   if (!items) {
     return [];
@@ -187,6 +193,9 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
   listVariant = 'card',
   listMaxHeightClassName = '',
   emptyStateVariant = 'card',
+  uploadButtonAriaLabel,
+  fileInputAriaLabel,
+  pasteZoneAriaLabel = 'Vùng danh sách file đính kèm',
 }, ref) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef = useRef<HTMLDivElement>(null);
@@ -209,17 +218,6 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
     if (files.length === 0) {
       return;
     }
-
-    // Debug: log file info to verify file has content
-    files.forEach((file, index) => {
-      console.log(`[AttachmentManager] File ${index + 1}:`, {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        hasContent: file.size > 0,
-        constructor: file.constructor.name,
-      });
-    });
 
     try {
       for (const file of files) {
@@ -284,10 +282,12 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
   const shouldRenderHeader = showListTitle || shouldShowSummaryMeta || showUploadButton;
   const shouldShowClipboardPasteHint =
     enableClipboardPaste && !disabled && showClipboardPasteHint && String(clipboardPasteHint || '').trim() !== '';
+  const resolvedUploadButtonAriaLabel = uploadButtonAriaLabel || uploadButtonLabel;
+  const resolvedFileInputAriaLabel = fileInputAriaLabel || uploadButtonLabel;
   const isCompactRowList = listVariant === 'compact-row';
   const listContainerClassName = isCompactRowList
-    ? `space-y-1.5 overflow-y-auto rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${listMaxHeightClassName}`
-    : `space-y-2 rounded-xl border border-slate-200 bg-white outline-none transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 ${compact ? 'p-2' : 'p-3'} ${disabled ? 'bg-slate-50' : ''}`;
+    ? `space-y-1.5 overflow-y-auto rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] p-2 outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/15 ${listMaxHeightClassName}`
+    : `space-y-2 rounded-xl border border-slate-200 bg-white outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/15 ${compact ? 'p-2' : 'p-3'} ${disabled ? 'bg-slate-50' : ''}`;
 
   // Khi disabled và chưa có file → không render gì cả (tránh hộp rỗng)
   if (disabled && attachments.length === 0) {
@@ -296,12 +296,15 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
 
   return (
     <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      <span role="status" aria-live="polite" className="sr-only">
+        {copiedLinkId ? 'Đã sao chép link file vào clipboard.' : ''}
+      </span>
       {shouldRenderHeader ? (
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">
             {showListTitle ? (
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <span className="material-symbols-outlined text-lg text-primary">attach_file</span>
+                <span className="material-symbols-outlined text-lg text-primary" aria-hidden="true">attach_file</span>
                 Danh sách file đính kèm
               </h3>
             ) : null}
@@ -321,14 +324,16 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
               type="button"
               onClick={openFilePicker}
               disabled={isUploading || disabled}
-              className={uploadButtonClassName || `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+              aria-label={resolvedUploadButtonAriaLabel}
+              aria-busy={isUploading || undefined}
+              className={uploadButtonClassName || `inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary/10 text-sm font-bold text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 ${focusVisibleClassName} ${
                 compact ? 'px-3 py-1.5' : 'px-4 py-2'
               } min-w-[116px]`}
             >
               {isUploading ? (
-                <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+                <span className="mr-1 h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" aria-hidden="true" />
               ) : (
-                <span className="material-symbols-outlined text-base">upload</span>
+                <span className="material-symbols-outlined text-base" aria-hidden="true">upload</span>
               )}
               {uploadButtonLabel}
             </button>
@@ -340,6 +345,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
             accept={accept}
             disabled={isUploading || disabled}
             onChange={handleFileChange}
+            aria-label={resolvedFileInputAriaLabel}
             className="sr-only"
           />
         </div>
@@ -351,6 +357,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
           accept={accept}
           disabled={isUploading || disabled}
           onChange={handleFileChange}
+          aria-label={resolvedFileInputAriaLabel}
           className="sr-only"
         />
       )}
@@ -359,6 +366,8 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
         <div
           ref={pasteZoneRef}
           tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          role="region"
+          aria-label={pasteZoneAriaLabel}
           onClick={focusPasteZone}
           onPaste={(event) => {
             void handlePaste(event);
@@ -385,7 +394,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                   key={file.id}
                   className="flex min-w-0 items-start gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-subtle)] px-2.5 py-2 transition hover:border-[var(--ui-border)] hover:bg-[var(--ui-surface-bg)]"
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-primary/10 text-primary">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-control-radius)] bg-primary/10 text-primary" aria-hidden="true">
                     <span className="material-symbols-outlined text-[17px]">{getMimeIcon(file)}</span>
                   </div>
                   <div className="min-w-0 flex-1">
@@ -401,7 +410,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                           href={file.fileUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-semibold text-primary underline-offset-2 hover:underline"
+                          className={`font-semibold text-primary underline-offset-2 hover:underline ${focusVisibleClassName}`}
                         >
                           Mở file
                         </a>
@@ -422,18 +431,19 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                           rel="noopener noreferrer"
                           aria-label={`${linkLabel}: ${file.fileName}`}
                           title={linkLabel}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary ${focusVisibleClassName}`}
                         >
-                          <span className="material-symbols-outlined text-[17px]">open_in_new</span>
+                          <span className="material-symbols-outlined text-[17px]" aria-hidden="true">open_in_new</span>
                         </a>
                         <button
                           type="button"
                           onClick={() => void copyAttachmentLink(file)}
                           aria-label={`Sao chép link ${file.fileName}`}
+                          aria-pressed={copiedLinkId === String(file.id)}
                           title={copiedLinkId === String(file.id) ? 'Đã sao chép' : 'Sao chép link'}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-muted)] transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary ${focusVisibleClassName}`}
                         >
-                          <span className="material-symbols-outlined text-[17px]">
+                          <span className="material-symbols-outlined text-[17px]" aria-hidden="true">
                             {copiedLinkId === String(file.id) ? 'check' : 'content_copy'}
                           </span>
                         </button>
@@ -445,9 +455,9 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                         onClick={() => onDelete(file.id)}
                         aria-label={`Gỡ file ${file.fileName}`}
                         title="Gỡ file khỏi yêu cầu"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-subtle)] transition hover:border-rose-200 hover:bg-[var(--ui-danger-bg)] hover:text-[var(--ui-danger-fg)]"
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-control-radius)] border border-[var(--ui-border-soft)] bg-[var(--ui-surface-bg)] text-[color:var(--ui-text-subtle)] transition-colors hover:border-rose-200 hover:bg-[var(--ui-danger-bg)] hover:text-[var(--ui-danger-fg)] ${focusVisibleClassName}`}
                       >
-                        <span className="material-symbols-outlined text-[18px]">close</span>
+                        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
                       </button>
                     ) : null}
                   </div>
@@ -463,7 +473,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                 <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-2.5">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true">
                         <span className="material-symbols-outlined text-lg">{getMimeIcon(file)}</span>
                       </div>
                       <div className="min-w-0 flex-1">
@@ -485,7 +495,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                         {/* Cảnh báo B2 fallback */}
                         {file.warningMessage ? (
                           <div className="mt-1.5 flex items-start gap-1 rounded-lg bg-yellow-50 border border-yellow-200 px-2.5 py-1.5">
-                            <span className="material-symbols-outlined text-sm text-yellow-600 shrink-0 mt-0.5">warning</span>
+                            <span className="material-symbols-outlined text-sm text-yellow-600 shrink-0 mt-0.5" aria-hidden="true">warning</span>
                             <p className="text-[11px] text-yellow-700 leading-snug">{file.warningMessage}</p>
                           </div>
                         ) : null}
@@ -497,17 +507,19 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                                 href={file.fileUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-primary/90"
+                                className={`inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-primary/90 ${focusVisibleClassName}`}
                               >
-                                <span className="material-symbols-outlined text-sm">open_in_new</span>
+                                <span className="material-symbols-outlined text-sm" aria-hidden="true">open_in_new</span>
                                 {linkLabel}
                               </a>
                               <button
                                 type="button"
                                 onClick={() => void copyAttachmentLink(file)}
-                                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+                                aria-label={`Sao chép link ${file.fileName}`}
+                                aria-pressed={copiedLinkId === String(file.id)}
+                                className={`inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-50 ${focusVisibleClassName}`}
                               >
-                                <span className="material-symbols-outlined text-sm">
+                                <span className="material-symbols-outlined text-sm" aria-hidden="true">
                                   {copiedLinkId === String(file.id) ? 'check' : 'content_copy'}
                                 </span>
                                 {copiedLinkId === String(file.id) ? 'Đã sao chép' : 'Sao chép link'}
@@ -517,7 +529,7 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                               href={file.fileUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="block truncate text-[11px] text-blue-600 underline-offset-2 hover:underline"
+                              className={`block truncate text-[11px] text-primary underline-offset-2 hover:underline ${focusVisibleClassName}`}
                               title={file.fileUrl}
                             >
                               {isGoogleDriveAttachment(file) ? 'Link mở file trên Google Drive' : file.fileName || 'Mở file'}
@@ -533,10 +545,11 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
                       <button
                         type="button"
                         onClick={() => onDelete(file.id)}
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"
+                        aria-label={`Gỡ file ${file.fileName}`}
+                        className={`inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 ${focusVisibleClassName}`}
                         title="Gỡ file khỏi yêu cầu"
                       >
-                        <span className="material-symbols-outlined text-sm">delete</span>
+                        <span className="material-symbols-outlined text-sm" aria-hidden="true">delete</span>
                         Xóa
                       </button>
                     ) : null}
@@ -550,10 +563,13 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
         <div
           ref={pasteZoneRef}
           tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          role="region"
+          aria-label={pasteZoneAriaLabel}
+          onClick={focusPasteZone}
           onPaste={(event) => { void handlePaste(event); }}
-          className="flex min-h-9 items-center gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1.5 text-left outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className="flex min-h-11 items-center gap-2 rounded-[var(--ui-control-radius)] border border-[var(--ui-border)] bg-[var(--ui-surface-bg)] px-2.5 py-1.5 text-left outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus:border-primary focus:ring-1 focus:ring-primary/15 sm:min-h-9"
         >
-          <span className="material-symbols-outlined shrink-0 text-[16px] text-[color:var(--ui-text-muted)]">upload_file</span>
+          <span className="material-symbols-outlined shrink-0 text-[16px] text-[color:var(--ui-text-muted)]" aria-hidden="true">upload_file</span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-semibold leading-5 text-[color:var(--ui-text-default)]">Chưa có file nào được tải lên.</p>
             <p className="truncate text-xs leading-4 text-[color:var(--ui-text-muted)]">{emptyStateDescription}</p>
@@ -563,14 +579,17 @@ export const AttachmentManager = forwardRef<AttachmentManagerHandle, AttachmentM
         <div
           ref={pasteZoneRef}
           tabIndex={enableClipboardPaste && !disabled ? 0 : -1}
+          role="region"
+          aria-label={pasteZoneAriaLabel}
+          onClick={focusPasteZone}
           onPaste={(event) => { void handlePaste(event); }}
-          className={`rounded-xl border border-dashed border-slate-300 bg-slate-50/90 px-4 text-center outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${
+          className={`rounded-xl border border-dashed border-slate-300 bg-slate-50/90 px-4 text-center outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus:border-primary focus:ring-1 focus:ring-primary/15 ${
             compact ? 'py-3' : 'py-4.5'
           }`}
         >
-          <div className={`mx-auto flex items-center justify-center rounded-full bg-white text-slate-400 shadow-sm ${
+          <div className={`mx-auto flex items-center justify-center rounded-full bg-white text-slate-500 shadow-sm ${
             compact ? 'h-7 w-7' : 'h-9 w-9'
-          }`}>
+          }`} aria-hidden="true">
             <span className={`material-symbols-outlined ${compact ? 'text-base' : 'text-[22px]'}`}>upload_file</span>
           </div>
           <p className={`font-semibold text-slate-600 ${compact ? 'mt-1 text-[13px]' : 'mt-1.5 text-sm'}`}>Chưa có file nào được tải lên.</p>

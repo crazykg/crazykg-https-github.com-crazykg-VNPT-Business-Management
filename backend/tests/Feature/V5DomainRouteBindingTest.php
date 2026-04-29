@@ -38,6 +38,7 @@ class V5DomainRouteBindingTest extends TestCase
             ['GET', 'api/v5/documents/attachments/{id}/download', 'App\Http\Controllers\Api\V5\DocumentController@downloadDocumentAttachment', 'signed:relative'],
             ['GET', 'api/v5/attachments/{id}/download', 'App\Http\Controllers\Api\V5\DocumentController@downloadAttachment', 'signed:relative'],
             ['GET', 'api/v5/documents/attachments/temp-download', 'App\Http\Controllers\Api\V5\DocumentController@downloadTemporaryAttachment', 'signed:relative'],
+            ['GET', 'api/v5/public/project-procedure-shares/{token}', 'App\Http\Controllers\Api\V5\ProjectProcedureController@publicShare', 'throttle:api.access'],
             ['GET', 'api/v5/documents', 'App\Http\Controllers\Api\V5\DocumentController@index', 'permission:documents.read'],
             ['POST', 'api/v5/documents', 'App\Http\Controllers\Api\V5\DocumentController@store', 'permission:documents.write'],
             ['POST', 'api/v5/documents/upload-attachment', 'App\Http\Controllers\Api\V5\DocumentController@uploadAttachment', 'permission:documents.write'],
@@ -198,6 +199,9 @@ class V5DomainRouteBindingTest extends TestCase
             ['POST', 'api/v5/projects', 'App\Http\Controllers\Api\V5\ProjectController@store', 'permission:projects.write'],
             ['PUT', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@update', 'permission:projects.write'],
             ['DELETE', 'api/v5/projects/{id}', 'App\Http\Controllers\Api\V5\ProjectController@destroy', 'permission:projects.delete'],
+            ['GET', 'api/v5/project-procedures/{procedureId}/export', 'App\Http\Controllers\Api\V5\ProjectProcedureController@exportProcedure', 'permission:projects.read'],
+            ['POST', 'api/v5/project-procedures/{procedureId}/public-share', 'App\Http\Controllers\Api\V5\ProjectProcedureController@createPublicShare', 'permission:projects.write'],
+            ['DELETE', 'api/v5/project-procedures/{procedureId}/public-share', 'App\Http\Controllers\Api\V5\ProjectProcedureController@revokePublicShare', 'permission:projects.write'],
 
             ['GET', 'api/v5/contracts', 'App\Http\Controllers\Api\V5\ContractController@index', 'permission:contracts.read'],
             ['GET', 'api/v5/contracts/revenue-analytics', 'App\Http\Controllers\Api\V5\ContractController@revenueAnalytics', 'permission:contracts.read'],
@@ -254,6 +258,11 @@ class V5DomainRouteBindingTest extends TestCase
                 "Missing permission middleware for {$method} {$uri}."
             );
         }
+
+        $publicProcedureRoute = $this->findRoute('GET', 'api/v5/public/project-procedure-shares/{token}');
+        $this->assertNotContains('auth:sanctum', $publicProcedureRoute->middleware());
+        $this->assertNotContains('password.change', $publicProcedureRoute->middleware());
+        $this->assertNotContains('active.tab', $publicProcedureRoute->middleware());
     }
 
     private function findRoute(string $method, string $uri): LaravelRoute

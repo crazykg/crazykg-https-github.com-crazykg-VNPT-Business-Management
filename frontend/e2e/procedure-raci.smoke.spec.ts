@@ -6,19 +6,24 @@ import {
 import { openProcedureModal } from './helpers/procedure-page';
 
 test.describe('Project procedure RACI smoke', () => {
-  test('assigns Accountable quickly from the avatar column', async ({ page }) => {
+  test('assigns Accountable from the matrix overlay only', async ({ page }) => {
     const state = buildProcedureScenarioState();
     await openProcedureModal(page, state);
 
-    const trigger = page.getByTestId('step-a-trigger-1001');
-    await expect(trigger).toHaveAttribute('title', 'Ha Quang Tuan');
+    await expect(page.locator('[data-testid^="step-a-"]')).toHaveCount(0);
+    await page.getByTestId(`phase-raci-${PROCEDURE_TEST_PHASE_CODE}`).click();
+    await expect(page.getByTestId('raci-matrix-panel')).toBeVisible();
 
-    await trigger.click();
-    await page.getByTestId('step-a-option-1001-202').click();
+    const previousA = page.getByTestId('raci-cell-1001-201-A');
+    const nextA = page.getByTestId('raci-cell-1001-202-A');
 
-    await expect(trigger).toHaveAttribute('title', 'Phan Vinh Rang');
-    await expect(page.getByTestId('step-raci-badge-1001-A-202')).toBeVisible();
-    await expect(page.getByTestId('step-raci-badge-1001-A-201')).toHaveCount(0);
+    await expect(previousA).toHaveAttribute('aria-pressed', 'true');
+    await expect(nextA).toHaveAttribute('aria-pressed', 'false');
+
+    await nextA.click();
+
+    await expect(nextA).toHaveAttribute('aria-pressed', 'true');
+    await expect(previousA).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('toggles step-level R and I assignments from the matrix overlay', async ({ page }) => {
@@ -78,16 +83,14 @@ test.describe('Project procedure RACI smoke', () => {
     const state = buildProcedureScenarioState();
     await openProcedureModal(page, state);
 
-    const trigger = page.getByTestId('step-a-trigger-1001');
-    await expect(trigger).toHaveAttribute('title', 'Ha Quang Tuan');
+    await expect(page.locator('[data-testid^="step-a-"]')).toHaveCount(0);
 
     await page.getByTestId('procedure-tab-raci').click();
     await expect(page.getByTestId('procedure-raci-remove-9001')).toBeVisible();
     await page.getByTestId('procedure-raci-remove-9001').click();
 
     await page.getByTestId('procedure-tab-steps').click();
-    await expect(trigger).toHaveAttribute('title', 'Chọn người chịu trách nhiệm');
-    await expect(page.getByTestId('step-raci-badge-1001-A-201')).toHaveCount(0);
+    await expect(page.locator('[data-testid^="step-a-"]')).toHaveCount(0);
 
     await page.getByTestId(`phase-raci-${PROCEDURE_TEST_PHASE_CODE}`).click();
     await expect(page.getByTestId('raci-cell-1001-201-A')).toHaveCount(0);
