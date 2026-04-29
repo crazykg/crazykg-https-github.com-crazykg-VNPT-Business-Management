@@ -212,27 +212,23 @@ class CustomerRequestCompatibilityLookupService
         $page = max(1, (int) ($request->query('page', 1) ?? 1));
         $perPage = max(1, min(50, (int) ($request->query('per_page', 30) ?? 30)));
         $search = trim((string) ($this->support->readFilterParam($request, 'q', $request->query('search', '')) ?? ''));
-        $selectedIds = collect($request->query('selected_ids', []))
-            ->when(
-                ! is_array($request->query('selected_ids', [])),
-                fn ($collection) => collect([$request->query('selected_ids')])
-            )
-            ->map(fn (mixed $value): ?int => $this->support->parseNullableInt($value))
-            ->filter(fn (?int $value): bool => $value !== null)
-            ->unique()
-            ->values()
-            ->all();
+        $selectedIds = $this->readLookupIdList($request, 'selected_ids');
+        $customerIds = $this->readLookupIdList($request, 'customer_id');
+        $projectIds = $this->readLookupIdList($request, 'project_id');
 
         $selectedRows = [];
         if ($page === 1 && $selectedIds !== []) {
-            $selectedRows = $this->buildLookupFilterOptionsQuery($config, '')
-                ->whereIn($config['alias'].'.'.$config['id'], $selectedIds)
+            $selectedQuery = $this->buildLookupFilterOptionsQuery($config, '')
+                ->whereIn($config['alias'].'.'.$config['id'], $selectedIds);
+            $this->applyLookupParentFilters($selectedQuery, $config, $customerIds, $projectIds);
+            $selectedRows = $selectedQuery
                 ->get()
                 ->map(fn (object $row): array => $this->serializeLookupFilterOption((array) $row, $config))
                 ->all();
         }
 
         $query = $this->buildLookupFilterOptionsQuery($config, $search);
+        $this->applyLookupParentFilters($query, $config, $customerIds, $projectIds);
         if ($selectedIds !== []) {
             $query->whereNotIn($config['alias'].'.'.$config['id'], $selectedIds);
         }
@@ -263,6 +259,113 @@ class CustomerRequestCompatibilityLookupService
         ]);
     }
 
+    /**
+     * @return int[]
+     */
+    private function readLookupIdList(Request $request, string $key): array
+    {
+        $values = $request->query($key, $request->query($key.'s', []));
+
+        if (! is_array($values)) {
+            $values = [$values];
+        }
+
+        return collect($values)
+            ->map(fn (mixed $value): ?int => $this->support->parseNullableInt($value))
+            ->filter(fn (?int $value): bool => $value !== null)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param int[] $customerIds
+     * @param int[] $projectIds
+     */
+    private function applyLookupParentFilters(mixed $query, array $config, array $customerIds, array $projectIds): void
+    {
+        if ($config['table'] === 'projects' && $customerIds !== [] && $this->support->hasColumn('projects', 'customer_id')) {
+            $query->whereIn($config['alias'].'.customer_id', $customerIds);
+            return;
+        }
+
+        if ($config['table'] !== 'products') {
+            return;
+        }
+
+        if ($projectIds !== []) {
+            $query->where(function ($builder) use ($config, $projectIds): void {
+                if ($this->support->hasTable('customer_request_cases') && $this->support->hasColumn('customer_request_cases', 'project_id') && $this->support->hasColumn('customer_request_cases', 'product_id')) {
+                    $builder->whereExists(function ($exists) use ($config, $projectIds): void {
+                        $exists->selectRaw('1')
+                            ->from('customer_request_cases as crc_filter')
+                            ->whereColumn('crc_filter.product_id', $config['alias'].'.'.$config['id'])
+                            ->whereIn('crc_filter.project_id', $projectIds)
+                            ->whereNotNull('crc_filter.product_id');
+
+                        if ($this->support->hasColumn('customer_request_cases', 'deleted_at')) {
+                            $exists->whereNull('crc_filter.deleted_at');
+                        }
+                    });
+                } else {
+                    $builder->whereRaw('1 = 0');
+                }
+
+                if ($this->support->hasTable('project_items') && $this->support->hasColumn('project_items', 'project_id') && $this->support->hasColumn('project_items', 'product_id')) {
+                    $builder->orWhereExists(function ($exists) use ($config, $projectIds): void {
+                        $exists->selectRaw('1')
+                            ->from('project_items as pi_filter')
+                            ->whereColumn('pi_filter.product_id', $config['alias'].'.'.$config['id'])
+                            ->whereIn('pi_filter.project_id', $projectIds)
+                            ->whereNotNull('pi_filter.product_id');
+
+                        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                            $exists->whereNull('pi_filter.deleted_at');
+                        }
+                    });
+                }
+            });
+            return;
+        }
+
+        if ($customerIds !== []) {
+            $query->where(function ($builder) use ($config, $customerIds): void {
+                if ($this->support->hasTable('customer_request_cases') && $this->support->hasColumn('customer_request_cases', 'customer_id') && $this->support->hasColumn('customer_request_cases', 'product_id')) {
+                    $builder->whereExists(function ($exists) use ($config, $customerIds): void {
+                        $exists->selectRaw('1')
+                            ->from('customer_request_cases as crc_filter')
+                            ->whereColumn('crc_filter.product_id', $config['alias'].'.'.$config['id'])
+                            ->whereIn('crc_filter.customer_id', $customerIds)
+                            ->whereNotNull('crc_filter.product_id');
+
+                        if ($this->support->hasColumn('customer_request_cases', 'deleted_at')) {
+                            $exists->whereNull('crc_filter.deleted_at');
+                        }
+                    });
+                } else {
+                    $builder->whereRaw('1 = 0');
+                }
+
+                if ($this->support->hasTable('project_items') && $this->support->hasTable('projects') && $this->support->hasColumn('project_items', 'project_id') && $this->support->hasColumn('project_items', 'product_id') && $this->support->hasColumn('projects', 'customer_id')) {
+                    $builder->orWhereExists(function ($exists) use ($config, $customerIds): void {
+                        $exists->selectRaw('1')
+                            ->from('project_items as pi_filter')
+                            ->join('projects as p_filter', 'pi_filter.project_id', '=', 'p_filter.id')
+                            ->whereColumn('pi_filter.product_id', $config['alias'].'.'.$config['id'])
+                            ->whereIn('p_filter.customer_id', $customerIds)
+                            ->whereNotNull('pi_filter.product_id');
+
+                        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                            $exists->whereNull('pi_filter.deleted_at');
+                        }
+                        if ($this->support->hasColumn('projects', 'deleted_at')) {
+                            $exists->whereNull('p_filter.deleted_at');
+                        }
+                    });
+                }
+            });
+        }
+    }
     /**
      * @param array{
      *     table:string,

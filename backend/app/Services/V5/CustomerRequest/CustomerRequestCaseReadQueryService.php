@@ -56,6 +56,25 @@ class CustomerRequestCaseReadQueryService
         return null;
     }
 
+    /**
+     * @return int[]
+     */
+    private function readIntQueryValues(Request $request, string $key): array
+    {
+        $rawValues = $request->query($key);
+        $normalizedValues = is_array($rawValues) ? $rawValues : [$rawValues];
+        $values = [];
+
+        foreach ($normalizedValues as $rawValue) {
+            $parsed = $this->support->parseNullableInt($rawValue);
+            if ($parsed !== null) {
+                $values[] = $parsed;
+            }
+        }
+
+        return array_values(array_unique($values));
+    }
+
     public function applyCaseFilters(QueryBuilder $query, Request $request, ?int $actorId, bool $skipStatusFilter): void
     {
         if (! $skipStatusFilter) {
@@ -73,9 +92,27 @@ class CustomerRequestCaseReadQueryService
             }
         }
 
+        $projectValues = $this->readIntQueryValues($request, 'project_id');
+        if ($projectValues !== []) {
+            $canResolveProjectFromItem = $this->support->hasTable('project_items')
+                && $this->support->hasColumn('customer_request_cases', 'project_item_id')
+                && $this->support->hasColumn('project_items', 'id')
+                && $this->support->hasColumn('project_items', 'project_id');
+
+            if ($canResolveProjectFromItem) {
+                $query->where(function (QueryBuilder $builder) use ($projectValues): void {
+                    $builder->whereIn('crc.project_id', $projectValues)
+                        ->orWhereIn('crc_project_item.project_id', $projectValues);
+                });
+            } elseif (count($projectValues) === 1) {
+                $query->where('crc.project_id', $projectValues[0]);
+            } else {
+                $query->whereIn('crc.project_id', $projectValues);
+            }
+        }
+
         foreach ([
             'customer_id',
-            'project_id',
             'project_item_id',
             'support_service_group_id',
             'dispatcher_user_id',
@@ -84,18 +121,7 @@ class CustomerRequestCaseReadQueryService
             'received_by_user_id',
             'priority',
         ] as $column) {
-            $rawValues = $request->query($column);
-            $normalizedValues = is_array($rawValues) ? $rawValues : [$rawValues];
-            $values = [];
-
-            foreach ($normalizedValues as $rawValue) {
-                $parsed = $this->support->parseNullableInt($rawValue);
-                if ($parsed !== null) {
-                    $values[] = $parsed;
-                }
-            }
-
-            $values = array_values(array_unique($values));
+            $values = $this->readIntQueryValues($request, $column);
 
             if ($values === []) {
                 continue;

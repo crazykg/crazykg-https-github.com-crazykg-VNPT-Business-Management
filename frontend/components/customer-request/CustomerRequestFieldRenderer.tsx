@@ -217,7 +217,7 @@ const fieldOptions = (
       : projectItems;
 
     return filtered.map((item) => {
-      const label = [item.customer_name, item.product_name || item.display_name]
+      const label = [item.customer_name, item.project_name, item.product_name || item.display_name]
         .map((part) => normalizeText(part))
         .filter(Boolean)
         .join(' | ');
