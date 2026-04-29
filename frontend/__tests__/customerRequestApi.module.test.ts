@@ -149,14 +149,19 @@ describe('customerRequestApi module', () => {
       })
     );
 
-    await fetchCustomerRequestProjectFilterOptions({ per_page: 99 });
+    await fetchCustomerRequestProjectFilterOptions({ per_page: 99, customer_ids: [3, '4', null] });
     let [url] = fetchMock.mock.calls[0] ?? [];
     expect(String(url)).toContain('/api/v5/customer-requests/filter-options/projects?');
     expect(String(url)).toContain('per_page=50');
+    expect(String(url)).toContain('customer_id%5B%5D=3');
+    expect(String(url)).toContain('customer_id%5B%5D=4');
 
-    await fetchCustomerRequestProductFilterOptions({ per_page: 0 });
+    await fetchCustomerRequestProductFilterOptions({ per_page: 0, customer_ids: [3], project_ids: [8, '9'] });
     [url] = fetchMock.mock.calls[1] ?? [];
     expect(String(url)).toContain('/api/v5/customer-requests/filter-options/products?');
     expect(String(url)).toContain('per_page=30');
+    expect(String(url)).toContain('customer_id%5B%5D=3');
+    expect(String(url)).toContain('project_id%5B%5D=8');
+    expect(String(url)).toContain('project_id%5B%5D=9');
   });
 });

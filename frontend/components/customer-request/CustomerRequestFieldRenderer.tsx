@@ -208,13 +208,7 @@ const fieldOptions = (
   }
 
   if (field.type === 'project_item_select') {
-    // Lọc theo khách hàng đã chọn (nếu có); giữ item không có customer_id để tránh mất dữ liệu
-    const filtered = selectedCustomerId
-      ? projectItems.filter((item) => {
-          const itemCustomerId = normalizeText(item.customer_id);
-          return itemCustomerId === '' || itemCustomerId === selectedCustomerId;
-        })
-      : projectItems;
+    const filtered = projectItems;
 
     return filtered.map((item) => {
       const label = [item.customer_name, item.project_name, item.product_name || item.display_name]

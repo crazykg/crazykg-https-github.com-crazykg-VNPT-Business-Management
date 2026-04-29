@@ -311,6 +311,23 @@ class CustomerRequestCompatibilityLookupService
                     $builder->whereRaw('1 = 0');
                 }
 
+                if ($this->support->hasTable('customer_request_cases') && $this->support->hasTable('project_items') && $this->support->hasColumn('customer_request_cases', 'project_item_id') && $this->support->hasColumn('customer_request_cases', 'product_id') && $this->support->hasColumn('project_items', 'id') && $this->support->hasColumn('project_items', 'project_id')) {
+                    $builder->orWhereExists(function ($exists) use ($config, $projectIds): void {
+                        $exists->selectRaw('1')
+                            ->from('customer_request_cases as crc_filter_item')
+                            ->join('project_items as pi_case_filter', 'crc_filter_item.project_item_id', '=', 'pi_case_filter.id')
+                            ->whereColumn('crc_filter_item.product_id', $config['alias'].'.'.$config['id'])
+                            ->whereIn('pi_case_filter.project_id', $projectIds)
+                            ->whereNotNull('crc_filter_item.product_id');
+
+                        if ($this->support->hasColumn('customer_request_cases', 'deleted_at')) {
+                            $exists->whereNull('crc_filter_item.deleted_at');
+                        }
+                        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                            $exists->whereNull('pi_case_filter.deleted_at');
+                        }
+                    });
+                }
                 if ($this->support->hasTable('project_items') && $this->support->hasColumn('project_items', 'project_id') && $this->support->hasColumn('project_items', 'product_id')) {
                     $builder->orWhereExists(function ($exists) use ($config, $projectIds): void {
                         $exists->selectRaw('1')
