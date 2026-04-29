@@ -63,6 +63,11 @@ class SupportConfigController extends V5BaseController
         return $this->service->authSessionPolicy();
     }
 
+    public function projectWorklogDatetimePolicy(): JsonResponse
+    {
+        return $this->service->projectWorklogDatetimePolicy();
+    }
+
     public function storeProductUnitMaster(Request $request): JsonResponse
     {
         return $this->service->storeProductUnitMaster($request);
@@ -86,6 +91,11 @@ class SupportConfigController extends V5BaseController
     public function updateAuthSessionPolicy(Request $request): JsonResponse
     {
         return $this->service->updateAuthSessionPolicy($request);
+    }
+
+    public function updateProjectWorklogDatetimePolicy(Request $request): JsonResponse
+    {
+        return $this->service->updateProjectWorklogDatetimePolicy($request);
     }
 
     public function storeRequestStatus(Request $request): JsonResponse

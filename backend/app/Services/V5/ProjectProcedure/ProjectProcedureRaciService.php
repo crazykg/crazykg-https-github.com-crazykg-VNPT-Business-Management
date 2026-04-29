@@ -167,7 +167,7 @@ class ProjectProcedureRaciService
         $rows = $this->sortStepRaciRows(
             ProjectProcedureStepRaci::query()
                 ->whereIn('step_id', $stepIds)
-                ->with(['user:id,full_name,user_code,username'])
+                ->with(['user:id,full_name,user_code,username,department_id', 'user.department:id,dept_name,dept_code'])
                 ->get()
                 ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))
         );
@@ -185,7 +185,7 @@ class ProjectProcedureRaciService
         $rows = $this->sortStepRaciRows(
             ProjectProcedureStepRaci::query()
                 ->where('step_id', $step->id)
-                ->with(['user:id,full_name,user_code,username'])
+                ->with(['user:id,full_name,user_code,username,department_id', 'user.department:id,dept_name,dept_code'])
                 ->get()
                 ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))
         );
@@ -252,7 +252,7 @@ class ProjectProcedureRaciService
             );
         });
 
-        $row->load('user:id,full_name,user_code,username');
+        $row->load(['user:id,full_name,user_code,username,department_id', 'user.department:id,dept_name,dept_code']);
 
         return response()->json([
             'data' => $this->formatStepRaciRow($row),
@@ -418,6 +418,9 @@ class ProjectProcedureRaciService
             'full_name'  => $row->user?->full_name,
             'user_code'  => $row->user?->user_code,
             'username'   => $row->user?->username,
+            'department_id' => $row->user?->department_id,
+            'department_name' => $row->user?->department?->dept_name,
+            'department_code' => $row->user?->department?->dept_code,
             'created_at' => $row->created_at,
         ];
     }
@@ -438,7 +441,7 @@ class ProjectProcedureRaciService
         return $this->sortStepRaciRows(
             ProjectProcedureStepRaci::query()
                 ->whereIn('step_id', $stepIds)
-                ->with(['user:id,full_name,user_code,username'])
+                ->with(['user:id,full_name,user_code,username,department_id', 'user.department:id,dept_name,dept_code'])
                 ->orderBy('step_id')
                 ->get()
                 ->map(fn (ProjectProcedureStepRaci $row): array => $this->formatStepRaciRow($row))

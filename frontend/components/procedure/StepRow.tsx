@@ -1,8 +1,9 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import {
   Attachment,
   ProjectProcedureStep,
   ProcedureStepStatus,
+  ProcedureStepRaciEntry,
   ProcedureStepWorklog,
   IssueStatus,
 } from '../../types';
@@ -38,6 +39,18 @@ const ACTION_CELL_BASE_CLASS =
 const ACTION_BUTTON_BASE_CLASS =
   'inline-flex h-8 w-6 items-center justify-center rounded text-slate-700 transition-colors hover:bg-white hover:text-primary focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-slate-500 disabled:opacity-100';
 
+function getAssigneeName(entry: ProcedureStepRaciEntry): string {
+  return String(entry.full_name || entry.user_code || entry.username || entry.user_id || 'Nhân viên');
+}
+
+function getAssigneeDepartmentLabel(entry: ProcedureStepRaciEntry): string {
+  return String(entry.department_name || entry.department_code || '').trim();
+}
+
+function getResponsibleEntryKey(entry: ProcedureStepRaciEntry): string {
+  return `${entry.id ?? 'entry'}-${entry.user_id ?? 'user'}-${entry.raci_role}`;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface StepRowProps {
@@ -62,14 +75,20 @@ export interface StepRowProps {
   isRaciA: boolean;
   myId: string;
 
+  // Step RACI assignments
+  stepRaciEntries: ProcedureStepRaciEntry[];
+
   // Per-step worklog state slices
   wlogs: ProcedureStepWorklog[];
   wlogInput: string;
   wlogHours: string;
+  wlogStartedAt: string;
+  wlogEndedAt: string;
   wlogDifficulty: string;
   wlogProposal: string;
   wlogIssueStatus: IssueStatus;
   wlogSaving: boolean;
+  projectWorklogDatetimeEnabled: boolean;
 
   // Inline row edit
   editingRowDraft: { step_name: string; lead_unit: string; expected_result: string; duration_days: string };
@@ -91,6 +110,8 @@ export interface StepRowProps {
   editingWorklogId: string | number | null;
   editWorklogContent: string;
   editWorklogHours: string;
+  editWorklogStartedAt: string;
+  editWorklogEndedAt: string;
   editWorklogDiff: string;
   editWorklogProposal: string;
   editWorklogStatus: IssueStatus;
@@ -121,11 +142,15 @@ export interface StepRowProps {
   onDeleteWorklog: (stepId: string | number, log: ProcedureStepWorklog) => void;
   onSetWlogInput: (stepId: string | number, val: string) => void;
   onSetWlogHours: (stepId: string | number, val: string) => void;
+  onSetWlogStartedAt: (stepId: string | number, val: string) => void;
+  onSetWlogEndedAt: (stepId: string | number, val: string) => void;
   onSetWlogDifficulty: (stepId: string | number, val: string) => void;
   onSetWlogProposal: (stepId: string | number, val: string) => void;
   onSetWlogIssueStatus: (stepId: string | number, val: IssueStatus) => void;
   onSetEditWorklogContent: React.Dispatch<React.SetStateAction<string>>;
   onSetEditWorklogHours: React.Dispatch<React.SetStateAction<string>>;
+  onSetEditWorklogStartedAt: React.Dispatch<React.SetStateAction<string>>;
+  onSetEditWorklogEndedAt: React.Dispatch<React.SetStateAction<string>>;
   onSetEditWorklogDiff: React.Dispatch<React.SetStateAction<string>>;
   onSetEditWorklogProposal: React.Dispatch<React.SetStateAction<string>>;
   onSetEditWorklogStatus: React.Dispatch<React.SetStateAction<IssueStatus>>;
@@ -146,19 +171,21 @@ export const StepRow = memo(function StepRow({
   step, displayNumber, datePlaceholder, draft, stepsInScope,
   isEditing, isExpanded, isWlogOpen, isAttachOpen, isAddingChild, isAddingChildSubmitting, hasChildren,
   isAdmin, isRaciA, myId,
-  wlogs, wlogInput, wlogHours, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
+  stepRaciEntries,
+  wlogs, wlogInput, wlogHours, wlogStartedAt, wlogEndedAt, wlogDifficulty, wlogProposal, wlogIssueStatus, wlogSaving,
+  projectWorklogDatetimeEnabled,
   editingRowDraft,
   attachList, attachLoading, attachUploading,
   newChildName, newChildUnit, newChildDays, newChildStartDate, newChildEndDate, newChildStatus,
-  editingWorklogId, editWorklogContent, editWorklogHours, editWorklogDiff,
+  editingWorklogId, editWorklogContent, editWorklogHours, editWorklogStartedAt, editWorklogEndedAt, editWorklogDiff,
   editWorklogProposal, editWorklogStatus, editWorklogSaving, deletingWorklogId,
   onDraftChange, onStartDateChange, onEndDateChange, onDateRangeBlur, onReorder, onToggleDetail,
   onStartEditRow, onCancelEditRow, onSaveEditRow, onSetEditingRowDraft,
   onDeleteStep, onOpenAttachments, onUploadFile, onDeleteAttachment,
   onToggleWorklog, onAddWorklog, onUpdateIssueStatus,
   onStartEditWorklog, onCancelEditWorklog, onSaveEditWorklog, onDeleteWorklog,
-  onSetWlogInput, onSetWlogHours, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
-  onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogDiff,
+  onSetWlogInput, onSetWlogHours, onSetWlogStartedAt, onSetWlogEndedAt, onSetWlogDifficulty, onSetWlogProposal, onSetWlogIssueStatus,
+  onSetEditWorklogContent, onSetEditWorklogHours, onSetEditWorklogStartedAt, onSetEditWorklogEndedAt, onSetEditWorklogDiff,
   onSetEditWorklogProposal, onSetEditWorklogStatus,
   onToggleAddChild, onAddChildStep,
   onSetChildName, onSetChildUnit, onSetChildDays, onSetChildStartDate, onSetChildEndDate, onSetChildStatus, onCancelChild,
@@ -167,6 +194,23 @@ export const StepRow = memo(function StepRow({
   const status   = (draft.progress_status ?? step.progress_status) as ProcedureStepStatus;
   const isCustom = !step.template_step_id;
   const countableWlogs = wlogs.filter((log) => log.log_type !== 'CUSTOM' && log.content.trim().length > 0);
+  const responsibleAssignees = stepRaciEntries
+    .filter((entry) => entry.raci_role === 'R')
+    .sort((left, right) => getAssigneeName(left).localeCompare(getAssigneeName(right), 'vi'));
+  const primaryResponsibleAssignee = responsibleAssignees[0] ?? null;
+  const extraResponsibleCount = Math.max(0, responsibleAssignees.length - 1);
+  const responsibleAssigneeLabel = responsibleAssignees
+    .map((entry) => {
+      const department = getAssigneeDepartmentLabel(entry) || 'Chưa có phòng ban';
+      return `${getAssigneeName(entry)} - ${department}`;
+    })
+    .join('; ');
+  const [isResponsiblePopoverOpen, setResponsiblePopoverOpen] = useState(false);
+  const responsibleTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const responsiblePopoverRef = useRef<HTMLDivElement | null>(null);
+  const responsiblePointerOpenStateRef = useRef(false);
+  const responsibleSuppressFocusOpenRef = useRef(false);
+  const worklogTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const worklogCount      = step.worklogs_count ?? countableWlogs.length;
   const blockingWlogCount = step.blocking_worklogs_count
@@ -211,6 +255,7 @@ export const StepRow = memo(function StepRow({
   const readableStepName = displayNumber ? `bước ${displayNumber} ${step.step_name}` : `bước ${step.step_name}`;
   const worklogPanelId = `step-worklog-panel-${step.id}`;
   const filePanelId = `step-file-panel-${step.id}`;
+  const responsiblePopoverId = `step-responsible-popover-${String(step.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   const saveButtonLabel = `Lưu thay đổi ${readableStepName}`;
   const cancelButtonLabel = `Hủy sửa ${readableStepName}`;
   const addChildButtonLabel = `Thêm bước con cho ${readableStepName}`;
@@ -222,6 +267,41 @@ export const StepRow = memo(function StepRow({
     ? `, số văn bản ${normalizedDocumentNumber}${documentDate ? ` ngày ${formatDateValue(String(documentDate))}` : ''}`
     : ', chưa có số văn bản';
   const fileButtonLabel = `${isAttachOpen ? 'Đóng' : 'Mở'} file văn bản của ${readableStepName}: ${attachCount} file đính kèm${fileDocumentLabel}`;
+
+  useEffect(() => {
+    if (responsibleAssignees.length <= 1 && isResponsiblePopoverOpen) {
+      setResponsiblePopoverOpen(false);
+    }
+  }, [isResponsiblePopoverOpen, responsibleAssignees.length]);
+
+  useEffect(() => {
+    if (!isResponsiblePopoverOpen) return undefined;
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (responsiblePopoverRef.current?.contains(target) || responsibleTriggerRef.current?.contains(target)) return;
+      setResponsiblePopoverOpen(false);
+    };
+
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      responsibleSuppressFocusOpenRef.current = true;
+      setResponsiblePopoverOpen(false);
+      responsibleTriggerRef.current?.focus();
+      window.setTimeout(() => {
+        responsibleSuppressFocusOpenRef.current = false;
+      }, 0);
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    document.addEventListener('keydown', handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+      document.removeEventListener('keydown', handleDocumentKeyDown);
+    };
+  }, [isResponsiblePopoverOpen]);
 
   const parentStart = startVal;
   const parentEnd = endDisplay || null;
@@ -295,13 +375,19 @@ export const StepRow = memo(function StepRow({
     if (!newChildName.trim() || isAddingChildSubmitting || childDateError) return;
     onAddChildStep(step);
   };
+  const handleCloseWorklogPanel = () => {
+    onToggleWorklog(step.id);
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => worklogTriggerRef.current?.focus(), 0);
+    }
+  };
 
   return (
     <React.Fragment>
-      <tr data-testid={`step-row-${step.id}`} className={`group/step-row transition-colors ${isEditing ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
+      <tr data-testid={`step-row-${step.id}`} className={`group/step-row transition-colors ${isEditing || isWlogOpen ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : `hover:bg-slate-50/60 ${ROW_BG[status]}`}`}>
 
         {/* ▲/▼ Reorder */}
-        <td className="px-1 py-1">
+        <td className="px-1 py-1 align-middle">
           {stepsInScope.length > 1 && (
             <div className="flex flex-col items-center">
               <button
@@ -331,12 +417,12 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* TT */}
-        <td className="px-3 py-2 text-xs font-mono text-slate-600 text-center">
+        <td className="px-3 py-2 align-middle text-xs font-mono text-slate-600 text-center">
           <span data-testid={`step-display-number-${step.id}`}>{displayNumber}</span>
         </td>
 
         {/* Tên bước */}
-        <td className="px-3 py-2 text-sm text-slate-800" style={{ paddingLeft: isChild ? '28px' : '12px' }}>
+        <td className="px-3 py-2 align-middle text-sm text-slate-800" style={{ paddingLeft: isChild ? '28px' : '12px' }}>
           {isEditing ? (
             <input
               autoFocus
@@ -384,8 +470,103 @@ export const StepRow = memo(function StepRow({
           )}
         </td>
 
+        {/* Người thực hiện */}
+        <td className="relative px-3 py-2 align-middle text-xs text-slate-700">
+          {primaryResponsibleAssignee ? (
+            <div className="relative min-w-0">
+              {extraResponsibleCount > 0 ? (
+                <>
+                  <button
+                    ref={responsibleTriggerRef}
+                    type="button"
+                    className="flex w-full min-w-0 flex-col rounded-sm py-0.5 text-left focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    title={responsibleAssigneeLabel}
+                    aria-haspopup="dialog"
+                    aria-expanded={isResponsiblePopoverOpen}
+                    aria-controls={responsiblePopoverId}
+                    aria-label={`Xem ${responsibleAssignees.length} người thực hiện của ${readableStepName}: ${responsibleAssigneeLabel}`}
+                    onMouseDown={() => {
+                      responsiblePointerOpenStateRef.current = isResponsiblePopoverOpen;
+                    }}
+                    onFocus={() => {
+                      if (responsibleSuppressFocusOpenRef.current) return;
+                      setResponsiblePopoverOpen(true);
+                    }}
+                    onBlur={(event) => {
+                      const nextTarget = event.relatedTarget as Node | null;
+                      if (nextTarget && responsiblePopoverRef.current?.contains(nextTarget)) return;
+                      setResponsiblePopoverOpen(false);
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setResponsiblePopoverOpen(!responsiblePointerOpenStateRef.current);
+                    }}
+                  >
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-4 text-slate-800">
+                        {getAssigneeName(primaryResponsibleAssignee)}
+                      </span>
+                      <span className="shrink-0 rounded-sm bg-slate-100 px-1 py-0 text-[9px] font-bold leading-4 text-slate-600">
+                        +{extraResponsibleCount} người
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block max-w-full truncate text-[10px] font-semibold leading-4 text-primary">
+                      {getAssigneeDepartmentLabel(primaryResponsibleAssignee) || 'Chưa có phòng ban'}
+                    </span>
+                  </button>
+                  {isResponsiblePopoverOpen && (
+                    <div
+                      ref={responsiblePopoverRef}
+                      id={responsiblePopoverId}
+                      role="dialog"
+                      aria-label={`Danh sách người thực hiện của ${readableStepName}`}
+                      className="absolute left-0 top-full z-30 mt-1 w-64 rounded-md border border-slate-200 bg-white p-2 text-left shadow-lg"
+                    >
+                      <div className="mb-1 text-[10px] font-bold uppercase leading-4 text-slate-500">Người thực hiện</div>
+                      <div className="space-y-1">
+                        {responsibleAssignees.map((entry) => {
+                          const departmentLabel = getAssigneeDepartmentLabel(entry) || 'Chưa có phòng ban';
+                          const displayName = getAssigneeName(entry);
+
+                          return (
+                            <div key={getResponsibleEntryKey(entry)} className="min-w-0 rounded-sm bg-slate-50 px-2 py-1.5">
+                              <div className="truncate text-xs font-semibold leading-4 text-slate-800" title={displayName}>
+                                {displayName}
+                              </div>
+                              <div className="truncate text-[10px] font-semibold leading-4 text-primary" title={departmentLabel}>
+                                {departmentLabel}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div
+                  className="min-w-0 py-0.5"
+                  aria-label={`Người thực hiện của ${readableStepName}: ${responsibleAssigneeLabel}`}
+                >
+                  <div className="truncate text-xs font-semibold leading-4 text-slate-800" title={getAssigneeName(primaryResponsibleAssignee)}>
+                    {getAssigneeName(primaryResponsibleAssignee)}
+                  </div>
+                  <div
+                    className="mt-0.5 truncate text-[10px] font-semibold leading-4 text-primary"
+                    title={getAssigneeDepartmentLabel(primaryResponsibleAssignee) || 'Chưa có phòng ban'}
+                  >
+                    {getAssigneeDepartmentLabel(primaryResponsibleAssignee) || 'Chưa có phòng ban'}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs font-semibold text-slate-500">Chưa phân công</span>
+          )}
+        </td>
+
         {/* ĐV chủ trì */}
-        <td className="px-3 py-2 text-xs text-slate-600">
+        <td className="px-3 py-2 align-middle text-xs text-slate-600">
           {isEditing ? (
             <input
               value={editingRowDraft.lead_unit}
@@ -400,7 +581,7 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Kết quả dự kiến */}
-        <td className="px-3 py-2 text-xs text-slate-600">
+        <td className="px-3 py-2 align-middle text-xs text-slate-600">
           {isEditing ? (
             <textarea
               value={editingRowDraft.expected_result}
@@ -416,14 +597,14 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Ngày */}
-        <td className="px-3 py-2 text-xs text-slate-600 text-center">
+        <td className="px-3 py-2 align-middle text-xs text-slate-600 text-center">
           {isEditing ? (
             <input
               type="number" min={0}
               value={editingRowDraft.duration_days}
               onChange={(e) => onSetEditingRowDraft((p) => ({ ...p, duration_days: e.target.value }))}
               onKeyDown={(e) => { if (e.key === 'Escape') onCancelEditRow(); }}
-              className="h-8 w-20 rounded border border-slate-300 bg-white px-2.5 text-sm outline-none text-center focus:border-primary/70 focus:ring-1 focus:ring-primary/15"
+              className="h-8 w-16 rounded border border-slate-300 bg-white px-2 text-left text-sm outline-none focus:border-primary/70 focus:ring-1 focus:ring-primary/15"
             />
           ) : (
             days || 0
@@ -431,7 +612,7 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Từ ngày */}
-        <td className="px-2 py-2">
+        <td className="px-2 py-2 align-middle">
           <div className="relative flex items-center justify-center">
             <ProjectDateInput
               value={startDisplay}
@@ -445,7 +626,7 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Đến ngày */}
-        <td className="px-2 py-2">
+        <td className="px-2 py-2 align-middle">
           <div className="relative flex items-center justify-center">
             <ProjectDateInput
               value={endDisplay}
@@ -460,7 +641,7 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Tiến độ */}
-        <td className="px-2 py-2">
+        <td className="px-2 py-2 align-middle">
           <select
             value={status}
             onChange={(e) => onDraftChange(step.id, 'progress_status', e.target.value)}
@@ -474,8 +655,9 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* Worklog */}
-        <td className="px-2 py-2">
+        <td className="px-2 py-2 align-middle">
           <button
+            ref={worklogTriggerRef}
             type="button"
             onClick={() => onToggleWorklog(step.id)}
             data-testid={`step-worklog-trigger-${step.id}`}
@@ -483,8 +665,10 @@ export const StepRow = memo(function StepRow({
             aria-controls={worklogPanelId}
             aria-label={worklogButtonLabel}
             title={worklogButtonLabel}
-            className={`flex h-8 w-full min-w-[124px] items-center gap-1 rounded border bg-white px-2.5 text-xs font-semibold transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-              isWlogOpen ? 'border-primary/70 bg-primary/10 text-primary' : 'border-slate-300 text-slate-700 hover:border-primary/40 hover:bg-primary/8 hover:text-primary'
+            className={`flex h-8 w-full min-w-[124px] items-center gap-1 border bg-white px-2.5 text-xs font-semibold transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+              isWlogOpen
+                ? 'rounded border-primary/70 bg-primary/10 text-primary shadow-[0_0_0_1px_rgba(6,95,143,0.12)]'
+                : 'rounded border-slate-300 text-slate-700 hover:border-primary/40 hover:bg-primary/8 hover:text-primary'
             }`}
           >
             <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
@@ -494,7 +678,7 @@ export const StepRow = memo(function StepRow({
         </td>
 
         {/* File đính kèm */}
-        <td className="px-2 py-2">
+        <td className="px-2 py-2 align-middle">
           <button
             type="button"
             onClick={() => onOpenAttachments(step)}
@@ -571,9 +755,15 @@ export const StepRow = memo(function StepRow({
       {isWlogOpen && (
         <ProcedureStepWorklogPanel
           stepId={step.id}
+          stepLabel={`${displayNumber} ${step.step_name}`.trim()}
+          worklogCount={worklogCount}
+          anchorRef={worklogTriggerRef}
+          projectWorklogDatetimeEnabled={projectWorklogDatetimeEnabled}
           wlogs={wlogs}
           wlogInput={wlogInput}
           wlogHours={wlogHours}
+          wlogStartedAt={wlogStartedAt}
+          wlogEndedAt={wlogEndedAt}
           wlogDifficulty={wlogDifficulty}
           wlogProposal={wlogProposal}
           wlogIssueStatus={wlogIssueStatus}
@@ -581,6 +771,8 @@ export const StepRow = memo(function StepRow({
           editingWorklogId={editingWorklogId}
           editWorklogContent={editWorklogContent}
           editWorklogHours={editWorklogHours}
+          editWorklogStartedAt={editWorklogStartedAt}
+          editWorklogEndedAt={editWorklogEndedAt}
           editWorklogDiff={editWorklogDiff}
           editWorklogProposal={editWorklogProposal}
           editWorklogStatus={editWorklogStatus}
@@ -590,6 +782,7 @@ export const StepRow = memo(function StepRow({
           isRaciA={isRaciA}
           myId={myId}
           onAddWorklog={() => onAddWorklog(step.id)}
+          onClosePanel={handleCloseWorklogPanel}
           onUpdateIssueStatus={(issueId, status) => onUpdateIssueStatus(step.id, issueId, status)}
           onStartEditWorklog={onStartEditWorklog}
           onCancelEditWorklog={onCancelEditWorklog}
@@ -597,11 +790,15 @@ export const StepRow = memo(function StepRow({
           onDeleteWorklog={(log) => onDeleteWorklog(step.id, log)}
           onSetWlogInput={(value) => onSetWlogInput(step.id, value)}
           onSetWlogHours={(value) => onSetWlogHours(step.id, value)}
+          onSetWlogStartedAt={(value) => onSetWlogStartedAt(step.id, value)}
+          onSetWlogEndedAt={(value) => onSetWlogEndedAt(step.id, value)}
           onSetWlogDifficulty={(value) => onSetWlogDifficulty(step.id, value)}
           onSetWlogProposal={(value) => onSetWlogProposal(step.id, value)}
           onSetWlogIssueStatus={(value) => onSetWlogIssueStatus(step.id, value)}
           onSetEditWorklogContent={onSetEditWorklogContent}
           onSetEditWorklogHours={onSetEditWorklogHours}
+          onSetEditWorklogStartedAt={onSetEditWorklogStartedAt}
+          onSetEditWorklogEndedAt={onSetEditWorklogEndedAt}
           onSetEditWorklogDiff={onSetEditWorklogDiff}
           onSetEditWorklogProposal={onSetEditWorklogProposal}
           onSetEditWorklogStatus={onSetEditWorklogStatus}
@@ -627,9 +824,9 @@ export const StepRow = memo(function StepRow({
       {/* ── Add child form ── */}
       {!isChild && isAddingChild && (
         <tr className="bg-primary/3 border-t border-primary/15">
-          <td />
-          <td className="px-3 py-2 text-center text-primary/60 font-mono text-xs select-none">└+</td>
-          <td className="px-2 py-2" style={{ paddingLeft: '28px' }}>
+          <td className="align-middle" />
+          <td className="px-3 py-2 align-middle text-center text-primary/60 font-mono text-xs select-none">└+</td>
+          <td className="px-2 py-2 align-middle" style={{ paddingLeft: '28px' }}>
             <input
               autoFocus type="text"
               value={newChildName}
@@ -643,7 +840,8 @@ export const StepRow = memo(function StepRow({
               className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none font-medium placeholder:text-slate-500"
             />
           </td>
-          <td className="px-2 py-2">
+          <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-500">Chưa phân công</td>
+          <td className="px-2 py-2 align-middle">
             <input
               type="text"
               value={newChildUnit}
@@ -653,8 +851,8 @@ export const StepRow = memo(function StepRow({
               className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none placeholder:text-slate-500"
             />
           </td>
-          <td />
-          <td className="px-2 py-2 min-w-[88px]">
+          <td className="align-middle" />
+          <td className="px-2 py-2 align-middle min-w-[88px]">
             <input
               type="number"
               value={newChildDays}
@@ -665,7 +863,7 @@ export const StepRow = memo(function StepRow({
               className="h-8 w-full min-w-[88px] rounded px-2.5 text-sm font-medium border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none text-center placeholder:text-slate-500"
             />
           </td>
-          <td className="px-2 py-2">
+          <td className="px-2 py-2 align-middle">
             <div className="relative flex items-center justify-center">
               <ProjectDateInput
                 value={newChildStartDate}
@@ -680,7 +878,7 @@ export const StepRow = memo(function StepRow({
               />
             </div>
           </td>
-          <td className="px-2 py-2">
+          <td className="px-2 py-2 align-middle">
             <div className="relative flex items-center justify-center">
               <ProjectDateInput
                 value={effectiveNewChildEndDate}
@@ -696,7 +894,7 @@ export const StepRow = memo(function StepRow({
               />
             </div>
           </td>
-          <td className="px-2 py-2">
+          <td className="px-2 py-2 align-middle">
             <select
               value={newChildStatus}
               disabled={isAddingChildSubmitting}
@@ -709,7 +907,7 @@ export const StepRow = memo(function StepRow({
               ))}
             </select>
           </td>
-          <td colSpan={3} className="px-3 py-2">
+          <td colSpan={3} className="px-3 py-2 align-middle">
             <div className="flex flex-col gap-1.5">
               {childRangeHint ? (
                 <div className="flex items-center gap-1 text-[10px] text-deep-teal">

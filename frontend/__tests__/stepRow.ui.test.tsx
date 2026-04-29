@@ -1,8 +1,8 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { StepRow, type StepRowProps } from '../components/procedure/StepRow';
-import type { IssueStatus, ProcedureStepStatus, ProjectProcedureStep } from '../types';
+import type { IssueStatus, ProcedureStepRaciEntry, ProcedureStepStatus, ProjectProcedureStep } from '../types';
 
 const createSetter = <T,>(): React.Dispatch<React.SetStateAction<T>> => vi.fn();
 
@@ -40,13 +40,17 @@ const baseProps: StepRowProps = {
   isAdmin: true,
   isRaciA: false,
   myId: '9',
+  stepRaciEntries: [],
   wlogs: [],
   wlogInput: '',
   wlogHours: '',
+  wlogStartedAt: '',
+  wlogEndedAt: '',
   wlogDifficulty: '',
   wlogProposal: '',
   wlogIssueStatus: 'IN_PROGRESS' as IssueStatus,
   wlogSaving: false,
+  projectWorklogDatetimeEnabled: false,
   editingRowDraft: { step_name: '', lead_unit: '', expected_result: '', duration_days: '' },
   attachList: [],
   attachLoading: false,
@@ -60,6 +64,8 @@ const baseProps: StepRowProps = {
   editingWorklogId: null,
   editWorklogContent: '',
   editWorklogHours: '',
+  editWorklogStartedAt: '',
+  editWorklogEndedAt: '',
   editWorklogDiff: '',
   editWorklogProposal: '',
   editWorklogStatus: 'IN_PROGRESS' as IssueStatus,
@@ -88,11 +94,15 @@ const baseProps: StepRowProps = {
   onDeleteWorklog: vi.fn(),
   onSetWlogInput: vi.fn(),
   onSetWlogHours: vi.fn(),
+  onSetWlogStartedAt: vi.fn(),
+  onSetWlogEndedAt: vi.fn(),
   onSetWlogDifficulty: vi.fn(),
   onSetWlogProposal: vi.fn(),
   onSetWlogIssueStatus: vi.fn(),
   onSetEditWorklogContent: createSetter<string>(),
   onSetEditWorklogHours: createSetter<string>(),
+  onSetEditWorklogStartedAt: createSetter<string>(),
+  onSetEditWorklogEndedAt: createSetter<string>(),
   onSetEditWorklogDiff: createSetter<string>(),
   onSetEditWorklogProposal: createSetter<string>(),
   onSetEditWorklogStatus: createSetter<IssueStatus>(),
@@ -108,6 +118,126 @@ const baseProps: StepRowProps = {
 };
 
 describe('StepRow UI', () => {
+  it('renders responsible assignees with department chips and ignores non-R roles', () => {
+    const stepRaciEntries: ProcedureStepRaciEntry[] = [
+      {
+        id: 1,
+        step_id: 1001,
+        user_id: 20,
+        raci_role: 'R',
+        full_name: 'Nguyễn Văn A',
+        user_code: 'NV020',
+        department_id: 10,
+        department_name: 'Phòng Kỹ thuật',
+        department_code: 'PKT',
+      },
+      {
+        id: 2,
+        step_id: 1001,
+        user_id: 21,
+        raci_role: 'A',
+        full_name: 'Trần Thị B',
+        department_name: 'Ban Quản lý',
+      },
+    ];
+
+    render(
+      <table>
+        <tbody>
+          <StepRow {...baseProps} stepRaciEntries={stepRaciEntries} />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument();
+    const departmentText = screen.getByText('Phòng Kỹ thuật');
+    expect(departmentText).toHaveClass('text-[10px]', 'leading-4');
+    expect(screen.queryByText(/\+\d+ người/)).not.toBeInTheDocument();
+    expect(screen.getByText('Nguyễn Văn A').closest('div')).not.toHaveClass('border', 'rounded', 'bg-white/80', 'px-2', 'py-1');
+    expect(screen.queryByText('Trần Thị B')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ban Quản lý')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Người thực hiện của bước 1 Lập đề cương: Nguyễn Văn A - Phòng Kỹ thuật')).toBeInTheDocument();
+  });
+
+  it('shows an empty assignment state and compacts extra responsible users accessibly', () => {
+    const stepRaciEntries: ProcedureStepRaciEntry[] = [
+      {
+        id: 1,
+        step_id: 1001,
+        user_id: 20,
+        raci_role: 'R',
+        full_name: 'Nguyễn Văn A',
+        department_name: 'Phòng Kỹ thuật',
+      },
+      {
+        id: 2,
+        step_id: 1001,
+        user_id: 21,
+        raci_role: 'R',
+        full_name: 'Lê Văn C',
+        department_code: 'PGP',
+      },
+      {
+        id: 3,
+        step_id: 1001,
+        user_id: 22,
+        raci_role: 'R',
+        full_name: 'Phạm Thị D',
+      },
+    ];
+
+    const { rerender } = render(
+      <table>
+        <tbody>
+          <StepRow {...baseProps} />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('Chưa phân công')).toBeInTheDocument();
+
+    rerender(
+      <table>
+        <tbody>
+          <StepRow {...baseProps} stepRaciEntries={stepRaciEntries} />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('Lê Văn C')).toBeInTheDocument();
+    expect(screen.getByText('PGP')).toBeInTheDocument();
+    expect(screen.queryByText('Nguyễn Văn A')).not.toBeInTheDocument();
+    expect(screen.queryByText('Phòng Kỹ thuật')).not.toBeInTheDocument();
+    expect(screen.queryByText('Phạm Thị D')).not.toBeInTheDocument();
+    const moreAssignees = screen.getByText('+2 người');
+    expect(moreAssignees).toHaveClass('text-[9px]', 'px-1', 'py-0', 'leading-4', 'rounded-sm');
+    expect(moreAssignees).not.toHaveClass('border');
+
+    const summaryTrigger = screen.getByRole('button', { name: /Xem 3 người thực hiện của bước 1 Lập đề cương/i });
+    expect(summaryTrigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(summaryTrigger).toHaveAttribute('aria-expanded', 'false');
+    expect(summaryTrigger).toHaveAttribute('aria-controls', 'step-responsible-popover-1001');
+    expect(summaryTrigger.getAttribute('aria-label')).toContain('Nguyễn Văn A - Phòng Kỹ thuật');
+    expect(summaryTrigger.getAttribute('aria-label')).toContain('Lê Văn C - PGP');
+    expect(summaryTrigger.getAttribute('aria-label')).toContain('Phạm Thị D - Chưa có phòng ban');
+
+    fireEvent.click(summaryTrigger);
+
+    expect(summaryTrigger).toHaveAttribute('aria-expanded', 'true');
+    const popover = screen.getByRole('dialog', { name: 'Danh sách người thực hiện của bước 1 Lập đề cương' });
+    expect(within(popover).getByText('Nguyễn Văn A')).toBeInTheDocument();
+    expect(within(popover).getByText('Phòng Kỹ thuật')).toBeInTheDocument();
+    expect(within(popover).getByText('Lê Văn C')).toBeInTheDocument();
+    expect(within(popover).getByText('PGP')).toBeInTheDocument();
+    expect(within(popover).getByText('Phạm Thị D')).toBeInTheDocument();
+    expect(within(popover).getByText('Chưa có phòng ban')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(summaryTrigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('dialog', { name: 'Danh sách người thực hiện của bước 1 Lập đề cương' })).not.toBeInTheDocument();
+  });
+
   it('renders compact date inputs for procedure rows and child-add form', () => {
     render(
       <table>
@@ -127,14 +257,36 @@ describe('StepRow UI', () => {
       expect(input).toHaveAttribute('type', 'text');
       expect(input.inputMode).toBe('numeric');
       expect(input).toHaveAttribute('placeholder', 'dd/mm/yyyy');
-      expect(input.className).toContain('w-[124px]');
+      expect(input.className).toContain('w-[120px]');
+      expect(input.className).toContain('sm:pr-8');
       expect(input.className).toContain('focus:ring-1');
+      expect(input.closest('span')).toHaveClass('sm:w-[120px]');
+      expect(input.closest('span')?.querySelector('button')).toHaveClass('sm:right-1.5');
       expect(input.closest('td')).toHaveClass('px-2', 'py-2');
     });
     expect(endInput).not.toBeDisabled();
     expect(endInput).not.toHaveAttribute('readonly');
     expect(childEndInput).not.toBeDisabled();
     expect(childEndInput).not.toHaveAttribute('readonly');
+  });
+
+  it('keeps the edit duration input compact without a centered gutter', () => {
+    render(
+      <table>
+        <tbody>
+          <StepRow
+            {...baseProps}
+            isEditing
+            editingRowDraft={{ ...baseProps.editingRowDraft, duration_days: '100' }}
+          />
+        </tbody>
+      </table>
+    );
+
+    const durationInput = screen.getByDisplayValue('100');
+
+    expect(durationInput).toHaveClass('h-8', 'w-16', 'px-2', 'text-left');
+    expect(durationInput).not.toHaveClass('w-20', 'px-2.5', 'text-center');
   });
 
   it('uses dd/mm/yyyy placeholders for empty project date inputs without changing values', () => {

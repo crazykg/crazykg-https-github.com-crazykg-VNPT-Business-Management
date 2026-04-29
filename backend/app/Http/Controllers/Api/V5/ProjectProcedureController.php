@@ -118,9 +118,9 @@ class ProjectProcedureController extends V5BaseController
         return $this->publicShares->revokeShare($request, $procedureId);
     }
 
-    public function publicShare(string $token): JsonResponse
+    public function publicShare(Request $request, string $token): JsonResponse
     {
-        return $this->publicShares->publicShare($token);
+        return $this->publicShares->publicShare($request, $token);
     }
 
     public function updateStep(Request $request, int $stepId): JsonResponse

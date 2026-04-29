@@ -37,6 +37,7 @@ export const createRouteObjects = (): RouteObject[] => [
  * - /documents
  * - /reminders
  * - /customer-request-management
+ * - /workload-summary
  * - /support-master-management
  * - /procedure-template-config
  * - /department-weekly-schedule-management

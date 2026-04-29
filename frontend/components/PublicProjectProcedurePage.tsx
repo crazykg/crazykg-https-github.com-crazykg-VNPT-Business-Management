@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { PublicProcedurePayload, PublicProcedureStep } from '../types';
 import { fetchPublicProcedureShare } from '../services/api/projectApi';
 
-type LoadState = 'loading' | 'ready' | 'error';
+type LoadState = 'locked' | 'loading' | 'ready' | 'error';
 
 const formatDate = (value: string | null | undefined): string => {
   if (!value) return '';
@@ -75,10 +75,19 @@ const resolveDocumentText = (step: PublicProcedureStep): string => {
   return number || date || '';
 };
 
+const resolveErrorStatus = (error: unknown): number | null => {
+  if (!error || typeof error !== 'object' || !('status' in error)) return null;
+  const status = Number((error as { status?: unknown }).status);
+  return Number.isFinite(status) ? status : null;
+};
+
 export const PublicProjectProcedurePage: React.FC = () => {
   const location = useLocation();
   const token = useMemo(() => {
-    const raw = location.pathname.split('/').filter(Boolean).pop() || '';
+    const segments = location.pathname.split('/').filter(Boolean);
+    const raw = segments[0] === 'public' && segments[1] === 'project-procedure'
+      ? segments[2] || ''
+      : segments[segments.length - 1] || '';
     try {
       return decodeURIComponent(raw);
     } catch {
@@ -86,45 +95,128 @@ export const PublicProjectProcedurePage: React.FC = () => {
     }
   }, [location.pathname]);
 
-  const [state, setState] = useState<LoadState>('loading');
+  const [state, setState] = useState<LoadState>(() => (token ? 'locked' : 'error'));
   const [payload, setPayload] = useState<PublicProcedurePayload | null>(null);
-  const [errorMessage, setErrorMessage] = useState('Link public không còn hiệu lực.');
+  const [accessKey, setAccessKey] = useState('');
+  const [errorMessage, setErrorMessage] = useState(() => (token ? '' : 'Link public thiếu token.'));
+  const accessKeyInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    let alive = true;
+    setState(token ? 'locked' : 'error');
+    setPayload(null);
+    setAccessKey('');
+    setErrorMessage(token ? '' : 'Link public thiếu token.');
+  }, [token]);
+
+  useEffect(() => {
+    if (state === 'locked') {
+      window.setTimeout(() => accessKeyInputRef.current?.focus(), 0);
+    }
+  }, [state]);
+
+  const handleUnlock = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!token) {
+      setErrorMessage('Link public thiếu token.');
+      setState('error');
+      return;
+    }
+
+    const normalizedKey = accessKey.trim();
+    if (!normalizedKey) {
+      setErrorMessage('Vui lòng nhập key truy cập.');
+      accessKeyInputRef.current?.focus();
+      return;
+    }
+
     setState('loading');
+    setErrorMessage('');
     setPayload(null);
 
-    fetchPublicProcedureShare(token)
-      .then((data) => {
-        if (!alive) return;
-        setPayload(data);
-        setState('ready');
-      })
-      .catch((error) => {
-        if (!alive) return;
-        setErrorMessage(error instanceof Error ? error.message : 'Link public không còn hiệu lực.');
-        setState('error');
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [token]);
+    try {
+      const data = await fetchPublicProcedureShare(token, normalizedKey);
+      setPayload(data);
+      setState('ready');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể mở bảng thủ tục.';
+      setPayload(null);
+      setErrorMessage(message);
+      setState(resolveErrorStatus(error) === 404 ? 'error' : 'locked');
+    }
+  };
 
   const projectTitle = useMemo(() => {
     const code = String(payload?.project.project_code || '').trim();
     const name = String(payload?.project.project_name || '').trim();
     return `${code}${code && name ? ' - ' : ''}${name}`.trim() || 'Dự án';
   }, [payload]);
+  const procedureTitle = useMemo(() => {
+    const name = String(payload?.project.project_name || '').trim();
+    const procedureName = String(payload?.procedure.procedure_name || '').trim();
+    const derivedProjectPlanName = name ? `Kế hoạch triển khai - ${name}` : '';
+
+    return procedureName && procedureName !== derivedProjectPlanName ? procedureName : '';
+  }, [payload]);
+
+  if (state === 'locked') {
+    return (
+      <main className="h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-contain bg-slate-50 text-slate-900">
+        <div className="mx-auto flex min-h-full max-w-3xl items-center justify-center px-4 py-6">
+          <section className="w-full rounded border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 inline-flex h-8 items-center gap-2 rounded border border-primary/20 bg-primary/5 px-2.5 text-xs font-semibold text-primary">
+              <span className="material-symbols-outlined text-[15px]" aria-hidden="true">lock</span>
+              Bảng thủ tục public
+            </div>
+            <h1 className="text-base font-bold text-slate-900">Nhập key truy cập</h1>
+
+            <form className="mt-4 space-y-3" onSubmit={handleUnlock}>
+              <div>
+                <input
+                  ref={accessKeyInputRef}
+                  id="public-procedure-access-key"
+                  data-testid="public-procedure-access-key"
+                  type="password"
+                  autoComplete="off"
+                  aria-label="Key truy cập"
+                  value={accessKey}
+                  onChange={(event) => {
+                    setAccessKey(event.target.value);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                  aria-invalid={errorMessage ? 'true' : undefined}
+                  aria-describedby={errorMessage ? 'public-procedure-key-error' : undefined}
+                  className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
+                  placeholder="Nhập key truy cập"
+                />
+                {errorMessage ? (
+                  <p id="public-procedure-key-error" role="alert" aria-live="assertive" className="mt-2 text-xs font-semibold text-rose-700">
+                    {errorMessage}
+                  </p>
+                ) : null}
+              </div>
+
+              <button
+                type="submit"
+                data-testid="public-procedure-unlock"
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded bg-primary px-3 text-sm font-bold text-white transition-colors hover:bg-deep-teal focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <span className="material-symbols-outlined text-[17px]" aria-hidden="true">key</span>
+                Mở bảng thủ tục
+              </button>
+            </form>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   if (state === 'loading') {
     return (
       <main className="h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-contain bg-slate-50 text-slate-900">
         <div className="mx-auto flex min-h-full max-w-5xl items-center justify-center px-4">
-          <div className="flex items-center gap-3 text-slate-600">
+          <div className="flex items-center gap-3 text-slate-600" role="status" aria-live="polite">
             <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
-            <span className="text-sm font-semibold">Đang tải bảng thủ tục...</span>
+            <span className="text-sm font-semibold">Đang kiểm tra key truy cập...</span>
           </div>
         </div>
       </main>
@@ -140,7 +232,7 @@ export const PublicProjectProcedurePage: React.FC = () => {
               <span className="material-symbols-outlined text-rose-700" aria-hidden="true">link_off</span>
               <div>
                 <h1 className="text-base font-bold text-slate-900">Không mở được bảng thủ tục</h1>
-                <p className="mt-1 text-sm text-slate-600">{errorMessage}</p>
+                <p className="mt-1 text-sm text-slate-600">{errorMessage || 'Link public không còn hiệu lực.'}</p>
               </div>
             </div>
           </section>
@@ -160,7 +252,9 @@ export const PublicProjectProcedurePage: React.FC = () => {
                 Bảng thủ tục public
               </div>
               <h1 className="text-lg font-bold text-deep-teal sm:text-xl">{projectTitle}</h1>
-              <p className="mt-1 text-sm font-semibold text-slate-700">{payload.procedure.procedure_name}</p>
+              {procedureTitle ? (
+                <p className="mt-1 text-sm font-semibold text-slate-700">{procedureTitle}</p>
+              ) : null}
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 md:min-w-[430px]">
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
@@ -177,7 +271,7 @@ export const PublicProjectProcedurePage: React.FC = () => {
               </div>
               <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div className="text-[11px] font-semibold uppercase text-slate-500">Hết hạn</div>
-                <div className="text-xs font-bold text-slate-700">{formatExpiry(payload.share?.expires_at) || '7 ngày'}</div>
+                <div className="text-xs font-bold text-slate-700">{formatExpiry(payload.share?.expires_at) || 'Theo hạn public'}</div>
               </div>
             </div>
           </div>

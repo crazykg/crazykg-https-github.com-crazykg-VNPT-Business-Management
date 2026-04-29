@@ -5,15 +5,19 @@ namespace App\Services\V5\ProjectProcedure;
 use App\Models\ProjectProcedureStepWorklog;
 use App\Models\SharedIssue;
 use App\Models\SharedTimesheet;
+use App\Services\V5\SupportConfig\SupportProjectWorklogDatetimePolicyService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class ProjectProcedureWorklogService
 {
     public function __construct(
-        private readonly ProjectProcedureAccessService $access
+        private readonly ProjectProcedureAccessService $access,
+        private readonly SupportProjectWorklogDatetimePolicyService $datetimePolicy,
     ) {}
 
     public function stepWorklogs(int $stepId, Request $request): JsonResponse
@@ -38,23 +42,21 @@ class ProjectProcedureWorklogService
             return $err;
         }
 
-        $validator = Validator::make($request->all(), [
-            'content'              => 'required|string|max:2000',
-            'hours_spent'          => 'nullable|numeric|min:0.01|max:24',
-            'work_date'            => 'nullable|date',
-            'activity_description' => 'nullable|string|max:1000',
-            'difficulty'           => 'nullable|string|max:2000',
-            'proposal'             => 'nullable|string|max:2000',
-            'issue_status'         => 'nullable|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
-        ]);
+        $datetimeEnabled = $this->datetimePolicy->isEnabled();
+
+        $validator = Validator::make($request->all(), $this->validationRules($datetimeEnabled));
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
         $userId = $request->user()?->id;
+        [$timesheetPayload, $timesheetError] = $this->resolveTimesheetPayload($request, $datetimeEnabled, $userId);
+        if ($timesheetError !== null) {
+            return $timesheetError;
+        }
 
-        $log = DB::transaction(function () use ($request, $step, $userId) {
+        $log = DB::transaction(function () use ($request, $step, $userId, $timesheetPayload) {
             $log = ProjectProcedureStepWorklog::create([
                 'step_id'      => $step->id,
                 'procedure_id' => $step->procedure_id,
@@ -63,15 +65,13 @@ class ProjectProcedureWorklogService
                 'created_by'   => $userId,
             ]);
 
-            if ($request->filled('hours_spent')) {
-                SharedTimesheet::create([
-                    'procedure_step_worklog_id' => $log->id,
-                    'hours_spent'               => $request->input('hours_spent'),
-                    'work_date'                 => $request->input('work_date', now()->toDateString()),
-                    'activity_description'      => $request->input('activity_description'),
-                    'created_by'                => $userId,
-                    'updated_by'                => $userId,
-                ]);
+            if ($timesheetPayload !== null) {
+                SharedTimesheet::create(array_merge(
+                    $timesheetPayload,
+                    [
+                        'procedure_step_worklog_id' => $log->id,
+                    ],
+                ));
             }
 
             if ($request->filled('difficulty')) {
@@ -104,32 +104,35 @@ class ProjectProcedureWorklogService
             return response()->json(['message' => 'Chỉ có thể chỉnh sửa worklog loại NOTE.'], 422);
         }
 
-        $validator = Validator::make($request->all(), [
-            'content'              => 'required|string|max:2000',
-            'hours_spent'          => 'nullable|numeric|min:0.01|max:24',
-            'work_date'            => 'nullable|date',
-            'activity_description' => 'nullable|string|max:1000',
-            'difficulty'           => 'nullable|string|max:2000',
-            'proposal'             => 'nullable|string|max:2000',
-            'issue_status'         => 'nullable|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
-        ]);
+        $datetimeEnabled = $this->datetimePolicy->isEnabled();
+
+        $validator = Validator::make($request->all(), $this->validationRules($datetimeEnabled));
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
         $userId = $request->user()?->id;
+        [$timesheetPayload, $timesheetError] = $this->resolveTimesheetPayload($request, $datetimeEnabled, $userId);
+        if ($timesheetError !== null) {
+            return $timesheetError;
+        }
 
-        DB::transaction(function () use ($request, $log, $userId) {
+        DB::transaction(function () use ($request, $log, $userId, $timesheetPayload) {
             $log->update(['content' => $request->input('content')]);
 
-            if ($request->filled('hours_spent')) {
+            if ($timesheetPayload !== null) {
                 $ts = SharedTimesheet::firstOrNew(
                     ['procedure_step_worklog_id' => $log->id]
                 );
-                $ts->hours_spent = $request->input('hours_spent');
-                $ts->work_date = $request->input('work_date', now()->toDateString());
-                $ts->activity_description = $request->input('activity_description');
+                $ts->hours_spent = $timesheetPayload['hours_spent'];
+                if (array_key_exists('performed_by_user_id', $timesheetPayload)) {
+                    $ts->performed_by_user_id = $timesheetPayload['performed_by_user_id'];
+                }
+                $ts->work_date = $timesheetPayload['work_date'];
+                $ts->work_started_at = $timesheetPayload['work_started_at'] ?? null;
+                $ts->work_ended_at = $timesheetPayload['work_ended_at'] ?? null;
+                $ts->activity_description = $timesheetPayload['activity_description'];
                 $ts->updated_by = $userId;
                 if (! $ts->exists) {
                     $ts->created_by = $userId;
@@ -239,5 +242,133 @@ class ProjectProcedureWorklogService
         ]);
 
         return response()->json(['data' => $issue->fresh()]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validationRules(bool $datetimeEnabled): array
+    {
+        return [
+            'content'              => 'required|string|max:2000',
+            'hours_spent'          => 'nullable|numeric|min:0|max:24',
+            'work_date'            => 'nullable|date',
+            'work_started_at'      => [$datetimeEnabled ? 'required' : 'nullable', 'date'],
+            'work_ended_at'        => [$datetimeEnabled ? 'required' : 'nullable', 'date'],
+            'activity_description' => 'nullable|string|max:1000',
+            'difficulty'           => 'nullable|string|max:2000',
+            'proposal'             => 'nullable|string|max:2000',
+            'issue_status'         => 'nullable|string|in:JUST_ENCOUNTERED,IN_PROGRESS,RESOLVED',
+        ];
+    }
+
+    /**
+     * @return array{0: array<string, mixed>|null, 1: JsonResponse|null}
+     */
+    private function resolveTimesheetPayload(Request $request, bool $datetimeEnabled, ?int $userId): array
+    {
+        $startedAt = $this->normalizeDateTime($request->input('work_started_at'));
+        $endedAt = $this->normalizeDateTime($request->input('work_ended_at'));
+        if (! $datetimeEnabled) {
+            $startedAt = null;
+            $endedAt = null;
+        }
+
+        if ($datetimeEnabled && ($startedAt === null || $endedAt === null)) {
+            return [
+                null,
+                response()->json([
+                    'message' => 'Validation failed.',
+                    'errors' => [
+                        'work_started_at' => ['Từ ngày giờ là bắt buộc khi bật cấu hình ngày giờ worklog dự án.'],
+                        'work_ended_at' => ['Đến ngày giờ là bắt buộc khi bật cấu hình ngày giờ worklog dự án.'],
+                    ],
+                ], 422),
+            ];
+        }
+
+        if ($startedAt !== null && $endedAt !== null) {
+            $start = Carbon::parse($startedAt);
+            $end = Carbon::parse($endedAt);
+
+            if ($start->greaterThan($end)) {
+                return [
+                    null,
+                    response()->json([
+                        'message' => 'Validation failed.',
+                        'errors' => [
+                            'work_ended_at' => ['Đến ngày giờ phải lớn hơn hoặc bằng Từ ngày giờ.'],
+                        ],
+                    ], 422),
+                ];
+            }
+        }
+
+        $hasManualHours = $request->filled('hours_spent');
+        if (! $hasManualHours && $startedAt === null && $endedAt === null) {
+            return [null, null];
+        }
+
+        $hoursSpent = $hasManualHours
+            ? round((float) $request->input('hours_spent'), 2)
+            : 0.0;
+
+        if (! $hasManualHours && $startedAt !== null && $endedAt !== null) {
+            $hoursSpent = round(Carbon::parse($startedAt)->diffInMinutes(Carbon::parse($endedAt)) / 60, 2);
+        }
+
+        if ($hoursSpent < 0 || $hoursSpent > 24) {
+            return [
+                null,
+                response()->json([
+                    'message' => 'Validation failed.',
+                    'errors' => [
+                        'hours_spent' => ['Số giờ phải nằm trong khoảng 0 đến 24.'],
+                    ],
+                ], 422),
+            ];
+        }
+
+        $workDate = $request->input('work_date');
+        if (! $workDate && $startedAt !== null) {
+            $workDate = Carbon::parse($startedAt)->toDateString();
+        }
+
+        $payload = [
+            'hours_spent' => $hoursSpent,
+            'work_date' => $workDate ?: now()->toDateString(),
+            'work_started_at' => $startedAt,
+            'work_ended_at' => $endedAt,
+            'activity_description' => $request->input('activity_description'),
+            'created_by' => $userId,
+            'updated_by' => $userId,
+        ];
+
+        if ($this->sharedTimesheetSupportsPerformer()) {
+            $payload['performed_by_user_id'] = $userId;
+        }
+
+        return [$payload, null];
+    }
+
+    private function normalizeDateTime(mixed $value): ?string
+    {
+        $normalized = trim((string) ($value ?? ''));
+        if ($normalized === '') {
+            return null;
+        }
+
+        return Carbon::parse(str_replace('T', ' ', $normalized))->format('Y-m-d H:i:00');
+    }
+
+    private function sharedTimesheetSupportsPerformer(): bool
+    {
+        static $supports = null;
+
+        if ($supports === null) {
+            $supports = Schema::hasColumn('shared_timesheets', 'performed_by_user_id');
+        }
+
+        return $supports;
     }
 }

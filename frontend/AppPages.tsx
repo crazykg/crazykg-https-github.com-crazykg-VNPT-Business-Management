@@ -96,6 +96,9 @@ const DepartmentWeeklyScheduleManagement = lazy(() =>
 const CustomerRequestManagementHub = lazy(() =>
   import('./components/CustomerRequestManagementHub').then((module) => ({ default: module.CustomerRequestManagementHub }))
 );
+const WorkloadSummaryDashboard = lazy(() =>
+  import('./components/WorkloadSummaryDashboard').then((module) => ({ default: module.WorkloadSummaryDashboard }))
+);
 const RevenueManagementHub = lazy(() =>
   import('./components/RevenueManagementHub').then((module) => ({ default: module.RevenueManagementHub }))
 );
@@ -798,6 +801,16 @@ export const AppPages: React.FC<AppPagesProps> = ({
           onNotify={addToast}
           onCustomersUpdated={customerRequestHubContext.onCustomersUpdated}
           onCustomerPersonnelUpdated={customerRequestHubContext.onCustomerPersonnelUpdated}
+        />
+      )}
+
+      {activeTab === 'workload_summary' && (
+        <WorkloadSummaryDashboard
+          departments={departments}
+          employees={employees}
+          projects={projects}
+          canExport={hasPermission(authUser, 'workload.export')}
+          onNotify={addToast}
         />
       )}
 

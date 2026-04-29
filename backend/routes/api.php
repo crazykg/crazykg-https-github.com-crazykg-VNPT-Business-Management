@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\V5\FeeCollectionController;
 use App\Http\Controllers\Api\V5\RevenueManagementController;
 use App\Http\Controllers\Api\V5\WorkflowDefinitionController;
 use App\Http\Controllers\Api\V5\WorkflowTransitionController;
+use App\Http\Controllers\Api\V5\WorkloadSummaryController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -76,7 +77,7 @@ Route::prefix('v5')->group(function (): void {
     Route::get('/documents/attachments/temp-download', [DocumentController::class, 'downloadTemporaryAttachment'])
         ->name('v5.documents.attachments.temp-download')
         ->middleware('signed:relative');
-    Route::get('/public/project-procedure-shares/{token}', [ProjectProcedureController::class, 'publicShare'])
+    Route::post('/public/project-procedure-shares/{token}', [ProjectProcedureController::class, 'publicShare'])
         ->middleware('throttle:api.access');
 
     Route::middleware(['auth:sanctum', 'throttle:api.write'])->group(function (): void {
@@ -291,6 +292,26 @@ Route::prefix('v5')->group(function (): void {
         Route::post('/leadership/directives/{id}/complete', [LeadershipDirectiveController::class, 'complete'])
             ->middleware('permission:support_requests.write');
 
+        // Workload summary — CRC + Project procedure hours
+        Route::get('/workload/summary', [WorkloadSummaryController::class, 'summary'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/daily-series', [WorkloadSummaryController::class, 'dailySeries'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/daily-comparison', [WorkloadSummaryController::class, 'dailyComparison'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/project-summary', [WorkloadSummaryController::class, 'projectSummary'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/capacity', [WorkloadSummaryController::class, 'capacity'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/weekly-alerts', [WorkloadSummaryController::class, 'weeklyAlerts'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/planned-actual', [WorkloadSummaryController::class, 'plannedActual'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/entries', [WorkloadSummaryController::class, 'entries'])
+            ->middleware('permission:workload.read');
+        Route::get('/workload/export', [WorkloadSummaryController::class, 'export'])
+            ->middleware(['permission:workload.export', 'throttle:api.read.export']);
+
         // Revenue Management (§Quản trị Doanh thu)
         Route::get('/revenue/overview', [RevenueManagementController::class, 'overview'])
             ->middleware('permission:revenue.read');
@@ -488,7 +509,7 @@ Route::prefix('v5')->group(function (): void {
             ->middleware(['permission:customer_personnel.delete', 'deprecated.route:/api/v5/customer-personnel/{id},2026-04-27']);
 
         Route::get('/projects', [ProjectController::class, 'index'])
-            ->middleware('permission:projects.read');
+            ->middleware(['permission:projects.read', 'throttle:api.access']);
         Route::get('/projects/raci-assignments', [ProjectController::class, 'raciAssignments'])
             ->middleware('permission:projects.read');
         Route::get('/projects/implementation-unit-options', [ProjectController::class, 'implementationUnitOptions'])
@@ -496,9 +517,9 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/projects/{id}', [ProjectController::class, 'show'])
             ->middleware('permission:projects.read');
         Route::get('/project-items', [ProjectController::class, 'projectItems'])
-            ->middleware('permission:projects.read');
+            ->middleware(['permission:projects.read', 'throttle:api.access']);
         Route::get('/project_items', [ProjectController::class, 'projectItems'])
-            ->middleware(['permission:projects.read', 'deprecated.route:/api/v5/project-items,2026-04-27']);
+            ->middleware(['permission:projects.read', 'deprecated.route:/api/v5/project-items,2026-04-27', 'throttle:api.access']);
         Route::post('/projects', [ProjectController::class, 'store'])
             ->middleware('permission:projects.write');
         Route::put('/projects/{id}', [ProjectController::class, 'update'])
@@ -806,6 +827,10 @@ Route::prefix('v5')->group(function (): void {
         Route::get('/support-auth-session-policy', [SupportConfigController::class, 'authSessionPolicy'])
             ->middleware('permission:support_requests.read');
         Route::put('/support-auth-session-policy', [SupportConfigController::class, 'updateAuthSessionPolicy'])
+            ->middleware('permission:support_requests.write');
+        Route::get('/support-project-worklog-datetime-policy', [SupportConfigController::class, 'projectWorklogDatetimePolicy'])
+            ->middleware('permission:projects.read|support_requests.read');
+        Route::put('/support-project-worklog-datetime-policy', [SupportConfigController::class, 'updateProjectWorklogDatetimePolicy'])
             ->middleware('permission:support_requests.write');
         Route::get('/product_unit_masters', [SupportConfigController::class, 'productUnitMasters'])
             ->middleware(['permission:products.read|support_requests.read', 'deprecated.route:/api/v5/product-unit-masters,2026-04-27']);

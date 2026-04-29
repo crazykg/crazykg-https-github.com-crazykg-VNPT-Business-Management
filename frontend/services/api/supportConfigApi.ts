@@ -5,6 +5,7 @@ import type {
   ProductUnitMaster,
   SupportAuthSessionPolicy,
   SupportContactPosition,
+  SupportProjectWorklogDatetimePolicy,
   SupportRequestStatusOption,
   SupportServiceGroup,
   SupportSlaConfigOption,
@@ -73,6 +74,18 @@ export const fetchSupportAuthSessionPolicy = async (): Promise<SupportAuthSessio
   const record = await parseItemJson<SupportAuthSessionPolicy>(res);
   setSameBrowserMultiTabEnabled(record.same_browser_multi_tab_enabled !== false);
   return record;
+};
+
+export const fetchSupportProjectWorklogDatetimePolicy = async (): Promise<SupportProjectWorklogDatetimePolicy> => {
+  const res = await apiFetch('/api/v5/support-project-worklog-datetime-policy', {
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_SUPPORT_PROJECT_WORKLOG_DATETIME_POLICY_FAILED'));
+  }
+
+  return parseItemJson<SupportProjectWorklogDatetimePolicy>(res);
 };
 
 export const fetchSupportRequestStatuses = async (includeInactive = false): Promise<SupportRequestStatusOption[]> => {
@@ -331,6 +344,27 @@ export const updateSupportAuthSessionPolicy = async (payload: {
   const record = await parseItemJson<SupportAuthSessionPolicy>(res);
   setSameBrowserMultiTabEnabled(record.same_browser_multi_tab_enabled !== false);
   return record;
+};
+
+export const updateSupportProjectWorklogDatetimePolicy = async (payload: {
+  project_worklog_datetime_enabled: boolean;
+  updated_by?: string | number | null;
+}): Promise<SupportProjectWorklogDatetimePolicy> => {
+  const res = await apiFetch('/api/v5/support-project-worklog-datetime-policy', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      project_worklog_datetime_enabled: Boolean(payload.project_worklog_datetime_enabled),
+      updated_by: normalizeNullableNumber(payload.updated_by),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'UPDATE_SUPPORT_PROJECT_WORKLOG_DATETIME_POLICY_FAILED'));
+  }
+
+  return parseItemJson<SupportProjectWorklogDatetimePolicy>(res);
 };
 
 export const createSupportContactPositionsBulk = async (

@@ -18,6 +18,15 @@ type ProcedureNotify = ((type: string, title: string, message: string) => void) 
 const isCountableWorklog = (log: Pick<ProcedureStepWorklog, 'log_type' | 'content'>): boolean =>
   log.log_type !== 'CUSTOM' && log.content.trim().length > 0;
 
+const toDateTimeLocalValue = (value: unknown): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  return raw.replace(' ', 'T').slice(0, 16);
+};
+
 interface UseProcedureStepWorklogsParams {
   inflightRef: MutableRefObject<Set<string>>;
   onNotify?: ProcedureNotify;
@@ -41,9 +50,13 @@ export const useProcedureStepWorklogs = ({
   const [stepWorklogDifficulty, setStepWorklogDifficulty] = useState<Record<string, string>>({});
   const [stepWorklogProposal, setStepWorklogProposal] = useState<Record<string, string>>({});
   const [stepWorklogIssueStatus, setStepWorklogIssueStatus] = useState<Record<string, IssueStatus>>({});
+  const [stepWorklogStartedAt, setStepWorklogStartedAt] = useState<Record<string, string>>({});
+  const [stepWorklogEndedAt, setStepWorklogEndedAt] = useState<Record<string, string>>({});
   const [editingWorklogId, setEditingWorklogId] = useState<string | number | null>(null);
   const [editWorklogContent, setEditWorklogContent] = useState('');
   const [editWorklogHours, setEditWorklogHours] = useState('');
+  const [editWorklogStartedAt, setEditWorklogStartedAt] = useState('');
+  const [editWorklogEndedAt, setEditWorklogEndedAt] = useState('');
   const [editWorklogDiff, setEditWorklogDiff] = useState('');
   const [editWorklogProposal, setEditWorklogProposal] = useState('');
   const [editWorklogStatus, setEditWorklogStatus] = useState<IssueStatus>('JUST_ENCOUNTERED');
@@ -63,9 +76,13 @@ export const useProcedureStepWorklogs = ({
     setStepWorklogDifficulty({});
     setStepWorklogProposal({});
     setStepWorklogIssueStatus({});
+    setStepWorklogStartedAt({});
+    setStepWorklogEndedAt({});
     setEditingWorklogId(null);
     setEditWorklogContent('');
     setEditWorklogHours('');
+    setEditWorklogStartedAt('');
+    setEditWorklogEndedAt('');
     setEditWorklogDiff('');
     setEditWorklogProposal('');
     setEditWorklogStatus('JUST_ENCOUNTERED');
@@ -108,10 +125,15 @@ export const useProcedureStepWorklogs = ({
     setStepWorklogSaving((prev) => ({ ...prev, [sid]: true }));
     try {
       const hoursRaw = parseFloat(stepWorklogHours[sid] || '');
+      const startedAt = (stepWorklogStartedAt[sid] || '').trim();
+      const endedAt = (stepWorklogEndedAt[sid] || '').trim();
       const difficulty = (stepWorklogDifficulty[sid] || '').trim();
       const log = await addStepWorklog(stepId, {
         content,
         hours_spent: Number.isNaN(hoursRaw) ? null : hoursRaw,
+        work_date: startedAt ? startedAt.slice(0, 10) : null,
+        work_started_at: startedAt || null,
+        work_ended_at: endedAt || null,
         difficulty: difficulty || null,
         proposal: difficulty ? (stepWorklogProposal[sid] || '').trim() || null : null,
         issue_status: difficulty ? (stepWorklogIssueStatus[sid] || 'JUST_ENCOUNTERED') : null,
@@ -129,6 +151,8 @@ export const useProcedureStepWorklogs = ({
       ));
       setStepWorklogInput((prev) => ({ ...prev, [sid]: '' }));
       setStepWorklogHours((prev) => ({ ...prev, [sid]: '' }));
+      setStepWorklogStartedAt((prev) => ({ ...prev, [sid]: '' }));
+      setStepWorklogEndedAt((prev) => ({ ...prev, [sid]: '' }));
       setStepWorklogDifficulty((prev) => ({ ...prev, [sid]: '' }));
       setStepWorklogProposal((prev) => ({ ...prev, [sid]: '' }));
       setStepWorklogIssueStatus((prev) => ({ ...prev, [sid]: 'JUST_ENCOUNTERED' }));
@@ -150,10 +174,12 @@ export const useProcedureStepWorklogs = ({
     setSteps,
     setWorklogs,
     stepWorklogDifficulty,
+    stepWorklogEndedAt,
     stepWorklogHours,
     stepWorklogInput,
     stepWorklogIssueStatus,
     stepWorklogProposal,
+    stepWorklogStartedAt,
   ]);
 
   const handleUpdateIssueStatus = useCallback(async (
@@ -188,6 +214,8 @@ export const useProcedureStepWorklogs = ({
     setEditingWorklogId(log.id);
     setEditWorklogContent(log.content);
     setEditWorklogHours(log.timesheet ? String(Number(log.timesheet.hours_spent)) : '');
+    setEditWorklogStartedAt(toDateTimeLocalValue(log.timesheet?.work_started_at));
+    setEditWorklogEndedAt(toDateTimeLocalValue(log.timesheet?.work_ended_at));
     setEditWorklogDiff(log.issue?.issue_content ?? '');
     setEditWorklogProposal(log.issue?.proposal_content ?? '');
     setEditWorklogStatus(log.issue?.issue_status ?? 'JUST_ENCOUNTERED');
@@ -197,6 +225,8 @@ export const useProcedureStepWorklogs = ({
     setEditingWorklogId(null);
     setEditWorklogContent('');
     setEditWorklogHours('');
+    setEditWorklogStartedAt('');
+    setEditWorklogEndedAt('');
     setEditWorklogDiff('');
     setEditWorklogProposal('');
     setEditWorklogStatus('JUST_ENCOUNTERED');
@@ -214,10 +244,15 @@ export const useProcedureStepWorklogs = ({
     setEditWorklogSaving(true);
     try {
       const hoursRaw = parseFloat(editWorklogHours);
+      const startedAt = editWorklogStartedAt.trim();
+      const endedAt = editWorklogEndedAt.trim();
       const difficulty = editWorklogDiff.trim();
       const updated = await updateStepWorklog(logId, {
         content,
         hours_spent: Number.isNaN(hoursRaw) ? null : hoursRaw,
+        work_date: startedAt ? startedAt.slice(0, 10) : null,
+        work_started_at: startedAt || null,
+        work_ended_at: endedAt || null,
         difficulty: difficulty || null,
         proposal: difficulty ? editWorklogProposal.trim() || null : null,
         issue_status: difficulty ? editWorklogStatus : null,
@@ -237,9 +272,11 @@ export const useProcedureStepWorklogs = ({
   }, [
     editWorklogContent,
     editWorklogDiff,
+    editWorklogEndedAt,
     editWorklogHours,
     editWorklogProposal,
     editWorklogSaving,
+    editWorklogStartedAt,
     editWorklogStatus,
     handleCancelEditWorklog,
     onNotify,
@@ -309,6 +346,14 @@ export const useProcedureStepWorklogs = ({
     setStepWorklogHours((prev) => ({ ...prev, [String(stepId)]: value }));
   }, []);
 
+  const handleSetWlogStartedAt = useCallback((stepId: string | number, value: string) => {
+    setStepWorklogStartedAt((prev) => ({ ...prev, [String(stepId)]: value }));
+  }, []);
+
+  const handleSetWlogEndedAt = useCallback((stepId: string | number, value: string) => {
+    setStepWorklogEndedAt((prev) => ({ ...prev, [String(stepId)]: value }));
+  }, []);
+
   const handleSetWlogDifficulty = useCallback((stepId: string | number, value: string) => {
     setStepWorklogDifficulty((prev) => ({ ...prev, [String(stepId)]: value }));
   }, []);
@@ -327,12 +372,16 @@ export const useProcedureStepWorklogs = ({
     stepWorklogInput,
     stepWorklogSaving,
     stepWorklogHours,
+    stepWorklogStartedAt,
+    stepWorklogEndedAt,
     stepWorklogDifficulty,
     stepWorklogProposal,
     stepWorklogIssueStatus,
     editingWorklogId,
     editWorklogContent,
     editWorklogHours,
+    editWorklogStartedAt,
+    editWorklogEndedAt,
     editWorklogDiff,
     editWorklogProposal,
     editWorklogStatus,
@@ -340,6 +389,8 @@ export const useProcedureStepWorklogs = ({
     deletingWorklogId,
     setEditWorklogContent,
     setEditWorklogHours,
+    setEditWorklogStartedAt,
+    setEditWorklogEndedAt,
     setEditWorklogDiff,
     setEditWorklogProposal,
     setEditWorklogStatus,
@@ -354,6 +405,8 @@ export const useProcedureStepWorklogs = ({
     handleDeleteStepWorklog,
     handleSetWlogInput,
     handleSetWlogHours,
+    handleSetWlogStartedAt,
+    handleSetWlogEndedAt,
     handleSetWlogDifficulty,
     handleSetWlogProposal,
     handleSetWlogIssueStatus,

@@ -192,6 +192,42 @@ class ProjectDomainService
                         });
                     });
                 }
+
+                if ($this->canSearchProjectProducts()) {
+                    $builder->orWhereExists(function ($exists) use ($like): void {
+                        $exists->select(DB::raw(1))
+                            ->from('project_items as search_pi')
+                            ->whereColumn('search_pi.project_id', 'projects.id');
+
+                        if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                            $exists->whereNull('search_pi.deleted_at');
+                        }
+
+                        if ($this->support->hasTable('product_packages') && $this->support->hasColumn('project_items', 'product_package_id')) {
+                            $exists->leftJoin('product_packages as search_pp', 'search_pi.product_package_id', '=', 'search_pp.id');
+                        }
+
+                        if ($this->support->hasTable('products')) {
+                            $exists->leftJoin('products as search_pr', 'search_pi.product_id', '=', 'search_pr.id');
+                        }
+
+                        $exists->where(function ($productFilter) use ($like): void {
+                            $productFilter->whereRaw('1 = 0');
+                            if ($this->support->hasTable('product_packages') && $this->support->hasColumn('project_items', 'product_package_id') && $this->support->hasColumn('product_packages', 'package_code')) {
+                                $productFilter->orWhere('search_pp.package_code', 'like', $like);
+                            }
+                            if ($this->support->hasTable('product_packages') && $this->support->hasColumn('project_items', 'product_package_id') && $this->support->hasColumn('product_packages', 'package_name')) {
+                                $productFilter->orWhere('search_pp.package_name', 'like', $like);
+                            }
+                            if ($this->support->hasTable('products') && $this->support->hasColumn('products', 'product_code')) {
+                                $productFilter->orWhere('search_pr.product_code', 'like', $like);
+                            }
+                            if ($this->support->hasTable('products') && $this->support->hasColumn('products', 'product_name')) {
+                                $productFilter->orWhere('search_pr.product_name', 'like', $like);
+                            }
+                        });
+                    });
+                }
             });
         }
 
@@ -200,9 +236,38 @@ class ProjectDomainService
             $query->where('projects.status', $status);
         }
 
+        $customerIds = $this->readIdListFilter($request, 'customer_ids', 'customer_id');
+        if ($customerIds !== [] && $this->support->hasColumn('projects', 'customer_id')) {
+            $query->whereIn('projects.customer_id', $customerIds);
+        }
+
         $customerId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'customer_id'));
-        if ($customerId !== null && $this->support->hasColumn('projects', 'customer_id')) {
+        if ($customerIds === [] && $customerId !== null && $this->support->hasColumn('projects', 'customer_id')) {
             $query->where('projects.customer_id', $customerId);
+        }
+
+        $projectIds = $this->readIdListFilter($request, 'project_ids');
+        if ($projectIds !== [] && $this->support->hasColumn('projects', 'id')) {
+            $query->whereIn('projects.id', $projectIds);
+        }
+
+        $productIds = $this->readIdListFilter($request, 'product_ids');
+        if ($productIds !== [] && $this->support->hasTable('project_items') && $this->support->hasColumn('project_items', 'project_id')) {
+            $query->whereExists(function ($exists) use ($productIds): void {
+                $exists->select(DB::raw(1))
+                    ->from('project_items as filter_pi')
+                    ->whereColumn('filter_pi.project_id', 'projects.id');
+
+                if ($this->support->hasColumn('project_items', 'product_id')) {
+                    $exists->whereIn('filter_pi.product_id', $productIds);
+                } else {
+                    $exists->whereRaw('1 = 0');
+                }
+
+                if ($this->support->hasColumn('project_items', 'deleted_at')) {
+                    $exists->whereNull('filter_pi.deleted_at');
+                }
+            });
         }
 
         $departmentId = $this->support->parseNullableInt($this->support->readFilterParam($request, 'department_id'));
@@ -1609,6 +1674,44 @@ class ProjectDomainService
     }
 
     /**
+     * @return array<int, int>
+     */
+    private function readIdListFilter(Request $request, string $key, ?string $legacyKey = null): array
+    {
+        $rawValue = $this->support->readFilterParam($request, $key);
+        if ($rawValue === null) {
+            $rawValue = $request->query($key.'[]');
+        }
+        if ($rawValue === null && $legacyKey !== null) {
+            $rawValue = $this->support->readFilterParam($request, $legacyKey);
+        }
+
+        return $this->parseProjectIdsFilter($rawValue);
+    }
+
+    private function canSearchProjectProducts(): bool
+    {
+        if (! $this->support->hasTable('project_items') || ! $this->support->hasColumn('project_items', 'project_id')) {
+            return false;
+        }
+
+        return (
+            $this->support->hasTable('product_packages')
+            && $this->support->hasColumn('project_items', 'product_package_id')
+            && (
+                $this->support->hasColumn('product_packages', 'package_code')
+                || $this->support->hasColumn('product_packages', 'package_name')
+            )
+        ) || (
+            $this->support->hasTable('products')
+            && (
+                $this->support->hasColumn('products', 'product_code')
+                || $this->support->hasColumn('products', 'product_name')
+            )
+        );
+    }
+
+    /**
      * @param array<string, mixed> $validated
      */
     private function shouldSyncCollection(array $validated, string $syncFlagKey, string $payloadKey): bool
@@ -2210,6 +2313,10 @@ class ProjectDomainService
             $query->whereNull('pi.deleted_at');
         }
 
+        if ($this->support->hasTable('projects')) {
+            $this->applyProjectReadScopeToQuery($request, $query, 'p');
+        }
+
         $search = trim((string) $request->query('search', ''));
         if ($search !== '') {
             $like = '%'.$search.'%';
@@ -2225,12 +2332,14 @@ class ProjectDomainService
                 }
                 if (
                     $this->support->hasTable('product_packages')
+                    && $this->support->hasColumn('project_items', 'product_package_id')
                     && $this->support->hasColumn('product_packages', 'package_code')
                 ) {
                     $builder->orWhere('pp.package_code', 'like', $like);
                 }
                 if (
                     $this->support->hasTable('product_packages')
+                    && $this->support->hasColumn('project_items', 'product_package_id')
                     && $this->support->hasColumn('product_packages', 'package_name')
                 ) {
                     $builder->orWhere('pp.package_name', 'like', $like);
@@ -2853,6 +2962,11 @@ class ProjectDomainService
 
     private function applyReadScope(Request $request, Builder $query): void
     {
+        $this->applyProjectReadScopeToQuery($request, $query, 'projects');
+    }
+
+    private function applyProjectReadScopeToQuery(Request $request, mixed $query, string $projectAlias): void
+    {
         $authenticatedUser = $request->user();
         if (! $authenticatedUser instanceof InternalUser) {
             $query->whereRaw('1 = 0');
@@ -2872,22 +2986,31 @@ class ProjectDomainService
             return;
         }
 
-        $query->where(function (Builder $scope) use ($allowedDeptIds, $userId): void {
+        $query->where(function ($scope) use ($allowedDeptIds, $userId, $projectAlias): void {
             $applied = false;
 
             if ($this->support->hasColumn('projects', 'dept_id')) {
-                $scope->whereIn('projects.dept_id', $allowedDeptIds);
+                $scope->whereIn($projectAlias.'.dept_id', $allowedDeptIds);
                 $applied = true;
             } elseif ($this->support->hasColumn('projects', 'department_id')) {
-                $scope->whereIn('projects.department_id', $allowedDeptIds);
+                $scope->whereIn($projectAlias.'.department_id', $allowedDeptIds);
                 $applied = true;
             }
 
             if ($this->support->hasColumn('projects', 'created_by')) {
                 if ($applied) {
-                    $scope->orWhere('projects.created_by', $userId);
+                    $scope->orWhere($projectAlias.'.created_by', $userId);
                 } else {
-                    $scope->where('projects.created_by', $userId);
+                    $scope->where($projectAlias.'.created_by', $userId);
+                }
+                $applied = true;
+            }
+
+            if ($this->canUseProjectRaciReadScope()) {
+                if ($applied) {
+                    $scope->orWhereExists(fn ($exists) => $this->applyProjectRaciReadScope($exists, $projectAlias, $userId));
+                } else {
+                    $scope->whereExists(fn ($exists) => $this->applyProjectRaciReadScope($exists, $projectAlias, $userId));
                 }
                 $applied = true;
             }
@@ -2896,5 +3019,28 @@ class ProjectDomainService
                 $scope->whereRaw('1 = 0');
             }
         });
+    }
+
+    private function canUseProjectRaciReadScope(): bool
+    {
+        return $this->support->hasTable('raci_assignments')
+            && $this->support->hasColumn('raci_assignments', 'entity_type')
+            && $this->support->hasColumn('raci_assignments', 'entity_id')
+            && $this->support->hasColumn('raci_assignments', 'user_id')
+            && $this->support->hasColumn('raci_assignments', 'raci_role');
+    }
+
+    private function applyProjectRaciReadScope(mixed $query, string $projectAlias, int $userId): void
+    {
+        $query->select(DB::raw(1))
+            ->from('raci_assignments as read_ra')
+            ->whereColumn('read_ra.entity_id', $projectAlias.'.id')
+            ->whereRaw('LOWER(read_ra.entity_type) = ?', ['project'])
+            ->where('read_ra.user_id', $userId)
+            ->whereIn('read_ra.raci_role', self::RACI_ROLES);
+
+        if ($this->support->hasColumn('raci_assignments', 'deleted_at')) {
+            $query->whereNull('read_ra.deleted_at');
+        }
     }
 }

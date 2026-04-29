@@ -38,7 +38,7 @@ class V5DomainRouteBindingTest extends TestCase
             ['GET', 'api/v5/documents/attachments/{id}/download', 'App\Http\Controllers\Api\V5\DocumentController@downloadDocumentAttachment', 'signed:relative'],
             ['GET', 'api/v5/attachments/{id}/download', 'App\Http\Controllers\Api\V5\DocumentController@downloadAttachment', 'signed:relative'],
             ['GET', 'api/v5/documents/attachments/temp-download', 'App\Http\Controllers\Api\V5\DocumentController@downloadTemporaryAttachment', 'signed:relative'],
-            ['GET', 'api/v5/public/project-procedure-shares/{token}', 'App\Http\Controllers\Api\V5\ProjectProcedureController@publicShare', 'throttle:api.access'],
+            ['POST', 'api/v5/public/project-procedure-shares/{token}', 'App\Http\Controllers\Api\V5\ProjectProcedureController@publicShare', 'throttle:api.access'],
             ['GET', 'api/v5/documents', 'App\Http\Controllers\Api\V5\DocumentController@index', 'permission:documents.read'],
             ['POST', 'api/v5/documents', 'App\Http\Controllers\Api\V5\DocumentController@store', 'permission:documents.write'],
             ['POST', 'api/v5/documents/upload-attachment', 'App\Http\Controllers\Api\V5\DocumentController@uploadAttachment', 'permission:documents.write'],
@@ -259,10 +259,18 @@ class V5DomainRouteBindingTest extends TestCase
             );
         }
 
-        $publicProcedureRoute = $this->findRoute('GET', 'api/v5/public/project-procedure-shares/{token}');
-        $this->assertNotContains('auth:sanctum', $publicProcedureRoute->middleware());
-        $this->assertNotContains('password.change', $publicProcedureRoute->middleware());
-        $this->assertNotContains('active.tab', $publicProcedureRoute->middleware());
+        /** @var Collection<int, LaravelRoute> $routes */
+        $routes = collect(app('router')->getRoutes()->getRoutes());
+        $publicProcedureGetRoute = $routes->first(
+            fn (LaravelRoute $item): bool => $item->uri() === 'api/v5/public/project-procedure-shares/{token}'
+                && in_array('GET', $item->methods(), true)
+        );
+        $this->assertNull($publicProcedureGetRoute, 'Public procedure share must not expose GET because the access key must not travel in the URL.');
+
+        $publicProcedurePostRoute = $this->findRoute('POST', 'api/v5/public/project-procedure-shares/{token}');
+        $this->assertNotContains('auth:sanctum', $publicProcedurePostRoute->middleware());
+        $this->assertNotContains('password.change', $publicProcedurePostRoute->middleware());
+        $this->assertNotContains('active.tab', $publicProcedurePostRoute->middleware());
     }
 
     private function findRoute(string $method, string $uri): LaravelRoute

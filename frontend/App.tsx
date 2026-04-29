@@ -140,7 +140,7 @@ const LazyModuleFallback: React.FC = () => (
   </div>
 );
 
-const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'product_quotes', 'product_packages', 'clients', 'cus_personnel', 'projects', 'contracts', 'pass_contract', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'workflow_mgmt', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
+const AVAILABLE_TABS = ['dashboard', 'internal_user_dashboard', 'internal_user_list', 'departments', 'user_dept_history', 'businesses', 'vendors', 'products', 'product_quotes', 'product_packages', 'clients', 'cus_personnel', 'projects', 'workload_summary', 'contracts', 'pass_contract', 'documents', 'reminders', 'customer_request_management', 'revenue_mgmt', 'fee_collection', 'workflow_mgmt', 'support_master_management', 'procedure_template_config', 'department_weekly_schedule_management', 'audit_logs', 'user_feedback', 'integration_settings', 'access_control'] as const;
 const PROJECT_SAVE_TIMEOUT_MS = 15000;
 type ContractSourceMode = 'PROJECT' | 'INITIAL';
 
@@ -1996,6 +1996,13 @@ const App: React.FC = () => {
       ]);
     },
     projects: loadProjectsModuleData,
+    workload_summary: async () => {
+      await Promise.all([
+        loadDepartments(),
+        loadEmployees(),
+        loadProjects(),
+      ]);
+    },
     contracts: loadContractsModuleData,
     pass_contract: loadPassContractsModuleData,
     documents: loadDocumentsModuleData,
@@ -2144,6 +2151,13 @@ const App: React.FC = () => {
               fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
             ]);
           }, 120);
+          break;
+        case 'workload_summary':
+          await Promise.all([
+            fetchDepartments().then((rows) => setDepartments(rows || [])).catch(() => {}),
+            fetchEmployees().then((rows) => setEmployees(rows || [])).catch(() => {}),
+            fetchProjects().then((rows) => setProjects(rows || [])).catch(() => {}),
+          ]);
           break;
         case 'contracts':
           loadContractsPage();

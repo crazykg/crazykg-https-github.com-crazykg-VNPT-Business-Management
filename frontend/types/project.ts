@@ -194,10 +194,23 @@ export interface ProcedureStepBatchUpdate {
 
 export type ProcedureExportFormat = 'word' | 'excel';
 
+export type ProcedurePublicShareTtlDays = 10 | 30 | 90;
+
+export interface CreateProcedurePublicSharePayload {
+  ttl_days: ProcedurePublicShareTtlDays;
+  access_key: string;
+}
+
 export interface ProcedurePublicShareResult {
   token: string;
+  public_url?: string | null;
   expires_at: string;
-  ttl_days: number;
+  ttl_days: ProcedurePublicShareTtlDays;
+  email?: {
+    status: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+    recipients: string[];
+    message?: string | null;
+  };
 }
 
 export interface PublicProcedureStep {
@@ -257,6 +270,8 @@ export interface SharedTimesheet {
   procedure_step_worklog_id: string | number;
   hours_spent: string | number;
   work_date: string;
+  work_started_at?: string | null;
+  work_ended_at?: string | null;
   activity_description?: string | null;
   created_by?: string | number | null;
   updated_by?: string | number | null;
@@ -280,6 +295,8 @@ export interface AddWorklogPayload {
   content: string;
   hours_spent?: number | null;
   work_date?: string | null;
+  work_started_at?: string | null;
+  work_ended_at?: string | null;
   activity_description?: string | null;
   difficulty?: string | null;
   proposal?: string | null;
@@ -324,5 +341,8 @@ export interface ProcedureStepRaciEntry {
   full_name?: string | null;
   user_code?: string | null;
   username?: string | null;
+  department_id?: string | number | null;
+  department_name?: string | null;
+  department_code?: string | null;
   created_at?: string | null;
 }

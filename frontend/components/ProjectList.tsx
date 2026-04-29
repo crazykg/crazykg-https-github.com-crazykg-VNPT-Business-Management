@@ -22,6 +22,9 @@ interface ProjectListQuery extends PaginatedQuery {
     department_id?: string;
     start_date_from?: string;
     start_date_to?: string;
+    customer_ids?: string;
+    project_ids?: string;
+    product_ids?: string;
   };
 }
 
@@ -611,6 +614,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return;
     }
 
+    const selectedCustomerIds = structuredSearchValue.customerIds.map((value) => String(value).trim()).filter(Boolean).join(',');
+    const selectedProjectIds = structuredSearchValue.projectIds.map((value) => String(value).trim()).filter(Boolean).join(',');
+    const selectedProductIds = structuredSearchValue.productIds.map((value) => String(value).trim()).filter(Boolean).join(',');
+
     onQueryChange({
       page: currentPage,
       per_page: rowsPerPage,
@@ -622,9 +629,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         department_id: departmentFilter,
         start_date_from: startDateFrom,
         start_date_to: startDateTo,
+        customer_ids: selectedCustomerIds,
+        project_ids: selectedProjectIds,
+        product_ids: selectedProductIds,
       },
     });
-  }, [serverMode, onQueryChange, searchTrigger, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, sortConfig]);
+  }, [serverMode, onQueryChange, searchTrigger, currentPage, rowsPerPage, searchTerm, statusFilter, departmentFilter, startDateFrom, startDateTo, structuredSearchValue, sortConfig]);
 
   const currentData = serverMode
     ? (projects || [])

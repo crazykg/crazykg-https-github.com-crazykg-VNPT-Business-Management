@@ -220,7 +220,7 @@ export function ProjectDateInput({
       ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-500'
       : '';
     return [
-      'h-11 w-[136px] min-w-[136px] max-w-[136px] rounded border px-2 pr-11 text-sm outline-none placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-8 sm:w-[124px] sm:min-w-[124px] sm:max-w-[124px] sm:pr-8',
+      'h-11 w-[136px] min-w-[136px] max-w-[136px] rounded border px-2 pr-11 text-sm outline-none placeholder:text-slate-500 focus-visible:outline-none sm:h-8 sm:w-[120px] sm:min-w-[120px] sm:max-w-[120px] sm:pr-8',
       stateClassName,
       disabledClassName,
       className,
@@ -269,7 +269,7 @@ export function ProjectDateInput({
   };
 
   return (
-    <span className="relative inline-flex w-[136px] items-center sm:w-[124px]">
+    <span className="relative inline-flex w-[136px] items-center sm:w-[120px]">
       <input
         ref={textInputRef}
         type="text"
@@ -293,7 +293,7 @@ export function ProjectDateInput({
         disabled={disabled}
         aria-label={ariaLabel ? `Chọn ${ariaLabel}` : 'Chọn ngày'}
         onClick={handleCalendarOpen}
-        className="absolute right-0 inline-flex h-11 w-11 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-slate-400 sm:right-1 sm:h-6 sm:w-6 sm:focus-visible:outline-offset-2"
+        className="absolute right-0 inline-flex h-11 w-11 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-slate-400 sm:right-1.5 sm:h-6 sm:w-6 sm:focus-visible:outline-offset-2"
       >
         <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18 }}>calendar_today</span>
       </button>

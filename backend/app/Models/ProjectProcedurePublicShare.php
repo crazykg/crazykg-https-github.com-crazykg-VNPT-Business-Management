@@ -12,6 +12,7 @@ class ProjectProcedurePublicShare extends Model
     protected $fillable = [
         'procedure_id',
         'token_hash',
+        'access_key_hash',
         'created_by',
         'expires_at',
         'revoked_at',

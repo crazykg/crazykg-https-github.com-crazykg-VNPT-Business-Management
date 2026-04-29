@@ -3,6 +3,7 @@ import type {
   Attachment,
   IssueStatus,
   ProcedureStepStatus,
+  ProcedureStepRaciEntry,
   ProcedureStepWorklog,
   ProjectProcedureStep,
 } from '../../types';
@@ -12,19 +13,20 @@ const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const PROCEDURE_TABLE_COLUMNS = [
   40,
   52,
-  336,
-  176,
-  220,
-  96,
+  320,
+  196,
+  164,
+  200,
+  88,
   140,
   140,
   136,
-  148,
-  124,
+  132,
+  116,
   52,
 ] as const;
 const PROCEDURE_TABLE_COLUMN_COUNT = PROCEDURE_TABLE_COLUMNS.length;
-const PROCEDURE_TABLE_MIN_WIDTH = 'min-w-[1660px]';
+const PROCEDURE_TABLE_MIN_WIDTH = 'min-w-[1776px]';
 
 interface PhaseGroup {
   phase: string;
@@ -82,12 +84,16 @@ interface ProcedurePhaseGroupSectionProps {
   isRaciA: boolean;
   myId: string;
   stepWorklogs: Record<string, ProcedureStepWorklog[]>;
+  stepRaciMap: Record<string, ProcedureStepRaciEntry[]>;
   stepWorklogInput: Record<string, string>;
   stepWorklogHours: Record<string, string>;
+  stepWorklogStartedAt: Record<string, string>;
+  stepWorklogEndedAt: Record<string, string>;
   stepWorklogDifficulty: Record<string, string>;
   stepWorklogProposal: Record<string, string>;
   stepWorklogIssueStatus: Record<string, IssueStatus>;
   stepWorklogSaving: Record<string, boolean>;
+  projectWorklogDatetimeEnabled: boolean;
   editingRowDraft: StepRowProps['editingRowDraft'];
   stepAttachments: Record<string, Attachment[]>;
   attachLoadingStep: string | number | null;
@@ -102,6 +108,8 @@ interface ProcedurePhaseGroupSectionProps {
   editingWorklogId: string | number | null;
   editWorklogContent: string;
   editWorklogHours: string;
+  editWorklogStartedAt: string;
+  editWorklogEndedAt: string;
   editWorklogDiff: string;
   editWorklogProposal: string;
   editWorklogStatus: IssueStatus;
@@ -131,11 +139,15 @@ interface ProcedurePhaseGroupSectionProps {
   onDeleteWorklog: StepRowProps['onDeleteWorklog'];
   onSetWlogInput: StepRowProps['onSetWlogInput'];
   onSetWlogHours: StepRowProps['onSetWlogHours'];
+  onSetWlogStartedAt: StepRowProps['onSetWlogStartedAt'];
+  onSetWlogEndedAt: StepRowProps['onSetWlogEndedAt'];
   onSetWlogDifficulty: StepRowProps['onSetWlogDifficulty'];
   onSetWlogProposal: StepRowProps['onSetWlogProposal'];
   onSetWlogIssueStatus: StepRowProps['onSetWlogIssueStatus'];
   onSetEditWorklogContent: StepRowProps['onSetEditWorklogContent'];
   onSetEditWorklogHours: StepRowProps['onSetEditWorklogHours'];
+  onSetEditWorklogStartedAt: StepRowProps['onSetEditWorklogStartedAt'];
+  onSetEditWorklogEndedAt: StepRowProps['onSetEditWorklogEndedAt'];
   onSetEditWorklogDiff: StepRowProps['onSetEditWorklogDiff'];
   onSetEditWorklogProposal: StepRowProps['onSetEditWorklogProposal'];
   onSetEditWorklogStatus: StepRowProps['onSetEditWorklogStatus'];
@@ -172,6 +184,7 @@ const EMPTY_STEP_DRAFT: Record<string, any> = {};
 const EMPTY_PROCEDURE_STEPS: ProjectProcedureStep[] = [];
 const EMPTY_WORKLOGS: ProcedureStepWorklog[] = [];
 const EMPTY_ATTACHMENTS: Attachment[] = [];
+const EMPTY_STEP_RACI_ENTRIES: ProcedureStepRaciEntry[] = [];
 
 export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProps> = ({
   group,
@@ -212,12 +225,16 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   isRaciA,
   myId,
   stepWorklogs,
+  stepRaciMap,
   stepWorklogInput,
   stepWorklogHours,
+  stepWorklogStartedAt,
+  stepWorklogEndedAt,
   stepWorklogDifficulty,
   stepWorklogProposal,
   stepWorklogIssueStatus,
   stepWorklogSaving,
+  projectWorklogDatetimeEnabled,
   editingRowDraft,
   stepAttachments,
   attachLoadingStep,
@@ -232,6 +249,8 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   editingWorklogId,
   editWorklogContent,
   editWorklogHours,
+  editWorklogStartedAt,
+  editWorklogEndedAt,
   editWorklogDiff,
   editWorklogProposal,
   editWorklogStatus,
@@ -261,11 +280,15 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   onDeleteWorklog,
   onSetWlogInput,
   onSetWlogHours,
+  onSetWlogStartedAt,
+  onSetWlogEndedAt,
   onSetWlogDifficulty,
   onSetWlogProposal,
   onSetWlogIssueStatus,
   onSetEditWorklogContent,
   onSetEditWorklogHours,
+  onSetEditWorklogStartedAt,
+  onSetEditWorklogEndedAt,
   onSetEditWorklogDiff,
   onSetEditWorklogProposal,
   onSetEditWorklogStatus,
@@ -461,7 +484,11 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
       </div>
 
       {!isCollapsed && (
-        <div id={bodyId} className="overflow-x-auto" data-testid={`procedure-phase-body-${group.phase}`}>
+        <div
+          id={bodyId}
+          className="overflow-x-auto"
+          data-testid={`procedure-phase-body-${group.phase}`}
+        >
           <table className={`w-full ${PROCEDURE_TABLE_MIN_WIDTH} table-fixed border-collapse text-left`}>
             <colgroup>
               {PROCEDURE_TABLE_COLUMNS.map((width, index) => (
@@ -473,6 +500,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <th scope="col" className="px-1 py-2" title="Xếp thứ tự" aria-label="Xếp thứ tự" />
                 <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">TT</th>
                 <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Trình tự công việc</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Người thực hiện</th>
                 <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">ĐV chủ trì</th>
                 <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Kết quả dự kiến</th>
                 <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase text-center">Ngày</th>
@@ -525,13 +553,17 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                   isAdmin={isAdmin}
                   isRaciA={isRaciA}
                   myId={myId}
+                  stepRaciEntries={stepRaciMap[stepKey] ?? EMPTY_STEP_RACI_ENTRIES}
                   wlogs={stepWorklogs[stepKey] ?? EMPTY_WORKLOGS}
                   wlogInput={stepWorklogInput[stepKey] ?? ''}
                   wlogHours={stepWorklogHours[stepKey] ?? ''}
+                  wlogStartedAt={stepWorklogStartedAt[stepKey] ?? ''}
+                  wlogEndedAt={stepWorklogEndedAt[stepKey] ?? ''}
                   wlogDifficulty={stepWorklogDifficulty[stepKey] ?? ''}
                   wlogProposal={stepWorklogProposal[stepKey] ?? ''}
                   wlogIssueStatus={(stepWorklogIssueStatus[stepKey] ?? 'JUST_ENCOUNTERED') as IssueStatus}
                   wlogSaving={stepWorklogSaving[stepKey] ?? false}
+                  projectWorklogDatetimeEnabled={projectWorklogDatetimeEnabled}
                   editingRowDraft={editingRowDraft}
                   attachList={stepAttachments[stepKey] ?? EMPTY_ATTACHMENTS}
                   attachLoading={attachLoadingStep === stepKey}
@@ -545,6 +577,8 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                   editingWorklogId={editingWorklogId}
                   editWorklogContent={editWorklogContent}
                   editWorklogHours={editWorklogHours}
+                  editWorklogStartedAt={editWorklogStartedAt}
+                  editWorklogEndedAt={editWorklogEndedAt}
                   editWorklogDiff={editWorklogDiff}
                   editWorklogProposal={editWorklogProposal}
                   editWorklogStatus={editWorklogStatus}
@@ -573,11 +607,15 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                   onDeleteWorklog={onDeleteWorklog}
                   onSetWlogInput={onSetWlogInput}
                   onSetWlogHours={onSetWlogHours}
+                  onSetWlogStartedAt={onSetWlogStartedAt}
+                  onSetWlogEndedAt={onSetWlogEndedAt}
                   onSetWlogDifficulty={onSetWlogDifficulty}
                   onSetWlogProposal={onSetWlogProposal}
                   onSetWlogIssueStatus={onSetWlogIssueStatus}
                   onSetEditWorklogContent={onSetEditWorklogContent}
                   onSetEditWorklogHours={onSetEditWorklogHours}
+                  onSetEditWorklogStartedAt={onSetEditWorklogStartedAt}
+                  onSetEditWorklogEndedAt={onSetEditWorklogEndedAt}
                   onSetEditWorklogDiff={onSetEditWorklogDiff}
                   onSetEditWorklogProposal={onSetEditWorklogProposal}
                   onSetEditWorklogStatus={onSetEditWorklogStatus}
@@ -596,9 +634,9 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
 
             {isAddingHere && (
               <tr className="bg-primary/5 border-t-2 border-primary/20">
-                <td className="px-1 py-2" />
-                <td className="px-3 py-2 text-xs text-slate-600 text-center font-mono">+</td>
-                <td className="px-2 py-2">
+                <td className="px-1 py-2 align-middle" />
+                <td className="px-3 py-2 align-middle text-xs text-slate-600 text-center font-mono">+</td>
+                <td className="px-2 py-2 align-middle">
                   <input
                     autoFocus
                     type="text"
@@ -612,7 +650,8 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none font-medium placeholder:text-slate-500"
                   />
                 </td>
-                <td className="px-2 py-2">
+                <td className="px-3 py-2 align-middle text-xs font-semibold text-slate-500">Chưa phân công</td>
+                <td className="px-2 py-2 align-middle">
                   <input
                     type="text"
                     value={newStepUnit}
@@ -622,7 +661,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none placeholder:text-slate-500"
                   />
                 </td>
-                <td className="px-2 py-2">
+                <td className="px-2 py-2 align-middle">
                   <input
                     type="text"
                     value={newStepResult}
@@ -632,7 +671,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none placeholder:text-slate-500"
                   />
                 </td>
-                <td className="px-2 py-2">
+                <td className="px-2 py-2 align-middle">
                   <input
                     type="number"
                     value={newStepDays}
@@ -643,7 +682,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none text-center placeholder:text-slate-500"
                   />
                 </td>
-                <td colSpan={6} className="px-3 py-2">
+                <td colSpan={6} className="px-3 py-2 align-middle">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
