@@ -526,6 +526,8 @@ const fetchCustomerRequestFilterOptions = async (
     page?: number;
     per_page?: number;
     selected_ids?: Array<string | number | null | undefined>;
+    customer_ids?: Array<string | number | null | undefined>;
+    project_ids?: Array<string | number | null | undefined>;
   }
 ): Promise<CustomerRequestFilterOptionPage> => {
   const query = new URLSearchParams();
@@ -533,13 +535,17 @@ const fetchCustomerRequestFilterOptions = async (
   const page = normalizeNullableNumber(params?.page) ?? 1;
   const rawPerPage = normalizeNullableNumber(params?.per_page);
   const perPage = rawPerPage !== null && rawPerPage > 0 ? rawPerPage : 30;
-  const selectedIds = Array.from(
-    new Set(
-      (params?.selected_ids ?? [])
-        .map((value) => normalizeNullableNumber(value))
-        .filter((value): value is number => value !== null)
-    )
-  );
+  const normalizeIdList = (values?: Array<string | number | null | undefined>): number[] =>
+    Array.from(
+      new Set(
+        (values ?? [])
+          .map((value) => normalizeNullableNumber(value))
+          .filter((value): value is number => value !== null)
+      )
+    );
+  const selectedIds = normalizeIdList(params?.selected_ids);
+  const customerIds = normalizeIdList(params?.customer_ids);
+  const projectIds = normalizeIdList(params?.project_ids);
 
   if (text) {
     query.set('q', text);
@@ -548,6 +554,12 @@ const fetchCustomerRequestFilterOptions = async (
   query.set('per_page', String(Math.min(50, Math.max(1, perPage))));
   selectedIds.forEach((value) => {
     query.append('selected_ids[]', String(value));
+  });
+  customerIds.forEach((value) => {
+    query.append('customer_id[]', String(value));
+  });
+  projectIds.forEach((value) => {
+    query.append('project_id[]', String(value));
   });
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
@@ -589,6 +601,7 @@ export const fetchCustomerRequestProjectFilterOptions = async (params?: {
   page?: number;
   per_page?: number;
   selected_ids?: Array<string | number | null | undefined>;
+  customer_ids?: Array<string | number | null | undefined>;
 }): Promise<CustomerRequestFilterOptionPage> =>
   fetchCustomerRequestFilterOptions('projects', params);
 
@@ -597,6 +610,8 @@ export const fetchCustomerRequestProductFilterOptions = async (params?: {
   page?: number;
   per_page?: number;
   selected_ids?: Array<string | number | null | undefined>;
+  customer_ids?: Array<string | number | null | undefined>;
+  project_ids?: Array<string | number | null | undefined>;
 }): Promise<CustomerRequestFilterOptionPage> =>
   fetchCustomerRequestFilterOptions('products', params);
 

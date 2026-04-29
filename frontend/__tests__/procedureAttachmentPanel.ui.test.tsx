@@ -11,15 +11,33 @@ vi.mock('../components/AttachmentManager', () => ({
     onUpload,
     onDelete,
     isUploading,
+    compact,
+    listVariant,
+    emptyStateVariant,
+    uploadButtonAriaLabel,
+    fileInputAriaLabel,
+    pasteZoneAriaLabel,
   }: {
     attachments: Attachment[];
     onUpload: (file: File) => void | Promise<void>;
     onDelete: (attachmentId: string) => void | Promise<void>;
     isUploading: boolean;
+    compact?: boolean;
+    listVariant?: string;
+    emptyStateVariant?: string;
+    uploadButtonAriaLabel?: string;
+    fileInputAriaLabel?: string;
+    pasteZoneAriaLabel?: string;
   }) => (
     <div data-testid="mock-attachment-manager">
       <span data-testid="mock-attachment-count">{attachments.length}</span>
       <span data-testid="mock-uploading-state">{isUploading ? 'uploading' : 'idle'}</span>
+      <span data-testid="mock-compact-state">{compact ? 'compact' : 'regular'}</span>
+      <span data-testid="mock-list-variant">{listVariant}</span>
+      <span data-testid="mock-empty-state-variant">{emptyStateVariant}</span>
+      <span data-testid="mock-upload-aria">{uploadButtonAriaLabel}</span>
+      <span data-testid="mock-file-input-aria">{fileInputAriaLabel}</span>
+      <span data-testid="mock-paste-zone-aria">{pasteZoneAriaLabel}</span>
       <button
         type="button"
         onClick={() => onUpload(new File(['hello'], 'bien-ban.pdf', { type: 'application/pdf' }))}
@@ -79,15 +97,23 @@ describe('ProcedureAttachmentPanel', () => {
       </table>
     );
 
-    expect(screen.getByTestId('step-file-panel-7001')).toBeInTheDocument();
+    const filePanel = screen.getByTestId('step-file-panel-7001');
+    expect(filePanel).toBeInTheDocument();
+    expect(filePanel).toHaveAttribute('colspan', '12');
     expect(screen.getByDisplayValue('VB-01')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('2026-03-30')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('30/03/2026')).toBeInTheDocument();
     expect(screen.getByTestId('mock-attachment-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('mock-compact-state')).toHaveTextContent('compact');
+    expect(screen.getByTestId('mock-list-variant')).toHaveTextContent('compact-row');
+    expect(screen.getByTestId('mock-empty-state-variant')).toHaveTextContent('compact-line');
+    expect(screen.getByTestId('mock-upload-aria')).toHaveTextContent('Tải file đính kèm cho bước thủ tục');
+    expect(screen.getByTestId('mock-file-input-aria')).toHaveTextContent('Chọn file đính kèm cho bước thủ tục');
+    expect(screen.getByTestId('mock-paste-zone-aria')).toHaveTextContent('Danh sách file đính kèm của bước thủ tục');
 
     fireEvent.change(screen.getByTestId('step-document-number-7001'), { target: { value: 'VB-02' } });
     expect(onDocumentNumberChange).toHaveBeenLastCalledWith('VB-02');
 
-    fireEvent.change(screen.getByTestId('step-document-date-7001'), { target: { value: '2026-04-01' } });
+    fireEvent.change(screen.getByTestId('step-document-date-7001'), { target: { value: '01/04/2026' } });
     expect(onDocumentDateChange).toHaveBeenLastCalledWith('2026-04-01');
 
     await user.click(screen.getByText('Upload mock'));

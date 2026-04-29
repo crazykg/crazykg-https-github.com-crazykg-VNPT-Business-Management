@@ -98,6 +98,18 @@ function filterStepRaciByProcedureMembers(
   return next;
 }
 
+function buildEmployeeOption(employee: Employee): SearchableSelectOption {
+  const position = resolvePositionName(employee);
+  const label = `${getEmployeeLabel(employee)}${position ? ` — ${position}` : ''}`;
+  return {
+    value: String(employee.id),
+    label,
+    searchText: [employee.user_code, employee.full_name, employee.job_title_raw, employee.username, position]
+      .filter(Boolean)
+      .join(' '),
+  };
+}
+
 export const useProcedureRaci = ({
   activeProcedure,
   activeTab,
@@ -213,17 +225,7 @@ export const useProcedureRaci = ({
       try {
         const res = await fetchEmployeesOptionsPage(userSearch, 1, 40);
         const data: Employee[] = (res as { data?: Employee[] }).data ?? (Array.isArray(res) ? res : []);
-        const options: SearchableSelectOption[] = data.map((employee) => {
-          const position = resolvePositionName(employee);
-          const label = `${getEmployeeLabel(employee)}${position ? ` — ${position}` : ''}`;
-          return {
-            value: String(employee.id),
-            label,
-            searchText: [employee.user_code, employee.full_name, employee.job_title_raw, employee.username, position]
-              .filter(Boolean)
-              .join(' '),
-          };
-        });
+        const options = data.map(buildEmployeeOption);
 
         if (cancelled) return;
         setUserOptions(options);
@@ -393,7 +395,7 @@ export const useProcedureRaci = ({
     }
   }, [inflightRef, onNotify]);
 
-  const handleAssignA = useCallback(async (stepId: string | number, userId: string | number) => {
+  const handleSetStepAccountable = useCallback(async (stepId: string | number, userId: string | number) => {
     const stepKey = String(stepId);
     const currentA = (stepRaciMap[stepKey] ?? []).find((entry) => entry.raci_role === 'A') ?? null;
     if (currentA && String(currentA.user_id) === String(userId)) {
@@ -419,12 +421,12 @@ export const useProcedureRaci = ({
     }
 
     if (role === 'A') {
-      await handleAssignA(stepId, userId);
+      await handleSetStepAccountable(stepId, userId);
       return;
     }
 
     await handleAddStepRaci(stepId, userId, role);
-  }, [handleAddStepRaci, handleAssignA, handleRemoveStepRaci, stepRaciMap]);
+  }, [handleAddStepRaci, handleRemoveStepRaci, handleSetStepAccountable, stepRaciMap]);
 
   const handleCopyStepRaci = useCallback(async (
     sourceStepId: string | number,
@@ -469,6 +471,19 @@ export const useProcedureRaci = ({
       .join(', ');
   }, [raciList]);
 
+  const displayedUserOptions = useMemo(() => {
+    if (!raciUserId || userOptions.some((option) => String(option.value) === String(raciUserId))) {
+      return userOptions;
+    }
+
+    const selectedEmployee = employeeCache.get(String(raciUserId));
+    if (!selectedEmployee) {
+      return userOptions;
+    }
+
+    return [buildEmployeeOption(selectedEmployee), ...userOptions];
+  }, [employeeCache, raciUserId, userOptions]);
+
   return {
     raciList,
     stepRaciMap,
@@ -478,7 +493,7 @@ export const useProcedureRaci = ({
     raciRole,
     raciNote,
     raciSaving,
-    userOptions,
+    userOptions: displayedUserOptions,
     usersLoading,
     employeeCache,
     existingAccountable,
@@ -494,7 +509,6 @@ export const useProcedureRaci = ({
     handleCancelAccountableReplacement,
     handleAddRaci,
     handleRemoveRaci,
-    handleAssignA,
     handleToggleStepRaci,
     handleCopyStepRaci,
   };

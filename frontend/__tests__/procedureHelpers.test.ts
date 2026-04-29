@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { computeEndDate } from '../utils/procedureHelpers';
+import {
+  computeDurationDays,
+  computeEndDate,
+  computeStartDate,
+  formatProcedureDatePlaceholder,
+} from '../utils/procedureHelpers';
+
+describe('formatProcedureDatePlaceholder', () => {
+  it('giữ định dạng rỗng giống native date input', () => {
+    expect(formatProcedureDatePlaceholder()).toBe('dd/mm/yyyy');
+  });
+});
 
 describe('computeEndDate', () => {
 
@@ -93,5 +104,37 @@ describe('computeEndDate', () => {
 
   it('Không bị lệch múi giờ khi qua tháng mới', () => {
     expect(computeEndDate('2025-01-31', 2)).toBe('2025-02-01');
+  });
+});
+
+describe('computeStartDate', () => {
+  it('suy ra Từ ngày từ Ngày và Đến ngày', () => {
+    expect(computeStartDate('2025-01-05', 5)).toBe('2025-01-01');
+  });
+
+  it('xử lý qua tháng và năm nhuận', () => {
+    expect(computeStartDate('2024-03-01', 3)).toBe('2024-02-28');
+  });
+
+  it('trả null khi thiếu ngày hoặc số ngày không hợp lệ', () => {
+    expect(computeStartDate(null, 3)).toBeNull();
+    expect(computeStartDate('2025-01-05', 0)).toBeNull();
+    expect(computeStartDate('05/01/2025', 3)).toBeNull();
+  });
+});
+
+describe('computeDurationDays', () => {
+  it('suy ra Ngày từ Từ ngày và Đến ngày theo công thức inclusive', () => {
+    expect(computeDurationDays('2025-01-01', '2025-01-05')).toBe(5);
+    expect(computeDurationDays('2025-01-01', '2025-01-01')).toBe(1);
+  });
+
+  it('trả null khi Đến ngày nhỏ hơn Từ ngày', () => {
+    expect(computeDurationDays('2025-01-05', '2025-01-04')).toBeNull();
+  });
+
+  it('trả null khi ngày sai định dạng', () => {
+    expect(computeDurationDays('01/01/2025', '2025-01-05')).toBeNull();
+    expect(computeDurationDays('2025-02-30', '2025-03-02')).toBeNull();
   });
 });

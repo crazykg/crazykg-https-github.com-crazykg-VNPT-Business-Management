@@ -5,6 +5,17 @@ import {
 } from './procedure-fixtures';
 import { registerProcedureScenarioMock } from './procedure-api-mock';
 
+function getProjectProcedureOpenButton(page: Page, projectId: number) {
+  return page
+    .locator(
+      [
+        `[data-testid="project-open-procedure-${projectId}"]`,
+        `[data-testid="project-mobile-open-procedure-${projectId}"]`,
+      ].join(', '),
+    )
+    .first();
+}
+
 export async function openProcedureModal(
   page: Page,
   state: MockProcedureScenarioState,
@@ -17,10 +28,11 @@ export async function openProcedureModal(
   await page.locator('input[autocomplete="username"]').fill(PROCEDURE_TEST_LOGIN.username);
   await page.locator('input[autocomplete="current-password"]').fill(PROCEDURE_TEST_LOGIN.password);
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
-  await expect(page.getByTestId(`project-open-procedure-${projectId}`)).toBeVisible();
-  await page.getByTestId(`project-open-procedure-${projectId}`).click();
+  const openProcedureButton = getProjectProcedureOpenButton(page, projectId);
+  await expect(openProcedureButton).toBeVisible();
+  await openProcedureButton.click();
   await expect(page.getByTestId('project-procedure-modal')).toBeVisible();
   if (firstParentStep) {
-    await expect(page.getByTestId(`step-a-trigger-${firstParentStep.id}`)).toBeVisible();
+    await expect(page.getByTestId(`step-progress-${firstParentStep.id}`)).toBeVisible();
   }
 }

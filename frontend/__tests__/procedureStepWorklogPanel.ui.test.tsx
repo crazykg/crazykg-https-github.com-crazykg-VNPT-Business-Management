@@ -86,7 +86,13 @@ describe('ProcedureStepWorklogPanel', () => {
       </table>
     );
 
-    expect(screen.getByTestId('step-worklog-panel-7001')).toBeInTheDocument();
+    const worklogPanel = screen.getByTestId('step-worklog-panel-7001');
+    expect(worklogPanel).toBeInTheDocument();
+    expect(worklogPanel).toHaveAttribute('colspan', '12');
+    expect(screen.getByRole('list', { name: 'Nhật ký worklog của bước 7001' })).toBeInTheDocument();
+    expect(screen.getByText('Ghi chú')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nội dung worklog')).toHaveClass('focus-visible:outline');
+    expect(screen.getByLabelText(/Trạng thái khó khăn Thiếu hồ sơ gốc/)).toHaveClass('focus-visible:outline');
 
     fireEvent.change(screen.getByTestId('step-worklog-input-7001'), { target: { value: 'Chuẩn bị bổ sung' } });
     expect(onSetWlogInput).toHaveBeenLastCalledWith('Chuẩn bị bổ sung');
@@ -182,10 +188,10 @@ describe('ProcedureStepWorklogPanel', () => {
     fireEvent.change(screen.getByDisplayValue('Bổ sung biên bản bàn giao'), { target: { value: 'Đề nghị gửi lại' } });
     expect(onSetEditWorklogProposal).toHaveBeenLastCalledWith('Đề nghị gửi lại');
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'RESOLVED' } });
+    fireEvent.change(screen.getByLabelText('Trạng thái khó khăn khi sửa'), { target: { value: 'RESOLVED' } });
     expect(onSetEditWorklogStatus).toHaveBeenLastCalledWith('RESOLVED');
 
-    await user.click(screen.getByRole('button', { name: 'Huỷ' }));
+    await user.click(screen.getByRole('button', { name: /Hủy|Huỷ/ }));
     expect(onCancelEditWorklog).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Lưu' }));

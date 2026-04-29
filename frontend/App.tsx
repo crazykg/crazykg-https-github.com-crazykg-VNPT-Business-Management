@@ -2430,7 +2430,10 @@ const App: React.FC = () => {
   // Main render
   return (
     <div className="flex h-[100dvh] min-h-screen min-h-[100dvh] min-h-0 bg-bg-light overflow-hidden flex-col lg:flex-row">
-      <div className="lg:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-30">
+      <div
+        data-testid="mobile-app-header"
+        className="lg:hidden z-30 flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-2.5 pt-1.5 shadow-sm"
+      >
         <div className="flex items-center gap-3">
           <button onClick={() => setIsSidebarOpen(true)} className="text-slate-600 p-1"><span className="material-symbols-outlined">menu</span></button>
           <button

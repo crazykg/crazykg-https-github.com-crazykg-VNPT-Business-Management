@@ -51,15 +51,15 @@ class ProjectProcedureStepService
         }
 
         $validator = Validator::make($request->all(), [
-            'step_name'         => 'sometimes|string|max:500',
-            'lead_unit'         => 'sometimes|nullable|string|max:255',
-            'expected_result'   => 'sometimes|nullable|string|max:1000',
-            'duration_days'     => 'sometimes|nullable|integer|min:0',
-            'progress_status'   => 'sometimes|string|max:50',
-            'document_number'   => 'sometimes|nullable|string|max:255',
-            'document_date'     => 'sometimes|nullable|date',
+            'step_name' => 'sometimes|string|max:500',
+            'lead_unit' => 'sometimes|nullable|string|max:255',
+            'expected_result' => 'sometimes|nullable|string|max:1000',
+            'duration_days' => 'sometimes|nullable|integer|min:0',
+            'progress_status' => 'sometimes|string|max:50',
+            'document_number' => 'sometimes|nullable|string|max:255',
+            'document_date' => 'sometimes|nullable|date',
             'actual_start_date' => 'sometimes|nullable|date',
-            'actual_end_date'   => 'sometimes|nullable|date',
+            'actual_end_date' => 'sometimes|nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -114,19 +114,19 @@ class ProjectProcedureStepService
             $statusLabels = [
                 'CHUA_THUC_HIEN' => 'Chưa thực hiện',
                 'DANG_THUC_HIEN' => 'Đang thực hiện',
-                'HOAN_THANH'     => 'Hoàn thành',
+                'HOAN_THANH' => 'Hoàn thành',
             ];
             ProjectProcedureStepWorklog::create([
-                'step_id'      => $step->id,
+                'step_id' => $step->id,
                 'procedure_id' => $step->procedure_id,
-                'log_type'     => 'STATUS_CHANGE',
-                'content'      => 'Tiến độ thay đổi: '
-                    . ($statusLabels[$oldStatus] ?? $oldStatus)
-                    . ' → '
-                    . ($statusLabels[$request->input('progress_status')] ?? $request->input('progress_status')),
-                'old_value'    => $oldStatus,
-                'new_value'    => $request->input('progress_status'),
-                'created_by'   => $userId,
+                'log_type' => 'STATUS_CHANGE',
+                'content' => 'Tiến độ thay đổi: '
+                    .($statusLabels[$oldStatus] ?? $oldStatus)
+                    .' → '
+                    .($statusLabels[$request->input('progress_status')] ?? $request->input('progress_status')),
+                'old_value' => $oldStatus,
+                'new_value' => $request->input('progress_status'),
+                'created_by' => $userId,
             ]);
         }
 
@@ -134,7 +134,7 @@ class ProjectProcedureStepService
         $procedure->recalculateProgress();
 
         return response()->json([
-            'data'             => $step->fresh(),
+            'data' => $step->fresh(),
             'overall_progress' => $procedure->fresh()->overall_progress,
         ]);
     }
@@ -142,13 +142,14 @@ class ProjectProcedureStepService
     public function batchUpdateSteps(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'steps'                     => 'required|array|min:1',
-            'steps.*.id'                => 'required|integer|exists:project_procedure_steps,id',
-            'steps.*.progress_status'   => 'sometimes|string|max:50',
-            'steps.*.document_number'   => 'sometimes|nullable|string|max:255',
-            'steps.*.document_date'     => 'sometimes|nullable|date',
+            'steps' => 'required|array|min:1',
+            'steps.*.id' => 'required|integer|exists:project_procedure_steps,id',
+            'steps.*.progress_status' => 'sometimes|string|max:50',
+            'steps.*.document_number' => 'sometimes|nullable|string|max:255',
+            'steps.*.document_date' => 'sometimes|nullable|date',
+            'steps.*.duration_days' => 'sometimes|nullable|integer|min:0',
             'steps.*.actual_start_date' => 'sometimes|nullable|date',
-            'steps.*.actual_end_date'   => 'sometimes|nullable|date',
+            'steps.*.actual_end_date' => 'sometimes|nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -173,10 +174,36 @@ class ProjectProcedureStepService
             }
         }
 
+        $dateErrors = [];
+        foreach ($stepsData as $index => $stepData) {
+            $step = $stepsMap->get($stepData['id']);
+            if (! $step) {
+                continue;
+            }
+
+            $startDate = array_key_exists('actual_start_date', $stepData)
+                ? $this->support->normalizeNullableString($stepData['actual_start_date'])
+                : $this->support->normalizeNullableString($step->getRawOriginal('actual_start_date'));
+            $endDate = array_key_exists('actual_end_date', $stepData)
+                ? $this->support->normalizeNullableString($stepData['actual_end_date'])
+                : $this->support->normalizeNullableString($step->getRawOriginal('actual_end_date'));
+
+            if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
+                $dateErrors["steps.{$index}.actual_end_date"][] = 'Đến ngày phải lớn hơn hoặc bằng Từ ngày.';
+            }
+        }
+
+        if ($dateErrors !== []) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => $dateErrors,
+            ], 422);
+        }
+
         $statusLabels = [
             'CHUA_THUC_HIEN' => 'Chưa thực hiện',
             'DANG_THUC_HIEN' => 'Đang thực hiện',
-            'HOAN_THANH'     => 'Hoàn thành',
+            'HOAN_THANH' => 'Hoàn thành',
         ];
 
         DB::transaction(function () use ($stepsData, $stepsMap, $userId, $statusLabels, &$updatedCount, &$procedureIds) {
@@ -187,11 +214,12 @@ class ProjectProcedureStepService
                 }
 
                 $updateFields = array_filter([
-                    'progress_status'   => $stepData['progress_status'] ?? null,
-                    'document_number'   => array_key_exists('document_number', $stepData) ? $stepData['document_number'] : null,
-                    'document_date'     => array_key_exists('document_date', $stepData) ? $stepData['document_date'] : null,
+                    'progress_status' => $stepData['progress_status'] ?? null,
+                    'document_number' => array_key_exists('document_number', $stepData) ? $stepData['document_number'] : null,
+                    'document_date' => array_key_exists('document_date', $stepData) ? $stepData['document_date'] : null,
+                    'duration_days' => array_key_exists('duration_days', $stepData) ? $stepData['duration_days'] : null,
                     'actual_start_date' => array_key_exists('actual_start_date', $stepData) ? $stepData['actual_start_date'] : null,
-                    'actual_end_date'   => array_key_exists('actual_end_date', $stepData) ? $stepData['actual_end_date'] : null,
+                    'actual_end_date' => array_key_exists('actual_end_date', $stepData) ? $stepData['actual_end_date'] : null,
                 ], fn ($v, $k) => array_key_exists($k, $stepData), ARRAY_FILTER_USE_BOTH);
 
                 if ($updateFields !== []) {
@@ -202,27 +230,27 @@ class ProjectProcedureStepService
 
                     if (isset($stepData['progress_status']) && $stepData['progress_status'] !== $oldStatus) {
                         ProjectProcedureStepWorklog::create([
-                            'step_id'      => $step->id,
+                            'step_id' => $step->id,
                             'procedure_id' => $step->procedure_id,
-                            'log_type'     => 'STATUS_CHANGE',
-                            'content'      => 'Tiến độ thay đổi: '
-                                . ($statusLabels[$oldStatus] ?? $oldStatus)
-                                . ' → '
-                                . ($statusLabels[$stepData['progress_status']] ?? $stepData['progress_status']),
-                            'old_value'    => $oldStatus,
-                            'new_value'    => $stepData['progress_status'],
-                            'created_by'   => $userId,
+                            'log_type' => 'STATUS_CHANGE',
+                            'content' => 'Tiến độ thay đổi: '
+                                .($statusLabels[$oldStatus] ?? $oldStatus)
+                                .' → '
+                                .($statusLabels[$stepData['progress_status']] ?? $stepData['progress_status']),
+                            'old_value' => $oldStatus,
+                            'new_value' => $stepData['progress_status'],
+                            'created_by' => $userId,
                         ]);
                     }
 
                     if (isset($stepData['document_number']) && $stepData['document_number']) {
                         ProjectProcedureStepWorklog::create([
-                            'step_id'      => $step->id,
+                            'step_id' => $step->id,
                             'procedure_id' => $step->procedure_id,
-                            'log_type'     => 'DOCUMENT_ADDED',
-                            'content'      => 'Số văn bản: ' . $stepData['document_number'],
-                            'new_value'    => $stepData['document_number'],
-                            'created_by'   => $userId,
+                            'log_type' => 'DOCUMENT_ADDED',
+                            'content' => 'Số văn bản: '.$stepData['document_number'],
+                            'new_value' => $stepData['document_number'],
+                            'created_by' => $userId,
                         ]);
                     }
                 }
@@ -241,7 +269,7 @@ class ProjectProcedureStepService
 
         return response()->json([
             'data' => [
-                'updated_count'    => $updatedCount,
+                'updated_count' => $updatedCount,
                 'overall_progress' => $overallProgress,
             ],
         ]);
@@ -255,16 +283,16 @@ class ProjectProcedureStepService
         }
 
         $validator = Validator::make($request->all(), [
-            'step_name'         => 'required|string|max:500',
-            'phase'             => 'sometimes|nullable|string|max:255',
-            'lead_unit'         => 'sometimes|nullable|string|max:255',
-            'expected_result'   => 'sometimes|nullable|string|max:1000',
-            'duration_days'     => 'sometimes|nullable|integer|min:0',
+            'step_name' => 'required|string|max:500',
+            'phase' => 'sometimes|nullable|string|max:255',
+            'lead_unit' => 'sometimes|nullable|string|max:255',
+            'expected_result' => 'sometimes|nullable|string|max:1000',
+            'duration_days' => 'sometimes|nullable|integer|min:0',
             'actual_start_date' => 'sometimes|nullable|date',
-            'actual_end_date'   => 'sometimes|nullable|date|after_or_equal:actual_start_date',
-            'progress_status'   => 'sometimes|nullable|in:CHUA_THUC_HIEN,DANG_THUC_HIEN,HOAN_THANH',
-            'sort_order'        => 'sometimes|integer|min:0',
-            'parent_step_id'    => 'sometimes|nullable|integer|exists:project_procedure_steps,id',
+            'actual_end_date' => 'sometimes|nullable|date|after_or_equal:actual_start_date',
+            'progress_status' => 'sometimes|nullable|in:CHUA_THUC_HIEN,DANG_THUC_HIEN,HOAN_THANH',
+            'sort_order' => 'sometimes|integer|min:0',
+            'parent_step_id' => 'sometimes|nullable|integer|exists:project_procedure_steps,id',
         ]);
 
         if ($validator->fails()) {
@@ -341,28 +369,28 @@ class ProjectProcedureStepService
                 ->max('step_number');
 
             $step = ProjectProcedureStep::create([
-                'procedure_id'       => $procedureId,
-                'template_step_id'   => null,
-                'step_number'        => ($maxStepNum ?? 0) + 1,
-                'phase'              => $request->input('phase'),
-                'parent_step_id'     => $parentStepId,
-                'step_name'          => $request->input('step_name'),
-                'lead_unit'          => $request->input('lead_unit'),
-                'expected_result'    => $request->input('expected_result'),
-                'duration_days'      => $request->input('duration_days', 0),
-                'actual_start_date'  => $request->input('actual_start_date'),
-                'actual_end_date'    => $request->input('actual_end_date'),
-                'progress_status'    => $request->input('progress_status', 'CHUA_THUC_HIEN'),
-                'sort_order'         => $sortOrder,
-                'created_by'         => $request->user()?->id,
+                'procedure_id' => $procedureId,
+                'template_step_id' => null,
+                'step_number' => ($maxStepNum ?? 0) + 1,
+                'phase' => $request->input('phase'),
+                'parent_step_id' => $parentStepId,
+                'step_name' => $request->input('step_name'),
+                'lead_unit' => $request->input('lead_unit'),
+                'expected_result' => $request->input('expected_result'),
+                'duration_days' => $request->input('duration_days', 0),
+                'actual_start_date' => $request->input('actual_start_date'),
+                'actual_end_date' => $request->input('actual_end_date'),
+                'progress_status' => $request->input('progress_status', 'CHUA_THUC_HIEN'),
+                'sort_order' => $sortOrder,
+                'created_by' => $request->user()?->id,
             ]);
 
             ProjectProcedureStepWorklog::create([
-                'step_id'      => $step->id,
+                'step_id' => $step->id,
                 'procedure_id' => $procedureId,
-                'log_type'     => 'CUSTOM',
-                'content'      => 'Bước tùy chỉnh được thêm: ' . $step->step_name,
-                'created_by'   => $request->user()?->id,
+                'log_type' => 'CUSTOM',
+                'content' => 'Bước tùy chỉnh được thêm: '.$step->step_name,
+                'created_by' => $request->user()?->id,
             ]);
 
             $procedure->recalculateProgress();
@@ -425,28 +453,75 @@ class ProjectProcedureStepService
     public function reorderSteps(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'steps'              => 'required|array|min:1|max:100',
-            'steps.*.id'         => 'required|integer|exists:project_procedure_steps,id',
+            'steps' => 'required|array|min:1|max:100',
+            'steps.*' => 'required|array',
+            'steps.*.id' => 'required|integer|exists:project_procedure_steps,id',
             'steps.*.sort_order' => 'required|integer|min:0',
+            'steps.*.procedure_id' => 'missing',
+            'steps.*.parent_step_id' => 'missing',
+            'steps.*.phase' => 'missing',
+        ], [
+            'steps.*.procedure_id.missing' => 'Không được gửi procedure_id khi sắp xếp bước.',
+            'steps.*.parent_step_id.missing' => 'Không được gửi parent_step_id khi sắp xếp bước.',
+            'steps.*.phase.missing' => 'Không được gửi phase khi sắp xếp bước.',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
         }
 
-        $stepIds = array_column($request->input('steps'), 'id');
-        $procedureIds = ProjectProcedureStep::whereIn('id', $stepIds)->pluck('procedure_id')->unique();
-        $projectIds = ProjectProcedure::whereIn('id', $procedureIds)->pluck('project_id')->unique();
-        foreach ($projectIds as $pid) {
-            [, $err] = $this->access->resolveAccessibleProject((int) $pid, $request);
-            if ($err !== null) {
-                return $err;
-            }
+        $stepsData = $request->input('steps');
+        $stepIds = array_map('intval', array_column($stepsData, 'id'));
+        $uniqueStepIds = array_values(array_unique($stepIds));
+
+        if (count($stepIds) !== count($uniqueStepIds)) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'steps' => ['Mỗi bước chỉ được xuất hiện một lần trong payload sắp xếp.'],
+                ],
+            ], 422);
         }
 
-        DB::transaction(function () use ($request) {
-            foreach ($request->input('steps') as $item) {
-                ProjectProcedureStep::where('id', $item['id'])
+        $stepsMap = ProjectProcedureStep::query()
+            ->whereIn('id', $uniqueStepIds)
+            ->get(['id', 'procedure_id', 'phase'])
+            ->keyBy('id');
+
+        $procedureIds = $stepsMap->pluck('procedure_id')->unique()->values();
+        if ($procedureIds->count() !== 1) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'steps' => ['Các bước sắp xếp phải thuộc cùng một thủ tục.'],
+                ],
+            ], 422);
+        }
+
+        $phaseKeys = $stepsMap
+            ->map(fn (ProjectProcedureStep $step): string => $this->support->normalizeNullableString($step->phase) ?? '__NULL__')
+            ->unique()
+            ->values();
+
+        if ($phaseKeys->count() !== 1) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'steps' => ['Các bước sắp xếp phải thuộc cùng một giai đoạn.'],
+                ],
+            ], 422);
+        }
+
+        $procedureId = (int) $procedureIds->first();
+        [, $err] = $this->access->resolveAccessibleProcedure($procedureId, $request);
+        if ($err !== null) {
+            return $err;
+        }
+
+        DB::transaction(function () use ($stepsData, $procedureId) {
+            foreach ($stepsData as $item) {
+                ProjectProcedureStep::where('id', (int) $item['id'])
+                    ->where('procedure_id', $procedureId)
                     ->update(['sort_order' => (int) $item['sort_order']]);
             }
         });

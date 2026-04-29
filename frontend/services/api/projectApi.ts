@@ -4,12 +4,15 @@ import type {
   AddWorklogPayload,
   IssueStatus,
   PaymentCycle,
+  ProcedureExportFormat,
+  ProcedurePublicShareResult,
   ProcedureRaciEntry,
   ProcedureStepBatchUpdate,
   ProcedureStepRaciEntry,
   ProcedureStepWorklog,
   ProcedureTemplate,
   ProcedureTemplateStep,
+  PublicProcedurePayload,
   Project,
   ProjectItemMaster,
   ProjectProcedure,
@@ -24,6 +27,7 @@ import {
   fetchList,
   fetchPaginatedList,
   isRequestCanceledError,
+  DownloadFileResult,
   JSON_ACCEPT_HEADER,
   JSON_HEADERS,
   normalizeNumber,
@@ -31,6 +35,7 @@ import {
   normalizeNullableText,
   parseErrorMessage,
   parseItemJson,
+  resolveDownloadFilename,
 } from './_infra';
 
 type ApiListResponse<T> = {
@@ -733,6 +738,78 @@ export const fetchProcedureSteps = async (procedureId: string | number): Promise
   }
 
   return parseListJson<ProjectProcedureStep>(res);
+};
+
+const PROCEDURE_EXPORT_ACCEPT: Record<ProcedureExportFormat, string> = {
+  word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  excel: 'application/vnd.ms-excel',
+};
+
+export const exportProjectProcedure = async (
+  procedureId: string | number,
+  format: ProcedureExportFormat
+): Promise<DownloadFileResult> => {
+  const normalizedFormat = format === 'excel' ? 'excel' : 'word';
+  const res = await apiFetch(
+    `/api/v5/project-procedures/${procedureId}/export?format=${encodeURIComponent(normalizedFormat)}`,
+    {
+      credentials: 'include',
+      headers: { Accept: PROCEDURE_EXPORT_ACCEPT[normalizedFormat] },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'EXPORT_PROCEDURE_FAILED'));
+  }
+
+  const extension = normalizedFormat === 'word' ? 'docx' : 'xls';
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: resolveDownloadFilename(res, `thu_tuc_${String(procedureId)}.${extension}`),
+  };
+};
+
+export const createProcedurePublicShare = async (
+  procedureId: string | number
+): Promise<ProcedurePublicShareResult> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/public-share`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'CREATE_PROCEDURE_PUBLIC_SHARE_FAILED'));
+  }
+
+  return parseItemJson<ProcedurePublicShareResult>(res);
+};
+
+export const revokeProcedurePublicShare = async (procedureId: string | number): Promise<void> => {
+  const res = await apiFetch(`/api/v5/project-procedures/${procedureId}/public-share`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'REVOKE_PROCEDURE_PUBLIC_SHARE_FAILED'));
+  }
+};
+
+export const fetchPublicProcedureShare = async (token: string): Promise<PublicProcedurePayload> => {
+  const res = await globalThis.fetch(`/api/v5/public/project-procedure-shares/${encodeURIComponent(token)}`, {
+    credentials: 'omit',
+    headers: JSON_ACCEPT_HEADER,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, 'FETCH_PUBLIC_PROCEDURE_SHARE_FAILED'));
+  }
+
+  return parseItemJson<PublicProcedurePayload>(res);
 };
 
 export const resyncProcedure = async (procedureId: string | number): Promise<ProjectProcedure> => {

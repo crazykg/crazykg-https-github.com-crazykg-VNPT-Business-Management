@@ -2,8 +2,6 @@ import React, { useMemo } from 'react';
 import type {
   Attachment,
   IssueStatus,
-  ProcedureRaciEntry,
-  ProcedureStepRaciEntry,
   ProcedureStepStatus,
   ProcedureStepWorklog,
   ProjectProcedureStep,
@@ -11,6 +9,22 @@ import type {
 import { StepRow, type StepRowProps } from './StepRow';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const PROCEDURE_TABLE_COLUMNS = [
+  40,
+  52,
+  336,
+  176,
+  220,
+  96,
+  140,
+  140,
+  136,
+  148,
+  124,
+  52,
+] as const;
+const PROCEDURE_TABLE_COLUMN_COUNT = PROCEDURE_TABLE_COLUMNS.length;
+const PROCEDURE_TABLE_MIN_WIDTH = 'min-w-[1660px]';
 
 interface PhaseGroup {
   phase: string;
@@ -33,6 +47,8 @@ interface ProcedurePhaseGroupSectionProps {
   group: PhaseGroup;
   groupIndex: number;
   stats: PhaseStatsEntry;
+  datePlaceholder: string;
+  isCollapsed: boolean;
   raciMatrixPhase: string | null;
   editingPhase: string | null;
   editingPhaseLabel: string;
@@ -42,6 +58,7 @@ interface ProcedurePhaseGroupSectionProps {
   onSavePhaseLabel: () => void;
   onCancelEditPhase: () => void;
   onStartEditPhase: (phase: string, label: string) => void;
+  onToggleCollapsed: (phase: string) => void;
   onToggleRaciMatrixPhase: (phase: string) => void;
   addingInPhase: string | null;
   addingStepSubmittingPhase: string | null;
@@ -64,8 +81,6 @@ interface ProcedurePhaseGroupSectionProps {
   isAdmin: boolean;
   isRaciA: boolean;
   myId: string;
-  stepRaciMap: Record<string, ProcedureStepRaciEntry[]>;
-  raciList: ProcedureRaciEntry[];
   stepWorklogs: Record<string, ProcedureStepWorklog[]>;
   stepWorklogInput: Record<string, string>;
   stepWorklogHours: Record<string, string>;
@@ -95,6 +110,8 @@ interface ProcedurePhaseGroupSectionProps {
   openWorklogStep: string | number | null;
   onDraftChange: StepRowProps['onDraftChange'];
   onStartDateChange: StepRowProps['onStartDateChange'];
+  onEndDateChange: StepRowProps['onEndDateChange'];
+  onDateRangeBlur: StepRowProps['onDateRangeBlur'];
   onReorder: StepRowProps['onReorder'];
   onToggleDetail: StepRowProps['onToggleDetail'];
   onStartEditRow: StepRowProps['onStartEditRow'];
@@ -107,7 +124,6 @@ interface ProcedurePhaseGroupSectionProps {
   onDeleteAttachment: StepRowProps['onDeleteAttachment'];
   onToggleWorklog: StepRowProps['onToggleWorklog'];
   onAddWorklog: StepRowProps['onAddWorklog'];
-  onAssignA: StepRowProps['onAssignA'];
   onUpdateIssueStatus: StepRowProps['onUpdateIssueStatus'];
   onStartEditWorklog: StepRowProps['onStartEditWorklog'];
   onCancelEditWorklog: StepRowProps['onCancelEditWorklog'];
@@ -141,10 +157,28 @@ function formatMonthYear(dateStr: string | null | undefined): string {
   return `${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}`;
 }
 
+const normalizeStepKey = (value: string | number | null | undefined): string =>
+  value === null || value === undefined || value === '' ? '' : String(value);
+
+const compareStepOrder = (left: ProjectProcedureStep, right: ProjectProcedureStep): number => {
+  const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0);
+  if (orderDiff !== 0) return orderDiff;
+  const numberDiff = Number(left.step_number ?? 0) - Number(right.step_number ?? 0);
+  if (numberDiff !== 0) return numberDiff;
+  return normalizeStepKey(left.id).localeCompare(normalizeStepKey(right.id), 'vi');
+};
+
+const EMPTY_STEP_DRAFT: Record<string, any> = {};
+const EMPTY_PROCEDURE_STEPS: ProjectProcedureStep[] = [];
+const EMPTY_WORKLOGS: ProcedureStepWorklog[] = [];
+const EMPTY_ATTACHMENTS: Attachment[] = [];
+
 export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProps> = ({
   group,
   groupIndex,
   stats,
+  datePlaceholder,
+  isCollapsed,
   raciMatrixPhase,
   editingPhase,
   editingPhaseLabel,
@@ -154,6 +188,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   onSavePhaseLabel,
   onCancelEditPhase,
   onStartEditPhase,
+  onToggleCollapsed,
   onToggleRaciMatrixPhase,
   addingInPhase,
   addingStepSubmittingPhase,
@@ -176,8 +211,6 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   isAdmin,
   isRaciA,
   myId,
-  stepRaciMap,
-  raciList,
   stepWorklogs,
   stepWorklogInput,
   stepWorklogHours,
@@ -207,6 +240,8 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   openWorklogStep,
   onDraftChange,
   onStartDateChange,
+  onEndDateChange,
+  onDateRangeBlur,
   onReorder,
   onToggleDetail,
   onStartEditRow,
@@ -219,7 +254,6 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   onDeleteAttachment,
   onToggleWorklog,
   onAddWorklog,
-  onAssignA,
   onUpdateIssueStatus,
   onStartEditWorklog,
   onCancelEditWorklog,
@@ -268,15 +302,62 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
   const stepsInPhase = useMemo(
     () => group.steps
       .filter((step) => !step.parent_step_id)
-      .sort((a, b) => a.sort_order - b.sort_order),
+      .sort(compareStepOrder),
     [group.steps],
   );
+  const childrenByParentId = useMemo(() => {
+    const map = new Map<string, ProjectProcedureStep[]>();
+    group.steps
+      .filter((step) => step.parent_step_id != null)
+      .forEach((step) => {
+        const parentKey = normalizeStepKey(step.parent_step_id);
+        const children = map.get(parentKey) ?? [];
+        children.push(step);
+        map.set(parentKey, children);
+      });
+    map.forEach((children) => children.sort(compareStepOrder));
+    return map;
+  }, [group.steps]);
+  const orderedSteps = useMemo(
+    () => stepsInPhase.flatMap((step) => [
+      step,
+      ...(childrenByParentId.get(normalizeStepKey(step.id)) ?? []),
+    ]),
+    [childrenByParentId, stepsInPhase],
+  );
+  const displayNumberByStepId = useMemo(() => {
+    const map = new Map<string, string>();
+    stepsInPhase.forEach((step, parentIndex) => {
+      const parentNumber = String(parentIndex + 1);
+      const parentKey = normalizeStepKey(step.id);
+      map.set(parentKey, parentNumber);
+      const children = childrenByParentId.get(parentKey) ?? EMPTY_PROCEDURE_STEPS;
+      children.forEach((child, childIndex) => {
+        map.set(normalizeStepKey(child.id), `${parentNumber}.${childIndex + 1}`);
+      });
+    });
+    return map;
+  }, [childrenByParentId, stepsInPhase]);
+  const bodyId = `procedure-phase-body-${group.phase}`;
+  const toggleTitle = isCollapsed ? 'Mở chi tiết giai đoạn' : 'Thu gọn giai đoạn';
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden" data-testid={`procedure-phase-group-${group.phase}`}>
-      <div className={`flex items-center justify-between px-4 py-3 ${stats.isAllDone ? 'bg-success/8 border-b border-success/15' : 'bg-slate-50 border-b border-slate-200'}`}>
+    <div className="overflow-hidden rounded-lg border border-[var(--ui-border)] bg-white shadow-sm" data-testid={`procedure-phase-group-${group.phase}`}>
+      <div className={`flex items-center justify-between border-b border-slate-200 border-l-4 px-4 py-3 ${stats.isAllDone ? 'border-l-emerald-700 bg-white' : 'border-l-primary bg-slate-50'}`}>
         <div className="flex items-center gap-3">
-          <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-sm ${stats.isAllDone ? 'bg-success text-white' : 'bg-deep-teal text-white'}`}>
+          <button
+            type="button"
+            onClick={() => onToggleCollapsed(group.phase)}
+            aria-expanded={!isCollapsed}
+            aria-controls={bodyId}
+            aria-label={`${toggleTitle}: ${group.label}`}
+            title={toggleTitle}
+            data-testid={`phase-collapse-toggle-${group.phase}`}
+            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-700 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/20 sm:h-8 sm:w-8"
+          >
+            <span className="material-symbols-outlined text-base">{isCollapsed ? 'chevron_right' : 'expand_more'}</span>
+          </button>
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-sm border ${stats.isAllDone ? 'border-emerald-700 bg-emerald-100 text-emerald-700' : 'border-primary bg-primary text-white'}`}>
             {ROMAN[groupIndex] ?? groupIndex + 1}
           </span>
           <div>
@@ -291,7 +372,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     if (event.key === 'Enter') onSavePhaseLabel();
                     if (event.key === 'Escape') onCancelEditPhase();
                   }}
-                  className="h-7 min-w-0 w-40 rounded border border-primary/60 bg-white px-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/25"
+                  className="h-8 min-w-0 w-48 rounded border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none focus:border-primary/70 focus:ring-1 focus:ring-primary/15"
                   placeholder="Tên giai đoạn..."
                   maxLength={255}
                   autoComplete="off"
@@ -300,7 +381,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <button
                   onClick={onSavePhaseLabel}
                   disabled={phaseLabelSaving}
-                  className="flex items-center justify-center w-7 h-7 rounded bg-primary text-white hover:bg-deep-teal disabled:opacity-50 transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded bg-primary text-white transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:opacity-60"
                   title="Lưu tên giai đoạn"
                 >
                   <span className="material-symbols-outlined text-sm">{phaseLabelSaving ? 'progress_activity' : 'check'}</span>
@@ -308,7 +389,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <button
                   onClick={onCancelEditPhase}
                   disabled={phaseLabelSaving}
-                  className="flex items-center justify-center w-7 h-7 rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/15 disabled:opacity-60"
                   title="Hủy"
                 >
                   <span className="material-symbols-outlined text-sm">close</span>
@@ -319,7 +400,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 <span className="text-sm font-bold text-slate-800">{group.label}</span>
                 <button
                   onClick={() => onStartEditPhase(group.phase, group.label)}
-                  className="flex items-center justify-center w-5 h-5 rounded opacity-0 group-hover/phase-label:opacity-100 text-slate-400 hover:text-primary hover:bg-primary/10 transition-all"
+                  className="flex items-center justify-center w-5 h-5 rounded opacity-0 group-hover/phase-label:opacity-100 text-slate-600 hover:text-primary hover:bg-primary/10 transition-all focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-primary/20"
                   title="Đổi tên giai đoạn"
                   type="button"
                 >
@@ -327,7 +408,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                 </button>
               </div>
             )}
-            <span className="mt-0.5 block text-xs text-slate-400">
+            <span className="mt-0.5 block text-xs text-slate-600">
               {stats.completed}/{stats.total} bước {stats.isAllDone && '✓'}
               {stats.totalDays > 0 && (
                 <span className="ml-2 text-deep-teal font-medium">• {stats.totalDays} ngày công</span>
@@ -346,155 +427,177 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
             </span>
           </div>
           <div className="hidden sm:flex items-center gap-2 ml-2">
-            <div className="w-20 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${stats.isAllDone ? 'bg-success' : 'bg-deep-teal'}`} style={{ width: `${stats.percent}%` }} />
+            <div className="w-20 h-1.5 bg-slate-100 ring-1 ring-inset ring-slate-300 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${stats.isAllDone ? 'bg-[var(--ui-success-fg)]' : 'bg-primary'}`} style={{ width: `${stats.percent}%` }} />
             </div>
-            <span className="text-xs text-slate-400">{stats.percent}%</span>
+            <span className="text-xs text-slate-600">{stats.percent}%</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onToggleRaciMatrixPhase(group.phase)}
-            data-testid={`phase-raci-${group.phase}`}
-            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium border rounded transition-colors ${
-              raciMatrixPhase === group.phase
-                ? 'text-primary bg-primary/8 border-primary/30'
-                : 'text-primary bg-white border-primary/25 hover:bg-primary/5'
-            }`}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>group</span>
-            Phân công
-          </button>
-          <button
-            onClick={() => onToggleAddStep(group.phase)}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-deep-teal bg-white border border-deep-teal/30 rounded hover:bg-deep-teal/5 transition-colors"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isAddingHere ? 'close' : 'add'}</span>
-            {isAddingHere ? 'Hủy' : 'Thêm bước'}
-          </button>
-        </div>
+        {!isCollapsed && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onToggleRaciMatrixPhase(group.phase)}
+              data-testid={`phase-raci-${group.phase}`}
+              className={`flex h-8 items-center gap-1 rounded border px-2.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-primary/20 ${
+                raciMatrixPhase === group.phase
+                  ? 'text-primary bg-primary/8 border-primary'
+                  : 'text-primary bg-white border-primary hover:bg-primary/5'
+              }`}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>group</span>
+              Phân công
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleAddStep(group.phase)}
+              className="flex h-8 items-center gap-1 rounded border border-primary bg-white px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary/20"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isAddingHere ? 'close' : 'add'}</span>
+              {isAddingHere ? 'Hủy' : 'Thêm bước'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[1140px]">
-          <thead className="bg-white border-b border-slate-100">
-            <tr>
-              <th className="px-1 py-2 w-10" title="Xếp thứ tự" />
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[40px]">TT</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase">Trình tự công việc</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">ĐV chủ trì</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">Kết quả dự kiến</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[84px] text-center">Ngày</th>
-              <th className="px-2 py-2 text-[10px] font-bold text-slate-400 uppercase w-[132px]">Từ ngày</th>
-              <th className="px-2 py-2 text-[10px] font-bold text-slate-400 uppercase w-[132px]">Đến ngày</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[120px]">Tiến độ</th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[140px]">
-                <span className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-xs">history</span>
-                  Worklog
-                </span>
-              </th>
-              <th className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase w-[150px]">
-                <span className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-xs">attach_file</span>
-                  File
-                </span>
-              </th>
-              <th className="px-2 py-2 w-[30px]" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {group.steps.map((step) => (
-              <StepRow
-                key={step.id}
-                step={step}
-                draft={drafts[String(step.id)] ?? {}}
-                stepsInPhase={stepsInPhase}
-                isEditing={editingStepId === step.id}
-                isExpanded={expandedDetails.has(step.id)}
-                isWlogOpen={openWorklogStep === step.id}
-                isAttachOpen={openAttachStep === String(step.id)}
-                isAddingChild={addingChildToStepId === step.id}
-                isAddingChildSubmitting={addingChildSubmittingStepId === step.id}
-                hasChildren={childParentIds.has(String(step.id))}
-                isAdmin={isAdmin}
-                isRaciA={isRaciA}
-                myId={myId}
-                stepRaciEntries={stepRaciMap[String(step.id)] ?? []}
-                raciMembers={raciList}
-                wlogs={stepWorklogs[String(step.id)] ?? []}
-                wlogInput={stepWorklogInput[String(step.id)] ?? ''}
-                wlogHours={stepWorklogHours[String(step.id)] ?? ''}
-                wlogDifficulty={stepWorklogDifficulty[String(step.id)] ?? ''}
-                wlogProposal={stepWorklogProposal[String(step.id)] ?? ''}
-                wlogIssueStatus={(stepWorklogIssueStatus[String(step.id)] ?? 'JUST_ENCOUNTERED') as IssueStatus}
-                wlogSaving={stepWorklogSaving[String(step.id)] ?? false}
-                editingRowDraft={editingRowDraft}
-                attachList={stepAttachments[String(step.id)] ?? []}
-                attachLoading={attachLoadingStep === String(step.id)}
-                attachUploading={attachUploading[String(step.id)] ?? false}
-                newChildName={newChildName}
-                newChildUnit={newChildUnit}
-                newChildDays={newChildDays}
-                newChildStartDate={newChildStartDate}
-                newChildEndDate={newChildEndDate}
-                newChildStatus={newChildStatus}
-                editingWorklogId={editingWorklogId}
-                editWorklogContent={editWorklogContent}
-                editWorklogHours={editWorklogHours}
-                editWorklogDiff={editWorklogDiff}
-                editWorklogProposal={editWorklogProposal}
-                editWorklogStatus={editWorklogStatus}
-                editWorklogSaving={editWorklogSaving}
-                deletingWorklogId={deletingWorklogId}
-                onDraftChange={onDraftChange}
-                onStartDateChange={onStartDateChange}
-                onReorder={onReorder}
-                onToggleDetail={onToggleDetail}
-                onStartEditRow={onStartEditRow}
-                onCancelEditRow={onCancelEditRow}
-                onSaveEditRow={onSaveEditRow}
-                onSetEditingRowDraft={onSetEditingRowDraft}
-                onDeleteStep={onDeleteStep}
-                onOpenAttachments={onOpenAttachments}
-                onUploadFile={onUploadFile}
-                onDeleteAttachment={onDeleteAttachment}
-                onToggleWorklog={onToggleWorklog}
-                onAddWorklog={onAddWorklog}
-                onAssignA={onAssignA}
-                onUpdateIssueStatus={onUpdateIssueStatus}
-                onStartEditWorklog={onStartEditWorklog}
-                onCancelEditWorklog={onCancelEditWorklog}
-                onSaveEditWorklog={onSaveEditWorklog}
-                onDeleteWorklog={onDeleteWorklog}
-                onSetWlogInput={onSetWlogInput}
-                onSetWlogHours={onSetWlogHours}
-                onSetWlogDifficulty={onSetWlogDifficulty}
-                onSetWlogProposal={onSetWlogProposal}
-                onSetWlogIssueStatus={onSetWlogIssueStatus}
-                onSetEditWorklogContent={onSetEditWorklogContent}
-                onSetEditWorklogHours={onSetEditWorklogHours}
-                onSetEditWorklogDiff={onSetEditWorklogDiff}
-                onSetEditWorklogProposal={onSetEditWorklogProposal}
-                onSetEditWorklogStatus={onSetEditWorklogStatus}
-                onToggleAddChild={onToggleAddChild}
-                onAddChildStep={onAddChildStep}
-                onSetChildName={onSetChildName}
-                onSetChildUnit={onSetChildUnit}
-                onSetChildDays={onSetChildDays}
-                onSetChildStartDate={onSetChildStartDate}
-                onSetChildEndDate={onSetChildEndDate}
-                onSetChildStatus={onSetChildStatus}
-                onCancelChild={onCancelChild}
-              />
-            ))}
+      {!isCollapsed && (
+        <div id={bodyId} className="overflow-x-auto" data-testid={`procedure-phase-body-${group.phase}`}>
+          <table className={`w-full ${PROCEDURE_TABLE_MIN_WIDTH} table-fixed border-collapse text-left`}>
+            <colgroup>
+              {PROCEDURE_TABLE_COLUMNS.map((width, index) => (
+                <col key={`${group.phase}-${index}`} style={{ width }} />
+              ))}
+            </colgroup>
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th scope="col" className="px-1 py-2" title="Xếp thứ tự" aria-label="Xếp thứ tự" />
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">TT</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Trình tự công việc</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">ĐV chủ trì</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Kết quả dự kiến</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase text-center">Ngày</th>
+                <th scope="col" className="px-2 py-2 text-[11px] font-semibold text-slate-700 uppercase">Từ ngày</th>
+                <th scope="col" className="px-2 py-2 text-[11px] font-semibold text-slate-700 uppercase">Đến ngày</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">Tiến độ</th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">
+                  <span className="flex items-center gap-1">
+                    <span aria-hidden="true" className="material-symbols-outlined text-xs">history</span>
+                    Worklog
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-2 text-[11px] font-semibold text-slate-700 uppercase">
+                  <span className="flex items-center gap-1">
+                    <span aria-hidden="true" className="material-symbols-outlined text-xs">attach_file</span>
+                    File
+                  </span>
+                </th>
+                <th
+                  scope="col"
+                  className="sticky right-0 z-20 border-l border-slate-300 bg-slate-100 px-2 py-2 shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.18)]"
+                  aria-label="Thao tác"
+                >
+                  <span className="sr-only">Thao tác</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+            {orderedSteps.map((step) => {
+              const stepKey = normalizeStepKey(step.id);
+              const stepsInScope = step.parent_step_id
+                ? (childrenByParentId.get(normalizeStepKey(step.parent_step_id)) ?? EMPTY_PROCEDURE_STEPS)
+                : stepsInPhase;
+
+              return (
+                <StepRow
+                  key={step.id}
+                  step={step}
+                  displayNumber={displayNumberByStepId.get(stepKey) ?? ''}
+                  datePlaceholder={datePlaceholder}
+                  draft={drafts[stepKey] ?? EMPTY_STEP_DRAFT}
+                  stepsInScope={stepsInScope}
+                  isEditing={editingStepId === step.id}
+                  isExpanded={expandedDetails.has(step.id)}
+                  isWlogOpen={openWorklogStep === step.id}
+                  isAttachOpen={openAttachStep === stepKey}
+                  isAddingChild={addingChildToStepId === step.id}
+                  isAddingChildSubmitting={addingChildSubmittingStepId === step.id}
+                  hasChildren={childParentIds.has(stepKey)}
+                  isAdmin={isAdmin}
+                  isRaciA={isRaciA}
+                  myId={myId}
+                  wlogs={stepWorklogs[stepKey] ?? EMPTY_WORKLOGS}
+                  wlogInput={stepWorklogInput[stepKey] ?? ''}
+                  wlogHours={stepWorklogHours[stepKey] ?? ''}
+                  wlogDifficulty={stepWorklogDifficulty[stepKey] ?? ''}
+                  wlogProposal={stepWorklogProposal[stepKey] ?? ''}
+                  wlogIssueStatus={(stepWorklogIssueStatus[stepKey] ?? 'JUST_ENCOUNTERED') as IssueStatus}
+                  wlogSaving={stepWorklogSaving[stepKey] ?? false}
+                  editingRowDraft={editingRowDraft}
+                  attachList={stepAttachments[stepKey] ?? EMPTY_ATTACHMENTS}
+                  attachLoading={attachLoadingStep === stepKey}
+                  attachUploading={attachUploading[stepKey] ?? false}
+                  newChildName={newChildName}
+                  newChildUnit={newChildUnit}
+                  newChildDays={newChildDays}
+                  newChildStartDate={newChildStartDate}
+                  newChildEndDate={newChildEndDate}
+                  newChildStatus={newChildStatus}
+                  editingWorklogId={editingWorklogId}
+                  editWorklogContent={editWorklogContent}
+                  editWorklogHours={editWorklogHours}
+                  editWorklogDiff={editWorklogDiff}
+                  editWorklogProposal={editWorklogProposal}
+                  editWorklogStatus={editWorklogStatus}
+                  editWorklogSaving={editWorklogSaving}
+                  deletingWorklogId={deletingWorklogId}
+                  onDraftChange={onDraftChange}
+                  onStartDateChange={onStartDateChange}
+                  onEndDateChange={onEndDateChange}
+                  onDateRangeBlur={onDateRangeBlur}
+                  onReorder={onReorder}
+                  onToggleDetail={onToggleDetail}
+                  onStartEditRow={onStartEditRow}
+                  onCancelEditRow={onCancelEditRow}
+                  onSaveEditRow={onSaveEditRow}
+                  onSetEditingRowDraft={onSetEditingRowDraft}
+                  onDeleteStep={onDeleteStep}
+                  onOpenAttachments={onOpenAttachments}
+                  onUploadFile={onUploadFile}
+                  onDeleteAttachment={onDeleteAttachment}
+                  onToggleWorklog={onToggleWorklog}
+                  onAddWorklog={onAddWorklog}
+                  onUpdateIssueStatus={onUpdateIssueStatus}
+                  onStartEditWorklog={onStartEditWorklog}
+                  onCancelEditWorklog={onCancelEditWorklog}
+                  onSaveEditWorklog={onSaveEditWorklog}
+                  onDeleteWorklog={onDeleteWorklog}
+                  onSetWlogInput={onSetWlogInput}
+                  onSetWlogHours={onSetWlogHours}
+                  onSetWlogDifficulty={onSetWlogDifficulty}
+                  onSetWlogProposal={onSetWlogProposal}
+                  onSetWlogIssueStatus={onSetWlogIssueStatus}
+                  onSetEditWorklogContent={onSetEditWorklogContent}
+                  onSetEditWorklogHours={onSetEditWorklogHours}
+                  onSetEditWorklogDiff={onSetEditWorklogDiff}
+                  onSetEditWorklogProposal={onSetEditWorklogProposal}
+                  onSetEditWorklogStatus={onSetEditWorklogStatus}
+                  onToggleAddChild={onToggleAddChild}
+                  onAddChildStep={onAddChildStep}
+                  onSetChildName={onSetChildName}
+                  onSetChildUnit={onSetChildUnit}
+                  onSetChildDays={onSetChildDays}
+                  onSetChildStartDate={onSetChildStartDate}
+                  onSetChildEndDate={onSetChildEndDate}
+                  onSetChildStatus={onSetChildStatus}
+                  onCancelChild={onCancelChild}
+                />
+              );
+            })}
 
             {isAddingHere && (
               <tr className="bg-primary/5 border-t-2 border-primary/20">
                 <td className="px-1 py-2" />
-                <td className="px-3 py-2 text-xs text-slate-400 text-center font-mono">+</td>
-                <td className="px-1 py-2" />
+                <td className="px-3 py-2 text-xs text-slate-600 text-center font-mono">+</td>
                 <td className="px-2 py-2">
                   <input
                     autoFocus
@@ -506,7 +609,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       if (event.key === 'Enter' && !isAddingStepSubmitting && newStepName.trim()) onAddStep(group.phase);
                     }}
                     placeholder="Tên bước mới..."
-                    className="w-full px-2.5 py-1.5 rounded text-xs border border-primary/30 bg-white focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none font-medium placeholder:text-slate-300"
+                    className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none font-medium placeholder:text-slate-500"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -516,7 +619,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     disabled={isAddingStepSubmitting}
                     onChange={(event) => onSetNewStepUnit(event.target.value)}
                     placeholder="ĐV chủ trì..."
-                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none placeholder:text-slate-300"
+                    className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none placeholder:text-slate-500"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -526,7 +629,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     disabled={isAddingStepSubmitting}
                     onChange={(event) => onSetNewStepResult(event.target.value)}
                     placeholder="Kết quả dự kiến..."
-                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none placeholder:text-slate-300"
+                    className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none placeholder:text-slate-500"
                   />
                 </td>
                 <td className="px-2 py-2">
@@ -537,7 +640,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                     onChange={(event) => onSetNewStepDays(event.target.value)}
                     placeholder="0"
                     min="0"
-                    className="w-full px-2 py-1.5 rounded text-xs border border-primary/20 bg-white focus:border-primary/50 outline-none text-center placeholder:text-slate-300"
+                    className="h-8 w-full rounded px-2.5 text-sm border border-slate-300 bg-white focus:border-primary/70 focus:ring-1 focus:ring-primary/15 outline-none text-center placeholder:text-slate-500"
                   />
                 </td>
                 <td colSpan={6} className="px-3 py-2">
@@ -546,7 +649,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       type="button"
                       onClick={() => onAddStep(group.phase)}
                       disabled={!newStepName.trim() || isAddingStepSubmitting}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded transition-colors bg-primary text-white hover:bg-deep-teal disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex h-8 items-center gap-1.5 rounded bg-primary px-2.5 text-xs font-semibold text-white transition-colors hover:bg-deep-teal focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isAddingStepSubmitting ? 'Đang thêm...' : 'Thêm'}
                     </button>
@@ -554,7 +657,7 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
                       type="button"
                       disabled={isAddingStepSubmitting}
                       onClick={onResetAddStepForm}
-                      className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-600 rounded hover:bg-slate-50 transition-colors"
+                      className="h-8 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary/15"
                     >
                       Hủy
                     </button>
@@ -563,14 +666,15 @@ export const ProcedurePhaseGroupSection: React.FC<ProcedurePhaseGroupSectionProp
               </tr>
             )}
 
-            {group.steps.length === 0 && !isAddingHere && (
+            {orderedSteps.length === 0 && !isAddingHere && (
               <tr>
-                <td colSpan={13} className="px-4 py-4 text-center text-xs text-slate-400">Chưa có bước nào.</td>
+                <td colSpan={PROCEDURE_TABLE_COLUMN_COUNT} className="px-4 py-4 text-center text-xs text-slate-600">Chưa có bước nào.</td>
               </tr>
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,53 +1,82 @@
 import React from 'react';
 import type { IssueStatus, ProcedureStepWorklog } from '../../types';
 
-const WORKLOG_ICON: Record<string, string> = {
-  STATUS_CHANGE: 'sync_alt',
-  DOCUMENT_ADDED: 'description',
-  NOTE: 'edit_note',
-  CUSTOM: 'add_circle',
+type WorklogMeta = {
+  icon: string;
+  label: string;
+  className: string;
 };
 
-const WORKLOG_COLOR: Record<string, string> = {
-  STATUS_CHANGE: 'text-blue-500 bg-blue-50',
-  DOCUMENT_ADDED: 'text-emerald-500 bg-emerald-50',
-  NOTE: 'text-violet-500 bg-violet-50',
-  CUSTOM: 'text-amber-500 bg-amber-50',
+const WORKLOG_META: Record<string, WorklogMeta> = {
+  STATUS_CHANGE: {
+    icon: 'sync_alt',
+    label: 'Đổi tiến độ',
+    className: 'border-primary/25 bg-primary/10 text-primary',
+  },
+  DOCUMENT_ADDED: {
+    icon: 'description',
+    label: 'Văn bản',
+    className: 'border-emerald-800/25 bg-emerald-50 text-emerald-800',
+  },
+  NOTE: {
+    icon: 'edit_note',
+    label: 'Ghi chú',
+    className: 'border-slate-300 bg-slate-50 text-slate-700',
+  },
+  CUSTOM: {
+    icon: 'add_circle',
+    label: 'Tự thêm',
+    className: 'border-amber-900/25 bg-amber-50 text-amber-900',
+  },
 };
 
 const ISSUE_STATUS_META: Record<string, { label: string; color: string; dot: string }> = {
-  JUST_ENCOUNTERED: { label: 'Vừa gặp', color: 'text-orange-700 bg-orange-50 border-orange-200', dot: 'bg-orange-400' },
-  IN_PROGRESS: { label: 'Đang xử lý', color: 'text-yellow-700 bg-yellow-50 border-yellow-200', dot: 'bg-yellow-400' },
-  RESOLVED: { label: 'Đã giải quyết', color: 'text-green-700 bg-green-50 border-green-200', dot: 'bg-green-500' },
+  JUST_ENCOUNTERED: {
+    label: 'Vừa gặp',
+    color: 'text-amber-900 bg-amber-50 border-amber-800/30',
+    dot: 'bg-amber-800',
+  },
+  IN_PROGRESS: {
+    label: 'Đang xử lý',
+    color: 'text-primary bg-primary/10 border-primary/30',
+    dot: 'bg-primary',
+  },
+  RESOLVED: {
+    label: 'Đã giải quyết',
+    color: 'text-emerald-800 bg-emerald-50 border-emerald-800/30',
+    dot: 'bg-emerald-800',
+  },
 };
 
-function relativeTime(dateStr: string): string {
-  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
-  if (diff < 60) return 'Vừa xong';
-  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)} ngày trước`;
-  return new Date(dateStr).toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+const fieldClassName =
+  'h-11 sm:h-8 rounded border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-500 transition-colors focus:border-primary/70 focus:ring-1 focus:ring-primary/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500';
 
-function absTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+const textareaClassName =
+  'min-h-[44px] rounded border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-500 transition-colors focus:border-primary/70 focus:ring-1 focus:ring-primary/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-500';
+
+const iconButtonClassName =
+  'inline-flex h-9 w-9 items-center justify-center rounded text-slate-600 transition-colors hover:bg-slate-100 hover:text-primary focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-slate-400 sm:h-7 sm:w-7';
+
+const labelClassName = 'text-[11px] font-semibold text-slate-700';
+
+const getWorklogMeta = (type?: string): WorklogMeta => WORKLOG_META[type || ''] || WORKLOG_META.CUSTOM;
+
+const getRelativeTime = (value: string) => {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return value;
+
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const absSeconds = Math.abs(diffSeconds);
+  const rtf = new Intl.RelativeTimeFormat('vi', { numeric: 'auto' });
+
+  if (absSeconds < 60) return rtf.format(diffSeconds, 'second');
+  if (absSeconds < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute');
+  if (absSeconds < 86400) return rtf.format(Math.round(diffSeconds / 3600), 'hour');
+  return rtf.format(Math.round(diffSeconds / 86400), 'day');
+};
 
 interface ProcedureStepWorklogPanelProps {
-  stepId: string | number;
+  stepId: number | string;
   wlogs: ProcedureStepWorklog[];
   wlogInput: string;
   wlogHours: string;
@@ -65,12 +94,12 @@ interface ProcedureStepWorklogPanelProps {
   deletingWorklogId: string | number | null;
   isAdmin: boolean;
   isRaciA: boolean;
-  myId: string;
+  myId: string | number | null | undefined;
   onAddWorklog: () => void;
   onUpdateIssueStatus: (issueId: string | number, status: IssueStatus) => void;
   onStartEditWorklog: (log: ProcedureStepWorklog) => void;
   onCancelEditWorklog: () => void;
-  onSaveEditWorklog: (logId: string | number) => void;
+  onSaveEditWorklog: (id: number | string) => void;
   onDeleteWorklog: (log: ProcedureStepWorklog) => void;
   onSetWlogInput: (value: string) => void;
   onSetWlogHours: (value: string) => void;
@@ -120,231 +149,307 @@ export const ProcedureStepWorklogPanel: React.FC<ProcedureStepWorklogPanelProps>
   onSetEditWorklogDiff,
   onSetEditWorklogProposal,
   onSetEditWorklogStatus,
-}) => (
-  <tr>
-    <td data-testid={`step-worklog-panel-${stepId}`} colSpan={13} className="px-4 py-3 bg-violet-50/50 border-t border-violet-100">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col gap-2 bg-white border border-violet-100 rounded-xl p-2.5">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={wlogInput}
-              onChange={(e) => onSetWlogInput(e.target.value)}
-              data-testid={`step-worklog-input-${stepId}`}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !wlogSaving) onAddWorklog(); }}
-              placeholder="Ghi worklog mới... (Enter để lưu)"
-              className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-            />
-            <input
-              type="number"
-              min="0.01"
-              max="24"
-              step="0.25"
-              value={wlogHours}
-              onChange={(e) => onSetWlogHours(e.target.value)}
-              data-testid={`step-worklog-hours-${stepId}`}
-              placeholder="Giờ"
-              title="Giờ thực hiện"
-              className="w-20 px-2 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none text-right"
-            />
-            <button
-              onClick={onAddWorklog}
-              data-testid={`step-worklog-add-${stepId}`}
-              disabled={!wlogInput.trim() || wlogSaving}
-              className="px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {wlogSaving ? '...' : 'Thêm'}
-            </button>
-          </div>
-          <textarea
-            value={wlogDifficulty}
-            onChange={(e) => onSetWlogDifficulty(e.target.value)}
-            data-testid={`step-worklog-difficulty-${stepId}`}
-            placeholder="Khó khăn (tuỳ chọn)…"
-            rows={2}
-            className="w-full px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
-          />
-          {wlogDifficulty.trim() && (
-            <div className="flex gap-2">
-              <textarea
-                value={wlogProposal}
-                onChange={(e) => onSetWlogProposal(e.target.value)}
-                data-testid={`step-worklog-proposal-${stepId}`}
-                placeholder="Đề xuất / giải pháp…"
-                rows={2}
-                className="flex-1 px-3 py-1.5 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none resize-none"
-              />
-              <select
-                value={wlogIssueStatus}
-                onChange={(e) => onSetWlogIssueStatus(e.target.value as IssueStatus)}
-                data-testid={`step-worklog-status-${stepId}`}
-                className="w-36 px-2 py-1 rounded-lg text-xs border border-violet-200 bg-white focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none self-start mt-0.5"
-              >
-                <option value="JUST_ENCOUNTERED">Vừa gặp</option>
-                <option value="IN_PROGRESS">Đang xử lý</option>
-                <option value="RESOLVED">Đã giải quyết</option>
-              </select>
-            </div>
-          )}
-        </div>
+}) => {
+  const issueFieldsVisible = wlogDifficulty.trim().length > 0;
 
-        {wlogs.length > 0 ? (
-          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
+  return (
+    <tr>
+      <td
+        colSpan={12}
+        id={`step-worklog-panel-${stepId}`}
+        data-testid={`step-worklog-panel-${stepId}`}
+        className="px-4 py-3 bg-violet-50/50 border-t border-violet-100"
+      >
+        <div className="flex flex-col gap-3">
+          <div className="rounded-lg border border-violet-200 bg-white p-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_88px_auto]">
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className={labelClassName}>Nội dung worklog</span>
+                <input
+                  type="text"
+                  value={wlogInput}
+                  onChange={(event) => onSetWlogInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') onAddWorklog();
+                  }}
+                  data-testid={`step-worklog-input-${stepId}`}
+                  placeholder="Ghi worklog mới... (Enter để lưu)"
+                  disabled={wlogSaving}
+                  className={`${fieldClassName} w-full`}
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className={labelClassName}>Giờ</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={wlogHours}
+                  onChange={(event) => onSetWlogHours(event.target.value)}
+                  data-testid={`step-worklog-hours-${stepId}`}
+                  placeholder="Giờ"
+                  disabled={wlogSaving}
+                  className={`${fieldClassName} w-full`}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onAddWorklog}
+                data-testid={`step-worklog-add-${stepId}`}
+                disabled={!wlogInput.trim() || wlogSaving}
+                aria-label={wlogSaving ? 'Đang thêm worklog' : 'Thêm worklog'}
+                className="inline-flex h-11 items-center justify-center rounded bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-deep-teal focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 sm:mt-5 sm:h-8 sm:text-xs"
+              >
+                {wlogSaving ? '...' : 'Thêm'}
+              </button>
+            </div>
+
+            <label className="mt-2 flex flex-col gap-1">
+              <span className={labelClassName}>Khó khăn (tùy chọn)</span>
+              <textarea
+                value={wlogDifficulty}
+                onChange={(event) => onSetWlogDifficulty(event.target.value)}
+                data-testid={`step-worklog-difficulty-${stepId}`}
+                placeholder="Khó khăn (tùy chọn)..."
+                disabled={wlogSaving}
+                rows={2}
+                className={`${textareaClassName} w-full`}
+              />
+            </label>
+
+            {issueFieldsVisible && (
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_160px]" aria-live="polite">
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className={labelClassName}>Đề xuất / giải pháp</span>
+                  <textarea
+                    value={wlogProposal}
+                    onChange={(event) => onSetWlogProposal(event.target.value)}
+                    data-testid={`step-worklog-proposal-${stepId}`}
+                    placeholder="Đề xuất / giải pháp..."
+                    disabled={wlogSaving}
+                    rows={2}
+                    className={`${textareaClassName} w-full`}
+                  />
+                </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className={labelClassName}>Trạng thái khó khăn</span>
+                  <select
+                    value={wlogIssueStatus}
+                    onChange={(event) => onSetWlogIssueStatus(event.target.value as IssueStatus)}
+                    data-testid={`step-worklog-status-${stepId}`}
+                    disabled={wlogSaving}
+                    className={`${fieldClassName} w-full`}
+                  >
+                    <option value="JUST_ENCOUNTERED">Vừa gặp</option>
+                    <option value="IN_PROGRESS">Đang xử lý</option>
+                    <option value="RESOLVED">Đã giải quyết</option>
+                  </select>
+                </label>
+              </div>
+            )}
+          </div>
+
+          <ol
+            role="list"
+            aria-label={`Nhật ký worklog của bước ${stepId}`}
+            className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin"
+          >
             {wlogs.map((log) => {
-              const canDeleteLog =
-                log.log_type === 'NOTE'
-                && (isAdmin || isRaciA || (!!myId && String(log.created_by ?? '') === String(myId)));
-              const isDeletingLog = String(deletingWorklogId ?? '') === String(log.id);
+              const issue = log.issue;
+              const issueStatus: IssueStatus = issue?.issue_status || 'JUST_ENCOUNTERED';
+              const issueMeta = ISSUE_STATUS_META[issueStatus] || ISSUE_STATUS_META.JUST_ENCOUNTERED;
+              const worklogMeta = getWorklogMeta(log.log_type);
+              const isEditing = String(editingWorklogId) === String(log.id);
+              const creatorId = log.creator?.id ?? log.created_by;
+              const canMutate = isAdmin || isRaciA || (myId != null && String(creatorId) === String(myId));
+              const isDeleting = String(deletingWorklogId) === String(log.id);
+              const hoursSpent = log.timesheet?.hours_spent;
 
               return (
-              <div key={log.id} className="flex items-start gap-2 text-xs group">
-                <span className={`p-1 rounded-full shrink-0 ${WORKLOG_COLOR[log.log_type] || 'bg-slate-100 text-slate-400'}`}>
-                  <span className="material-symbols-outlined text-xs leading-none">{WORKLOG_ICON[log.log_type] || 'info'}</span>
-                </span>
-                <div className="flex-1 min-w-0">
-                  {editingWorklogId === log.id ? (
-                    <div className="flex flex-col gap-1.5 bg-violet-50 border border-violet-200 rounded-lg p-2">
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editWorklogContent}
-                        onChange={(e) => onSetEditWorklogContent(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Escape') onCancelEditWorklog(); }}
-                        className="w-full px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none"
-                      />
-                      <div className="flex gap-1.5">
+                <li
+                  key={log.id}
+                  className="group rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                >
+                  {isEditing ? (
+                    <div className="flex flex-col gap-2">
+                      <label className="flex flex-col gap-1">
+                        <span className={labelClassName}>Nội dung worklog khi sửa</span>
                         <input
-                          type="number"
-                          min="0.01"
-                          max="24"
-                          step="0.25"
-                          value={editWorklogHours}
-                          onChange={(e) => onSetEditWorklogHours(e.target.value)}
-                          placeholder="Giờ"
-                          className="w-20 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none text-right"
+                          type="text"
+                          value={editWorklogContent}
+                          onChange={(event) => onSetEditWorklogContent(event.target.value)}
+                          data-testid={`step-worklog-edit-input-${log.id}`}
+                          className={`${fieldClassName} w-full`}
                         />
-                        <textarea
-                          value={editWorklogDiff}
-                          onChange={(e) => onSetEditWorklogDiff(e.target.value)}
-                          placeholder="Khó khăn…"
-                          rows={2}
-                          className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
-                        />
-                      </div>
-                      {editWorklogDiff.trim() && (
-                        <div className="flex gap-1.5">
-                          <textarea
-                            value={editWorklogProposal}
-                            onChange={(e) => onSetEditWorklogProposal(e.target.value)}
-                            placeholder="Đề xuất…"
-                            rows={2}
-                            className="flex-1 px-2 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none resize-none"
+                      </label>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[96px_minmax(0,1fr)_160px]">
+                        <label className="flex flex-col gap-1">
+                          <span className={labelClassName}>Giờ khi sửa</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            value={editWorklogHours}
+                            onChange={(event) => onSetEditWorklogHours(event.target.value)}
+                            data-testid={`step-worklog-edit-hours-${log.id}`}
+                            className={`${fieldClassName} w-full`}
                           />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className={labelClassName}>Khó khăn khi sửa</span>
+                          <textarea
+                            value={editWorklogDiff}
+                            onChange={(event) => onSetEditWorklogDiff(event.target.value)}
+                            rows={2}
+                            className={`${textareaClassName} w-full`}
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className={labelClassName}>Trạng thái khó khăn khi sửa</span>
                           <select
                             value={editWorklogStatus}
-                            onChange={(e) => onSetEditWorklogStatus(e.target.value as IssueStatus)}
-                            className="w-32 px-1.5 py-1 rounded text-xs border border-violet-200 bg-white focus:border-violet-400 outline-none self-start"
+                            onChange={(event) => onSetEditWorklogStatus(event.target.value as IssueStatus)}
+                            className={`${fieldClassName} w-full`}
                           >
                             <option value="JUST_ENCOUNTERED">Vừa gặp</option>
                             <option value="IN_PROGRESS">Đang xử lý</option>
                             <option value="RESOLVED">Đã giải quyết</option>
                           </select>
-                        </div>
-                      )}
-                      <div className="flex gap-1.5 justify-end">
-                        <button onClick={onCancelEditWorklog} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-50">Huỷ</button>
+                        </label>
+                      </div>
+                      <label className="flex flex-col gap-1">
+                        <span className={labelClassName}>Đề xuất / giải pháp khi sửa</span>
+                        <textarea
+                          value={editWorklogProposal}
+                          onChange={(event) => onSetEditWorklogProposal(event.target.value)}
+                          rows={2}
+                          className={`${textareaClassName} w-full`}
+                        />
+                      </label>
+                      <div className="flex justify-end gap-2">
                         <button
+                          type="button"
+                          onClick={onCancelEditWorklog}
+                          disabled={editWorklogSaving}
+                          className="inline-flex h-11 items-center rounded border border-slate-300 px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-60 sm:h-8 sm:text-xs"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => onSaveEditWorklog(log.id)}
                           disabled={!editWorklogContent.trim() || editWorklogSaving}
-                          className="px-2 py-0.5 text-[10px] rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
+                          className="inline-flex h-11 items-center rounded bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-deep-teal focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 sm:h-8 sm:text-xs"
                         >
                           {editWorklogSaving ? '...' : 'Lưu'}
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-slate-700">{log.content}</span>
-                        {log.timesheet && Number(log.timesheet.hours_spent) > 0 && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-semibold border border-blue-100">
-                            <span className="material-symbols-outlined text-[10px]">schedule</span>
-                            {Number(log.timesheet.hours_spent).toFixed(2)}h
+                    <div className="flex items-start gap-2">
+                      <span
+                        aria-hidden="true"
+                        className={`mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full border ${worklogMeta.className}`}
+                      >
+                        <span className="material-symbols-outlined text-[15px]">{worklogMeta.icon}</span>
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-flex h-6 items-center rounded border px-2 text-[11px] font-semibold ${worklogMeta.className}`}
+                          >
+                            {worklogMeta.label}
                           </span>
-                        )}
-                        {log.log_type === 'NOTE' && (
-                          <>
-                            <button
-                              onClick={() => onStartEditWorklog(log)}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-violet-500 transition-all"
-                              title="Chỉnh sửa"
-                            >
-                              <span className="material-symbols-outlined text-[12px]">edit</span>
-                            </button>
-                            {canDeleteLog ? (
-                              <button
-                                type="button"
-                                onClick={() => onDeleteWorklog(log)}
-                                disabled={isDeletingLog}
-                                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-error disabled:cursor-not-allowed disabled:opacity-50 transition-all"
-                                title="Xóa"
-                                aria-label={`Xóa worklog ${log.content}`}
+                          <span className="min-w-0 font-semibold leading-5 text-slate-800">{log.content}</span>
+                          {hoursSpent != null ? (
+                            <span className="text-xs font-medium text-slate-700">• {Number(hoursSpent).toFixed(2)}h</span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-600">
+                          {log.creator?.full_name || 'Người dùng'} • {getRelativeTime(log.created_at)}
+                        </div>
+                        {issue?.issue_content ? (
+                          <div className="mt-2 rounded border border-amber-800/25 border-l-4 bg-amber-50/80 p-2 text-xs text-slate-800">
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <span
+                                className="material-symbols-outlined text-[14px] text-amber-800"
+                                aria-hidden="true"
                               >
-                                <span className="material-symbols-outlined text-[12px]">
-                                  {isDeletingLog ? 'progress_activity' : 'delete'}
+                                warning
+                              </span>
+                              <span className="font-semibold text-amber-900">Khó khăn</span>
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${issueMeta.color}`}
+                              >
+                                <span className={`h-1.5 w-1.5 rounded-full ${issueMeta.dot}`} aria-hidden="true" />
+                                {issueMeta.label}
+                              </span>
+                            </div>
+                            <p className="text-slate-800">{issue.issue_content}</p>
+                            {issue.proposal_content ? (
+                              <p className="mt-1 flex items-start gap-1 text-slate-700">
+                                <span
+                                  className="material-symbols-outlined text-[14px] text-emerald-800"
+                                  aria-hidden="true"
+                                >
+                                  lightbulb
                                 </span>
-                              </button>
+                                <span>
+                                  <span className="font-semibold">Đề xuất:</span> {issue.proposal_content}
+                                </span>
+                              </p>
                             ) : null}
-                          </>
-                        )}
-                      </div>
-                      {log.issue && (
-                        <div className="mt-1.5 pl-2 border-l-2 border-orange-200 space-y-0.5">
-                          <div className="flex items-start gap-1.5 flex-wrap">
-                            <span className="material-symbols-outlined text-[10px] text-orange-400 mt-0.5">warning</span>
-                            <span className="text-slate-600 text-[11px] flex-1">{log.issue.issue_content}</span>
-                            <div className="relative shrink-0">
-                              <span className={`pointer-events-none absolute left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${ISSUE_STATUS_META[log.issue.issue_status]?.dot || ''}`} />
+                            <label className="mt-2 flex w-full flex-col gap-1 sm:w-48">
+                              <span className={labelClassName}>Trạng thái khó khăn {issue.issue_content}</span>
                               <select
-                                value={log.issue.issue_status}
-                                onChange={(e) => onUpdateIssueStatus(log.issue!.id, e.target.value as IssueStatus)}
+                                value={issueStatus}
+                                onChange={(event) => onUpdateIssueStatus(issue.id, event.target.value as IssueStatus)}
                                 data-testid={`step-worklog-issue-status-${log.id}`}
-                                aria-label={`Trạng thái khó khăn ${log.issue.issue_content}`}
-                                className={`appearance-none rounded-full border py-0.5 pl-5 pr-6 text-[10px] font-semibold outline-none transition-colors ${ISSUE_STATUS_META[log.issue.issue_status]?.color || ''}`}
+                                className={`${fieldClassName} w-full text-xs`}
                               >
                                 <option value="JUST_ENCOUNTERED">Vừa gặp</option>
                                 <option value="IN_PROGRESS">Đang xử lý</option>
                                 <option value="RESOLVED">Đã giải quyết</option>
                               </select>
-                              <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-current/70">
-                                expand_more
-                              </span>
-                            </div>
+                            </label>
                           </div>
-                          {log.issue.proposal_content && (
-                            <p className="text-[10px] text-slate-500 flex items-start gap-1">
-                              <span className="material-symbols-outlined text-[10px] text-emerald-400 shrink-0 mt-px">lightbulb</span>
-                              {log.issue.proposal_content}
-                            </p>
-                          )}
+                        ) : null}
+                      </div>
+                      {canMutate ? (
+                        <div className="flex flex-none gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => onStartEditWorklog(log)}
+                            title="Chỉnh sửa"
+                            aria-label={`Chỉnh sửa worklog ${log.content}`}
+                            className={iconButtonClassName}
+                          >
+                            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+                              edit
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteWorklog(log)}
+                            title="Xóa"
+                            aria-label={`Xóa worklog ${log.content}`}
+                            disabled={isDeleting}
+                            className={`${iconButtonClassName} hover:text-red-700`}
+                          >
+                            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+                              {isDeleting ? 'hourglass_empty' : 'delete'}
+                            </span>
+                          </button>
                         </div>
-                      )}
-                      <span className="text-slate-400 mt-0.5 block">
-                        {log.creator?.full_name || 'Hệ thống'}
-                        {' · '}
-                        <span title={absTime(log.created_at)} className="cursor-default">{relativeTime(log.created_at)}</span>
-                      </span>
-                    </>
+                      ) : null}
+                    </div>
                   )}
-                </div>
-              </div>
-            );
+                </li>
+              );
             })}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-400 italic">Chưa có worklog cho bước này.</p>
-        )}
-      </div>
-    </td>
-  </tr>
-);
+          </ol>
+        </div>
+      </td>
+    </tr>
+  );
+};

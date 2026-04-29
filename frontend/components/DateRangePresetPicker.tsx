@@ -14,6 +14,7 @@ type DateRangePresetPickerProps = {
   dateFromLabel?: string;
   dateToLabel?: string;
   size?: 'dense' | 'default';
+  containerClassName?: string;
 };
 
 type PickerSizeConfig = {
@@ -141,6 +142,7 @@ export const DateRangePresetPicker: React.FC<DateRangePresetPickerProps> = ({
   dateFromLabel = 'Ngày bắt đầu',
   dateToLabel = 'Ngày kết thúc',
   size = 'default',
+  containerClassName = '',
 }) => {
   const sizeConfig = PICKER_SIZE_MAP[size];
   const defaultCustomRange = useMemo(() => getDefaultCustomDateRange(), []);
@@ -159,7 +161,7 @@ export const DateRangePresetPicker: React.FC<DateRangePresetPickerProps> = ({
   };
 
   return (
-    <div className={sizeConfig.containerClassName}>
+    <div className={`${sizeConfig.containerClassName} ${containerClassName}`.trim()}>
       {label ? <span className={sizeConfig.labelClassName}>{label}</span> : null}
 
       <div className={sizeConfig.segmentClassName}>

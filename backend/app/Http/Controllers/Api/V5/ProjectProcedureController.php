@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V5;
 
 use App\Services\V5\ProjectProcedure\ProjectProcedureAttachmentService;
+use App\Services\V5\ProjectProcedure\ProjectProcedureExportService;
 use App\Services\V5\ProjectProcedure\ProjectProcedureLifecycleService;
+use App\Services\V5\ProjectProcedure\ProjectProcedurePublicShareService;
 use App\Services\V5\ProjectProcedure\ProjectProcedureRaciService;
 use App\Services\V5\ProjectProcedure\ProjectProcedureStepService;
 use App\Services\V5\ProjectProcedure\ProjectProcedureTemplateService;
@@ -12,6 +14,7 @@ use App\Services\V5\V5AccessAuditService;
 use App\Services\V5\V5DomainSupportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class ProjectProcedureController extends V5BaseController
 {
@@ -24,6 +27,8 @@ class ProjectProcedureController extends V5BaseController
         private readonly ProjectProcedureWorklogService $worklogs,
         private readonly ProjectProcedureRaciService $raci,
         private readonly ProjectProcedureAttachmentService $attachments,
+        private readonly ProjectProcedurePublicShareService $publicShares,
+        private readonly ProjectProcedureExportService $exports,
     ) {
         parent::__construct($support, $accessAudit);
     }
@@ -96,6 +101,26 @@ class ProjectProcedureController extends V5BaseController
     public function procedureSteps(int $procedureId, Request $request): JsonResponse
     {
         return $this->steps->procedureSteps($procedureId, $request);
+    }
+
+    public function exportProcedure(Request $request, int $procedureId): Response
+    {
+        return $this->exports->export($request, $procedureId);
+    }
+
+    public function createPublicShare(Request $request, int $procedureId): JsonResponse
+    {
+        return $this->publicShares->createShare($request, $procedureId);
+    }
+
+    public function revokePublicShare(Request $request, int $procedureId): JsonResponse
+    {
+        return $this->publicShares->revokeShare($request, $procedureId);
+    }
+
+    public function publicShare(string $token): JsonResponse
+    {
+        return $this->publicShares->publicShare($token);
     }
 
     public function updateStep(Request $request, int $stepId): JsonResponse

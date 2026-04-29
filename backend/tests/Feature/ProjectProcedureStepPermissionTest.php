@@ -420,6 +420,203 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame([], $response->getData(true)['data'] ?? null);
     }
 
+    public function test_create_public_share_stores_only_hash_and_expires_in_seven_days(): void
+    {
+        $user = $this->createUser([
+            'id' => 50,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 370, name: 'Thủ tục public');
+
+        $response = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [], $user),
+            $procedureId,
+        );
+
+        $payload = $response->getData(true);
+        $token = (string) ($payload['data']['token'] ?? '');
+        $expiresAt = \Illuminate\Support\Carbon::parse((string) ($payload['data']['expires_at'] ?? ''));
+
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertGreaterThanOrEqual(48, strlen($token));
+        $this->assertSame(0, DB::table('project_procedure_public_shares')->where('token_hash', $token)->count());
+        $this->assertSame(1, DB::table('project_procedure_public_shares')->where('token_hash', hash('sha256', $token))->count());
+        $this->assertTrue($expiresAt->between(now()->addDays(6)->subMinute(), now()->addDays(7)->addMinute()));
+    }
+
+    public function test_create_public_share_rejects_user_outside_project_scope(): void
+    {
+        $outsider = $this->createUser([
+            'id' => 51,
+            'department_id' => 20,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 371, name: 'Thủ tục nội bộ');
+
+        $response = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [], $outsider),
+            $procedureId,
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(0, DB::table('project_procedure_public_shares')->count());
+    }
+
+    public function test_public_share_payload_excludes_sensitive_internal_fields(): void
+    {
+        $user = $this->createUser([
+            'id' => 52,
+            'department_id' => 10,
+        ]);
+        $procedureId = $this->createProcedure(projectId: 100, id: 372, name: 'Thủ tục chia sẻ');
+        $stepId = $this->createStep([
+            'id' => 1420,
+            'procedure_id' => $procedureId,
+            'phase_label' => 'Chuẩn bị hồ sơ',
+            'step_name' => 'Hoàn thiện biểu mẫu',
+            'step_detail' => 'Chỉ nội dung bảng thủ tục được public.',
+            'lead_unit' => 'PM',
+            'support_unit' => 'Kỹ thuật',
+            'expected_result' => 'Hồ sơ hợp lệ',
+            'duration_days' => 3,
+            'progress_status' => 'DANG_THUC_HIEN',
+            'document_number' => 'VB-01',
+            'document_date' => '2026-04-20',
+            'actual_start_date' => '2026-04-21',
+            'actual_end_date' => '2026-04-23',
+            'created_by' => $user->id,
+            'updated_by' => $user->id,
+        ]);
+
+        DB::table('attachments')->insert([
+            'reference_type' => 'PROCEDURE_STEP',
+            'reference_id' => $stepId,
+            'file_name' => 'secret.pdf',
+            'file_url' => 'https://example.test/secret.pdf',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('project_procedure_raci')->insert([
+            'procedure_id' => $procedureId,
+            'user_id' => $user->id,
+            'raci_role' => 'A',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('project_procedure_step_worklogs')->insert([
+            'step_id' => $stepId,
+            'procedure_id' => $procedureId,
+            'log_type' => 'NOTE',
+            'content' => 'Nội dung worklog không được public.',
+            'created_by' => $user->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $shareResponse = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [], $user),
+            $procedureId,
+        );
+        $token = (string) (($shareResponse->getData(true)['data']['token'] ?? ''));
+
+        $response = $this->controller()->publicShare($token);
+        $payload = $response->getData(true);
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $firstStep = $payload['data']['phases'][0]['steps'][0] ?? [];
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('DA-100', $payload['data']['project']['project_code'] ?? null);
+        $this->assertSame('Hoàn thiện biểu mẫu', $firstStep['step_name'] ?? null);
+        $this->assertSame('21/04/2026', \Illuminate\Support\Carbon::parse($firstStep['actual_start_date'])->format('d/m/Y'));
+        $this->assertArrayNotHasKey('id', $firstStep);
+        $this->assertArrayNotHasKey('procedure_id', $firstStep);
+        $this->assertArrayNotHasKey('created_by', $firstStep);
+        $this->assertStringNotContainsString('secret.pdf', (string) $json);
+        $this->assertStringNotContainsString('file_url', (string) $json);
+        $this->assertStringNotContainsString('Nội dung worklog', (string) $json);
+        $this->assertStringNotContainsString('raci_role', (string) $json);
+    }
+
+    public function test_public_share_rejects_revoked_expired_and_unknown_tokens(): void
+    {
+        $user = $this->createUser([
+            'id' => 53,
+            'department_id' => 10,
+        ]);
+        $procedureId = $this->createProcedure(projectId: 100, id: 373, name: 'Thủ tục hết hạn');
+
+        $shareResponse = $this->controller()->createPublicShare(
+            $this->makeRequest('POST', [], $user),
+            $procedureId,
+        );
+        $token = (string) (($shareResponse->getData(true)['data']['token'] ?? ''));
+
+        $this->controller()->revokePublicShare($this->makeRequest('DELETE', [], $user), $procedureId);
+
+        $revokedResponse = $this->controller()->publicShare($token);
+        $this->assertSame(404, $revokedResponse->getStatusCode());
+
+        $expiredToken = 'expired-token-'.str_repeat('x', 40);
+        DB::table('project_procedure_public_shares')->insert([
+            'procedure_id' => $procedureId,
+            'token_hash' => hash('sha256', $expiredToken),
+            'created_by' => $user->id,
+            'expires_at' => now()->subDay(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $expiredResponse = $this->controller()->publicShare($expiredToken);
+        $unknownResponse = $this->controller()->publicShare('unknown-token-'.str_repeat('z', 40));
+
+        $this->assertSame(404, $expiredResponse->getStatusCode());
+        $this->assertSame(404, $unknownResponse->getStatusCode());
+    }
+
+    public function test_procedure_export_word_and_excel_use_allow_list_payload(): void
+    {
+        $user = $this->createUser([
+            'id' => 54,
+            'department_id' => 10,
+        ]);
+        $procedureId = $this->createProcedure(projectId: 100, id: 374, name: 'Thủ tục xuất file');
+        $this->createStep([
+            'id' => 1430,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Xuất dữ liệu',
+            'lead_unit' => 'PM',
+            'expected_result' => 'File thủ tục',
+            'duration_days' => 2,
+            'progress_status' => 'HOAN_THANH',
+        ]);
+
+        $wordResponse = $this->controller()->exportProcedure(
+            $this->makeRequest('GET', ['format' => 'word'], $user),
+            $procedureId,
+        );
+        $excelResponse = $this->controller()->exportProcedure(
+            $this->makeRequest('GET', ['format' => 'excel'], $user),
+            $procedureId,
+        );
+        $invalidResponse = $this->controller()->exportProcedure(
+            $this->makeRequest('GET', ['format' => 'pdf'], $user),
+            $procedureId,
+        );
+
+        $this->assertSame(200, $wordResponse->getStatusCode());
+        $this->assertStringContainsString('wordprocessingml.document', (string) $wordResponse->headers->get('Content-Type'));
+        $this->assertStringContainsString('.docx', (string) $wordResponse->headers->get('Content-Disposition'));
+        $this->assertGreaterThan(100, strlen((string) $wordResponse->getContent()));
+
+        $this->assertSame(200, $excelResponse->getStatusCode());
+        $this->assertStringContainsString('application/vnd.ms-excel', (string) $excelResponse->headers->get('Content-Type'));
+        $this->assertStringContainsString('.xls', (string) $excelResponse->headers->get('Content-Disposition'));
+        $this->assertStringContainsString('Xuất dữ liệu', (string) $excelResponse->getContent());
+
+        $this->assertSame(422, $invalidResponse->getStatusCode());
+    }
+
     public function test_admin_cannot_delete_step_that_still_has_children(): void
     {
         $admin = $this->createUser([
@@ -452,6 +649,185 @@ class ProjectProcedureStepPermissionTest extends TestCase
         $this->assertSame(409, $response->getStatusCode());
         $this->assertSame('Không thể xóa bước đang có bước con.', $response->getData(true)['message'] ?? null);
         $this->assertSame(1, DB::table('project_procedure_steps')->where('id', $parentStepId)->count());
+    }
+
+    public function test_reorder_steps_updates_only_sort_order_for_same_procedure_phase(): void
+    {
+        $user = $this->createUser([
+            'id' => 40,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 360);
+        $parentStepId = $this->createStep([
+            'id' => 1360,
+            'procedure_id' => $procedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 10,
+            'step_name' => 'Bước cha',
+        ]);
+        $childStepId = $this->createStep([
+            'id' => 1361,
+            'procedure_id' => $procedureId,
+            'parent_step_id' => $parentStepId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 20,
+            'step_name' => 'Bước con',
+        ]);
+        $nextStepId = $this->createStep([
+            'id' => 1362,
+            'procedure_id' => $procedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 30,
+            'step_name' => 'Bước kế tiếp',
+            'progress_status' => 'DANG_THUC_HIEN',
+        ]);
+
+        $response = $this->controller()->reorderSteps($this->makeRequest('POST', [
+            'steps' => [
+                ['id' => $parentStepId, 'sort_order' => 30],
+                ['id' => $childStepId, 'sort_order' => 40],
+                ['id' => $nextStepId, 'sort_order' => 10],
+            ],
+        ], $user));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(30, (int) DB::table('project_procedure_steps')->where('id', $parentStepId)->value('sort_order'));
+        $this->assertSame(40, (int) DB::table('project_procedure_steps')->where('id', $childStepId)->value('sort_order'));
+        $this->assertSame(10, (int) DB::table('project_procedure_steps')->where('id', $nextStepId)->value('sort_order'));
+        $this->assertSame($parentStepId, (int) DB::table('project_procedure_steps')->where('id', $childStepId)->value('parent_step_id'));
+        $this->assertSame('CHUAN_BI', DB::table('project_procedure_steps')->where('id', $childStepId)->value('phase'));
+        $this->assertSame('DANG_THUC_HIEN', DB::table('project_procedure_steps')->where('id', $nextStepId)->value('progress_status'));
+    }
+
+    public function test_reorder_steps_rejects_duplicate_step_ids(): void
+    {
+        $user = $this->createUser([
+            'id' => 41,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 361);
+        $stepId = $this->createStep([
+            'id' => 1370,
+            'procedure_id' => $procedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 10,
+        ]);
+
+        $response = $this->controller()->reorderSteps($this->makeRequest('POST', [
+            'steps' => [
+                ['id' => $stepId, 'sort_order' => 20],
+                ['id' => $stepId, 'sort_order' => 30],
+            ],
+        ], $user));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('steps', $response->getData(true)['errors'] ?? []);
+        $this->assertSame(10, (int) DB::table('project_procedure_steps')->where('id', $stepId)->value('sort_order'));
+    }
+
+    public function test_reorder_steps_rejects_steps_from_multiple_procedures(): void
+    {
+        $user = $this->createUser([
+            'id' => 42,
+            'department_id' => 10,
+        ]);
+
+        $firstProcedureId = $this->createProcedure(projectId: 100, id: 362, name: 'Thủ tục 1');
+        $secondProcedureId = $this->createProcedure(projectId: 100, id: 363, name: 'Thủ tục 2');
+        $firstStepId = $this->createStep([
+            'id' => 1380,
+            'procedure_id' => $firstProcedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 10,
+        ]);
+        $secondStepId = $this->createStep([
+            'id' => 1381,
+            'procedure_id' => $secondProcedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 20,
+        ]);
+
+        $response = $this->controller()->reorderSteps($this->makeRequest('POST', [
+            'steps' => [
+                ['id' => $firstStepId, 'sort_order' => 20],
+                ['id' => $secondStepId, 'sort_order' => 10],
+            ],
+        ], $user));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Các bước sắp xếp phải thuộc cùng một thủ tục.', $response->getData(true)['errors']['steps'][0] ?? null);
+        $this->assertSame(10, (int) DB::table('project_procedure_steps')->where('id', $firstStepId)->value('sort_order'));
+        $this->assertSame(20, (int) DB::table('project_procedure_steps')->where('id', $secondStepId)->value('sort_order'));
+    }
+
+    public function test_reorder_steps_rejects_steps_from_multiple_phases(): void
+    {
+        $user = $this->createUser([
+            'id' => 43,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 364);
+        $firstStepId = $this->createStep([
+            'id' => 1390,
+            'procedure_id' => $procedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 10,
+        ]);
+        $secondStepId = $this->createStep([
+            'id' => 1391,
+            'procedure_id' => $procedureId,
+            'phase' => 'THUC_HIEN_DAU_TU',
+            'sort_order' => 20,
+        ]);
+
+        $response = $this->controller()->reorderSteps($this->makeRequest('POST', [
+            'steps' => [
+                ['id' => $firstStepId, 'sort_order' => 20],
+                ['id' => $secondStepId, 'sort_order' => 10],
+            ],
+        ], $user));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Các bước sắp xếp phải thuộc cùng một giai đoạn.', $response->getData(true)['errors']['steps'][0] ?? null);
+        $this->assertSame(10, (int) DB::table('project_procedure_steps')->where('id', $firstStepId)->value('sort_order'));
+        $this->assertSame(20, (int) DB::table('project_procedure_steps')->where('id', $secondStepId)->value('sort_order'));
+    }
+
+    public function test_reorder_steps_rejects_payload_that_attempts_to_change_parent(): void
+    {
+        $user = $this->createUser([
+            'id' => 44,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 365);
+        $parentStepId = $this->createStep([
+            'id' => 1400,
+            'procedure_id' => $procedureId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 10,
+        ]);
+        $childStepId = $this->createStep([
+            'id' => 1401,
+            'procedure_id' => $procedureId,
+            'parent_step_id' => $parentStepId,
+            'phase' => 'CHUAN_BI',
+            'sort_order' => 20,
+        ]);
+
+        $response = $this->controller()->reorderSteps($this->makeRequest('POST', [
+            'steps' => [
+                ['id' => $childStepId, 'sort_order' => 15, 'parent_step_id' => null],
+            ],
+        ], $user));
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('steps.0.parent_step_id', $response->getData(true)['errors'] ?? []);
+        $this->assertSame(20, (int) DB::table('project_procedure_steps')->where('id', $childStepId)->value('sort_order'));
+        $this->assertSame($parentStepId, (int) DB::table('project_procedure_steps')->where('id', $childStepId)->value('parent_step_id'));
     }
 
     public function test_add_custom_step_rejects_parent_step_from_another_procedure(): void
@@ -653,6 +1029,70 @@ class ProjectProcedureStepPermissionTest extends TestCase
                 ->where('step_name', 'Bước con sai ngày')
                 ->count()
         );
+    }
+
+    public function test_batch_update_steps_persists_duration_days_and_dates(): void
+    {
+        $user = $this->createUser([
+            'id' => 29,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 210);
+        $stepId = $this->createStep([
+            'id' => 1100,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước cập nhật ngày',
+            'duration_days' => 0,
+        ]);
+
+        $response = $this->controller()->batchUpdateSteps($this->makeRequest('PUT', [
+            'steps' => [
+                [
+                    'id' => $stepId,
+                    'duration_days' => 4,
+                    'actual_start_date' => '2025-10-10',
+                    'actual_end_date' => '2025-10-13',
+                ],
+            ],
+        ], $user));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(4, (int) DB::table('project_procedure_steps')->where('id', $stepId)->value('duration_days'));
+        $this->assertSame('2025-10-10', DB::table('project_procedure_steps')->where('id', $stepId)->value('actual_start_date'));
+        $this->assertSame('2025-10-13', DB::table('project_procedure_steps')->where('id', $stepId)->value('actual_end_date'));
+    }
+
+    public function test_batch_update_steps_rejects_end_date_before_resolved_start_date(): void
+    {
+        $user = $this->createUser([
+            'id' => 30,
+            'department_id' => 10,
+        ]);
+
+        $procedureId = $this->createProcedure(projectId: 100, id: 211);
+        $stepId = $this->createStep([
+            'id' => 1110,
+            'procedure_id' => $procedureId,
+            'step_name' => 'Bước sai ngày',
+            'actual_start_date' => '2025-10-10',
+            'actual_end_date' => null,
+        ]);
+
+        $response = $this->controller()->batchUpdateSteps($this->makeRequest('PUT', [
+            'steps' => [
+                [
+                    'id' => $stepId,
+                    'actual_end_date' => '2025-10-09',
+                ],
+            ],
+        ], $user));
+
+        $payload = $response->getData(true);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('steps.0.actual_end_date', $payload['errors'] ?? []);
+        $this->assertNull(DB::table('project_procedure_steps')->where('id', $stepId)->value('actual_end_date'));
     }
 
     public function test_set_step_raci_replaces_existing_accountable_assignment(): void
@@ -1193,8 +1633,8 @@ class ProjectProcedureStepPermissionTest extends TestCase
     private function createUser(array $overrides = []): InternalUser
     {
         $defaults = [
-            'user_code' => 'U' . str_pad((string) ($overrides['id'] ?? 1), 3, '0', STR_PAD_LEFT),
-            'username' => 'user' . ($overrides['id'] ?? 1),
+            'user_code' => 'U'.str_pad((string) ($overrides['id'] ?? 1), 3, '0', STR_PAD_LEFT),
+            'username' => 'user'.($overrides['id'] ?? 1),
             'full_name' => 'Checklist User',
             'password' => bcrypt('password'),
             'department_id' => 10,
@@ -1287,6 +1727,7 @@ class ProjectProcedureStepPermissionTest extends TestCase
         Schema::dropIfExists('project_procedure_step_raci');
         Schema::dropIfExists('project_procedure_raci');
         Schema::dropIfExists('raci_assignments');
+        Schema::dropIfExists('project_procedure_public_shares');
         Schema::dropIfExists('project_procedure_steps');
         Schema::dropIfExists('project_procedures');
         Schema::dropIfExists('projects');
@@ -1381,6 +1822,17 @@ class ProjectProcedureStepPermissionTest extends TestCase
             $table->integer('sort_order')->default(0);
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('project_procedure_public_shares', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('procedure_id');
+            $table->string('token_hash', 64)->unique();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamp('expires_at');
+            $table->timestamp('revoked_at')->nullable();
+            $table->timestamp('last_accessed_at')->nullable();
             $table->timestamps();
         });
 

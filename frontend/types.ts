@@ -1939,9 +1939,66 @@ export interface ProcedureStepBatchUpdate {
   progress_status?: ProcedureStepStatus;
   document_number?: string | null;
   document_date?: string | null;
+  duration_days?: number | null;
   actual_start_date?: string | null;
   actual_end_date?: string | null;
   step_notes?: string | null;
+}
+
+export type ProcedureExportFormat = 'word' | 'excel';
+
+export interface ProcedurePublicShareResult {
+  token: string;
+  expires_at: string;
+  ttl_days: number;
+}
+
+export interface PublicProcedureStep {
+  display_number: string;
+  level: number;
+  step_name: string;
+  step_detail?: string | null;
+  lead_unit?: string | null;
+  support_unit?: string | null;
+  expected_result?: string | null;
+  duration_days?: number | null;
+  progress_status: ProcedureStepStatus | string;
+  progress_status_label: string;
+  document_number?: string | null;
+  document_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+}
+
+export interface PublicProcedurePhase {
+  phase_label: string;
+  summary: {
+    total_steps: number;
+    completed_steps: number;
+  };
+  steps: PublicProcedureStep[];
+}
+
+export interface PublicProcedurePayload {
+  project: {
+    project_code?: string | null;
+    project_name?: string | null;
+  };
+  procedure: {
+    procedure_name: string;
+    overall_progress: number;
+  };
+  summary: {
+    total_steps: number;
+    completed_steps: number;
+    in_progress_steps: number;
+    not_started_steps: number;
+    overall_percent: number;
+  };
+  phases: PublicProcedurePhase[];
+  share?: {
+    expires_at?: string | null;
+  };
 }
 
 export type WorklogType = 'STATUS_CHANGE' | 'DOCUMENT_ADDED' | 'NOTE' | 'CUSTOM';

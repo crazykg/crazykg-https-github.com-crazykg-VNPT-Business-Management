@@ -3352,6 +3352,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       page,
       per_page: 30,
       selected_ids: selectedValues,
+      customer_ids: draftRequestCustomerFilter,
     });
     const options = mapLookupFilterOptions(response.data);
 
@@ -3361,7 +3362,7 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       options,
       hasMore: response.meta.has_more,
     };
-  }, [mapLookupFilterOptions]);
+  }, [draftRequestCustomerFilter, mapLookupFilterOptions]);
 
   const loadProductFilterOptions = useCallback(async ({
     page,
@@ -3377,6 +3378,8 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       page,
       per_page: 30,
       selected_ids: selectedValues,
+      customer_ids: draftRequestCustomerFilter,
+      project_ids: draftRequestProjectFilter,
     });
     const options = mapLookupFilterOptions(response.data);
 
@@ -3386,7 +3389,54 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
       options,
       hasMore: response.meta.has_more,
     };
-  }, [mapLookupFilterOptions]);
+  }, [draftRequestCustomerFilter, draftRequestProjectFilter, mapLookupFilterOptions]);
+
+  const pruneDraftProductFilters = useCallback(async (nextCustomerIds: string[], nextProjectIds: string[]) => {
+    if (draftRequestProductFilter.length === 0) {
+      return;
+    }
+
+    const response = await fetchCustomerRequestProductFilterOptions({
+      page: 1,
+      per_page: 50,
+      selected_ids: draftRequestProductFilter,
+      customer_ids: nextCustomerIds,
+      project_ids: nextProjectIds,
+    });
+    const validProductIds = new Set(response.data.map((item) => String(item.value)));
+    const nextProductIds = draftRequestProductFilter.filter((id) => validProductIds.has(String(id)));
+
+    setDraftRequestProductFilter(nextProductIds);
+    setProductFilterOptions(mapLookupFilterOptions(response.data));
+  }, [draftRequestProductFilter, mapLookupFilterOptions]);
+
+  const pruneDraftProjectFilters = useCallback(async (nextCustomerIds: string[]) => {
+    if (draftRequestProjectFilter.length === 0) {
+      await pruneDraftProductFilters(nextCustomerIds, []);
+      return;
+    }
+
+    const response = await fetchCustomerRequestProjectFilterOptions({
+      page: 1,
+      per_page: 50,
+      selected_ids: draftRequestProjectFilter,
+      customer_ids: nextCustomerIds,
+    });
+    const validProjectIds = new Set(response.data.map((item) => String(item.value)));
+    const nextProjectIds = draftRequestProjectFilter.filter((id) => validProjectIds.has(String(id)));
+
+    setDraftRequestProjectFilter(nextProjectIds);
+    setProjectFilterOptions(mapLookupFilterOptions(response.data));
+
+    await pruneDraftProductFilters(nextCustomerIds, nextProjectIds);
+  }, [draftRequestProjectFilter, mapLookupFilterOptions, pruneDraftProductFilters]);
+  useEffect(() => {
+    setProjectFilterOptions([]);
+  }, [draftRequestCustomerFilter]);
+
+  useEffect(() => {
+    setProductFilterOptions([]);
+  }, [draftRequestCustomerFilter, draftRequestProjectFilter]);
 
   const [tagFilterOptions, setTagFilterOptions] = useState<SearchableSelectOption[]>([]);
 
@@ -4672,7 +4722,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             values={draftRequestCustomerFilter}
             options={customerFilterOptions}
             onChange={(values) => {
+              const removedAny = draftRequestCustomerFilter.length > values.length
+                || draftRequestCustomerFilter.some((value) => !values.map(String).includes(String(value)));
               setDraftRequestCustomerFilter(values);
+              if (removedAny) {
+                void pruneDraftProjectFilters(values);
+              }
             }}
             asyncLoader={loadCustomerFilterOptions}
             label=""
@@ -4687,7 +4742,12 @@ export const CustomerRequestManagementHub: React.FC<CustomerRequestManagementHub
             values={draftRequestProjectFilter}
             options={projectFilterOptions}
             onChange={(values) => {
+              const removedAny = draftRequestProjectFilter.length > values.length
+                || draftRequestProjectFilter.some((value) => !values.map(String).includes(String(value)));
               setDraftRequestProjectFilter(values);
+              if (removedAny) {
+                void pruneDraftProductFilters(draftRequestCustomerFilter, values);
+              }
             }}
             asyncLoader={loadProjectFilterOptions}
             label=""
